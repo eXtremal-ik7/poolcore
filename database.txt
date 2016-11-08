@@ -1,0 +1,154 @@
+1. shares.raw
+
+storage: file system
+format: {
+  [share]
+}
+
+share {
+  userId: string
+  value: int64
+}
+
+2. payouts.raw
+
+storage: file system
+format: {
+  [payoutElement]
+}
+  
+payoutElement: {
+  userId: string
+  value: int64
+}
+
+3. rounds
+
+storage: leveldb, no partitioning
+key: height(LE), hash
+format: {
+  version: uint32
+  height:  uint32            // height of block
+  hash:    uint32            // block hash
+  time:    uint32            // block generation time
+  totalShareValue: uint64    // aggregate value for shares
+  availableCoins:  uint64    // number of coins generated
+  rounds:  [roundElement]    // round data for each client
+  payouts: [payoutElement]   // payout data for each client
+}
+
+roundElement: {
+  userId:  string            // user id
+  value:   int64             // share value for client
+}
+
+payoutElement: {
+  userId:  string            // user id
+  value:   int64             // already payed
+  queued:  int64             // queued for payout
+}
+
+4. userBalance
+
+storage: leveldb, no partitioning
+key: userId
+format: {
+  version:       uint32
+  userId:        string      // user id
+  name:          string      // user name
+  email:         string      // email
+  passwordHash:  string      // passwordHash
+  balance:       int64       // current user balance
+  requested:     int64       // requested for payout
+  paid:          int64       // already paid
+  mininalPayout: int64       // minimal payout for this client
+}
+
+5. blocks - blocks found by pool
+
+storage: leveldb, partitioning by height (height/1000000)
+key: height(LE), hash
+format: {
+  version:        uint32
+  height:         uint32            // height of block
+  hash:           string            // block hash
+  time:           uint32            // block generation time
+  availableCoins: uint64            // number of coins generated
+  foundBy:        string            // user id of block founder
+}
+
+* confirmations number, orphan status - can be retrieved from coin client
+
+6. poolBalance
+
+storage: leveldb, partitioning by time (yyyy.mm / year.month)
+key: time
+format: {
+  version:  uint32
+  time:     uint32
+  balance:  int64            // wallet balance
+  immature: int64            // immature coins on wallet
+  users:    int64            // total users balance
+  queued:   int64            // queued for payout (wait N confirmations)
+  net:      int64            // difference between wallet and users balances
+}
+
+7. siteStats
+
+storage: leveldb, partitioning by time (yyyy.mm / year.month)
+key: time
+format: {
+  version: uint32
+  time:    uint32
+  clients: uint32
+  workers: uint32
+  latency: uint32            // milliseconds
+  power1:  int64             // milliCPD for XPM, hash/s for others
+}
+
+8. clientStats
+
+storage: leveldb, partitioning by time (yyyy.mm / year.month)
+key: userId, workerId, time
+format: {
+  version:    uint32
+  userId:     string
+  workerId:   string         // w:worker or t
+  time:       uint32
+  power:      int64          // milliCPD for XPM, hash/s for others
+  
+  protocol:   string         // IPv4 or IPv6 (only for worker)
+  address:    string         // IP address
+  clientId:   string         // miner name and version (only for worker)
+  latency:    uint32         // milliseconds
+  unitType:   string         // GPU, CPU, FPGA, ASIC (only for worker)
+  units:      uint32         // number of units (GPUs or CPU cores)
+  temp:       uint32         // temperature of most hot unit
+}
+
+9. shareStats
+
+storage: leveldb, partitioning by time (yyyy.mm / year.month)
+key: time
+format: {
+  version:    uint32
+  time:       uint64
+  total:      int64
+  info:       [shareInfo]
+}
+
+shareInfo: {
+  type:       string         // for XPM: chain length
+  count:      int64          // share count of this type
+}
+
+10. payouts
+
+storage: leveldb, partitioning by time (yyyy.mm / year.month)
+key: userId, time
+format: {
+  version:    uint32
+  userId:     string
+  time:       uint64
+  value:      int64
+}

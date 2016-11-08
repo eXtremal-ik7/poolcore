@@ -1,0 +1,305 @@
+enum FunctionId : int {
+  None = 0,
+  GetInfo,
+  GetCurrentBlock,
+  GetBlockTemplate,
+  GetBlockByHash,
+  SendProofOfWork,
+  GetBalance,
+  SendMoney,
+
+  ZGetBalance,
+  ZSendMoney,
+  ListUnspent,
+  ZAsyncOperationStatus,
+
+  QueryFoundBlocks,
+  QueryClientInfo,
+  UpdateClientInfo,
+  QueryPoolBalance,
+  QueryPayouts,
+  QueryClientStats,
+  QueryPoolStats,
+  QueryWorkerStatsHistory,
+  QueryClientStatsHistory,
+  QueryPoolStatsHistory,
+
+  ResendBrokenTx,
+  MoveBalance,
+  ManualPayout,
+
+  Share,
+  Stats
+}
+
+enum SignalId: int {
+  None = 0,
+  NewBlock
+}
+
+enum GroupByType: int {
+  None = 0,
+  Hour,
+  Day,
+  Week,
+  Month
+}
+
+enum UnitType: int {
+  CPU = 0,
+  GPU,
+  ASIC,
+  OTHER
+}
+
+enum AsyncOpState: int {
+  READY = 0,
+  EXECUTING,
+  CANCELLED,
+  FAILED,
+  SUCCESS
+}
+
+union Data {
+  PoolInfo,
+  Block,
+  BlockTemplate,
+  GetBlockByHashReq,
+  ProofOfWorkReq,
+  SendMoneyReq,
+  WalletReq,
+
+  Query,
+  QueryResult,
+
+  Share,
+  Stats
+}
+
+table PoolInfo {
+  coin: string;
+}
+
+table Block {
+  height: long;
+  bits: long;
+  hash: string;
+  prevhash: string;
+  merkle: string;
+  time: long;
+
+  // z-cash specific
+  hashreserved: string;
+  equilHashK: int = -1;
+  equilHashN: int = -1;
+
+  // blockchain specific
+  confirmations: long;
+  generatedCoins: long;
+
+  // pool specific
+  foundBy: string;
+}
+
+table BlockTemplate {
+  prevhash: string;
+  merkle: string;
+  bits: long;
+  time: long;
+  extraNonce: long;
+
+  // z-cash specific
+  hashreserved: string;
+  equilHashK: int = -1;
+  equilHashN: int = -1;
+}
+
+table GetBlockByHashReq {
+  hashes: [string];
+}
+
+table GetBlockByHashResult {
+  blocks: [Block];
+}
+
+table ProofOfWorkReq {
+  height: long;
+  time: long;
+  nonce: string;
+  extraNonce: long;
+  data: string;
+}
+
+table ProofOfWorkResult {
+  result: bool;
+  generatedCoins: long;
+}
+
+table GetBalanceResult {
+  balance: long;
+  immature: long;
+}
+
+table SendMoneyReq {
+  destination: string;
+  amount: long;
+}
+
+table SendMoneyResult {
+  success: bool;
+  txid: string;
+  remaining: long;
+  fee: long;
+  error: string;
+}
+
+table ListUnspentElement {
+  address: string;
+  amount: long;
+  confirmations: int;
+  spendable: bool;
+}
+
+table ZDestination {
+  address: string;
+  amount: long;
+  memo: string;
+}
+
+table AsyncOperationStatus {
+  id: string;
+  state: AsyncOpState;
+  creationTime: long;
+  txid: string;
+  error: string;
+}
+
+table WalletReq {
+  singleAddress: string;
+  singleAsyncOperationId: string;
+  destinations: [ZDestination];
+}
+
+table WalletResult {
+  balance: long;
+  asyncOperationId: string;
+  outs: [ListUnspentElement];
+  status: [AsyncOperationStatus];
+  error: string;
+}
+
+table PoolBalance {
+  time: long;
+  balance: long;
+  immature: long;
+  users: long;
+  queued: long;
+  net: long; 
+}
+
+table ClientInfo {
+  balance: long;
+  requested: long;
+  paid: long;
+  name: string;
+  email: string;
+  minimalPayout: long;
+}
+
+table PayoutRecord {
+  timeLabel: string;
+  time: long;
+  value: long;
+  txid: string;
+}
+
+table WorkerStatsRecord {
+  name: string;
+  time: long;
+  address: string;
+  power: long;
+  latency: int;
+  type: UnitType;
+  units: int;
+  temp: int;
+}
+
+table WorkerStatsAggregate {
+  time: long;
+  clients: long;
+  workers: long;
+  cpus: long;
+  gpus: long;
+  asics: long;
+  other: long;
+  avgerageLatency: int;
+  power: long;
+}
+
+table Query {
+  userId: string;
+  workerId: string;
+  count: long;
+  heightFrom: long;
+  timeFrom: long;
+  hashFrom: string;
+  groupBy: GroupByType;
+  clientInfo: ClientInfo;
+  targetUserId: string;
+}
+
+table QueryResult {
+  status: int;
+  blocks: [Block];
+  payouts: [PayoutRecord];
+  workers: [WorkerStatsRecord];
+  aggregate: WorkerStatsAggregate;
+  aggregates: [WorkerStatsAggregate];
+  poolBalances: [PoolBalance];
+  info: ClientInfo;
+}
+
+table Share {
+  height: long;
+  userId: string;
+  value: long;
+  isBlock: bool;
+  hash: string;
+  generatedCoins: long;
+}
+
+table Stats {
+  userId: string;
+  workerId: string;
+  power: long;
+  latency: int;
+  address: string;
+  type: UnitType;
+  units: int;
+  temp: int;
+}
+
+table RoundElement {
+  userId: string;
+  shareValue: long;
+}
+
+table Round {
+  height: long;
+  hash: string;
+  time: long;
+  availableCoins: long;
+  elements: [RoundElement];
+}
+
+table P2PMessage {
+  functionId: FunctionId;
+  data: Data;
+}
+
+table Signal {
+  signalId: SignalId;
+  data: Data;
+}
+
+root_type P2PMessage;
