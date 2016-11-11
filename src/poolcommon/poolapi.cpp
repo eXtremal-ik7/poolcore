@@ -58,7 +58,7 @@ std::unique_ptr<BlockT> ioGetCurrentBlock(p2pNode *client)
   if (result) {
     return std::unique_ptr<BlockT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }  
 }
 
@@ -71,7 +71,7 @@ std::unique_ptr<BlockTemplateT> ioGetBlockTemplate(p2pNode *client)
   if (result) {
     return std::unique_ptr<BlockTemplateT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }  
 }
 
@@ -84,7 +84,7 @@ std::unique_ptr<GetBalanceResultT> ioGetBalance(p2pNode *client)
   if (result) {
     return std::unique_ptr<GetBalanceResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }  
 }
 
@@ -101,7 +101,7 @@ std::unique_ptr<GetBlockByHashResultT> ioGetBlockByHash(p2pNode *client,
   if (result) {
     return std::unique_ptr<GetBlockByHashResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }    
 }
 
@@ -120,7 +120,7 @@ std::unique_ptr<ProofOfWorkResultT> ioSendProofOfWork(p2pNode *client,
   if (result) {
     return std::unique_ptr<ProofOfWorkResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }  
 }
 
@@ -136,7 +136,7 @@ std::unique_ptr<SendMoneyResultT> ioSendMoney(p2pNode *client,
   if (result) {
     return std::unique_ptr<SendMoneyResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -152,7 +152,7 @@ std::unique_ptr<WalletResultT> ioZGetBalance(p2pNode *client, const std::string 
   if (result) {
     return std::unique_ptr<WalletResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -177,7 +177,7 @@ std::unique_ptr<WalletResultT> ioZSendMoney(p2pNode *client,
   if (result) {
     return std::unique_ptr<WalletResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -191,7 +191,7 @@ std::unique_ptr<WalletResultT> ioListUnspent(p2pNode *client)
   if (result) {
     return std::unique_ptr<WalletResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -208,7 +208,7 @@ std::unique_ptr<WalletResultT> ioAsyncOperationStatus(p2pNode *client, const std
   if (result) {
     return std::unique_ptr<WalletResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -230,7 +230,7 @@ std::unique_ptr<QueryResultT> ioQueryFoundBlocks(p2pNode *client,
   if (result) {
     return std::unique_ptr<QueryResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -247,7 +247,7 @@ std::unique_ptr<QueryResultT> ioQueryPoolBalance(p2pNode *client, int64_t time, 
   if (result) {
     return std::unique_ptr<QueryResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -272,7 +272,7 @@ std::unique_ptr<QueryResultT> ioQueryPayouts(p2pNode *client,
   if (result) {
     return std::unique_ptr<QueryResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -289,7 +289,7 @@ std::unique_ptr<QueryResultT> ioQueryClientStats(p2pNode *client, const std::str
   if (result) {
     return std::unique_ptr<QueryResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -302,7 +302,7 @@ std::unique_ptr<QueryResultT> ioQueryPoolStats(p2pNode *client)
   if (result) {
     return std::unique_ptr<QueryResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -318,7 +318,7 @@ std::unique_ptr<QueryResultT> ioQueryClientInfo(p2pNode *client, const std::stri
   if (result) {
     return std::unique_ptr<QueryResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -341,7 +341,7 @@ std::unique_ptr<QueryResultT> ioUpdateClientInfo(p2pNode *client,
   if (result) {
     return std::unique_ptr<QueryResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -357,7 +357,7 @@ std::unique_ptr<QueryResultT> ioResendBrokenTx(p2pNode *client, const std::strin
   if (result) {
     return std::unique_ptr<QueryResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -375,7 +375,7 @@ std::unique_ptr<QueryResultT> ioMoveBalance(p2pNode *client, const std::string &
   if (result) {
     return std::unique_ptr<QueryResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
 
@@ -391,6 +391,6 @@ std::unique_ptr<QueryResultT> ioManualPayout(p2pNode *client, const std::string 
   if (result) {
     return std::unique_ptr<QueryResultT>(result->UnPack());
   } else {
-    return false;
+    return 0;
   }
 }
