@@ -392,11 +392,11 @@ void ZAsyncOperationStatus(const std::string &id, std::vector<AsyncOperationStat
     }
 
     status.creationTime = operation->getCreationTime();
-    Value err = operation->getError();
-    if (!err.is_null())
+    UniValue err = operation->getError();
+    if (!err.isNull())
       status.error = find_value(err.get_obj(), "message").get_str();
-    Value result = operation->getResult();
-    if (!result.is_null())
+    UniValue result = operation->getResult();
+    if (!result.isNull())
       status.txid = find_value(result.get_obj(), "txid").get_str();
     
     out.push_back(status);  

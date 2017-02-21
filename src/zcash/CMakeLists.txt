@@ -11,6 +11,7 @@ message(${ZCASH_INCLUDE_DIR})
 target_include_directories(poolrpczcash PUBLIC
   ${ZCASH_INCLUDE_DIR}/src
   ${ZCASH_INCLUDE_DIR}/src/config
+  ${ZCASH_INCLUDE_DIR}/src/univalue/include
   ${ZCASH_INCLUDE_DIR}/depends/x86_64-unknown-linux-gnu/include/
 )
 
