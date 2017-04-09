@@ -21,6 +21,7 @@ public:
     std::vector<HostAddress> peers;
     unsigned requiredConfirmations;
     int64_t defaultMinimalPayout;
+    int64_t minimalPayout;
     std::string dbPath;
     unsigned keepRoundTime;
     unsigned keepStatsTime;

@@ -476,6 +476,16 @@ void AccountingDb::makePayout()
     int64_t remaining = -1;
     unsigned index = 0;
     for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
+      if (I->payoutValue < _cfg.minimalPayout) {
+        fprintf(stderr,
+                "<info> [%u] Accounting: ignore this payout, value is %s, minimal is %s\n",
+                index,
+                FormatMoney(I->payoutValue).c_str(),
+                FormatMoney(_cfg.minimalPayout).c_str());
+        ++I;
+        continue;
+      }
+      
       if (remaining != -1 && remaining <= I->payoutValue) {
         fprintf(stderr, "<info> [%u] Accounting: no money left to pay.\n", index);
         break;
@@ -560,26 +570,27 @@ void AccountingDb::makePayout()
                 result->asyncOperationId.c_str());
       }
     }
-  }
+
     
-  // move Z-Addr to T-Addr
-  auto zaddrBalance = ioZGetBalance(_client, _cfg.poolZAddr);
-  if (zaddrBalance && zaddrBalance->balance) {
-    fprintf(stderr, "<info> Accounting: move %.3lf coins to transparent address\n", zaddrBalance->balance/100000000.0);
-    ZDestinationT destination;
-    destination.address = _cfg.poolTAddr;
-    destination.amount = zaddrBalance->balance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE;
-    destination.memo = "";  
-    auto result = ioZSendMoney(_client, _cfg.poolZAddr, { destination });
-    if (result) {
-      fprintf(stderr,
-              "<info> moving %li coins from %s to %s started (%s)\n",
-              (long)destination.amount,
-              _cfg.poolZAddr.c_str(),
-              _cfg.poolTAddr.c_str(),
-              !result->asyncOperationId.empty() ? result->asyncOperationId.c_str() : "<none>");
+    // move Z-Addr to T-Addr
+    auto zaddrBalance = ioZGetBalance(_client, _cfg.poolZAddr);
+    if (zaddrBalance && zaddrBalance->balance) {
+      fprintf(stderr, "<info> Accounting: move %.3lf coins to transparent address\n", zaddrBalance->balance/100000000.0);
+      ZDestinationT destination;
+      destination.address = _cfg.poolTAddr;
+      destination.amount = zaddrBalance->balance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE;
+      destination.memo = "";  
+      auto result = ioZSendMoney(_client, _cfg.poolZAddr, { destination });
+      if (result) {
+        fprintf(stderr,
+                "<info> moving %li coins from %s to %s started (%s)\n",
+                (long)destination.amount,
+                _cfg.poolZAddr.c_str(),
+                _cfg.poolTAddr.c_str(),
+                !result->asyncOperationId.empty() ? result->asyncOperationId.c_str() : "<none>");
+      }
     }
-  }
+  }  
   
   // Check consistency
   std::set<std::string> waitingForPayout;

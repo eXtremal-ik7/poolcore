@@ -92,6 +92,7 @@ void *PoolBackend::backendMain()
   accountingCfg.poolFeeAddr = _cfg.poolFeeAddr;
   accountingCfg.requiredConfirmations = _cfg.requiredConfirmations;
   accountingCfg.defaultMinimalPayout = _cfg.defaultMinimalPayout;
+  accountingCfg.minimalPayout = _cfg.minimalPayout;
   accountingCfg.dbPath = _cfg.dbPath;
   accountingCfg.keepRoundTime = _cfg.keepRoundTime;
   accountingCfg.poolZAddr = _cfg.poolZAddr;

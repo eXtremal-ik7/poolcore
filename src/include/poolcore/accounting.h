@@ -22,6 +22,7 @@ public:
     std::string poolFeeAddr;
     unsigned requiredConfirmations;
     int64_t defaultMinimalPayout;
+    int64_t minimalPayout;
     unsigned keepRoundTime;
     std::string dbPath;
     std::string poolZAddr;
