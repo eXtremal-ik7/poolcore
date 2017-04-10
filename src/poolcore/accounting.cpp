@@ -492,11 +492,13 @@ void AccountingDb::makePayout()
       }
       
       // Check address is valid
-      CBitcoinAddress address(I->userId);
-      if (!_cfg.poolZAddr.empty() && !address.IsValidForZCash()) {
-        fprintf(stderr, "<info> invalid ZCash address %s\n", I->userId.c_str());
-        ++I;
-        continue;
+      if (_cfg.checkAddress) {
+        CBitcoinAddress address(I->userId);
+        if (!_cfg.poolZAddr.empty() && !address.IsValidForZCash()) {
+          fprintf(stderr, "<info> invalid ZCash address %s\n", I->userId.c_str());
+          ++I;
+          continue;
+        }
       }
 
       auto result = ioSendMoney(_client, I->userId, I->payoutValue);

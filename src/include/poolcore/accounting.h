@@ -24,6 +24,7 @@ public:
     int64_t defaultMinimalPayout;
     int64_t minimalPayout;
     unsigned keepRoundTime;
+    bool checkAddress;
     std::string dbPath;
     std::string poolZAddr;
     std::string poolTAddr;
