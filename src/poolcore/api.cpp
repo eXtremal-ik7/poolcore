@@ -36,10 +36,12 @@ void foundBlockHandler(asyncBase *base, p2pConnection *connection, const Query *
   }
   
   // query confirmations
-  auto result = ioGetBlockByHash(backend->client(), hashes);
-  if (result && result->blocks.size() == hashes.size()) {
-    for (size_t i = 0; i < result->blocks.size(); i++)
-      confirmations[i] = result->blocks[i]->confirmations;
+  if (Q->count()) {
+    auto result = ioGetBlockByHash(backend->client(), hashes);
+    if (result && result->blocks.size() == hashes.size()) {
+      for (size_t i = 0; i < result->blocks.size(); i++)
+        confirmations[i] = result->blocks[i]->confirmations;
+    }
   }
   
   std::vector<flatbuffers::Offset<Block>> offsets;

@@ -91,13 +91,13 @@ std::unique_ptr<GetBalanceResultT> ioGetBalance(p2pNode *client)
 std::unique_ptr<GetBlockByHashResultT> ioGetBlockByHash(p2pNode *client,
                       std::vector<std::string> &hashes)
 {
-  const size_t size = hashes.size()*4096;
+  const size_t size = std::max(hashes.size(), (size_t)1)*4096;
   std::unique_ptr<uint8_t[]> buffer(new uint8_t[size]);
   flatbuffers::FlatBufferBuilder fbb;  
   auto reqOffset = CreateGetBlockByHashReq(fbb, fbb.CreateVectorOfStrings(hashes));
   fbb.Finish(CreateP2PMessage(fbb, FunctionId_GetBlockByHash, Data_GetBlockByHashReq, reqOffset.Union()));
   
-  auto result = request<GetBlockByHashResult>(client, fbb, 3000000, "getBalance", buffer.get(), size);
+  auto result = request<GetBlockByHashResult>(client, fbb, 3000000, "getBlockByHash", buffer.get(), size);
   if (result) {
     return std::unique_ptr<GetBlockByHashResultT>(result->UnPack());
   } else {
