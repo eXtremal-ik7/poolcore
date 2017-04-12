@@ -642,7 +642,7 @@ void AccountingDb::checkBalance()
   
   auto result = ioGetBalance(_client);
   if (!result) {
-    fprintf(stderr, "<error> can't retrieve balance%s\n");
+    fprintf(stderr, "<error> can't retrieve balance\n");
     return;
   }
   
