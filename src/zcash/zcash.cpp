@@ -335,9 +335,8 @@ void listUnspent(std::vector<ListUnspentElementT> &result, std::string &error)
       continue;
   
     CAmount nValue = out.tx->vout[out.i].nValue;
-    
     CTxDestination address;
-    if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address)) {
+    if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address) && out.tx->IsCoinBase()) {
       ListUnspentElementT element;
       element.address = CBitcoinAddress(address).ToString();
       element.amount = nValue;

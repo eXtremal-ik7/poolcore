@@ -291,7 +291,7 @@ void AccountingDb::addShare(const Share *share)
     int64_t generatedCoins = share->generatedCoins();
     if (!_cfg.poolZAddr.empty()) {
       // calculate miners fee for Z-Addr moving
-      generatedCoins -= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE;
+      generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE);
     }
     
     int64_t feeValue = generatedCoins * _cfg.poolFee / 100;
@@ -576,7 +576,7 @@ void AccountingDb::makePayout()
     
     // move Z-Addr to T-Addr
     auto zaddrBalance = ioZGetBalance(_client, _cfg.poolZAddr);
-    if (zaddrBalance && zaddrBalance->balance) {
+    if (zaddrBalance && zaddrBalance->balance > 0) {
       fprintf(stderr, "<info> Accounting: move %.3lf coins to transparent address\n", zaddrBalance->balance/100000000.0);
       ZDestinationT destination;
       destination.address = _cfg.poolTAddr;
@@ -633,14 +633,18 @@ void AccountingDb::checkBalance()
   int64_t zbalance = 0;
   if (!_cfg.poolZAddr.empty()) {
     auto result = ioZGetBalance(_client, _cfg.poolZAddr);
-    if (!result)
+    if (!result || result->balance == -1) {
+      fprintf(stderr, "<error> can't get balance of Z-address %s\n", _cfg.poolZAddr.c_str());
       return;
+    }
     zbalance = result->balance;
   }
   
   auto result = ioGetBalance(_client);
-  if (!result)
+  if (!result) {
+    fprintf(stderr, "<error> can't retrieve balance%s\n");
     return;
+  }
   
   balance = result->balance + zbalance;
   immature = result->immature;
@@ -779,7 +783,7 @@ void AccountingDb::manualPayout(p2pPeer *peer,
   auto It = _balanceMap.find(userId);
   if (It != _balanceMap.end()) {
     auto &B = It->second;
-    if (B.balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE)
+    if (B.balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.balance >= _cfg.minimalPayout)
       requestPayout(userId, 0, true);
     result = 1;
   } else {
