@@ -127,7 +127,7 @@ void payoutsHandler(asyncBase *base, p2pConnection *connection, const Query *Q, 
     tm *utc = gmtime(&pr.time);
     sprintf(timeLabel, "%04u-%02u-%02u %02u:%02u:%02u", utc->tm_year+1900, utc->tm_mon+1, utc->tm_mday, utc->tm_hour, utc->tm_min, utc->tm_sec);
     
-    offsets.push_back(CreatePayoutRecord(fbb, fbb.CreateString(timeLabel), pr.time, pr.value, fbb.CreateString(pr.transactionId)));
+    offsets.push_back(CreatePayoutRecord(fbb, fbb.CreateString((const char*)timeLabel), pr.time, pr.value, fbb.CreateString(pr.transactionId)));
     It->prev();
   }
   
