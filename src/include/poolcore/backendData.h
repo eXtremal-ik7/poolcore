@@ -3,6 +3,7 @@
 
 #include <list>
 #include <string>
+#include <vector>
 #include "p2putils/xmstream.h"
 
 std::string partByHeight(unsigned height);

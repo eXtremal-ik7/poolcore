@@ -601,11 +601,6 @@ void AccountingDb::makePayout()
   
   int64_t totalLost = 0;  
   for (auto &userIt: _balanceMap) {
-    if (userIt.second.requested < 0) {
-      userIt.second.requested = 0;
-      _balanceDb.put(userIt.second);
-    }
-    
     if (userIt.second.requested > 0 && waitingForPayout.count(userIt.second.userId) == 0) {
       // payout lost? add to back of queue
       fprintf(stderr, "<warning> found lost payout! %s\n", userIt.second.userId.c_str());
@@ -724,6 +719,11 @@ void AccountingDb::payoutSuccess(const std::string &address, int64_t value, int6
   
   userBalance &balance = It->second;
   balance.requested -= (value+fee);
+  if (balance.requested < 0) {
+    balance.balance += balance.requested;
+    balance.requested = 0;
+  }  
+
   balance.paid += value;
   _balanceDb.put(balance);
 }
@@ -814,7 +814,6 @@ void AccountingDb::moveBalance(p2pPeer *peer,
     
     ToIt->second.balance += FromIt->second.balance; FromIt->second.balance = 0;
     ToIt->second.requested += FromIt->second.requested; FromIt->second.requested = 0;
-    ToIt->second.paid += FromIt->second.paid; FromIt->second.paid = 0;
     _balanceDb.put(FromIt->second);
     _balanceDb.put(ToIt->second);
     
