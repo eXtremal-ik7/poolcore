@@ -116,7 +116,7 @@ std::unique_ptr<ProofOfWorkResultT> ioSendProofOfWork(p2pNode *client,
   flatbuffers::FlatBufferBuilder fbb;  
   auto reqOffset = CreateProofOfWorkReq(fbb, height, time, fbb.CreateString(nonce), extraNonce, fbb.CreateString(data));
   fbb.Finish(CreateP2PMessage(fbb, FunctionId_SendProofOfWork, Data_ProofOfWorkReq, reqOffset.Union()));
-  auto result = request<ProofOfWorkResult>(client, fbb, 20*1000000, "sendProofOfWork", buffer, sizeof(buffer));
+  auto result = request<ProofOfWorkResult>(client, fbb, 60*1000000, "sendProofOfWork", buffer, sizeof(buffer));
   if (result) {
     return std::unique_ptr<ProofOfWorkResultT>(result->UnPack());
   } else {
@@ -132,7 +132,7 @@ std::unique_ptr<SendMoneyResultT> ioSendMoney(p2pNode *client,
   flatbuffers::FlatBufferBuilder fbb;  
   auto reqOffset = CreateSendMoneyReq(fbb, fbb.CreateString(destination), amount);  
   fbb.Finish(CreateP2PMessage(fbb, FunctionId_SendMoney, Data_SendMoneyReq, reqOffset.Union()));  
-  auto result = request<SendMoneyResult>(client, fbb, 3000000, "sendMoney", buffer, sizeof(buffer));
+  auto result = request<SendMoneyResult>(client, fbb, 60*1000000, "sendMoney", buffer, sizeof(buffer));
   if (result) {
     return std::unique_ptr<SendMoneyResultT>(result->UnPack());
   } else {
