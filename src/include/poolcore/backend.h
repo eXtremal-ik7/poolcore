@@ -30,10 +30,11 @@ public:
     unsigned balanceCheckInterval;
     unsigned statisticCheckInterval;
     
-    bool checkAddress;
     bool useAsyncPayout;
     std::string poolTAddr;
     std::string poolZAddr;
+    CheckAddressProcTy *checkAddressProc;
+    config() : checkAddressProc(0) {}
   };
   
 private:

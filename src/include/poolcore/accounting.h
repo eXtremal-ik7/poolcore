@@ -15,6 +15,8 @@ static const int64_t COIN = 100000000;
 class p2pNode;
 class p2pPeer;
 
+typedef bool CheckAddressProcTy(const char*);
+
 class AccountingDb {
 public:
   struct config {
@@ -24,10 +26,11 @@ public:
     int64_t defaultMinimalPayout;
     int64_t minimalPayout;
     unsigned keepRoundTime;
-    bool checkAddress;
     std::string dbPath;
     std::string poolZAddr;
     std::string poolTAddr;
+    CheckAddressProcTy *checkAddressProc;
+    config() : checkAddressProc(0) {}
   };
   
 private:

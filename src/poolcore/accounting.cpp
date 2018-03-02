@@ -478,8 +478,9 @@ void AccountingDb::makePayout()
     for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
       if (I->payoutValue < _cfg.minimalPayout) {
         fprintf(stderr,
-                "<info> [%u] Accounting: ignore this payout, value is %s, minimal is %s\n",
+                "<info> [%u] Accounting: ignore this payout to %s, value is %s, minimal is %s\n",
                 index,
+                I->userId.c_str(),
                 FormatMoney(I->payoutValue).c_str(),
                 FormatMoney(_cfg.minimalPayout).c_str());
         ++I;
@@ -492,13 +493,10 @@ void AccountingDb::makePayout()
       }
       
       // Check address is valid
-      if (_cfg.checkAddress) {
-        CBitcoinAddress address(I->userId);
-        if (!_cfg.poolZAddr.empty() && !address.IsValidForZCash()) {
-          fprintf(stderr, "<info> invalid ZCash address %s\n", I->userId.c_str());
-          ++I;
-          continue;
-        }
+      if (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->userId.c_str())) {
+        fprintf(stderr, "<info> invalid payment address %s\n", I->userId.c_str());
+        ++I;
+        continue;
       }
 
       auto result = ioSendMoney(_client, I->userId, I->payoutValue);

@@ -95,9 +95,9 @@ void *PoolBackend::backendMain()
   accountingCfg.minimalPayout = _cfg.minimalPayout;
   accountingCfg.dbPath = _cfg.dbPath;
   accountingCfg.keepRoundTime = _cfg.keepRoundTime;
-  accountingCfg.checkAddress = _cfg.checkAddress;
   accountingCfg.poolZAddr = _cfg.poolZAddr;
   accountingCfg.poolTAddr = _cfg.poolTAddr;
+  accountingCfg.checkAddressProc = _cfg.checkAddressProc;  
   _accounting = new AccountingDb(&accountingCfg, _client);  
   
   StatisticDb::config statisticsCfg;
