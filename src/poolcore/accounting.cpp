@@ -473,6 +473,29 @@ void AccountingDb::makePayout()
 {
   if (!_payoutQueue.empty()) {
     fprintf(stderr, "<info> Accounting: checking %u payout requests...\n", (unsigned)_payoutQueue.size());
+    
+    // Merge small payouts and payouts to invalid address
+    {
+      std::map<std::string, int64_t> payoutAccMap;
+      for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
+        if (I->payoutValue < _cfg.minimalPayout ||
+            (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->userId.c_str())) ) {
+          payoutAccMap[I->userId] += I->payoutValue;
+          fprintf(stderr,
+                  "<info> Accounting: merge payout %s for %s (total already %s)\n",
+                  FormatMoney(I->payoutValue).c_str(),
+                  I->userId.c_str(),
+                  FormatMoney(payoutAccMap[I->userId]).c_str());
+          _payoutQueue.erase(I++);        
+        } else {
+          ++I;
+        }
+      }
+    
+      for (auto I: payoutAccMap)
+        _payoutQueue.push_back(payoutElement(I.first, I.second, 0));
+    }
+    
     int64_t remaining = -1;
     unsigned index = 0;
     for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
