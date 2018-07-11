@@ -1,7 +1,10 @@
 #include "poolrpc/poolrpc.h"
 #include "poolcommon/pool_generated.h"
-#include "main.h"
+#include "chain.h"
+#include "key_io.h"
+// #include "main.h"
 #include "miner.h"
+#include "rpcserver.h"
 #include "utilmoneystr.h"
 #include "wallet/wallet.h"
 #include "wallet/asyncrpcoperation_sendmany.h"
@@ -12,8 +15,13 @@ extern CWallet* pwalletMain;
 extern BlockMap mapBlockIndex;
 bool ProcessBlockFound(CBlock* pblock, CWallet& wallet, CReserveKey& reservekey);
 
-CAmount getBalanceTaddr(std::string transparentAddress, int minDepth=1);
-CAmount getBalanceZaddr(std::string address, int minDepth = 1);
+#define V3_JS_DESCRIPTION_SIZE    (GetSerializeSize(JSDescription(), SER_NETWORK, (OVERWINTER_TX_VERSION | (1 << 31))))
+#define Z_SENDMANY_MAX_ZADDR_OUTPUTS_BEFORE_SAPLING    ((MAX_TX_SIZE_BEFORE_SAPLING / V3_JS_DESCRIPTION_SIZE) - 1)
+#define CTXIN_SPEND_DUST_SIZE   148
+#define CTXOUT_REGULAR_SIZE     34
+
+CAmount getBalanceTaddr(std::string transparentAddress, int minDepth=1, bool ignoreUnspendable=true);
+CAmount getBalanceZaddr(std::string address, int minDepth = 1, bool ignoreUnspendable=true);
 std::shared_ptr<AsyncRPCQueue> getAsyncRPCQueue();
 
 int p2pPort() { return GetArg("-p2pport", 12200); }
@@ -94,9 +102,8 @@ void sendMoney(const char *destination, int64_t amount, SendMoneyResultT &result
   wtx.mapValue["comment"] = "payout";
 
   CReserveKey reservekey(pwalletMain);
-  
-  CBitcoinAddress address(destination);  
-  CScript scriptPubKey = GetScriptForDestination(address.Get());
+  CTxDestination dest = DecodeDestination(destination);
+  CScript scriptPubKey = GetScriptForDestination(dest);
   CRecipient recipient = {scriptPubKey, amount, false};
   std::vector<CRecipient> recipients = {recipient};  
   
@@ -143,7 +150,7 @@ void createBlockRecord(BlockIndexTy *idx, BlockT &out)
     out.hash = blockIndex->phashBlock->GetHex();
     out.prevhash = blockIndex->pprev->phashBlock->GetHex();
     out.merkle = blockIndex->hashMerkleRoot.ToString();
-    out.hashreserved = blockIndex->hashReserved.GetHex();
+    out.hashreserved = "";
     out.time = blockIndex->nTime;
     
     if (blockIndex == pindexBestHeader || pindexBestHeader->GetAncestor(blockIndex->nHeight)) {      
@@ -173,7 +180,7 @@ void createBlockTemplateRecord(BlockTemplateTy *tmpl, unsigned extraNonce, Block
     CBlock *block = &((CBlockTemplate*)tmpl)->block;
     out.bits = block->nBits;
     out.prevhash = block->hashPrevBlock.ToString();
-    out.hashreserved = block->hashReserved.ToString();
+    out.hashreserved = "";
     out.merkle = block->hashMerkleRoot.ToString();
     out.time = block->nTime;
     out.extraNonce = extraNonce;
@@ -194,28 +201,29 @@ int64_t ZGetbalance(const std::string &addr, std::string &error)
   int nMinDepth = 1;
 
   // Check that the from address is valid.
-  CBitcoinAddress taddr(addr);
-  bool fromTaddr = taddr.IsValid();
-  libzcash::PaymentAddress zaddr;
+  bool fromTaddr = false;
+  CTxDestination taddr = DecodeDestination(addr);
+  fromTaddr = IsValidDestination(taddr);
   if (!fromTaddr) {
-    CZCPaymentAddress address(addr);
-    try {
-      zaddr = address.Get();
-    } catch (std::runtime_error) {
-      error = "getZBalance: Invalid from address, should be a taddr or zaddr.";
+    auto res = DecodePaymentAddress(addr);
+    if (!IsValidPaymentAddress(res)) {
+      error = "Invalid from address, should be a taddr or zaddr.";
       return -1;
     }
-    if (!pwalletMain->HaveSpendingKey(zaddr)) {
-      error = "getZBalance: From address does not belong to this node, zaddr spending key not found.";
+    // TODO: Add Sapling support. For now, ensure we can freely convert.
+    assert(boost::get<libzcash::SproutPaymentAddress>(&res) != nullptr);
+    auto zaddr = boost::get<libzcash::SproutPaymentAddress>(res);
+    if (!(pwalletMain->HaveSpendingKey(zaddr) || pwalletMain->HaveViewingKey(zaddr))) {
+      error = "From address does not belong to this node, zaddr spending key or viewing key not found.";
       return -1;
     }
   }
 
   CAmount nBalance = 0;
   if (fromTaddr) {
-    nBalance = getBalanceTaddr(addr, nMinDepth);
+    nBalance = getBalanceTaddr(addr, nMinDepth, false);
   } else {
-    nBalance = getBalanceZaddr(addr, nMinDepth);  
+    nBalance = getBalanceZaddr(addr, nMinDepth, false);
   }
 
   return nBalance;
@@ -231,88 +239,158 @@ std::string ZSendMoney(const std::string &source, const std::vector<ZDestination
   // Check that the from address is valid.
   auto fromaddress = source;
   bool fromTaddr = false;
-  CBitcoinAddress taddr(fromaddress);
-  fromTaddr = taddr.IsValid();
-  libzcash::PaymentAddress zaddr;
+  CTxDestination taddr = DecodeDestination(fromaddress);
+  fromTaddr = IsValidDestination(taddr);
+  libzcash::SproutPaymentAddress zaddr;
   if (!fromTaddr) {
-    CZCPaymentAddress address(fromaddress);
-    try {
-      zaddr = address.Get();
-    } catch (std::runtime_error) {
+    auto res = DecodePaymentAddress(fromaddress);
+    if (!IsValidPaymentAddress(res)) {
       // invalid
       error = "Invalid from address, should be a taddr or zaddr.";
       return "";
     }
+    // TODO: Add Sapling support. For now, ensure we can freely convert.
+    assert(boost::get<libzcash::SproutPaymentAddress>(&res) != nullptr);
+    zaddr = boost::get<libzcash::SproutPaymentAddress>(res);
   }
 
   // Check that we have the spending key
   if (!fromTaddr) {
     if (!pwalletMain->HaveSpendingKey(zaddr)) {
-      error = "From address does not belong to this node, zaddr spending key not found.";
-      return "";
+       error = "From address does not belong to this node, zaddr spending key not found.";
+       return "";
     }
   }
 
+  if (destinations.size()==0) {
+    error = "Invalid parameter, amounts array is empty.";
+    return "";
+  }
+
   // Keep track of addresses to spot duplicates
-  std::set<std::string> setAddress;
+  set<std::string> setAddress;
 
   // Recipients
   std::vector<SendManyRecipient> taddrRecipients;
   std::vector<SendManyRecipient> zaddrRecipients;
+  CAmount nTotalOut = 0;
 
-  for (auto &d: destinations) {
-     bool isZaddr = false;
-     CBitcoinAddress taddr(d.address);
-     if (!taddr.IsValid()) {
-       try {
-         CZCPaymentAddress zaddr(d.address);
-         zaddr.Get();
-         isZaddr = true;
-       } catch (std::runtime_error) {
-         error = "Invalid parameter, unknown address format";
-         return "";
-       }
-     }
-
-      if (setAddress.count(d.address)) {
-        error = "Invalid parameter, duplicated address";
-        return "";
-      }
-      
-      setAddress.insert(d.address);
-
-      if (!d.memo.empty()) {
-        if (!isZaddr) {
-          error = "Memo can not be used with a taddr.  It can only be used with a zaddr.";
-          return "";
-        } else if (!IsHex(d.memo)) {
-          error = "Invalid parameter, expected memo data in hexadecimal format.";   
-          return "";
-        }
-        if (d.memo.length() > ZC_MEMO_SIZE*2) {
-          error = "Invalid parameter, size of memo is larger than maximum allowed";
-          return "";
-        }
-      }
-
-      if (d.amount < 0) {
-        error = "Invalid parameter, amount must be positive";
-        return "";
-      }
-
-      if (isZaddr) {
-        zaddrRecipients.push_back( SendManyRecipient(d.address, d.amount, d.memo) );
+  for (auto o: destinations) {
+    std::string address = o.address;
+    bool isZaddr = false;
+    CTxDestination taddr = DecodeDestination(address);
+    if (!IsValidDestination(taddr)) {
+      if (IsValidPaymentAddressString(address)) {
+        isZaddr = true;
       } else {
-        taddrRecipients.push_back( SendManyRecipient(d.address, d.amount, d.memo) );
+        error = "Invalid parameter, unknown address format";
+        return "";
       }
     }
+
+    if (setAddress.count(address)) {
+      error = "Invalid parameter, duplicated address";
+      return "";
+    }
+    
+    setAddress.insert(address);
+    
+    std::string memo = o.memo;
+    if (!isZaddr) {
+      error = "Memo cannot be used with a taddr.  It can only be used with a zaddr.";
+      return "";
+    } else if (!IsHex(memo)) {
+      error = "Invalid parameter, expected memo data in hexadecimal format.";
+      return "";
+    }
+    
+    if (memo.length() > ZC_MEMO_SIZE*2) {
+      error = "Invalid parameter, size of memo is larger than maximum allowed";
+      return "";
+    }
+
+    CAmount nAmount = o.amount;
+    if (nAmount < 0) {
+      error = "Invalid parameter, amount must be positive";
+      return "";
+    }
+
+    if (isZaddr) {
+      zaddrRecipients.push_back( SendManyRecipient(address, nAmount, memo) );
+    } else {
+      taddrRecipients.push_back( SendManyRecipient(address, nAmount, memo) );
+    }
+
+    nTotalOut += nAmount;
+  }
+
+  int nextBlockHeight = chainActive.Height() + 1;
+  CMutableTransaction mtx;
+  mtx.fOverwintered = true;
+  mtx.nVersionGroupId = SAPLING_VERSION_GROUP_ID;
+  mtx.nVersion = SAPLING_TX_VERSION;
+  unsigned int max_tx_size = MAX_TX_SIZE_AFTER_SAPLING;
+  if (!NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_SAPLING)) {
+    if (NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_OVERWINTER)) {
+      mtx.nVersionGroupId = OVERWINTER_VERSION_GROUP_ID;
+      mtx.nVersion = OVERWINTER_TX_VERSION;
+    } else {
+      mtx.fOverwintered = false;
+      mtx.nVersion = 2;
+    }
+
+    max_tx_size = MAX_TX_SIZE_BEFORE_SAPLING;
+
+    // Check the number of zaddr outputs does not exceed the limit.
+    if (zaddrRecipients.size() > Z_SENDMANY_MAX_ZADDR_OUTPUTS_BEFORE_SAPLING)  {
+      error = "Invalid parameter, too many zaddr outputs";
+      return "";
+    }
+  }
+
+  // As a sanity check, estimate and verify that the size of the transaction will be valid.
+  // Depending on the input notes, the actual tx size may turn out to be larger and perhaps invalid.
+  size_t txsize = 0;
+  for (int i = 0; i < zaddrRecipients.size(); i++) {
+    // TODO Check whether the recipient is a Sprout or Sapling address
+    JSDescription jsdesc;
+
+    if (mtx.fOverwintered && (mtx.nVersion >= SAPLING_TX_VERSION)) {
+      jsdesc.proof = GrothProof();
+    }
+
+    mtx.vjoinsplit.push_back(jsdesc);
+  }
+  
+  CTransaction tx(mtx);
+  txsize += GetSerializeSize(tx, SER_NETWORK, tx.nVersion);
+  if (fromTaddr) {
+    txsize += CTXIN_SPEND_DUST_SIZE;
+    txsize += CTXOUT_REGULAR_SIZE;      // There will probably be taddr change
+  }
+  
+  txsize += CTXOUT_REGULAR_SIZE * taddrRecipients.size();
+  if (txsize > max_tx_size) {
+    error = "Too many outputs, size of raw transaction would be larger than limit";
+    return "";
+  }
 
   // Minimum confirmations
   int nMinDepth = 1;
 
+  // Fee in Zatoshis, not currency format)
+  CAmount nFee = ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE;
+
+  // Contextual transaction we will build on
+  CMutableTransaction contextualTx = CreateNewContextualCMutableTransaction(Params().GetConsensus(), nextBlockHeight);
+  bool isShielded = !fromTaddr || zaddrRecipients.size() > 0;
+  if (contextualTx.nVersion == 1 && isShielded) {
+    contextualTx.nVersion = 2; // Tx format should support vjoinsplits 
+  }
+
   // Create operation and add to global queue
   std::shared_ptr<AsyncRPCQueue> q = getAsyncRPCQueue();
-  std::shared_ptr<AsyncRPCOperation> operation( new AsyncRPCOperation_sendmany(fromaddress, taddrRecipients, zaddrRecipients, nMinDepth) );
+  std::shared_ptr<AsyncRPCOperation> operation( new AsyncRPCOperation_sendmany(contextualTx, fromaddress, taddrRecipients, zaddrRecipients, nMinDepth, nFee, UniValue()) );
   q->addOperation(operation);
   AsyncRPCOperationId operationId = operation->getId();
   return operationId.c_str();
@@ -327,21 +405,25 @@ void listUnspent(std::vector<ListUnspentElementT> &result, std::string &error)
   int nMinDepth = 1;
   int nMaxDepth = 9999999;  
 
-  std::vector<COutput> vecOutputs;
+  bool fIncludeWatchonly = false;
+  std::set<libzcash::PaymentAddress> zaddrs = {};  
   LOCK2(cs_main, pwalletMain->cs_wallet);
-  pwalletMain->AvailableCoins(vecOutputs, false, NULL, true);
-  BOOST_FOREACH(const COutput& out, vecOutputs) {
-    if (out.nDepth < nMinDepth || out.nDepth > nMaxDepth)
-      continue;
-  
-    CAmount nValue = out.tx->vout[out.i].nValue;
-    CTxDestination address;
-    if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address) && out.tx->IsCoinBase()) {
+
+  // User did not provide zaddrs, so use default i.e. all addresses
+  // TODO: Add Sapling support
+  std::set<libzcash::SproutPaymentAddress> sproutzaddrs = {};
+  pwalletMain->GetPaymentAddresses(sproutzaddrs);
+  zaddrs.insert(sproutzaddrs.begin(), sproutzaddrs.end());
+
+  if (zaddrs.size() > 0) {
+    std::vector<CUnspentSproutNotePlaintextEntry> entries;
+    pwalletMain->GetUnspentFilteredNotes(entries, zaddrs, nMinDepth, nMaxDepth, !fIncludeWatchonly);
+    for (CUnspentSproutNotePlaintextEntry & entry : entries) {
       ListUnspentElementT element;
-      element.address = CBitcoinAddress(address).ToString();
-      element.amount = nValue;
-      element.confirmations = out.nDepth;
-      element.spendable = out.fSpendable;
+      element.address = EncodePaymentAddress(entry.address);
+      element.amount = entry.plaintext.value();
+      element.confirmations = entry.nHeight;
+      element.spendable = pwalletMain->HaveSpendingKey(boost::get<libzcash::SproutPaymentAddress>(entry.address));
       result.push_back(element);
     }
   }
