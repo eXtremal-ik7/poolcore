@@ -9,7 +9,7 @@ struct BlockTy;
 struct ReserveKeyTy;
 struct WalletTy;
 
-int p2pPort();
+uint16_t p2pPort();
 const char *getCoinName();
 WalletTy *getMainWallet();
 BlockIndexTy *getCurrentBlock();

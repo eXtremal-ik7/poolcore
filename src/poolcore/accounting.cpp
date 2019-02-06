@@ -765,7 +765,7 @@ void AccountingDb::queryClientBalance(p2pPeer *peer, uint32_t id, const std::str
   QueryResultBuilder qrb(fbb);
   qrb.add_info(offset);
   fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->_base, peer->connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void AccountingDb::updateClientInfo(p2pPeer *peer,
@@ -792,7 +792,7 @@ void AccountingDb::updateClientInfo(p2pPeer *peer,
   QueryResultBuilder qrb(fbb);
   qrb.add_status(1);
   fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->_base, peer->connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void AccountingDb::manualPayout(p2pPeer *peer,
@@ -814,7 +814,7 @@ void AccountingDb::manualPayout(p2pPeer *peer,
   QueryResultBuilder qrb(fbb);
   qrb.add_status(result);
   fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->_base, peer->connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void AccountingDb::moveBalance(p2pPeer *peer,
@@ -853,7 +853,7 @@ void AccountingDb::moveBalance(p2pPeer *peer,
   QueryResultBuilder qrb(fbb);
   qrb.add_status(result);
   fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->_base, peer->connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void AccountingDb::resendBrokenTx(p2pPeer *peer,
@@ -914,6 +914,6 @@ void AccountingDb::resendBrokenTx(p2pPeer *peer,
   QueryResultBuilder qrb(fbb);
   qrb.add_status(result);
   fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->_base, peer->connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);  
+  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
                                   

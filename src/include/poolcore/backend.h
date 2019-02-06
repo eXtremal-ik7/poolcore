@@ -52,11 +52,11 @@ private:
   StatisticDb *_statistics;
   
   static void *threadProc(void *arg) { return ((PoolBackend*)arg)->backendMain(); }
-  static void *msgHandlerProc(void *arg) { return ((PoolBackend*)arg)->msgHandler(); }
-  static void *checkConfirmationsProc(void *arg) { return ((PoolBackend*)arg)->checkConfirmationsHandler(); }  
-  static void *payoutProc(void *arg) { return ((PoolBackend*)arg)->payoutHandler(); }    
-  static void *checkBalanceProc(void *arg) { return ((PoolBackend*)arg)->checkBalanceHandler(); }    
-  static void *updateStatisticProc(void *arg) { return ((PoolBackend*)arg)->updateStatisticHandler(); }   
+  static void msgHandlerProc(void *arg) { ((PoolBackend*)arg)->msgHandler(); }
+  static void checkConfirmationsProc(void *arg) { ((PoolBackend*)arg)->checkConfirmationsHandler(); }
+  static void payoutProc(void *arg) { ((PoolBackend*)arg)->payoutHandler(); }
+  static void checkBalanceProc(void *arg) { ((PoolBackend*)arg)->checkBalanceHandler(); }
+  static void updateStatisticProc(void *arg) { ((PoolBackend*)arg)->updateStatisticHandler(); }
   
   void *backendMain();
   void *msgHandler();

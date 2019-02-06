@@ -5,6 +5,7 @@
 
 #include "asyncio/asyncio.h"
 #include "asyncio/coroutine.h"
+#include "asyncio/socket.h"
 
 CBlockIndex *pindexBest;
 std::vector<CNode*> vNodes;
@@ -154,10 +155,10 @@ void newBlockNotify(void *index);
 
 void *poolRpcThread(void *arg);
 
-void *timerProc(void *arg)
+void timerProc(void *arg)
 {
   asyncBase *base = (asyncBase*)arg;
-  aioObject *timer = newUserEvent(base, 0, 0);
+  aioUserEvent *timer = newUserEvent(base, nullptr, nullptr);
   
   while (true) {
     ioSleep(timer, 2000000);

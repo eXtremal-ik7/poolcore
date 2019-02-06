@@ -8,7 +8,7 @@ extern CBlockIndex* pindexBest;
 extern CWallet* pwalletMain;
 extern std::map<uint256, CBlockIndex*> mapBlockIndex;
 
-int p2pPort() { return GetArg("-p2pport", 12200); }
+uint16_t p2pPort() { return static_cast<uint16_t>(GetArg("-p2pport", 12200)); }
 
 const char *getCoinName() { return "XPM"; }
 WalletTy *getMainWallet() { return (WalletTy*)pwalletMain; }

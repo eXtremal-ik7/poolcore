@@ -1,5 +1,6 @@
 #include "asyncio/asyncio.h"
 #include "asyncio/coroutine.h"
+#include "asyncio/socket.h"
 #include "p2p/p2p.h"
 #include "poolrpc/poolrpc.h"
 #include <pthread.h>
@@ -84,7 +85,7 @@ void getInfoHandler(asyncBase *base, p2pConnection *connection, const P2PMessage
   fbb.Finish(CreatePoolInfo(fbb,
     fbb.CreateString(getCoinName())
   ));
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void getCurrentBlockHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -93,7 +94,7 @@ void getCurrentBlockHandler(asyncBase *base, p2pConnection *connection, const P2
   BlockT block;
   createBlockRecord(getCurrentBlock(), block);
   fbb.Finish(CreateBlock(fbb, &block));
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void getBlockTemplateHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -108,7 +109,7 @@ void getBlockTemplateHandler(asyncBase *base, p2pConnection *connection, const P
   BlockTemplateTy *tmpl = poolObject.generateBlockTemplate(&extraNonce);
   createBlockTemplateRecord(tmpl, extraNonce, block);
   fbb.Finish(CreateBlockTemplate(fbb, &block));
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void sendProofOfWorkHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -121,7 +122,7 @@ void sendProofOfWorkHandler(asyncBase *base, p2pConnection *connection, const P2
   int64_t generatedCoins;
   bool result = checkWork(poolObject.getBlockTemplate(), poolObject.getReserveKey(), *data, &generatedCoins);
   fbb.Finish(CreateProofOfWorkResult(fbb, result, generatedCoins));
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void getBlockByHashHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -137,7 +138,7 @@ void getBlockByHashHandler(asyncBase *base, p2pConnection *connection, const P2P
   }
   
   fbb.Finish(CreateGetBlockByHashResult(fbb, fbb.CreateVector(offsets)));
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void getBalanceHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -146,7 +147,7 @@ void getBalanceHandler(asyncBase *base, p2pConnection *connection, const P2PMess
   GetBalanceResultT balance;
   getBalance(&balance);
   fbb.Finish(CreateGetBalanceResult(fbb, &balance));
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);  
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void sendMoneyHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -156,7 +157,7 @@ void sendMoneyHandler(asyncBase *base, p2pConnection *connection, const P2PMessa
   SendMoneyResultT result;
   sendMoney(req->destination()->c_str(), req->amount(), result);
   fbb.Finish(CreateSendMoneyResult(fbb, &result));
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void getZBalanceHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -171,7 +172,7 @@ void getZBalanceHandler(asyncBase *base, p2pConnection *connection, const P2PMes
   wrb.add_balance(balance);
   wrb.add_error(errorOffset);
   fbb.Finish(wrb.Finish());
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void ZSendMoneyHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -194,7 +195,7 @@ void ZSendMoneyHandler(asyncBase *base, p2pConnection *connection, const P2PMess
   wrb.add_asyncOperationId(asyncOpIdOff);
   wrb.add_error(errorOffset);  
   fbb.Finish(wrb.Finish());
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void listUnspentHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -214,7 +215,7 @@ void listUnspentHandler(asyncBase *base, p2pConnection *connection, const P2PMes
   wrb.add_outs(outVector);
   wrb.add_error(errorOffset);  
   fbb.Finish(wrb.Finish());
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void ZAsyncOperationStatusHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -237,11 +238,11 @@ void ZAsyncOperationStatusHandler(asyncBase *base, p2pConnection *connection, co
   wrb.add_status(outVector);
   wrb.add_error(errorOffset);  
   fbb.Finish(wrb.Finish());
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);  
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 
-void requestHandler(p2pPeer *peer, uint64_t id, void *buffer, size_t size, void *arg)
+void requestHandler(p2pPeer *peer, uint32_t id, void *buffer, size_t size, void *arg)
 {
   flatbuffers::Verifier verifier((const uint8_t*)buffer, size);
   if (!VerifyP2PMessageBuffer(verifier)) {
@@ -292,7 +293,7 @@ void requestHandler(p2pPeer *peer, uint64_t id, void *buffer, size_t size, void 
   }
 }
 
-void *signalProc(void *arg)
+void signalProc(void *arg)
 {
   p2pNode *node = (p2pNode*)arg;
   aioObject *object = newDeviceIo(node->base(), poolObject.readFd());
@@ -300,9 +301,9 @@ void *signalProc(void *arg)
   while (true) {
     uint32_t msgSize;
     stream.reset();
-    if (ioRead(node->base(), object, &msgSize, sizeof(msgSize), afWaitAll, 0) != sizeof(msgSize))
+    if (ioRead(object, &msgSize, sizeof(msgSize), afWaitAll, 0) != sizeof(msgSize))
       break;
-    if (ioRead(node->base(), object, stream.alloc(msgSize), msgSize, afWaitAll, 0) != msgSize)
+    if (ioRead(object, stream.alloc(msgSize), msgSize, afWaitAll, 0) != msgSize)
       break;
     stream.seekSet(0);
             
@@ -325,7 +326,7 @@ void *poolRpcThread(void *arg)
   asyncBase *base = createAsyncBase(amOSDefault);  
   
   // // TODO: cluster name must contain coin name, poolrpc not valid
-  int port = p2pPort();
+  uint16_t port = static_cast<uint16_t>(p2pPort());
   HostAddress address;
   address.family = AF_INET;
   address.ipv4 = INADDR_ANY;
@@ -333,16 +334,16 @@ void *poolRpcThread(void *arg)
   p2pNode *node = p2pNode::createNode(base, &address, "pool_rpc", true);
   if (!node) {
     printf("can't create poolrpc node\n");
-    return 0;
+    return nullptr;
   }
   
   printf("started p2p interface at port %i\n", port);
-  node->setRequestHandler(requestHandler, 0);
+  node->setRequestHandler(requestHandler, nullptr);
   
   // run signals check coroutine
   coroutineTy *signalHandler = coroutineNew(signalProc, node, 0x10000);
   coroutineCall(signalHandler);
   
   asyncLoop(base);
-  return 0;
+  return nullptr;
 }

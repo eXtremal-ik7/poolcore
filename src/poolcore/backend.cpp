@@ -61,7 +61,7 @@ bool PoolBackend::sendMessage(asyncBase *base, void *msg, uint32_t msgSize)
   xmstream stream;
   stream.write<uint32_t>(msgSize);
   stream.write(msg, msgSize);
-  return ioWrite(base, _write, stream.data(), stream.sizeOf(), afWaitAll, _timeout) == stream.sizeOf();
+  return ioWrite(_write, stream.data(), stream.sizeOf(), afWaitAll, _timeout) == stream.sizeOf();
 }
 
 
@@ -133,9 +133,9 @@ void *PoolBackend::msgHandler()
   while (true) {
     uint32_t msgSize;
     stream.reset();
-    if (ioRead(_base, _read, &msgSize, sizeof(msgSize), afWaitAll, 0) != sizeof(msgSize))
+    if (ioRead(_read, &msgSize, sizeof(msgSize), afWaitAll, 0) != sizeof(msgSize))
       break;
-    if (ioRead(_base, _read, stream.alloc(msgSize), msgSize, afWaitAll, 0) != msgSize)
+    if (ioRead(_read, stream.alloc(msgSize), msgSize, afWaitAll, 0) != msgSize)
       break;
     stream.seekSet(0);
     
@@ -161,7 +161,7 @@ void *PoolBackend::msgHandler()
 
 void *PoolBackend::checkConfirmationsHandler()
 {
-  aioObject *timerEvent = newUserEvent(_base, 0, 0);
+  aioUserEvent *timerEvent = newUserEvent(_base, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.confirmationsCheckInterval);
     if (_client->connected()) {
@@ -176,7 +176,7 @@ void *PoolBackend::checkConfirmationsHandler()
 
 void *PoolBackend::payoutHandler()
 {
-  aioObject *timerEvent = newUserEvent(_base, 0, 0);
+  aioUserEvent *timerEvent = newUserEvent(_base, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.payoutInterval);
     if (_client->connected()) {
@@ -190,7 +190,7 @@ void *PoolBackend::payoutHandler()
 // Only for master
 void *PoolBackend::checkBalanceHandler()
 {
-  aioObject *timerEvent = newUserEvent(_base, 0, 0);
+  aioUserEvent *timerEvent = newUserEvent(_base, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.balanceCheckInterval);  
     if (_client->connected()) {
@@ -203,7 +203,7 @@ void *PoolBackend::checkBalanceHandler()
 
 void *PoolBackend::updateStatisticHandler()
 {
-  aioObject *timerEvent = newUserEvent(_base, 0, 0);
+  aioUserEvent *timerEvent = newUserEvent(_base, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.statisticCheckInterval);
     _statistics->update();

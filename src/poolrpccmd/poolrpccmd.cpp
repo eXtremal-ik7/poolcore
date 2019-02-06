@@ -1,5 +1,6 @@
 #include "asyncio/asyncio.h"
 #include "asyncio/coroutine.h"
+#include "asyncio/socket.h"
 #include "p2p/p2p.h"
 #include "p2putils/uriParse.h"
 #include "poolcommon/poolapi.h"
@@ -561,21 +562,21 @@ methodProcTy *getMethodProc(const char *name)
   return 0;
 }
 
-void *requestProc(void *arg)
+void requestProc(void *arg)
 {
   PoolRpcCmdContext *context = (PoolRpcCmdContext*)arg;
   
   if (!context->client->ioWaitForConnection(3000000)) {
     fprintf(stderr, "Error: connecting error\n");
     postQuitOperation(context->client->base());
-    return 0;    
+    return;
   }
 
   methodProcTy *proc = getMethodProc(context->methodName);
   if (!proc) {
     fprintf(stderr, "Error: invalid method name: %s\n", context->methodName);
     postQuitOperation(context->client->base());
-    return 0;
+    return;
   }
   
   proc(context);  

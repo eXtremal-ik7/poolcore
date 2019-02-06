@@ -24,7 +24,7 @@ CAmount getBalanceTaddr(std::string transparentAddress, int minDepth=1, bool ign
 CAmount getBalanceZaddr(std::string address, int minDepth = 1, bool ignoreUnspendable=true);
 std::shared_ptr<AsyncRPCQueue> getAsyncRPCQueue();
 
-int p2pPort() { return GetArg("-p2pport", 12200); }
+uint16_t p2pPort() { return static_cast<uint16_t>(GetArg("-p2pport", 12200)); }
 
 const char *getCoinName() { return "ZEC"; }
 WalletTy *getMainWallet() { return (WalletTy*)pwalletMain; }

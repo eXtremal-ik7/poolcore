@@ -8,7 +8,6 @@ void foundBlockHandler(asyncBase *base, p2pConnection *connection, const Query *
 {
   flatbuffers::FlatBufferBuilder fbb;
   
-  unsigned count = Q->count();
   auto &db = backend->accountingDb()->getFoundBlocksDb();
   std::unique_ptr<levelDbBase::IteratorType> It(db.iterator());
   if (Q->heightFrom() != -1) {
@@ -60,7 +59,7 @@ void foundBlockHandler(asyncBase *base, p2pConnection *connection, const Query *
   QueryResultBuilder qrb(fbb);
   qrb.add_blocks(blockOffsets);
   fbb.Finish(qrb.Finish());
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);  
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void poolBalanceHandler(asyncBase *base, p2pConnection *connection, const Query *Q, uint32_t id, AccountingDb *accountindDb)
@@ -94,7 +93,7 @@ void poolBalanceHandler(asyncBase *base, p2pConnection *connection, const Query 
   QueryResultBuilder qrb(fbb);
   qrb.add_poolBalances(balanceOffsets);
   fbb.Finish(qrb.Finish());
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);  
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void payoutsHandler(asyncBase *base, p2pConnection *connection, const Query *Q, uint32_t id, AccountingDb *accountindDb)
@@ -108,7 +107,7 @@ void payoutsHandler(asyncBase *base, p2pConnection *connection, const Query *Q, 
   {
     payoutRecord pr;
     pr.userId = Q->userId() ? Q->userId()->c_str() : "";
-    pr.time = (Q->timeFrom() == -1) ? time(0)+1 : Q->timeFrom();
+    pr.time = (Q->timeFrom() == -1) ? time(nullptr)+1 : Q->timeFrom();
     It->seek(pr);
     It->prev();
   }
@@ -135,10 +134,10 @@ void payoutsHandler(asyncBase *base, p2pConnection *connection, const Query *Q, 
   QueryResultBuilder qrb(fbb);
   qrb.add_payouts(payoutOffsets);
   fbb.Finish(qrb.Finish());
-  aiop2pSend(base, connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
-void poolcoreRequestHandler(p2pPeer *peer, uint64_t id, void *buffer, size_t size, void *arg)
+void poolcoreRequestHandler(p2pPeer *peer, uint32_t id, void *buffer, size_t size, void *arg)
 {
   PoolBackend *backend = (PoolBackend*)arg;
   

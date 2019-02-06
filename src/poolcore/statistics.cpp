@@ -174,7 +174,7 @@ void StatisticDb::queryClientStats(p2pPeer *peer, uint32_t id, const std::string
   qrb.add_workers(workersOffset);
   qrb.add_aggregate(aggregate);
   fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->_base, peer->connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
 void StatisticDb::queryPoolStats( p2pPeer *peer, uint32_t id)
@@ -194,5 +194,5 @@ void StatisticDb::queryPoolStats( p2pPeer *peer, uint32_t id)
   QueryResultBuilder qrb(fbb);    
   qrb.add_aggregate(offset);
   fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->_base, peer->connection, 3000000, fbb.GetBufferPointer(), p2pHeader(id, p2pMsgResponse, fbb.GetSize()), 0, 0);
+  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
