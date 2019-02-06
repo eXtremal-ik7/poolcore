@@ -9,10 +9,10 @@ set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake
 )
 
-find_package(Boost COMPONENTS thread system)
-find_package(FlatBuffers)
-find_package(OpenSSL)
-find_package(libp2p)
+find_package(Boost COMPONENTS thread system REQUIRED)
+find_package(FlatBuffers REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_package(libp2p REQUIRED)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
@@ -25,6 +25,7 @@ include_directories(
   ${AIO_INCLUDE_DIR}
   ${BOOST_INCLUDEDIR}
   ${FLATBUFFERS_INCLUDE_DIR}
+  ${OPENSSL_INCLUDE_DIR}
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_BINARY_DIR}
 )
