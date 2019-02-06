@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.0)
 
 option(BTC_ENABLED "Build bitcoin core client integration" OFF)
+option(DTC_ENABLED "Build datacoin client integration" OFF)
 option(XPM_ENABLED "Build primecoin/XPM client integration" OFF)
 option(ZCASH_ENABLED "Build ZCash/ZEC client integration" OFF)
 
@@ -36,6 +37,10 @@ if (BTC_ENABLED)
   add_subdirectory(btc)
 endif()
 
+if (DTC_ENABLED)
+  add_subdirectory(dtc)
+endif()
+
 if (XPM_ENABLED)
   add_subdirectory(xpm)
 endif()
@@ -43,3 +48,4 @@ endif()
 if (ZCASH_ENABLED)
   add_subdirectory(zcash)
 endif()
+

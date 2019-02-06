@@ -46,7 +46,8 @@ void StatisticDb::update()
   for (auto I = _statsMap.begin(), IE = _statsMap.end(); I != IE;) {
     const clientStats &stats = I->second;
     if (stats.time >= removeTimeLabel) {
-      power += stats.power;
+      if (stats.power < 16000)
+        power += stats.power;
       if (stats.latency >= 0) {
         avgLatency += stats.latency;
         lcount++;
@@ -144,7 +145,7 @@ void StatisticDb::queryClientStats(p2pPeer *peer, uint32_t id, const std::string
       lcount++;
     }
     
-    units[std::min(stats.unitType, (int)UnitType_OTHER)]++;
+    units[std::min(stats.unitType, (int)UnitType_OTHER)] += stats.units;
     
     workers.push_back(CreateWorkerStatsRecord(fbb,
                                               fbb.CreateString(stats.workerId),
