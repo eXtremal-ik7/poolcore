@@ -184,7 +184,7 @@ void createBlockRecord(BlockIndexTy *idx, BlockT &out)
     out.hash = blockIndex->phashBlock->GetHex();
     out.prevhash = blockIndex->pprev->phashBlock->GetHex();
     out.merkle = blockIndex->hashMerkleRoot.ToString();
-    out.hashreserved = "";
+    out.hashreserved = blockIndex->hashFinalSaplingRoot.ToString();
     out.time = blockIndex->nTime;
     
     if (blockIndex == pindexBestHeader || pindexBestHeader->GetAncestor(blockIndex->nHeight)) {      
@@ -214,7 +214,7 @@ void createBlockTemplateRecord(BlockTemplateTy *tmpl, unsigned extraNonce, Block
     CBlock *block = &((CBlockTemplate*)tmpl)->block;
     out.bits = block->nBits;
     out.prevhash = block->hashPrevBlock.ToString();
-    out.hashreserved = "";
+    out.hashreserved = block->hashFinalSaplingRoot.ToString();
     out.merkle = block->hashMerkleRoot.ToString();
     out.time = block->nTime;
     out.extraNonce = extraNonce;

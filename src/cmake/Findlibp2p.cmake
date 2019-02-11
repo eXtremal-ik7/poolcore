@@ -1,7 +1,6 @@
 set(BUILD_DIR "${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_SYSTEM_NAME}")
 set(PATHS
   ${ROOT_SOURCE_DIR}/libp2p/${BUILD_DIR}
-  ${ROOT_SOURCE_DIR}/libp2p/build
 )
 
 find_library(AIO_LIBRARY asyncio-0.4

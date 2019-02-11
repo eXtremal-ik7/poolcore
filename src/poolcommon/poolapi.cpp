@@ -22,7 +22,7 @@ static inline const T *request(p2pNode *client,
                                void *out,
                                size_t outSize)
 {
-  if (client->ioRequest(fbb.GetBufferPointer(), fbb.GetSize(), 3000000, out, outSize)) {
+  if (client->ioRequest(fbb.GetBufferPointer(), fbb.GetSize(), timeout, out, outSize)) {
     flatbuffers::Verifier verifier((const uint8_t*)out, outSize);
     if (!verifier.VerifyBuffer<T>(nullptr)) {
       fprintf(stderr, "<error> %s call: can't decode response\n", name);

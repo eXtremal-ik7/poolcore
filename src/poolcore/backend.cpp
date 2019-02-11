@@ -6,9 +6,6 @@
 
 #include "boost/bind.hpp"
 
-// TODO: switch to crossplatform
-#include <unistd.h>
-
 static void checkConsistency(AccountingDb *accounting)
 {
   std::map<std::string, int64_t> balancesRequested;
@@ -45,10 +42,9 @@ PoolBackend::PoolBackend(config *cfg) : _cfg(*cfg)
 {
   _base = createAsyncBase(amOSDefault);
   _timeout = 8*1000000;
-  
-  pipe(_pipeFd); // TODO: switch to crossplatform, check
-  _read = newDeviceIo(_base, _pipeFd[0]);
-  _write = newDeviceIo(_base, _pipeFd[1]);
+  pipeCreate(&_pipeFd, 1);
+  _read = newDeviceIo(_base, _pipeFd.read);
+  _write = newDeviceIo(_base, _pipeFd.write);
 }
 
 PoolBackend::~PoolBackend()

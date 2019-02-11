@@ -33,7 +33,7 @@ public:
   
   asyncBase *base() { return _base; }
   aioObject *readFd() { return _readFd; }
-  aioObject *writeFd() { return _readFd; }
+  aioObject *writeFd() { return _writeFd; }
   
   ReserveKeyTy *getReserveKey() { return _reserveKey; }
   
@@ -300,6 +300,7 @@ void signalProc(void *arg)
   while (true) {
     uint32_t msgSize;
     stream.reset();
+
     if (ioRead(poolObject.readFd(), &msgSize, sizeof(msgSize), afWaitAll, 0) != sizeof(msgSize))
       break;
     if (ioRead(poolObject.readFd(), stream.alloc(msgSize), msgSize, afWaitAll, 0) != msgSize)

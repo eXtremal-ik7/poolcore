@@ -17,39 +17,40 @@ struct PoolRpcCmdContext {
   const char *methodName;
   int argc;
   char **argv;
+  bool result;
 };
 
-typedef void methodProcTy(PoolRpcCmdContext*);
+typedef bool methodProcTy(PoolRpcCmdContext*);
 
 struct MethodMapElement {
   const char *name;
   methodProcTy *proc;
 };
 
-void getInfoProc(PoolRpcCmdContext *context);
-void getCurrentBlock(PoolRpcCmdContext *context);
-void getBlockTemplate(PoolRpcCmdContext *context);
-void sendProofOfWork(PoolRpcCmdContext *context);
-void getBlockByHash(PoolRpcCmdContext *context);
-void getBalance(PoolRpcCmdContext *context);
-void sendMoney(PoolRpcCmdContext *context);
+bool getInfoProc(PoolRpcCmdContext *context);
+bool getCurrentBlock(PoolRpcCmdContext *context);
+bool getBlockTemplate(PoolRpcCmdContext *context);
+bool sendProofOfWork(PoolRpcCmdContext *context);
+bool getBlockByHash(PoolRpcCmdContext *context);
+bool getBalance(PoolRpcCmdContext *context);
+bool sendMoney(PoolRpcCmdContext *context);
 
-void ZGetBalance(PoolRpcCmdContext *context);
-void ZSendMoney(PoolRpcCmdContext *context);
-void listUnspent(PoolRpcCmdContext *context);
-void ZAsyncOperationStatus(PoolRpcCmdContext *context);
+bool ZGetBalance(PoolRpcCmdContext *context);
+bool ZSendMoney(PoolRpcCmdContext *context);
+bool listUnspent(PoolRpcCmdContext *context);
+bool ZAsyncOperationStatus(PoolRpcCmdContext *context);
 
-void queryFoundBlocks(PoolRpcCmdContext *context);
-void queryClientInfo(PoolRpcCmdContext *context);
-void queryPoolBalance(PoolRpcCmdContext *context);
-void queryPayouts(PoolRpcCmdContext *context);
-void queryClientStats(PoolRpcCmdContext *context);
-void queryPoolStats(PoolRpcCmdContext *context);
-void updateClientInfo(PoolRpcCmdContext *context);
+bool queryFoundBlocks(PoolRpcCmdContext *context);
+bool queryClientInfo(PoolRpcCmdContext *context);
+bool queryPoolBalance(PoolRpcCmdContext *context);
+bool queryPayouts(PoolRpcCmdContext *context);
+bool queryClientStats(PoolRpcCmdContext *context);
+bool queryPoolStats(PoolRpcCmdContext *context);
+bool updateClientInfo(PoolRpcCmdContext *context);
 
-void resendBrokenTx(PoolRpcCmdContext *context);
-void moveBalance(PoolRpcCmdContext *context);
-void manualPayout(PoolRpcCmdContext *context);
+bool resendBrokenTx(PoolRpcCmdContext *context);
+bool moveBalance(PoolRpcCmdContext *context);
+bool manualPayout(PoolRpcCmdContext *context);
 
 static MethodMapElement methodMap[] = {
   {"getInfo", getInfoProc},
@@ -103,20 +104,21 @@ static const char *asyncOpState(AsyncOpState state)
   return states[state];
 }
 
-void getInfoProc(PoolRpcCmdContext *context)
+bool getInfoProc(PoolRpcCmdContext *context)
 {   
   auto info = ioGetInfo(context->client);
   if (!info)
-    return;
+    return false;
   printf(" * coin: %s\n", info->coin.c_str());
+  return true;
 }
 
 
-void getCurrentBlock(PoolRpcCmdContext *context)
+bool getCurrentBlock(PoolRpcCmdContext *context)
 {
   auto block = ioGetCurrentBlock(context->client);
   if (!block)
-    return;
+    return false;
   printf(" * height: %llu\n", block->height);
   printf(" * nbits: %llu\n", block->bits);  
   printf(" * hash: %s\n", !block->hash.empty() ? block->hash.c_str() : "<empty>");
@@ -124,14 +126,15 @@ void getCurrentBlock(PoolRpcCmdContext *context)
   if (!block->hashreserved.empty())
     printf(" * hashreserved: %s\n", block->hashreserved.c_str());  
   printf(" * time: %u\n", (unsigned)block->time);
+  return true;
 }
 
-void getBlockTemplate(PoolRpcCmdContext *context)
+bool getBlockTemplate(PoolRpcCmdContext *context)
 {
   auto beginPt = std::chrono::steady_clock::now();  
   auto block = ioGetBlockTemplate(context->client);
   if (!block)
-    return;
+    return false;
   auto endPt = std::chrono::steady_clock::now(); 
   auto callTime = std::chrono::duration_cast<std::chrono::microseconds>(endPt-beginPt).count() / 1000.0;
   printf("getBlockTemplate call duration %.3lfms\n", callTime);
@@ -147,13 +150,14 @@ void getBlockTemplate(PoolRpcCmdContext *context)
     printf(" * equilHashK = %i\n", block->equilHashK);
   if (block->equilHashN != -1)
     printf(" * equilHashN = %i\n", block->equilHashN);
+  return true;
 }
 
-void sendProofOfWork(PoolRpcCmdContext *context)
+bool sendProofOfWork(PoolRpcCmdContext *context)
 {
   if (context->argc != 5) {
     fprintf(stderr, "Usage: sendProofOfWork <height> <time> <nonce> <extraNonce> <data>\n");
-    return;
+    return false;
   }
 
   auto result = ioSendProofOfWork(context->client,
@@ -163,7 +167,7 @@ void sendProofOfWork(PoolRpcCmdContext *context)
                                   xatoi<int64_t>(context->argv[3]),
                                   context->argv[4]);
   if (!result)
-    return;
+    return false;
 
   if (result->result == false) {
     printf(" * proofOfWork check failed\n");
@@ -171,19 +175,21 @@ void sendProofOfWork(PoolRpcCmdContext *context)
     printf(" * proofOfWork accepted!\n");
     printf("   * generated: %lli coins\n", result->generatedCoins);
   }
+
+  return true;
 }
 
-void getBlockByHash(PoolRpcCmdContext *context)
+bool getBlockByHash(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
     fprintf(stderr, "Usage: getBlockByHash <hash>\n");
-    return;
+    return false;
   }
 
   std::vector<std::string> hashVector = {context->argv[0]};
   auto result = ioGetBlockByHash(context->client, hashVector);
   if (!result)
-    return;  
+    return false;
 
   for (size_t i = 0; i < result->blocks.size(); i++) {
     printf(" * block %u\n", (unsigned)i);
@@ -199,37 +205,38 @@ void getBlockByHash(PoolRpcCmdContext *context)
     printf("   * time: %u\n", (unsigned)block->time);
     printf("   * confirmations: %i\n", (int)block->confirmations);
   }
+
+  return true;
 }
 
-void getBalance(PoolRpcCmdContext *context)
+bool getBalance(PoolRpcCmdContext *context)
 {
   if (context->argc != 0) {
     fprintf(stderr, "Usage: getBalance\n");
-    return;
+    return false;
   }
-  
+
   auto result = ioGetBalance(context->client);
-  if (!result) {
-    fprintf(stderr, "Error: getBalance call failed\n");
-    return;
-  }
+  if (!result)
+    return false;
   
   printf(" * balance: %lli\n", result->balance);  
   printf(" * immature: %lli\n", result->immature); 
+  return true;
 }
 
 
-void sendMoney(PoolRpcCmdContext *context)
+bool sendMoney(PoolRpcCmdContext *context)
 {
   if (context->argc != 2) {
     fprintf(stderr, "Usage: sendMoney <destination> <amount>\n");
-    return;
+    return false;
   }
   
   int64_t amount = atof(context->argv[1])*COIN;
   auto result = ioSendMoney(context->client, context->argv[0], amount);
   if (!result)
-    return;
+    return false;
   
   printf(" * send money is %s\n", result->success ? "OK" : "FAILED");
   if (result->success)
@@ -238,31 +245,34 @@ void sendMoney(PoolRpcCmdContext *context)
     printf(" * error: %s\n", result->error.c_str());
   printf(" * fee: %lli\n", result->fee);
   printf(" * remaining: %lli\n", result->remaining);
+  return true;
 }
 
-void ZGetBalance(PoolRpcCmdContext *context)
+bool ZGetBalance(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
     fprintf(stderr, "Usage: z_getBalance <address>\n  address - your z-addr or t-addr\n");
-    return;
+    return false;
   }
   
   auto result = ioZGetBalance(context->client, context->argv[0]);
   if (!result)
-    return;
+    return false;
   
   if (result->balance != -1) {
     printf(" * balance of %s: %lu\n", context->argv[0], result->balance);
   } else {
     printf("<error> %s\n", result->error.c_str());
   }
+
+  return true;
 }
 
-void ZSendMoney(PoolRpcCmdContext *context)
+bool ZSendMoney(PoolRpcCmdContext *context)
 {
   if (context->argc != 4) {
-    fprintf(stderr, "Usage: z_sendMoney <source> <destination> <amount> <memo>");
-    return;
+    fprintf(stderr, "Usage: z_sendMoney <source> <destination> <amount> <memo>\n");
+    return false;
   }
   
   ZDestinationT singleDestination;
@@ -272,25 +282,27 @@ void ZSendMoney(PoolRpcCmdContext *context)
   
   auto result = ioZSendMoney(context->client, context->argv[0], { singleDestination })  ;
   if (!result)
-    return;
+    return false;
   
   if (!result->asyncOperationId.empty()) {
     printf(" * async operation id: %s\n", result->asyncOperationId.c_str());
   } else {
     printf("<error> %s\n", result->error.c_str());
   }
+
+  return true;
 }
 
-void listUnspent(PoolRpcCmdContext *context)
+bool listUnspent(PoolRpcCmdContext *context)
 {
   if (context->argc != 0) {
     fprintf(stderr, "Usage: listUnspent\n");
-    return;
+    return false;
   }
   
   auto result = ioListUnspent(context->client);
   if (!result)
-    return;
+    return false;
   
   for (size_t i = 0; i < result->outs.size(); i++) {
     printf(" * out %u\n", (unsigned)i);
@@ -301,18 +313,20 @@ void listUnspent(PoolRpcCmdContext *context)
     printf("   * confirmations: %i\n", (int)out->confirmations);
     printf("   * spendable: %s\n", out->spendable ? "true" : "false");
   }
+
+  return true;
 }
 
-void ZAsyncOperationStatus(PoolRpcCmdContext *context)
+bool ZAsyncOperationStatus(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
     fprintf(stderr, "Usage: z_asyncOperationStatus <asyncOpId>\n");
-    return;
+    return false;
   }
   
   auto result = ioAsyncOperationStatus(context->client, context->argv[0]);
   if (!result)
-    return;
+    return false;
   
   printf(" * operations number: %u\n", (unsigned)result->status.size());
   for (size_t i = 0; i < result->status.size(); i++) {
@@ -326,18 +340,20 @@ void ZAsyncOperationStatus(PoolRpcCmdContext *context)
     if (!status->error.empty())
       printf("   * error: %s\n", status->error.c_str());
   }
+
+  return true;
 }
 
-void queryFoundBlocks(PoolRpcCmdContext *context)
+bool queryFoundBlocks(PoolRpcCmdContext *context)
 {
   if (context->argc != 3) {
     fprintf(stderr, "Usage: queryFoundBlocks <heightFrom> <hashFrom> <count>\n");
-    return;
+    return false;
   }
 
   auto result = ioQueryFoundBlocks(context->client, xatoi<int64_t>(context->argv[0]), context->argv[1], xatoi<unsigned>(context->argv[2]));
   if (!result)
-    return;
+    return false;
   
   for (size_t i = 0; i < result->blocks.size(); i++) {
     printf(" * block %u\n", (unsigned)i);
@@ -349,18 +365,20 @@ void queryFoundBlocks(PoolRpcCmdContext *context)
     printf("   * confirmations: %i\n", (int)block->confirmations);
     printf("   * foundBy: %s\n", !block->foundBy.empty() ? block->foundBy.c_str() : "<empty>");    
   }
+
+  return true;
 }
 
-void queryClientInfo(PoolRpcCmdContext *context)
+bool queryClientInfo(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
     fprintf(stderr, "Usage: queryClientInfo <userId>\n");
-    return;
+    return false;
   }
   
   auto result = ioQueryClientInfo(context->client, context->argv[0]);
   if (!result)
-    return;
+    return false;
   
   auto &info = result->info;
   printf("\nbalance: %.3lf, requested: %.3lf, paid: %.3lf, name: %s, email: %s, minimalPayout: %.3lf\n",
@@ -370,18 +388,20 @@ void queryClientInfo(PoolRpcCmdContext *context)
          !info->name.empty() ? info->name.c_str() : "<empty>",
          !info->email.empty() ? info->email.c_str() : "<empty>",
          (double)(info->minimalPayout)/COIN);
+
+  return true;
 }
 
-void queryPoolBalance(PoolRpcCmdContext *context)
+bool queryPoolBalance(PoolRpcCmdContext *context)
 {
   if (context->argc != 2) {
     fprintf(stderr, "Usage: queryPoolBalance <timeFrom> <count>\n");
-    return;
+    return false;
   }
 
   auto result = ioQueryPoolBalance(context->client, xatoi<int64_t>(context->argv[0]), xatoi<unsigned>(context->argv[1]));
   if (!result)
-    return;
+    return false;
   
   printf("\ttime\t\t\tbalance\t\t\timmature\tusers\t\tqueued\t\tnet\n\n");
   auto recordsNum = result->poolBalances.size();
@@ -395,13 +415,15 @@ void queryPoolBalance(PoolRpcCmdContext *context)
            (double)pb->queued / COIN,
            (double)pb->net / COIN);
   }
+
+  return true;
 }
 
-void queryPayouts(PoolRpcCmdContext *context)
+bool queryPayouts(PoolRpcCmdContext *context)
 {
   if (context->argc != 4) {
     fprintf(stderr, "Usage: queryPayouts <userId> <groupingTy> <timeFrom> <count>\n");
-    return;
+    return false;
   }
   
   
@@ -424,7 +446,7 @@ void queryPayouts(PoolRpcCmdContext *context)
                                xatoi<int64_t>(context->argv[2]),
                                xatoi<unsigned>(context->argv[3]));
   if (!result)
-    return;
+    return false;
 
   auto payoutsNum = result->payouts.size();
   for (decltype(payoutsNum) i = 0; i < payoutsNum; i++) {
@@ -435,18 +457,20 @@ void queryPayouts(PoolRpcCmdContext *context)
            (double)record->value / COIN,
            !record->txid.empty() ? record->txid.c_str() : "<no txid>");
   }
+
+  return true;
 }
 
-void queryClientStats(PoolRpcCmdContext *context)
+bool queryClientStats(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
     fprintf(stderr, "Usage: queryClientStats <userId>\n");
-    return;
+    return false;
   }
   
   auto result = ioQueryClientStats(context->client, context->argv[0]);
   if (!result)
-    return;
+    return false;
   
   auto workersNum = result->workers.size();
   for (decltype(workersNum) i = 0; i < workersNum; i++) {
@@ -469,18 +493,19 @@ void queryClientStats(PoolRpcCmdContext *context)
          (unsigned)result->aggregate->other,
          (int)result->aggregate->avgerageLatency,
          (unsigned)result->aggregate->power);
+  return true;
 }
 
-void queryPoolStats(PoolRpcCmdContext *context)
+bool queryPoolStats(PoolRpcCmdContext *context)
 {
   if (context->argc != 0) {
     fprintf(stderr, "Usage: queryPoolStats\n");
-    return;
+    return false;
   }
   
   auto result = ioQueryPoolStats(context->client);
   if (!result)
-    return;  
+    return false;
   
   printf("\nTotal:\n  clients: %u\n  workers: %u\n  cpus:  %u\n  gpus:  %u\n  asics:  %u\n  other:  %u\n  latency: %i\n  power: %u\n", 
          (unsigned)result->aggregate->clients,
@@ -491,62 +516,67 @@ void queryPoolStats(PoolRpcCmdContext *context)
          (unsigned)result->aggregate->other,
          (int)result->aggregate->avgerageLatency,
          (unsigned)result->aggregate->power);
+  return true;
 }
 
-void updateClientInfo(PoolRpcCmdContext *context)
+bool updateClientInfo(PoolRpcCmdContext *context)
 {
   if (context->argc != 4) {
-    fprintf(stderr, "Usage: updateClientInfo <userId> <minimalPayout> <userName> <email>");
-    return;
+    fprintf(stderr, "Usage: updateClientInfo <userId> <minimalPayout> <userName> <email>\n");
+    return false;
   }
   
   auto result = ioUpdateClientInfo(context->client, context->argv[0], context->argv[2], context->argv[3], xatoi<int64_t>(context->argv[1]));
   if (!result)
-    return;
+    return false;
   
   printf("successfully updated\n");
+  return true;
 }
 
-void resendBrokenTx(PoolRpcCmdContext *context)
+bool resendBrokenTx(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
-    fprintf(stderr, "Usage: resendBrokenTx <userId>");
-    return;
+    fprintf(stderr, "Usage: resendBrokenTx <userId>\n");
+    return false;
   }
   
   auto result = ioResendBrokenTx(context->client, context->argv[0]);
   if (!result)
-    return;
+    return false;
   
   printf("successfully called\n");
+  return true;
 }
 
-void moveBalance(PoolRpcCmdContext *context)
+bool moveBalance(PoolRpcCmdContext *context)
 {
   if (context->argc != 2) {
-    fprintf(stderr, "Usage: moveBalance <from> <to>");
-    return;
+    fprintf(stderr, "Usage: moveBalance <from> <to>\n");
+    return false;
   }
   
   auto result = ioMoveBalance(context->client, context->argv[0], context->argv[1]);
   if (!result)
-    return;
+    return false;
   
   printf(result->status == 1 ? "successfully called\n" : "moveBalance reported error");
+  return true;
 }
 
-void manualPayout(PoolRpcCmdContext *context)
+bool manualPayout(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
     fprintf(stderr, "Usage: manualPayout <address>\n\n");
-    return;
+    return false;
   }
   
   auto result = ioManualPayout(context->client, context->argv[0]);
   if (!result)
-    return;
+    return false;
   
-  printf(result->status == 1 ? "successfully called\n" : "moveBalance reported error");
+  printf(result->status == 1 ? "successfully called\n" : "manualPayout reported error");
+  return true;
 }
 
 methodProcTy *getMethodProc(const char *name)
@@ -579,8 +609,8 @@ void requestProc(void *arg)
     return;
   }
   
-  proc(context);  
-  postQuitOperation(context->client->base());  
+  context->result = proc(context);
+  postQuitOperation(context->client->base());
 }
 
 int main(int argc, char **argv)
@@ -614,5 +644,5 @@ int main(int argc, char **argv)
   coroutineTy *proc = coroutineNew(requestProc, &context, 0x10000);  
   coroutineCall(proc);
   asyncLoop(base);
-  return 0;
+  return context.result == true ? 0 : 1;
 }

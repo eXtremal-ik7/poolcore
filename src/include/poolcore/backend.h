@@ -4,6 +4,7 @@
 #include "accounting.h"
 #include "statistics.h"
 #include "asyncio/asyncio.h"
+#include "asyncio/device.h"
 #include "poolcommon/pool_generated.h"
 #include "boost/thread.hpp"
 
@@ -40,7 +41,8 @@ public:
 private:
   asyncBase *_base;
   uint64_t _timeout;
-  int _pipeFd[2];
+//  int _pipeFd[2];
+  pipeTy _pipeFd;
   aioObject *_write;
   aioObject *_read;
   boost::thread *_thread;
