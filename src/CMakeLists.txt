@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.0)
+project(poolcore)
 
 option(BTC_ENABLED "Build bitcoin core client integration" OFF)
 option(DTC_ENABLED "Build datacoin client integration" OFF)

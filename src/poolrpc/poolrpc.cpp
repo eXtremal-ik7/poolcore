@@ -1,5 +1,6 @@
 #include "asyncio/asyncio.h"
 #include "asyncio/coroutine.h"
+#include "asyncio/device.h"
 #include "asyncio/socket.h"
 #include "p2p/p2p.h"
 #include "poolrpc/poolrpc.h"
@@ -7,33 +8,32 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// TEMP
-#include <unistd.h>
-
 void getInfoHandler(p2pConnection *socket, const P2PMessage *msg, uint32_t id);
 void getCurrentBlockHandler(p2pConnection *socket, const P2PMessage *msg, uint32_t id);
 
 
 class PoolRpcObject {
 private:
-  enum pipeDescrs {
-    Read = 0,
-    Write
-  };
-  
-private:
-  int _pipeFd[2];
+  asyncBase *_base;
+  pipeTy _pipe;
+  aioObject *_readFd;
+  aioObject *_writeFd;
   BlockTemplateTy *_blockTemplate;
   ReserveKeyTy *_reserveKey;
   unsigned _extraNonce;
   
 public:
-  PoolRpcObject() : _blockTemplate(0), _reserveKey(0), _extraNonce(0) {
-    pipe(_pipeFd);
+  PoolRpcObject() : _blockTemplate(nullptr), _reserveKey(nullptr), _extraNonce(0) {
+    _base = createAsyncBase(amOSDefault);
+
+    pipeCreate(&_pipe, 1);
+    _readFd = newDeviceIo(_base, _pipe.read);
+    _writeFd = newDeviceIo(_base, _pipe.write);
   }
   
-  int readFd() { return _pipeFd[Read]; }
-  int writeFd() { return _pipeFd[Write]; }
+  asyncBase *base() { return _base; }
+  aioObject *readFd() { return _readFd; }
+  aioObject *writeFd() { return _readFd; }
   
   ReserveKeyTy *getReserveKey() { return _reserveKey; }
   
@@ -52,7 +52,7 @@ public:
   }
   
   void updateBlockTemplate() {
-    // deleteBlockTemplate(_blockTemplate);
+     deleteBlockTemplate(_blockTemplate);
     _blockTemplate = createBlockTemplate(_reserveKey);
     _extraNonce = 0;
   }
@@ -75,8 +75,8 @@ void newBlockNotify(void *index)
   fbb.Finish(CreateSignal(fbb, SignalId_NewBlock, Data_Block, blockOffset.Union()));
   
   uint32_t size = fbb.GetSize();
-  write(poolObject.writeFd(), &size, sizeof(size));
-  write(poolObject.writeFd(), fbb.GetBufferPointer(), size);
+  aioWrite(poolObject.writeFd(), &size, sizeof(size), afWaitAll, 0, nullptr, nullptr);
+  aioWrite(poolObject.writeFd(), fbb.GetBufferPointer(), size, afWaitAll, 0, nullptr, nullptr);
 }
 
 void getInfoHandler(asyncBase *base, p2pConnection *connection, const P2PMessage *msg, uint32_t id)
@@ -296,14 +296,13 @@ void requestHandler(p2pPeer *peer, uint32_t id, void *buffer, size_t size, void 
 void signalProc(void *arg)
 {
   p2pNode *node = (p2pNode*)arg;
-  aioObject *object = newDeviceIo(node->base(), poolObject.readFd());
   xmstream stream;
   while (true) {
     uint32_t msgSize;
     stream.reset();
-    if (ioRead(object, &msgSize, sizeof(msgSize), afWaitAll, 0) != sizeof(msgSize))
+    if (ioRead(poolObject.readFd(), &msgSize, sizeof(msgSize), afWaitAll, 0) != sizeof(msgSize))
       break;
-    if (ioRead(object, stream.alloc(msgSize), msgSize, afWaitAll, 0) != msgSize)
+    if (ioRead(poolObject.readFd(), stream.alloc(msgSize), msgSize, afWaitAll, 0) != msgSize)
       break;
     stream.seekSet(0);
             
@@ -323,15 +322,14 @@ void *poolRpcThread(void *arg)
 {
   initializeSocketSubsystem();  
   poolObject.updateReserveKey();  
-  asyncBase *base = createAsyncBase(amOSDefault);  
   
-  // // TODO: cluster name must contain coin name, poolrpc not valid
+  // TODO: cluster name must contain coin name, poolrpc not valid
   uint16_t port = static_cast<uint16_t>(p2pPort());
   HostAddress address;
   address.family = AF_INET;
   address.ipv4 = INADDR_ANY;
   address.port = xhton<uint16_t>(port);    
-  p2pNode *node = p2pNode::createNode(base, &address, "pool_rpc", true);
+  p2pNode *node = p2pNode::createNode(poolObject.base(), &address, "pool_rpc", true);
   if (!node) {
     printf("can't create poolrpc node\n");
     return nullptr;
@@ -344,6 +342,6 @@ void *poolRpcThread(void *arg)
   coroutineTy *signalHandler = coroutineNew(signalProc, node, 0x10000);
   coroutineCall(signalHandler);
   
-  asyncLoop(base);
+  asyncLoop(poolObject.base());
   return nullptr;
 }
