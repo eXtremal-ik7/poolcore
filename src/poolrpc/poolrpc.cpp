@@ -61,10 +61,7 @@ public:
 PoolRpcObject poolObject;
 
 void newBlockNotify(void *index)
-{
-  // update block template
-  poolObject.updateBlockTemplate();
-  
+{  
   // serialize block using flatbuffers
   flatbuffers::FlatBufferBuilder fbb;
 
@@ -310,6 +307,8 @@ void signalProc(void *arg)
     const Signal *signal = flatbuffers::GetRoot<Signal>(stream.data()); 
     switch (signal->signalId()) {
       case SignalId_NewBlock : {
+        // update block template
+        poolObject.updateBlockTemplate();
         node->sendSignal(stream.data(), stream.sizeOf());
         break;
       }
