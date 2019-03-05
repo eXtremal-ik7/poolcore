@@ -1,5 +1,5 @@
 #include "poolcore/leveldbBase.h"
-
+#include "loguru.hpp"
 
 using namespace boost::filesystem;
 
@@ -244,7 +244,7 @@ levelDbBase::levelDbBase(const std::string &path) : _path(path)
     if (is_directory(dirIt->status())) {
       // Add a partition
       _partitions.push_back(partition(dirIt->path().filename().c_str()));
-      fprintf(stderr, "   * found partition %s for %s\n", dirIt->path().c_str(), path.c_str());
+      LOG_F(INFO, "   * found partition %s for %s", dirIt->path().c_str(), path.c_str());
     }
   }
   
@@ -256,7 +256,7 @@ levelDbBase::~levelDbBase()
   for (auto &p: _partitions) {
     delete p.db;
     if (p.db)
-      fprintf(stderr, "<info> partition %s / %s was closed\n", _path.c_str(), p.id.c_str());
+      LOG_F(INFO, "partition %s / %s was closed", _path.c_str(), p.id.c_str());
   }
 }
 

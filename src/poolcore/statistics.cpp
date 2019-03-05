@@ -1,4 +1,5 @@
 #include "poolcore/statistics.h"
+#include "loguru.hpp"
 #include "p2p/p2p.h"
 #include <algorithm>
 
@@ -110,16 +111,16 @@ void StatisticDb::update()
     _poolStats.latency = lcount ? (double)avgLatency / lcount : -1;
     _poolStats.power = power;
     _poolStatsDb.put(_poolStats);
-    fprintf(stderr,
-            "<info> clients: %u, workers: %u, cpus: %u, gpus: %u, asics: %u, other: %u, latency: %u, power: %u\n",
-            (unsigned)_poolStats.clients,
-            (unsigned)_poolStats.workers,
-            (unsigned)_poolStats.cpus,
-            (unsigned)_poolStats.gpus,
-            (unsigned)_poolStats.asics,
-            (unsigned)_poolStats.other,
-            (unsigned)_poolStats.latency,
-            (unsigned)_poolStats.power);
+    LOG_F(INFO,
+          "clients: %u, workers: %u, cpus: %u, gpus: %u, asics: %u, other: %u, latency: %u, power: %u",
+          (unsigned)_poolStats.clients,
+          (unsigned)_poolStats.workers,
+          (unsigned)_poolStats.cpus,
+          (unsigned)_poolStats.gpus,
+          (unsigned)_poolStats.asics,
+          (unsigned)_poolStats.other,
+          (unsigned)_poolStats.latency,
+          (unsigned)_poolStats.power);
              
   }
 }

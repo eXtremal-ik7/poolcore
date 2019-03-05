@@ -1,6 +1,5 @@
 #define __STDC_FORMAT_MACROS
 #include "poolcore/backendData.h"
-
 #include <inttypes.h>
 
 std::string partByHeight(unsigned height)

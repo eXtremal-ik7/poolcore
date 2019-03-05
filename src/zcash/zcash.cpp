@@ -1,5 +1,7 @@
 #include "poolrpc/poolrpc.h"
 #include "poolcommon/pool_generated.h"
+
+#undef NDEBUG
 #include "chain.h"
 #include "key_io.h"
 #include "miner.h"
@@ -177,8 +179,8 @@ void sendMoney(const char *destination, int64_t amount, SendMoneyResultT &result
 
 void createBlockRecord(BlockIndexTy *idx, BlockT &out)
 {
-  if (idx) {
-    CBlockIndex *blockIndex = (CBlockIndex*)idx;
+  CBlockIndex *blockIndex = (CBlockIndex*)idx;
+  if (blockIndex && blockIndex->pprev) {
     out.height = blockIndex->nHeight;
     out.bits = blockIndex->nBits;
     out.hash = blockIndex->phashBlock->GetHex();

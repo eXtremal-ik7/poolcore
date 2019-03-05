@@ -3,6 +3,7 @@
 #include "poolcommon/poolapi.h"
 #include "poolcore/backend.h"
 #include "poolcommon/pool_generated.h"
+#include "loguru.hpp"
 
 void foundBlockHandler(asyncBase *base, p2pConnection *connection, const Query *Q, uint32_t id, PoolBackend *backend)
 {
@@ -143,7 +144,7 @@ void poolcoreRequestHandler(p2pPeer *peer, uint32_t id, void *buffer, size_t siz
   
   flatbuffers::Verifier verifier((const uint8_t*)buffer, size);
   if (!VerifyP2PMessageBuffer(verifier)) {
-    fprintf(stderr, "<error> can't decode query message\n");
+    LOG_F(ERROR, "can't decode query message");
     return;
   }
   
@@ -185,7 +186,7 @@ void poolcoreRequestHandler(p2pPeer *peer, uint32_t id, void *buffer, size_t siz
       backend->accountingDb()->manualPayout(peer, id, Q->userId()->c_str());
       break;
     default :
-      fprintf(stderr, "<error> unknown query function id\n");
+      LOG_F(ERROR, "<error> unknown query function id");
       break;
   }
 }

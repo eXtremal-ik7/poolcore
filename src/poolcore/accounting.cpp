@@ -3,9 +3,9 @@
 
 #include "poolcore/accounting.h"
 #include "p2p/p2p.h"
-// #include "flatbuffers/flatbuffers.h"
 #include "poolcommon/poolapi.h"
 #include "poolcore/base58.h"
+#include "loguru.hpp"
 #include <stdarg.h>
 
 #define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
@@ -110,7 +110,7 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
     unsigned counter = 0;
     _sharesFd = open((path(_cfg.dbPath) / "shares.raw").c_str(), O_RDWR | O_SYNC | O_CREAT, S_IRUSR | S_IWUSR);
     if (_sharesFd == -1)
-      fprintf(stderr, "<error> can't open shares file %s (%s)\n", (path(_cfg.dbPath) / "shares.raw").c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open shares file %s (%s)", (path(_cfg.dbPath) / "shares.raw").c_str(), strerror(errno));
     auto fileSize = lseek(_sharesFd, 0, SEEK_END);
     lseek(_sharesFd, 0, SEEK_SET);
     if (fileSize > 0) {
@@ -131,15 +131,15 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
       }  
     }
   
-    fprintf(stderr, "<info>loaded %u shares from shares.raw file\n", counter);
+    LOG_F(INFO, "loaded %u shares from shares.raw file", counter);
     for (auto s: _currentScores)
-      fprintf(stderr, "   * %s: %" PRId64 "\n", s.first.c_str(), s.second);
+      LOG_F(INFO, "   * %s: %" PRId64 "", s.first.c_str(), s.second);
   }
   
   {
     int _payoutsFdOld = open((path(_cfg.dbPath) / "payouts.raw.old").c_str(), O_RDWR | O_SYNC | O_CREAT, S_IRUSR | S_IWUSR);
     if (_payoutsFdOld == -1)
-      fprintf(stderr, "<error> can't open payouts file %s (%s)\n", (path(_cfg.dbPath) / "payouts.raw.old").c_str(), strerror(errno));  
+      LOG_F(ERROR, "can't open payouts file %s (%s)", (path(_cfg.dbPath) / "payouts.raw.old").c_str(), strerror(errno));
     
     struct stat s;
     fstat(_payoutsFdOld, &s);
@@ -163,14 +163,14 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
     }
     
     ftruncate(_payoutsFdOld, 0); 
-    fprintf(stderr, "<info>loaded %u payouts from payouts.raw.old file\n", (unsigned)_payoutQueue.size());
+    LOG_F(INFO, "loaded %u payouts from payouts.raw.old file", (unsigned)_payoutQueue.size());
   }
   
   {
     unsigned payoutsNum = 0;
     _payoutsFd = open((path(_cfg.dbPath) / "payouts.raw").c_str(), O_RDWR | O_SYNC | O_CREAT, S_IRUSR | S_IWUSR);
     if (_payoutsFd == -1)
-      fprintf(stderr, "<error> can't open payouts file %s (%s)\n", (path(_cfg.dbPath) / "payouts.raw").c_str(), strerror(errno));       
+      LOG_F(ERROR, "can't open payouts file %s (%s)", (path(_cfg.dbPath) / "payouts.raw").c_str(), strerror(errno));
       struct stat s;
       fstat(_payoutsFd, &s);
       auto fileSize = s.st_size;    
@@ -188,7 +188,7 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
       }
     }
     
-    fprintf(stderr, "<info>loaded %u payouts from payouts.raw file\n", payoutsNum);
+    LOG_F(INFO, "loaded %u payouts from payouts.raw file", payoutsNum);
     if (payoutsNum != _payoutQueue.size())
       updatePayoutFile();
   }
@@ -208,12 +208,12 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
           }
         }
       } else {
-        fprintf(stderr, "<error>rounds db contains invalid record\n");
+        LOG_F(ERROR, "rounds db contains invalid record");
         delete R;
       }
     }
   
-    fprintf(stderr, "<info>loaded %u rounds from db\n", (unsigned)_allRounds.size());
+    LOG_F(INFO, "loaded %u rounds from db", (unsigned)_allRounds.size());
   }
 
   {
@@ -226,7 +226,7 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
         _balanceMap[ub.userId] = ub;
     }
     
-    fprintf(stderr, "<info>loaded %u user balance data from db\n", (unsigned)_balanceMap.size());
+    LOG_F(INFO, "loaded %u user balance data from db", (unsigned)_balanceMap.size());
   }
 }
 
@@ -253,7 +253,7 @@ void AccountingDb::cleanupRounds()
   }
   
   if (I != _allRounds.begin()) {
-    fprintf(stderr, "<info> delete %u old rounds\n", (unsigned)std::distance(_allRounds.begin(), I));
+    LOG_F(INFO, "delete %u old rounds", (unsigned)std::distance(_allRounds.begin(), I));
     _allRounds.erase(_allRounds.begin(), I);
   }
 }
@@ -268,7 +268,7 @@ void AccountingDb::addShare(const Share *share)
     stream.write(share->userId()->c_str(), share->userId()->size());
     stream.write<int64_t>(share->value());
     if (write(_sharesFd, stream.data(), stream.sizeOf()) != stream.sizeOf())
-      fprintf(stderr, "<error> can't save share to file (%s fd=%i), it can be lost\n", strerror(errno), _sharesFd);
+      LOG_F(ERROR, "can't save share to file (%s fd=%i), it can be lost", strerror(errno), _sharesFd);
   }
   
   
@@ -296,7 +296,7 @@ void AccountingDb::addShare(const Share *share)
     
     int64_t feeValue = generatedCoins * _cfg.poolFee / 100;
     int64_t available = generatedCoins - feeValue;    
-    fprintf(stderr, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "\n", (unsigned)share->height(), share->hash()->c_str(), generatedCoins, feeValue, available);
+    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share->height(), share->hash()->c_str(), generatedCoins, feeValue, available);
 
     miningRound *R = new miningRound;
     R->height = share->height();
@@ -360,14 +360,14 @@ void AccountingDb::addShare(const Share *share)
       
       // calculate payout values for each client
       int64_t totalPayout = 0;
-      fprintf(stderr, " * total share value: %" PRId64 "\n", totalValue);
+      LOG_F(INFO, " * total share value: %" PRId64 "", totalValue);
       for (auto I = agg.begin(), IE = agg.end(); I != IE; ++I) {
         I->payoutValue += ((double)I->shareValue / (double)totalValue) * R->availableCoins;
         totalPayout += I->payoutValue;
-        fprintf(stderr, "   * addr: %s, payout: %" PRId64 "\n", I->userId.c_str(), I->payoutValue);
+        LOG_F(INFO, "   * addr: %s, payout: %" PRId64 "", I->userId.c_str(), I->payoutValue);
       }
       
-      fprintf(stderr, " * total payout: %" PRId64 "\n", totalPayout);
+      LOG_F(INFO, " * total payout: %" PRId64 "", totalPayout);
       
       // correct payouts for use all available coins
       if (!agg.empty()) {
@@ -385,7 +385,7 @@ void AccountingDb::addShare(const Share *share)
           totalPayout += I->payoutValue;
         }
         
-        fprintf(stderr, " * total payout (after correct): %" PRId64 "\n", totalPayout);
+        LOG_F(INFO, " * total payout (after correct): %" PRId64 "", totalPayout);
       }
       
       // calculate payout delta for each user and send to queue
@@ -430,7 +430,7 @@ void AccountingDb::checkBlockConfirmations()
   if (_roundsWithPayouts.empty())
     return;
   
-  fprintf(stderr, "<info> Checking %u blocks for confirmations...\n", (unsigned)_roundsWithPayouts.size());  
+  LOG_F(INFO, "Checking %u blocks for confirmations...", (unsigned)_roundsWithPayouts.size());
   std::vector<miningRound*> rounds(_roundsWithPayouts.begin(), _roundsWithPayouts.end());
   std::vector<std::string> hashes;
   for (auto &r: rounds)
@@ -441,7 +441,7 @@ void AccountingDb::checkBlockConfirmations()
     return;
   
   if (hashes.size() != result->blocks.size()) {
-    fprintf(stderr, "<error>: response don't contains all requested blocks\n");
+    LOG_F(ERROR, "response don't contains all requested blocks");
     return;
   }
   
@@ -450,13 +450,13 @@ void AccountingDb::checkBlockConfirmations()
     miningRound *R = rounds[i];
     
     if (block->confirmations == -1) {
-      fprintf(stderr, "<info>: block %u/%s marked as orphan, can't do any payout\n", (unsigned)block->height, hashes[i].c_str());
+      LOG_F(INFO, "block %u/%s marked as orphan, can't do any payout", (unsigned)block->height, hashes[i].c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I)
         I->queued = 0;
       _roundsWithPayouts.erase(R);
       _roundsDb.put(*R);
     } else if (block->confirmations >= _cfg.requiredConfirmations) {
-      fprintf(stderr, "<info>: Make payout for block %u/%s\n", (unsigned)block->height, block->hash.c_str());
+      LOG_F(INFO, "Make payout for block %u/%s", (unsigned)block->height, block->hash.c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I) {
         requestPayout(I->userId, I->queued);
         I->queued = 0;
@@ -472,7 +472,7 @@ void AccountingDb::checkBlockConfirmations()
 void AccountingDb::makePayout()
 {
   if (!_payoutQueue.empty()) {
-    fprintf(stderr, "<info> Accounting: checking %u payout requests...\n", (unsigned)_payoutQueue.size());
+    LOG_F(INFO, "Accounting: checking %u payout requests...", (unsigned)_payoutQueue.size());
     
     // Merge small payouts and payouts to invalid address
     {
@@ -481,11 +481,11 @@ void AccountingDb::makePayout()
         if (I->payoutValue < _cfg.minimalPayout ||
             (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->userId.c_str())) ) {
           payoutAccMap[I->userId] += I->payoutValue;
-          fprintf(stderr,
-                  "<info> Accounting: merge payout %s for %s (total already %s)\n",
-                  FormatMoney(I->payoutValue).c_str(),
-                  I->userId.c_str(),
-                  FormatMoney(payoutAccMap[I->userId]).c_str());
+          LOG_F(INFO,
+                "Accounting: merge payout %s for %s (total already %s)",
+                FormatMoney(I->payoutValue).c_str(),
+                I->userId.c_str(),
+                FormatMoney(payoutAccMap[I->userId]).c_str());
           _payoutQueue.erase(I++);        
         } else {
           ++I;
@@ -500,52 +500,52 @@ void AccountingDb::makePayout()
     unsigned index = 0;
     for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
       if (I->payoutValue < _cfg.minimalPayout) {
-        fprintf(stderr,
-                "<info> [%u] Accounting: ignore this payout to %s, value is %s, minimal is %s\n",
-                index,
-                I->userId.c_str(),
-                FormatMoney(I->payoutValue).c_str(),
-                FormatMoney(_cfg.minimalPayout).c_str());
+        LOG_F(INFO,
+              "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
+              index,
+              I->userId.c_str(),
+              FormatMoney(I->payoutValue).c_str(),
+              FormatMoney(_cfg.minimalPayout).c_str());
         ++I;
         continue;
       }
       
       if (remaining != -1 && remaining <= I->payoutValue) {
-        fprintf(stderr, "<info> [%u] Accounting: no money left to pay.\n", index);
+        LOG_F(WARNING, "[%u] Accounting: no money left to pay", index);
         break;
       }
       
       // Check address is valid
       if (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->userId.c_str())) {
-        fprintf(stderr, "<info> invalid payment address %s\n", I->userId.c_str());
+        LOG_F(WARNING, "invalid payment address %s", I->userId.c_str());
         ++I;
         continue;
       }
 
       auto result = ioSendMoney(_client, I->userId, I->payoutValue);
       if (!result) {
-        fprintf(stderr, "<info> sendMoney failed for %s\n", I->userId.c_str());
+        LOG_F(ERROR, "sendMoney failed for %s", I->userId.c_str());
         ++I;
         continue;
       }
       
       remaining = result->remaining;
       if (result->success) {
-        fprintf(stderr,
-                "<info> Accounting: [%u] %s coins sent to %s with txid %s\n",
-                index,
-                FormatMoney(I->payoutValue).c_str(),
-                I->userId.c_str(),
-                result->txid.c_str());
+        LOG_F(INFO,
+              "Accounting: [%u] %s coins sent to %s with txid %s",
+              index,
+              FormatMoney(I->payoutValue).c_str(),
+              I->userId.c_str(),
+              result->txid.c_str());
         payoutSuccess(I->userId, I->payoutValue, result->fee, result->txid.c_str());
         _payoutQueue.erase(I++);
       } else {
-        fprintf(stderr,
-                "<info> Accounting: [%u] SendMoneyToDestination FAILED: %s coins to %s because: %s\n",
-                index,
-                FormatMoney(I->payoutValue).c_str(),
-                I->userId.c_str(),
-                result->error.c_str());
+        LOG_F(ERROR,
+              "Accounting: [%u] SendMoneyToDestination FAILED: %s coins to %s because: %s",
+              index,
+              FormatMoney(I->payoutValue).c_str(),
+              I->userId.c_str(),
+              result->error.c_str());
         ++I;
         
         // zcash specific error
@@ -563,7 +563,7 @@ void AccountingDb::makePayout()
     // move all to Z-Addr
     auto unspent = ioListUnspent(_client);
     if (unspent && !unspent->outs.empty()) {
-      fprintf(stderr, "<info> Accounting: move %u coinbase outs to Z-Addr\n", (unsigned)unspent->outs.size());
+      LOG_F(INFO, "Accounting: move %u coinbase outs to Z-Addr", (unsigned)unspent->outs.size());
       for (auto &out: unspent->outs) {
         if (out->address == _cfg.poolTAddr || out->amount < ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE)
           continue;
@@ -576,21 +576,21 @@ void AccountingDb::makePayout()
         destination.memo = "";
         auto result = ioZSendMoney(_client, out->address.c_str(), { destination });
         if (!result || result->asyncOperationId.empty()) {
-          fprintf(stderr,
-                  "<error> async operation start error %s: source=%s, destination=%s, amount=%li\n",
-                  !result->error.empty() ? result->error.c_str() : "<unknown error>",
-                  out->address.c_str(),
-                  destination.address.c_str(),
-                  (long)destination.amount);
+          LOG_F(INFO,
+                "async operation start error %s: source=%s, destination=%s, amount=%li",
+                !result->error.empty() ? result->error.c_str() : "<unknown error>",
+                out->address.c_str(),
+                destination.address.c_str(),
+                (long)destination.amount);
           continue;
         }
     
-        fprintf(stderr,
-                "<info> moving %li coins from %s to %s started (%s)\n",
-                (long)destination.amount,
-                out->address.c_str(),
-                destination.address.c_str(),
-                result->asyncOperationId.c_str());
+        LOG_F(INFO,
+              "moving %li coins from %s to %s started (%s)",
+              (long)destination.amount,
+              out->address.c_str(),
+              destination.address.c_str(),
+              result->asyncOperationId.c_str());
       }
     }
 
@@ -598,19 +598,19 @@ void AccountingDb::makePayout()
     // move Z-Addr to T-Addr
     auto zaddrBalance = ioZGetBalance(_client, _cfg.poolZAddr);
     if (zaddrBalance && zaddrBalance->balance > 0) {
-      fprintf(stderr, "<info> Accounting: move %.3lf coins to transparent address\n", zaddrBalance->balance/100000000.0);
+      LOG_F(INFO, "<info> Accounting: move %.3lf coins to transparent address", zaddrBalance->balance/100000000.0);
       ZDestinationT destination;
       destination.address = _cfg.poolTAddr;
       destination.amount = zaddrBalance->balance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE;
       destination.memo = "";  
       auto result = ioZSendMoney(_client, _cfg.poolZAddr, { destination });
       if (result) {
-        fprintf(stderr,
-                "<info> moving %li coins from %s to %s started (%s)\n",
-                (long)destination.amount,
-                _cfg.poolZAddr.c_str(),
-                _cfg.poolTAddr.c_str(),
-                !result->asyncOperationId.empty() ? result->asyncOperationId.c_str() : "<none>");
+        LOG_F(INFO,
+              "moving %li coins from %s to %s started (%s)",
+              (long)destination.amount,
+              _cfg.poolZAddr.c_str(),
+              _cfg.poolTAddr.c_str(),
+              !result->asyncOperationId.empty() ? result->asyncOperationId.c_str() : "<none>");
       }
     }
   }  
@@ -624,14 +624,14 @@ void AccountingDb::makePayout()
   for (auto &userIt: _balanceMap) {
     if (userIt.second.requested > 0 && waitingForPayout.count(userIt.second.userId) == 0) {
       // payout lost? add to back of queue
-      fprintf(stderr, "<warning> found lost payout! %s\n", userIt.second.userId.c_str());
+      LOG_F(WARNING, "found lost payout! %s", userIt.second.userId.c_str());
        _payoutQueue.push_back(payoutElement(userIt.second.userId, userIt.second.requested, 0));
        totalLost = userIt.second.requested;
     }    
   }
   
   if (totalLost) {
-    fprintf(stderr, "<warning> total lost: %li\n", (long)totalLost);
+    LOG_F(WARNING, "total lost: %li", (long)totalLost);
     updatePayoutFile();  
   }
 }
@@ -650,7 +650,7 @@ void AccountingDb::checkBalance()
   if (!_cfg.poolZAddr.empty()) {
     auto result = ioZGetBalance(_client, _cfg.poolZAddr);
     if (!result || result->balance == -1) {
-      fprintf(stderr, "<error> can't get balance of Z-address %s\n", _cfg.poolZAddr.c_str());
+      LOG_F(ERROR, "can't get balance of Z-address %s", _cfg.poolZAddr.c_str());
       return;
     }
     zbalance = result->balance;
@@ -658,7 +658,7 @@ void AccountingDb::checkBalance()
   
   auto result = ioGetBalance(_client);
   if (!result) {
-    fprintf(stderr, "<error> can't retrieve balance\n");
+    LOG_F(ERROR, "can't retrieve balance");
     return;
   }
   
@@ -691,15 +691,15 @@ void AccountingDb::checkBalance()
     _poolBalanceDb.put(pb);
   }
   
-  fprintf(stderr,
-          "<info> accounting: balance=%s req/balance=%s req/queue=%s immature=%s users=%s queued=%s, net=%s\n",
-          FormatMoney(balance).c_str(),
-          FormatMoney(requestedInBalance).c_str(),
-          FormatMoney(requestedInQueue).c_str(),
-          FormatMoney(immature).c_str(),
-          FormatMoney(userBalance).c_str(),
-          FormatMoney(queued).c_str(),
-          FormatMoney(net).c_str());  
+  LOG_F(INFO,
+        "accounting: balance=%s req/balance=%s req/queue=%s immature=%s users=%s queued=%s, net=%s",
+        FormatMoney(balance).c_str(),
+        FormatMoney(requestedInBalance).c_str(),
+        FormatMoney(requestedInQueue).c_str(),
+        FormatMoney(immature).c_str(),
+        FormatMoney(userBalance).c_str(),
+        FormatMoney(queued).c_str(),
+        FormatMoney(net).c_str());
  
 
 }
@@ -725,7 +725,7 @@ void AccountingDb::payoutSuccess(const std::string &address, int64_t value, int6
 {
   auto It = _balanceMap.find(address);
   if (It == _balanceMap.end()) {
-    fprintf(stderr, "<error> payout to unknown address %s\n", address.c_str());
+    LOG_F(ERROR, "payout to unknown address %s", address.c_str());
     return;
   }
   
@@ -847,7 +847,7 @@ void AccountingDb::moveBalance(p2pPeer *peer,
     result = 1;    
   } else {
     result = 0;
-    fprintf(stderr, "<warning> moveBalance: source account not exists");
+    LOG_F(WARNING, "moveBalance: source account not exists");
   }
   
   QueryResultBuilder qrb(fbb);
@@ -889,7 +889,7 @@ void AccountingDb::resendBrokenTx(p2pPeer *peer,
   
     delete It;
     for (auto &p: allRecords) {
-      printf("brokentx: %s %u %li\n", p.userId.c_str(), (unsigned)p.time, (long)p.value);
+      LOG_F(INFO, "brokentx: %s %u %li", p.userId.c_str(), (unsigned)p.time, (long)p.value);
       B.paid -= p.value;
       _balanceDb.put(B);
       db.deleteRow(p);    
@@ -898,7 +898,7 @@ void AccountingDb::resendBrokenTx(p2pPeer *peer,
     
     if (totalPayed < B.paid) {
       int64_t difference = B.paid - totalPayed;
-      fprintf(stderr, "inconsistent balance, add payout resuest for %s: %li\n", userId.c_str(), difference);
+      LOG_F(WARNING, "inconsistent balance, add payout resuest for %s: %li", userId.c_str(), difference);
       B.paid -= difference;
       requestPayout(userId, difference);
       _balanceDb.put(B);      
@@ -906,7 +906,7 @@ void AccountingDb::resendBrokenTx(p2pPeer *peer,
     
     result = 1;
   } else {
-    fprintf(stderr, "<error> address not found %s\n", userId.c_str());
+    LOG_F(ERROR, "address not found %s", userId.c_str());
     return;
   }
   

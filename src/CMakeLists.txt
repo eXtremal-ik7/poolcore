@@ -1,10 +1,23 @@
 cmake_minimum_required(VERSION 3.0)
 project(poolcore)
 
+set (CMAKE_CXX_STANDARD 11)
 option(BTC_ENABLED "Build bitcoin core client integration" OFF)
 option(DTC_ENABLED "Build datacoin client integration" OFF)
 option(XPM_ENABLED "Build primecoin/XPM client integration" OFF)
 option(ZCASH_ENABLED "Build ZCash/ZEC client integration" OFF)
+option(SANITIZER_ENABLED "Build with address sanitizer" OFF)
+option(GPROF_ENABLED "Build with GNU profiler (use gprof ./exename -p > out.txt)" OFF)
+
+if (SANITIZER_ENABLED)
+  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+endif()
+
+if (GPROF_ENABLED)
+  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pg")
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg")
+endif()
 
 set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake
@@ -15,11 +28,21 @@ find_package(FlatBuffers REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(libp2p REQUIRED)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+find_path(LOGURU_INCLUDE_DIR "loguru.hpp"
+  PATH ${ROOT_SOURCE_DIR}/loguru
+)
+
+find_file(LOGURU_SOURCE "loguru.cpp"
+  PATH ${ROOT_SOURCE_DIR}/loguru
+)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
   add_definitions(-fPIC)
 endif ()
+
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
+endif()
 
 include_directories(
   poolcommon
@@ -27,9 +50,13 @@ include_directories(
   ${BOOST_INCLUDEDIR}
   ${FLATBUFFERS_INCLUDE_DIR}
   ${OPENSSL_INCLUDE_DIR}
+  ${LOGURU_INCLUDE_DIR}
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_BINARY_DIR}
 )
+
+# Logging library
+add_library(loguru STATIC ${CMAKE_SOURCE_DIR}/loguru/loguru.cpp)
 
 add_subdirectory(poolcommon)
 add_subdirectory(poolcore)

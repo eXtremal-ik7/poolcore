@@ -5,6 +5,7 @@
 #include "p2putils/xmstream.h"
 
 #include "boost/bind.hpp"
+#include "loguru.hpp"
 
 static void checkConsistency(AccountingDb *accounting)
 {
@@ -33,8 +34,8 @@ static void checkConsistency(AccountingDb *accounting)
     }
   }
   
-  printf("totalQueued: %li\n", totalQueued);
-  printf("totalRequested: %li\n", totalInBalance);
+  LOG_F(INFO, "totalQueued: %li", totalQueued);
+  LOG_F(INFO, "totalRequested: %li", totalInBalance);
 }
 
 
@@ -76,7 +77,7 @@ void PoolBackend::stop()
 void *PoolBackend::backendMain()
 {
   if (_cfg.useAsyncPayout && (_cfg.poolZAddr.empty() || _cfg.poolTAddr.empty())) {
-    fprintf(stderr, "<error> pool configured to use async payouts(like ZCash) but not specified pool Z-Addr/T-Addr");
+    LOG_F(ERROR, "<error> pool configured to use async payouts(like ZCash) but not specified pool Z-Addr/T-Addr");
     exit(1);
   }
   
@@ -110,11 +111,11 @@ void *PoolBackend::backendMain()
   coroutineCall(coroutineNew(updateStatisticProc, this, 0x100000));
   coroutineCall(coroutineNew(payoutProc, this, 0x100000)); 
   
-  fprintf(stderr, "<info>: Pool backend started, mode is %s\n", _cfg.isMaster ? "MASTER" : "SLAVE");
+  LOG_F(INFO, "<info>: Pool backend started, mode is %s", _cfg.isMaster ? "MASTER" : "SLAVE");
   if (_cfg.poolFee)
-    fprintf(stderr, "<info>: Pool fee of %u%% to %s\n", _cfg.poolFee, _cfg.poolFeeAddr.c_str());
+    LOG_F(INFO, "<info>: Pool fee of %u%% to %s", _cfg.poolFee, _cfg.poolFeeAddr.c_str());
   else
-    fprintf(stderr, "<info>: Pool fee disabled\n");
+    LOG_F(INFO, "<info>: Pool fee disabled");
   
   checkConsistency(_accounting);
   asyncLoop(_base);
@@ -137,7 +138,7 @@ void *PoolBackend::msgHandler()
     
     flatbuffers::Verifier verifier(stream.data<const uint8_t>(), stream.sizeOf());
     if (!VerifyP2PMessageBuffer(verifier)) {
-      fprintf(stderr, " * pool backend error: can't decode message\n");
+      LOG_F(ERROR, " * pool backend error: can't decode message");
       continue;
     }
     
@@ -150,7 +151,7 @@ void *PoolBackend::msgHandler()
         onStats(static_cast<const Stats*>(msg->data()));
         break;
       default :
-        fprintf(stderr, " * pool backend error: unknown message type\n");
+        LOG_F(ERROR, " * pool backend error: unknown message type");
     }
   }
 }
@@ -164,7 +165,7 @@ void *PoolBackend::checkConfirmationsHandler()
       _accounting->cleanupRounds();
       _accounting->checkBlockConfirmations();
     } else {
-      fprintf(stderr, "<error>: can't check block confirmations, no connection to wallet\n");
+      LOG_F(ERROR, "can't check block confirmations, no connection to wallet");
     }
   }
 }
@@ -178,7 +179,7 @@ void *PoolBackend::payoutHandler()
     if (_client->connected()) {
       _accounting->makePayout();
     } else {
-      fprintf(stderr, "<error>: can't make payouts, no connection to wallet\n");
+      LOG_F(ERROR, "<error>: can't make payouts, no connection to wallet");
     }
   }
 }
@@ -192,7 +193,7 @@ void *PoolBackend::checkBalanceHandler()
     if (_client->connected()) {
       _accounting->checkBalance();
     } else {
-      fprintf(stderr, "<error>: can't check balance, no connection to wallet\n");
+      LOG_F(ERROR, "<error>: can't check balance, no connection to wallet");
     }  
   }
 }

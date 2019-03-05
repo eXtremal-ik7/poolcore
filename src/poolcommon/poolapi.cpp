@@ -1,6 +1,6 @@
 #include "poolcommon/poolapi.h"
 #include "p2p/p2p.h"
-#include <stdio.h>
+#include "loguru.hpp"
 
 template<typename T>
 static inline const T *decodeAs(p2pPeer *peer, const char *name)
@@ -8,7 +8,7 @@ static inline const T *decodeAs(p2pPeer *peer, const char *name)
   p2pStream &stream = peer->connection->stream;
   flatbuffers::Verifier verifier((const uint8_t*)stream.data(), stream.sizeOf());
   if (!verifier.VerifyBuffer<T>(nullptr)) {
-    fprintf(stderr, "<error> %s call: can't decode response\n", name);
+    LOG_F(ERROR, "poolapi: '%s' can't decode response", name);
     return 0;
   }
   return flatbuffers::GetRoot<T>(stream.data());
@@ -25,13 +25,13 @@ static inline const T *request(p2pNode *client,
   if (client->ioRequest(fbb.GetBufferPointer(), fbb.GetSize(), timeout, out, outSize)) {
     flatbuffers::Verifier verifier((const uint8_t*)out, outSize);
     if (!verifier.VerifyBuffer<T>(nullptr)) {
-      fprintf(stderr, "<error> %s call: can't decode response\n", name);
+      LOG_F(ERROR, "poolapi: '%s' can't decode response", name);
       return 0;
     }
     
     return flatbuffers::GetRoot<T>(out);
   } else {
-    fprintf(stderr, "<error> %s call failed\n", name);
+    LOG_F(ERROR, "poolapi: '%s' call failed", name);
     return 0;
   }
 }
@@ -331,7 +331,6 @@ std::unique_ptr<QueryResultT> ioUpdateClientInfo(p2pNode *client,
   uint8_t buffer[4096];       
   flatbuffers::FlatBufferBuilder fbb;
   auto userIdOff = fbb.CreateString(userId);
-  printf("minimalPayout=%li\n", minimalPayout);
   auto ciOff = CreateClientInfo(fbb, 0, 0, 0, fbb.CreateString(name), fbb.CreateString(email), minimalPayout);
   QueryBuilder qb(fbb);
   qb.add_userId(userIdOff);

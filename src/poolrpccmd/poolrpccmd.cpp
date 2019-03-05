@@ -4,6 +4,7 @@
 #include "p2p/p2p.h"
 #include "p2putils/uriParse.h"
 #include "poolcommon/poolapi.h"
+#include "loguru.hpp"
 #include <stdio.h>
 #include <string.h>
 #include <chrono>
@@ -109,7 +110,7 @@ bool getInfoProc(PoolRpcCmdContext *context)
   auto info = ioGetInfo(context->client);
   if (!info)
     return false;
-  printf(" * coin: %s\n", info->coin.c_str());
+  LOG_F(INFO, " * coin: %s", info->coin.c_str());
   return true;
 }
 
@@ -119,13 +120,13 @@ bool getCurrentBlock(PoolRpcCmdContext *context)
   auto block = ioGetCurrentBlock(context->client);
   if (!block)
     return false;
-  printf(" * height: %llu\n", block->height);
-  printf(" * nbits: %llu\n", block->bits);  
-  printf(" * hash: %s\n", !block->hash.empty() ? block->hash.c_str() : "<empty>");
-  printf(" * prevhash: %s\n", !block->prevhash.empty() ? block->prevhash.c_str() : "<empty>"); 
+  LOG_F(INFO, " * height: %llu", block->height);
+  LOG_F(INFO, " * nbits: %llu", block->bits);
+  LOG_F(INFO, " * hash: %s", !block->hash.empty() ? block->hash.c_str() : "<empty>");
+  LOG_F(INFO, " * prevhash: %s", !block->prevhash.empty() ? block->prevhash.c_str() : "<empty>");
   if (!block->hashreserved.empty())
-    printf(" * hashreserved: %s\n", block->hashreserved.c_str());  
-  printf(" * time: %u\n", (unsigned)block->time);
+    LOG_F(INFO, " * hashreserved: %s", block->hashreserved.c_str());
+  LOG_F(INFO, " * time: %u", (unsigned)block->time);
   return true;
 }
 
@@ -137,26 +138,26 @@ bool getBlockTemplate(PoolRpcCmdContext *context)
     return false;
   auto endPt = std::chrono::steady_clock::now(); 
   auto callTime = std::chrono::duration_cast<std::chrono::microseconds>(endPt-beginPt).count() / 1000.0;
-  printf("getBlockTemplate call duration %.3lfms\n", callTime);
+  LOG_F(INFO, "getBlockTemplate call duration %.3lfms", callTime);
   
-  printf(" * nbits: %llu\n", block->bits);  
-  printf(" * prevhash: %s\n", !block->prevhash.empty() ? block->prevhash.c_str() : "<empty>");
+  LOG_F(INFO, " * nbits: %llu", block->bits);
+  LOG_F(INFO, " * prevhash: %s", !block->prevhash.empty() ? block->prevhash.c_str() : "<empty>");
   if (!block->hashreserved.empty())
-    printf(" * hashreserved: %s\n", block->hashreserved.c_str());    
-  printf(" * merkle: %s\n", !block->merkle.empty() ? block->merkle.c_str() : "<empty>");  
-  printf(" * time: %u\n", (unsigned)block->time);
-  printf(" * extraNonce: %u\n", (unsigned)block->extraNonce);
+    LOG_F(INFO, " * hashreserved: %s", block->hashreserved.c_str());
+  LOG_F(INFO, " * merkle: %s", !block->merkle.empty() ? block->merkle.c_str() : "<empty>");
+  LOG_F(INFO, " * time: %u", (unsigned)block->time);
+  LOG_F(INFO, " * extraNonce: %u", (unsigned)block->extraNonce);
   if (block->equilHashK != -1)
-    printf(" * equilHashK = %i\n", block->equilHashK);
+    LOG_F(INFO, " * equilHashK = %i", block->equilHashK);
   if (block->equilHashN != -1)
-    printf(" * equilHashN = %i\n", block->equilHashN);
+    LOG_F(INFO, " * equilHashN = %i", block->equilHashN);
   return true;
 }
 
 bool sendProofOfWork(PoolRpcCmdContext *context)
 {
   if (context->argc != 5) {
-    fprintf(stderr, "Usage: sendProofOfWork <height> <time> <nonce> <extraNonce> <data>\n");
+    LOG_F(ERROR, "Usage: sendProofOfWork <height> <time> <nonce> <extraNonce> <data>");
     return false;
   }
 
@@ -170,10 +171,10 @@ bool sendProofOfWork(PoolRpcCmdContext *context)
     return false;
 
   if (result->result == false) {
-    printf(" * proofOfWork check failed\n");
+    LOG_F(INFO, " * proofOfWork check failed");
   } else {
-    printf(" * proofOfWork accepted!\n");
-    printf("   * generated: %lli coins\n", result->generatedCoins);
+    LOG_F(INFO, " * proofOfWork accepted!");
+    LOG_F(INFO, "   * generated: %lli coins", result->generatedCoins);
   }
 
   return true;
@@ -182,7 +183,7 @@ bool sendProofOfWork(PoolRpcCmdContext *context)
 bool getBlockByHash(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
-    fprintf(stderr, "Usage: getBlockByHash <hash>\n");
+    LOG_F(ERROR, "Usage: getBlockByHash <hash>");
     return false;
   }
 
@@ -192,18 +193,18 @@ bool getBlockByHash(PoolRpcCmdContext *context)
     return false;
 
   for (size_t i = 0; i < result->blocks.size(); i++) {
-    printf(" * block %u\n", (unsigned)i);
+    LOG_F(INFO, " * block %u", (unsigned)i);
     
     auto &block = result->blocks[i];
-    printf("   * height: %llu\n", block->height);
-    printf("   * nbits: %llu\n", block->bits);  
-    printf("   * hash: %s\n", !block->hash.empty() ? block->hash.c_str() : "<empty>");
-    printf("   * prevhash: %s\n", !block->prevhash.empty() ? block->prevhash.c_str() : "<empty>"); 
+    LOG_F(INFO, "   * height: %llu", block->height);
+    LOG_F(INFO, "   * nbits: %llu", block->bits);
+    LOG_F(INFO, "   * hash: %s", !block->hash.empty() ? block->hash.c_str() : "<empty>");
+    LOG_F(INFO, "   * prevhash: %s", !block->prevhash.empty() ? block->prevhash.c_str() : "<empty>");
     if (!block->hashreserved.empty())
-      printf("   * hashreserved: %s\n", block->hashreserved.c_str());  
-    printf("   * merkle: %s\n", !block->merkle.empty() ? block->merkle.c_str() : "<empty>");  
-    printf("   * time: %u\n", (unsigned)block->time);
-    printf("   * confirmations: %i\n", (int)block->confirmations);
+      LOG_F(INFO, "   * hashreserved: %s", block->hashreserved.c_str());
+    LOG_F(INFO, "   * merkle: %s", !block->merkle.empty() ? block->merkle.c_str() : "<empty>");
+    LOG_F(INFO, "   * time: %u", (unsigned)block->time);
+    LOG_F(INFO, "   * confirmations: %i", (int)block->confirmations);
   }
 
   return true;
@@ -212,7 +213,7 @@ bool getBlockByHash(PoolRpcCmdContext *context)
 bool getBalance(PoolRpcCmdContext *context)
 {
   if (context->argc != 0) {
-    fprintf(stderr, "Usage: getBalance\n");
+    LOG_F(ERROR, "Usage: getBalance");
     return false;
   }
 
@@ -220,8 +221,8 @@ bool getBalance(PoolRpcCmdContext *context)
   if (!result)
     return false;
   
-  printf(" * balance: %lli\n", result->balance);  
-  printf(" * immature: %lli\n", result->immature); 
+  LOG_F(INFO, " * balance: %lli", result->balance);
+  LOG_F(INFO, " * immature: %lli", result->immature);
   return true;
 }
 
@@ -229,7 +230,7 @@ bool getBalance(PoolRpcCmdContext *context)
 bool sendMoney(PoolRpcCmdContext *context)
 {
   if (context->argc != 2) {
-    fprintf(stderr, "Usage: sendMoney <destination> <amount>\n");
+    LOG_F(ERROR, "Usage: sendMoney <destination> <amount>");
     return false;
   }
   
@@ -238,20 +239,20 @@ bool sendMoney(PoolRpcCmdContext *context)
   if (!result)
     return false;
   
-  printf(" * send money is %s\n", result->success ? "OK" : "FAILED");
+  LOG_F(INFO, " * send money is %s", result->success ? "OK" : "FAILED");
   if (result->success)
-    printf(" * transaction ID: %s\n", result->txid.c_str());
+    LOG_F(INFO, " * transaction ID: %s", result->txid.c_str());
   else
-    printf(" * error: %s\n", result->error.c_str());
-  printf(" * fee: %lli\n", result->fee);
-  printf(" * remaining: %lli\n", result->remaining);
+    LOG_F(INFO, " * error: %s", result->error.c_str());
+  LOG_F(INFO, " * fee: %lli", result->fee);
+  LOG_F(INFO, " * remaining: %lli", result->remaining);
   return true;
 }
 
 bool ZGetBalance(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
-    fprintf(stderr, "Usage: z_getBalance <address>\n  address - your z-addr or t-addr\n");
+    LOG_F(ERROR, "Usage: z_getBalance <address>\n  address - your z-addr or t-addr");
     return false;
   }
   
@@ -260,9 +261,9 @@ bool ZGetBalance(PoolRpcCmdContext *context)
     return false;
   
   if (result->balance != -1) {
-    printf(" * balance of %s: %lu\n", context->argv[0], result->balance);
+    LOG_F(INFO, " * balance of %s: %lu", context->argv[0], result->balance);
   } else {
-    printf("<error> %s\n", result->error.c_str());
+    LOG_F(INFO, "<error> %s", result->error.c_str());
   }
 
   return true;
@@ -271,7 +272,7 @@ bool ZGetBalance(PoolRpcCmdContext *context)
 bool ZSendMoney(PoolRpcCmdContext *context)
 {
   if (context->argc != 4) {
-    fprintf(stderr, "Usage: z_sendMoney <source> <destination> <amount> <memo>\n");
+    LOG_F(ERROR, "Usage: z_sendMoney <source> <destination> <amount> <memo>");
     return false;
   }
   
@@ -285,9 +286,9 @@ bool ZSendMoney(PoolRpcCmdContext *context)
     return false;
   
   if (!result->asyncOperationId.empty()) {
-    printf(" * async operation id: %s\n", result->asyncOperationId.c_str());
+    LOG_F(INFO, " * async operation id: %s", result->asyncOperationId.c_str());
   } else {
-    printf("<error> %s\n", result->error.c_str());
+    LOG_F(INFO, "<error> %s", result->error.c_str());
   }
 
   return true;
@@ -296,7 +297,7 @@ bool ZSendMoney(PoolRpcCmdContext *context)
 bool listUnspent(PoolRpcCmdContext *context)
 {
   if (context->argc != 0) {
-    fprintf(stderr, "Usage: listUnspent\n");
+    LOG_F(ERROR, "Usage: listUnspent");
     return false;
   }
   
@@ -305,13 +306,13 @@ bool listUnspent(PoolRpcCmdContext *context)
     return false;
   
   for (size_t i = 0; i < result->outs.size(); i++) {
-    printf(" * out %u\n", (unsigned)i);
+    LOG_F(INFO, " * out %u", (unsigned)i);
     
     auto &out = result->outs[i];
-    printf("   * address: %s\n", out->address.c_str());
-    printf("   * amount: %lu\n", (unsigned long)out->amount);
-    printf("   * confirmations: %i\n", (int)out->confirmations);
-    printf("   * spendable: %s\n", out->spendable ? "true" : "false");
+    LOG_F(INFO, "   * address: %s", out->address.c_str());
+    LOG_F(INFO, "   * amount: %lu", (unsigned long)out->amount);
+    LOG_F(INFO, "   * confirmations: %i", (int)out->confirmations);
+    LOG_F(INFO, "   * spendable: %s", out->spendable ? "true" : "false");
   }
 
   return true;
@@ -320,7 +321,7 @@ bool listUnspent(PoolRpcCmdContext *context)
 bool ZAsyncOperationStatus(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
-    fprintf(stderr, "Usage: z_asyncOperationStatus <asyncOpId>\n");
+    LOG_F(ERROR, "Usage: z_asyncOperationStatus <asyncOpId>");
     return false;
   }
   
@@ -328,17 +329,17 @@ bool ZAsyncOperationStatus(PoolRpcCmdContext *context)
   if (!result)
     return false;
   
-  printf(" * operations number: %u\n", (unsigned)result->status.size());
+  LOG_F(INFO, " * operations number: %u", (unsigned)result->status.size());
   for (size_t i = 0; i < result->status.size(); i++) {
-    printf(" * async operation %u\n", (unsigned)i);
+    LOG_F(INFO, " * async operation %u", (unsigned)i);
     auto &status = result->status[i];
-    printf("   * id: %s\n", status->id.c_str());
-    printf("   * status: %s\n", asyncOpState(status->state));
-    printf("   * time: %lu\n", (unsigned long)status->creationTime);
+    LOG_F(INFO, "   * id: %s", status->id.c_str());
+    LOG_F(INFO, "   * status: %s", asyncOpState(status->state));
+    LOG_F(INFO, "   * time: %lu", (unsigned long)status->creationTime);
     if (!status->txid.empty())
-      printf("   * txid: %s\n", status->txid.c_str());
+      LOG_F(INFO, "   * txid: %s", status->txid.c_str());
     if (!status->error.empty())
-      printf("   * error: %s\n", status->error.c_str());
+      LOG_F(INFO, "   * error: %s", status->error.c_str());
   }
 
   return true;
@@ -347,7 +348,7 @@ bool ZAsyncOperationStatus(PoolRpcCmdContext *context)
 bool queryFoundBlocks(PoolRpcCmdContext *context)
 {
   if (context->argc != 3) {
-    fprintf(stderr, "Usage: queryFoundBlocks <heightFrom> <hashFrom> <count>\n");
+    LOG_F(ERROR, "Usage: queryFoundBlocks <heightFrom> <hashFrom> <count>");
     return false;
   }
 
@@ -356,14 +357,14 @@ bool queryFoundBlocks(PoolRpcCmdContext *context)
     return false;
   
   for (size_t i = 0; i < result->blocks.size(); i++) {
-    printf(" * block %u\n", (unsigned)i);
+    LOG_F(INFO, " * block %u", (unsigned)i);
     
     auto &block = result->blocks[i];
-    printf("   * height: %llu\n", block->height);
-    printf("   * hash: %s\n", !block->hash.empty() ? block->hash.c_str() : "<empty>");
-    printf("   * time: %u\n", (unsigned)block->time);
-    printf("   * confirmations: %i\n", (int)block->confirmations);
-    printf("   * foundBy: %s\n", !block->foundBy.empty() ? block->foundBy.c_str() : "<empty>");    
+    LOG_F(INFO, "   * height: %llu", block->height);
+    LOG_F(INFO, "   * hash: %s", !block->hash.empty() ? block->hash.c_str() : "<empty>");
+    LOG_F(INFO, "   * time: %u", (unsigned)block->time);
+    LOG_F(INFO, "   * confirmations: %i", (int)block->confirmations);
+    LOG_F(INFO, "   * foundBy: %s", !block->foundBy.empty() ? block->foundBy.c_str() : "<empty>");
   }
 
   return true;
@@ -372,7 +373,7 @@ bool queryFoundBlocks(PoolRpcCmdContext *context)
 bool queryClientInfo(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
-    fprintf(stderr, "Usage: queryClientInfo <userId>\n");
+    LOG_F(ERROR, "Usage: queryClientInfo <userId>");
     return false;
   }
   
@@ -381,7 +382,7 @@ bool queryClientInfo(PoolRpcCmdContext *context)
     return false;
   
   auto &info = result->info;
-  printf("\nbalance: %.3lf, requested: %.3lf, paid: %.3lf, name: %s, email: %s, minimalPayout: %.3lf\n",
+  LOG_F(INFO, "\nbalance: %.3lf, requested: %.3lf, paid: %.3lf, name: %s, email: %s, minimalPayout: %.3lf",
          (double)info->balance/COIN,
          (double)info->requested/COIN,
          (double)info->paid/COIN,
@@ -395,7 +396,7 @@ bool queryClientInfo(PoolRpcCmdContext *context)
 bool queryPoolBalance(PoolRpcCmdContext *context)
 {
   if (context->argc != 2) {
-    fprintf(stderr, "Usage: queryPoolBalance <timeFrom> <count>\n");
+    LOG_F(ERROR, "Usage: queryPoolBalance <timeFrom> <count>");
     return false;
   }
 
@@ -403,11 +404,11 @@ bool queryPoolBalance(PoolRpcCmdContext *context)
   if (!result)
     return false;
   
-  printf("\ttime\t\t\tbalance\t\t\timmature\tusers\t\tqueued\t\tnet\n\n");
+  LOG_F(INFO, "\ttime\t\t\tbalance\t\t\timmature\tusers\t\tqueued\t\tnet\n");
   auto recordsNum = result->poolBalances.size();
   for (decltype(recordsNum) i = 0; i < recordsNum; i++) {
     auto &pb = result->poolBalances[i];
-    printf("\t%u\t\t%.3lf\t\t%.3lf\t\t%.3lf\t\t%.3lf\t\t%.3lf\n",
+    LOG_F(INFO, "\t%u\t\t%.3lf\t\t%.3lf\t\t%.3lf\t\t%.3lf\t\t%.3lf",
            (unsigned)pb->time,
            (double)pb->balance / COIN,
            (double)pb->immature / COIN,
@@ -422,7 +423,7 @@ bool queryPoolBalance(PoolRpcCmdContext *context)
 bool queryPayouts(PoolRpcCmdContext *context)
 {
   if (context->argc != 4) {
-    fprintf(stderr, "Usage: queryPayouts <userId> <groupingTy> <timeFrom> <count>\n");
+    LOG_F(ERROR, "Usage: queryPayouts <userId> <groupingTy> <timeFrom> <count>");
     return false;
   }
   
@@ -451,7 +452,7 @@ bool queryPayouts(PoolRpcCmdContext *context)
   auto payoutsNum = result->payouts.size();
   for (decltype(payoutsNum) i = 0; i < payoutsNum; i++) {
     auto &record = result->payouts[i];
-    printf("  %s (%u)    %.3lf    txid: %s\n",
+    LOG_F(INFO, "  %s (%u)    %.3lf    txid: %s",
            record->timeLabel.c_str(),
            (unsigned)record->time,
            (double)record->value / COIN,
@@ -464,7 +465,7 @@ bool queryPayouts(PoolRpcCmdContext *context)
 bool queryClientStats(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
-    fprintf(stderr, "Usage: queryClientStats <userId>\n");
+    LOG_F(ERROR, "Usage: queryClientStats <userId>");
     return false;
   }
   
@@ -475,7 +476,7 @@ bool queryClientStats(PoolRpcCmdContext *context)
   auto workersNum = result->workers.size();
   for (decltype(workersNum) i = 0; i < workersNum; i++) {
     auto &worker = result->workers[i];
-    printf("  * %s addr=%s; power=%u; latency: %i; type: %s; units: %u; temp: %i\n",
+    LOG_F(INFO, "  * %s addr=%s; power=%u; latency: %i; type: %s; units: %u; temp: %i",
            worker->name.c_str(),
            worker->address.c_str(),
            (unsigned)worker->power,
@@ -485,7 +486,7 @@ bool queryClientStats(PoolRpcCmdContext *context)
            (int)worker->temp);
   }
   
-  printf("\nTotal:\n  workers: %u\n  cpus:  %u\n  gpus:  %u\n  asics:  %u\n  other:  %u\n  latency: %i\n  power: %u\n", 
+  LOG_F(INFO, "Total:\n  workers: %u\n  cpus:  %u\n  gpus:  %u\n  asics:  %u\n  other:  %u\n  latency: %i\n  power: %u",
          (unsigned)workersNum,
          (unsigned)result->aggregate->cpus,
          (unsigned)result->aggregate->gpus,
@@ -499,7 +500,7 @@ bool queryClientStats(PoolRpcCmdContext *context)
 bool queryPoolStats(PoolRpcCmdContext *context)
 {
   if (context->argc != 0) {
-    fprintf(stderr, "Usage: queryPoolStats\n");
+    LOG_F(ERROR, "Usage: queryPoolStats");
     return false;
   }
   
@@ -507,7 +508,7 @@ bool queryPoolStats(PoolRpcCmdContext *context)
   if (!result)
     return false;
   
-  printf("\nTotal:\n  clients: %u\n  workers: %u\n  cpus:  %u\n  gpus:  %u\n  asics:  %u\n  other:  %u\n  latency: %i\n  power: %u\n", 
+  LOG_F(INFO, "Total:\n  clients: %u\n  workers: %u\n  cpus:  %u\n  gpus:  %u\n  asics:  %u\n  other:  %u\n  latency: %i\n  power: %u",
          (unsigned)result->aggregate->clients,
          (unsigned)result->aggregate->workers,
          (unsigned)result->aggregate->cpus,
@@ -522,7 +523,7 @@ bool queryPoolStats(PoolRpcCmdContext *context)
 bool updateClientInfo(PoolRpcCmdContext *context)
 {
   if (context->argc != 4) {
-    fprintf(stderr, "Usage: updateClientInfo <userId> <minimalPayout> <userName> <email>\n");
+    LOG_F(ERROR, "Usage: updateClientInfo <userId> <minimalPayout> <userName> <email>");
     return false;
   }
   
@@ -530,14 +531,14 @@ bool updateClientInfo(PoolRpcCmdContext *context)
   if (!result)
     return false;
   
-  printf("successfully updated\n");
+  LOG_F(INFO, "successfully updated");
   return true;
 }
 
 bool resendBrokenTx(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
-    fprintf(stderr, "Usage: resendBrokenTx <userId>\n");
+    LOG_F(ERROR, "Usage: resendBrokenTx <userId>");
     return false;
   }
   
@@ -545,14 +546,14 @@ bool resendBrokenTx(PoolRpcCmdContext *context)
   if (!result)
     return false;
   
-  printf("successfully called\n");
+  LOG_F(INFO, "successfully called");
   return true;
 }
 
 bool moveBalance(PoolRpcCmdContext *context)
 {
   if (context->argc != 2) {
-    fprintf(stderr, "Usage: moveBalance <from> <to>\n");
+    LOG_F(ERROR, "Usage: moveBalance <from> <to>");
     return false;
   }
   
@@ -560,14 +561,14 @@ bool moveBalance(PoolRpcCmdContext *context)
   if (!result)
     return false;
   
-  printf(result->status == 1 ? "successfully called\n" : "moveBalance reported error");
+  LOG_F(INFO, result->status == 1 ? "successfully called" : "moveBalance reported error");
   return true;
 }
 
 bool manualPayout(PoolRpcCmdContext *context)
 {
   if (context->argc != 1) {
-    fprintf(stderr, "Usage: manualPayout <address>\n\n");
+    LOG_F(ERROR, "Usage: manualPayout <address>");
     return false;
   }
   
@@ -575,7 +576,7 @@ bool manualPayout(PoolRpcCmdContext *context)
   if (!result)
     return false;
   
-  printf(result->status == 1 ? "successfully called\n" : "manualPayout reported error");
+  LOG_F(INFO, result->status == 1 ? "successfully called" : "manualPayout reported error");
   return true;
 }
 
@@ -597,14 +598,14 @@ void requestProc(void *arg)
   PoolRpcCmdContext *context = (PoolRpcCmdContext*)arg;
   
   if (!context->client->ioWaitForConnection(3000000)) {
-    fprintf(stderr, "Error: connecting error\n");
+    LOG_F(ERROR, "Error: connection error");
     postQuitOperation(context->client->base());
     return;
   }
 
   methodProcTy *proc = getMethodProc(context->methodName);
   if (!proc) {
-    fprintf(stderr, "Error: invalid method name: %s\n", context->methodName);
+    LOG_F(ERROR, "Error: invalid method name: %s", context->methodName);
     postQuitOperation(context->client->base());
     return;
   }
@@ -620,6 +621,11 @@ int main(int argc, char **argv)
     return 1;
   }
 
+  loguru::g_preamble = false;
+  loguru::g_stderr_verbosity = -1;
+  loguru::init(argc, argv);
+  loguru::g_stderr_verbosity = 0;
+
   PoolRpcCmdContext context;
   initializeSocketSubsystem();
 
@@ -632,7 +638,7 @@ int main(int argc, char **argv)
   // TODO 127.0.0.1:12200 change to URL from command line
   URI uri;
   if (!uriParse(argv[1], &uri)) {
-    fprintf(stderr, "<error> Invalid url %s\n", argv[1]);
+    LOG_F(ERROR, "<error> Invalid url %s", argv[1]);
     return 1;
   }
   
@@ -644,5 +650,6 @@ int main(int argc, char **argv)
   coroutineTy *proc = coroutineNew(requestProc, &context, 0x10000);  
   coroutineCall(proc);
   asyncLoop(base);
+  loguru::g_stderr_verbosity = -1;
   return context.result == true ? 0 : 1;
 }

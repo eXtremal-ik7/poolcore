@@ -41,7 +41,6 @@ public:
 private:
   asyncBase *_base;
   uint64_t _timeout;
-//  int _pipeFd[2];
   pipeTy _pipeFd;
   aioObject *_write;
   aioObject *_read;
