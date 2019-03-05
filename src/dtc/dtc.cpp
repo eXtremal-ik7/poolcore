@@ -8,7 +8,7 @@ extern CBlockIndex* pindexBest;
 extern CWallet* pwalletMain;
 extern std::map<uint256, CBlockIndex*> mapBlockIndex;
 
-int p2pPort() { return GetArg("-p2pport", 12200); }
+uint16_t p2pPort() { return static_cast<uint16_t>(GetArg("-p2pport", 12200)); }
 
 const char *getCoinName() { return "XPM"; }
 WalletTy *getMainWallet() { return (WalletTy*)pwalletMain; }
@@ -123,7 +123,8 @@ void sendMoney(const char *destination, int64_t amount, SendMoneyResultT &result
 
 void createBlockRecord(BlockIndexTy *idx, BlockT &out)
 {
-  if (idx) {
+  CBlockIndex *blockIndex = (CBlockIndex*)idx;
+  if (blockIndex && blockIndex->pprev) {
     CBlockIndex *blockIndex = (CBlockIndex*)idx;
     out.height = blockIndex->nHeight;
     out.bits = blockIndex->nBits;
@@ -172,22 +173,22 @@ void createBlockTemplateRecord(BlockTemplateTy *tmpl, unsigned extraNonce, Block
 
 void listUnspent(std::vector<ListUnspentElementT> &out, std::string &error)
 {
-  error = "XPM not supported zcash features";  
+  error = "DTC not supported zcash features";
 }
 
 int64_t ZGetbalance(const std::string &zaddr, std::string &error)
 {
-  error = "XPM not supported zcash features";
+  error = "DTC not supported zcash features";
   return -1;
 }
 
 std::string ZSendMoney(const std::string &souce, const std::vector<ZDestinationT> &destinations, std::string &error)
 {
-  error = "XPM not supported zcash features";  
+  error = "DTC not supported zcash features";
   return "";
 }
 
 void ZAsyncOperationStatus(const std::string &id, std::vector<AsyncOperationStatusT> &out, std::string &error)
 {
-  error = "XPM not supported zcash features";  
+  error = "DTC not supported zcash features";
 }
