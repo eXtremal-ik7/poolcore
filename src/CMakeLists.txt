@@ -28,14 +28,6 @@ find_package(FlatBuffers REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(libp2p REQUIRED)
 
-find_path(LOGURU_INCLUDE_DIR "loguru.hpp"
-  PATH ${ROOT_SOURCE_DIR}/loguru
-)
-
-find_file(LOGURU_SOURCE "loguru.cpp"
-  PATH ${ROOT_SOURCE_DIR}/loguru
-)
-
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
   add_definitions(-fPIC)
 endif ()
@@ -50,7 +42,6 @@ include_directories(
   ${BOOST_INCLUDEDIR}
   ${FLATBUFFERS_INCLUDE_DIR}
   ${OPENSSL_INCLUDE_DIR}
-  ${LOGURU_INCLUDE_DIR}
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_BINARY_DIR}
 )
