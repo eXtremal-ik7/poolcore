@@ -5,6 +5,7 @@
 #include "p2p/p2p.h"
 #include "poolcommon/poolapi.h"
 #include "poolcore/base58.h"
+#include "poolcore/statistics.h"
 #include "loguru.hpp"
 #include <stdarg.h>
 
@@ -259,7 +260,7 @@ void AccountingDb::cleanupRounds()
 }
 
 
-void AccountingDb::addShare(const Share *share)
+void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
 {
   // store share in shares.raw file
   {
@@ -364,7 +365,17 @@ void AccountingDb::addShare(const Share *share)
       for (auto I = agg.begin(), IE = agg.end(); I != IE; ++I) {
         I->payoutValue += ((double)I->shareValue / (double)totalValue) * R->availableCoins;
         totalPayout += I->payoutValue;
-        LOG_F(INFO, "   * addr: %s, payout: %" PRId64 "", I->userId.c_str(), I->payoutValue);
+
+        // check correlation of share percent with power percent
+        uint64_t power = statistic->getClientPower(I->userId);
+        uint64_t poolPower = statistic->getPoolPower();
+        if (power && poolPower) {
+          double sharePercent = ((double)I->shareValue / (double)totalValue) * 100.0;
+          double powerPercent = (double)power / (double)poolPower * 100.0;
+          LOG_F(INFO, "   * addr: %s, payout: %" PRId64 " shares=%.3lf%% power=%.3lf%%", I->userId.c_str(), I->payoutValue, sharePercent, powerPercent);
+        } else {
+          LOG_F(INFO, "   * addr: %s, payout: %" PRId64 "", I->userId.c_str(), I->payoutValue);
+        }
       }
       
       LOG_F(INFO, " * total payout: %" PRId64 "", totalPayout);

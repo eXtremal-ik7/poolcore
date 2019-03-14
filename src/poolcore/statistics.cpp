@@ -125,6 +125,23 @@ void StatisticDb::update()
   }
 }
 
+uint64_t StatisticDb::getClientPower(const std::string &userId) const
+{
+  uint64_t power = 0;
+  for (auto It = _statsMap.lower_bound(userId); It != _statsMap.end(); ++It) {
+    const clientStats &stats = It->second;
+    if (stats.userId != userId)
+      break;
+    power += stats.power;
+  }
+  return power;
+}
+
+uint64_t StatisticDb::getPoolPower() const
+{
+  return _poolStats.power;
+}
+
 void StatisticDb::queryClientStats(p2pPeer *peer, uint32_t id, const std::string &userId)
 {
   flatbuffers::FlatBufferBuilder fbb;  

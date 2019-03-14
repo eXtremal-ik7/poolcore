@@ -14,6 +14,7 @@ static const int64_t COIN = 100000000;
 
 class p2pNode;
 class p2pPeer;
+class StatisticDb;
 
 typedef bool CheckAddressProcTy(const char*);
 
@@ -69,7 +70,7 @@ public:
   void requestPayout(const std::string &address, int64_t value, bool force = false);
   void payoutSuccess(const std::string &address, int64_t value, int64_t fee, const std::string &transactionId);
   
-  void addShare(const Share *share);
+  void addShare(const Share *share, const StatisticDb *statistic);
   void mergeRound(const Round *round);
   void checkBlockConfirmations();
   void makePayout();

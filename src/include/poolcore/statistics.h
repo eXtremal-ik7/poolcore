@@ -32,6 +32,8 @@ public:
   void addStats(const Stats *stats);
   void update();
   
+  uint64_t getClientPower(const std::string &userId) const;
+  uint64_t getPoolPower() const;
   void queryClientStats(p2pPeer *peer, uint32_t id, const std::string &userId);
   void queryPoolStats(p2pPeer *peer, uint32_t id);
 };

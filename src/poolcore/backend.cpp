@@ -209,7 +209,7 @@ void *PoolBackend::updateStatisticHandler()
 
 void PoolBackend::onShare(const Share *share)
 {
-  _accounting->addShare(share);
+  _accounting->addShare(share, _statistics);
 }
 
 void PoolBackend::onStats(const Stats *stats)
