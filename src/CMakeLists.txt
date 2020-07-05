@@ -1,7 +1,13 @@
-cmake_minimum_required(VERSION 3.0)
+include("cmake/HunterGate.cmake")
+HunterGate(
+    URL "https://github.com/eXtremal-ik7/hunter/archive/v0.23.260-with-fb.zip"
+    SHA1 "6b07ca070eae553de0ae4d160a8f916983cee468"
+)
+
+cmake_minimum_required(VERSION 3.11)
 project(poolcore)
 
-set (CMAKE_CXX_STANDARD 11)
+set (CMAKE_CXX_STANDARD 17)
 option(BTC_ENABLED "Build bitcoin core client integration" OFF)
 option(DTC_ENABLED "Build datacoin client integration" OFF)
 option(XPM_ENABLED "Build primecoin/XPM client integration" OFF)
@@ -23,10 +29,15 @@ set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake
 )
 
-find_package(Boost COMPONENTS thread system REQUIRED)
-find_package(FlatBuffers REQUIRED)
+hunter_add_package(OpenSSL)
+hunter_add_package(leveldb)
+hunter_add_package(flatbuffers)
+include(${CMAKE_SOURCE_DIR}/cmake/ProjectLibp2p.cmake)
+
 find_package(OpenSSL REQUIRED)
-find_package(libp2p REQUIRED)
+find_package(leveldb CONFIG REQUIRED)
+find_package(Flatbuffers CONFIG REQUIRED)
+find_package(Boost COMPONENTS thread system REQUIRED)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
   add_definitions(-fPIC)
@@ -38,9 +49,9 @@ endif()
 
 include_directories(
   poolcommon
-  ${AIO_INCLUDE_DIR}
+  ${libp2p_SOURCE_DIR}/src/include
+  ${libp2p_BINARY_DIR}/include
   ${BOOST_INCLUDEDIR}
-  ${FLATBUFFERS_INCLUDE_DIR}
   ${OPENSSL_INCLUDE_DIR}
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_BINARY_DIR}

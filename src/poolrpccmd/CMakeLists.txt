@@ -6,9 +6,10 @@ add_executable(poolrpccmd
 target_link_libraries(poolrpccmd
   poolcommon
   loguru
-  ${AIO_LIBRARY}
-  ${P2P_LIBRARY}
-  ${P2PUTILS_LIBRARY}
+  asyncio-0.5
+  asyncioextras-0.5
+  p2p
+  p2putils
 )
 
 if (WIN32)

@@ -12,6 +12,8 @@ function(create_resource input output)
     file(APPEND ${output} "const unsigned char ${filename}[] = {${filedata}0x00};\nconst unsigned ${filename}_size = sizeof(${filename});\n")
 endfunction()
 
+get_target_property(FLATC_COMMAND flatbuffers::flatc IMPORTED_LOCATION_RELEASE)
+
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pool_generated.cpp ${CMAKE_CURRENT_BINARY_DIR}/pool_generated.h
   COMMAND rm -f ${CMAKE_CURRENT_BINARY_DIR}/pool_generated.cpp && ${FLATC_COMMAND} --cpp --gen-object-api -o ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/pool.fbs && touch ${CMAKE_CURRENT_BINARY_DIR}/pool_generated.cpp
