@@ -4,7 +4,7 @@
 #include "poolcommon/pool_generated.h"
 #include "kvdb.h"
 #include "backendData.h"
-#include "poolcore/leveldbBase.h"
+#include "poolcore/rocksdbBase.h"
 #include <map>
 
 class p2pNode;
@@ -23,8 +23,8 @@ private:
   std::map<std::string, clientStats> _statsMap;
   siteStats _poolStats;
   
-  kvdb<levelDbBase> _workerStatsDb;
-  kvdb<levelDbBase> _poolStatsDb;
+  kvdb<rocksdbBase> _workerStatsDb;
+  kvdb<rocksdbBase> _poolStatsDb;
   
 public:
   StatisticDb(config *cfg, p2pNode *client);

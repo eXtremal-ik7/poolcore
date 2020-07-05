@@ -1,14 +1,9 @@
 #ifndef __KVDB_H_
 #define __KVDB_H_
 
-#include "leveldb/db.h"
 #include "p2putils/coreTypes.h"
 #include "p2putils/xmstream.h"
 #include <filesystem>
-
-
-
-
 
 template<typename DbTy>
 class kvdb {

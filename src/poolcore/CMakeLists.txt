@@ -4,10 +4,10 @@ add_library(poolcore STATIC
   api.cpp
   backendData.cpp
   kvdb.cpp
-  leveldbBase.cpp
+  rocksdbBase.cpp
   backend.cpp
   accounting.cpp
   statistics.cpp
 )
 
-target_link_libraries(poolcore poolcommon)
+target_link_libraries(poolcore poolcommon RocksDB::rocksdb)

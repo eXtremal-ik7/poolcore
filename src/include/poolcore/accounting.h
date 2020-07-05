@@ -5,7 +5,7 @@
 #include "poolcommon/pool_generated.h"
 #include "poolcommon/file.h"
 #include "kvdb.h"
-#include "poolcore/leveldbBase.h"
+#include "poolcore/rocksdbBase.h"
 #include <deque>
 #include <list>
 #include <map>
@@ -56,11 +56,11 @@ private:
   
   FileDescriptor _sharesFd;
   FileDescriptor _payoutsFd;
-  kvdb<levelDbBase> _roundsDb;
-  kvdb<levelDbBase> _balanceDb;
-  kvdb<levelDbBase> _foundBlocksDb;
-  kvdb<levelDbBase> _poolBalanceDb;
-  kvdb<levelDbBase> _payoutDb;
+  kvdb<rocksdbBase> _roundsDb;
+  kvdb<rocksdbBase> _balanceDb;
+  kvdb<rocksdbBase> _foundBlocksDb;
+  kvdb<rocksdbBase> _poolBalanceDb;
+  kvdb<rocksdbBase> _payoutDb;
   
   
 public:
@@ -78,10 +78,10 @@ public:
   void checkBalance();
   
   std::list<payoutElement> &getPayoutsQueue() { return _payoutQueue; }
-  kvdb<levelDbBase> &getFoundBlocksDb() { return _foundBlocksDb; }
-  kvdb<levelDbBase> &getPoolBalanceDb() { return _poolBalanceDb; }
-  kvdb<levelDbBase> &getPayoutDb() { return _payoutDb; }
-  kvdb<levelDbBase> &getBalanceDb() { return _balanceDb; }
+  kvdb<rocksdbBase> &getFoundBlocksDb() { return _foundBlocksDb; }
+  kvdb<rocksdbBase> &getPoolBalanceDb() { return _poolBalanceDb; }
+  kvdb<rocksdbBase> &getPayoutDb() { return _payoutDb; }
+  kvdb<rocksdbBase> &getBalanceDb() { return _balanceDb; }
   
   void queryClientBalance(p2pPeer *peer, uint32_t id, const std::string &userId);
   void updateClientInfo(p2pPeer *peer,

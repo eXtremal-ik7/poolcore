@@ -10,7 +10,7 @@ void foundBlockHandler(asyncBase *base, p2pConnection *connection, const Query *
   flatbuffers::FlatBufferBuilder fbb;
   
   auto &db = backend->accountingDb()->getFoundBlocksDb();
-  std::unique_ptr<levelDbBase::IteratorType> It(db.iterator());
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
   if (Q->heightFrom() != -1) {
     foundBlock blk;
     blk.height = Q->heightFrom();
@@ -69,7 +69,7 @@ void poolBalanceHandler(asyncBase *base, p2pConnection *connection, const Query 
   
   unsigned count = Q->count();
   auto &db = accountindDb->getPoolBalanceDb();
-  std::unique_ptr<levelDbBase::IteratorType> It(db.iterator());
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
   if (Q->timeFrom() != -1) {
     poolBalance pb;
     pb.time = Q->timeFrom();
@@ -103,7 +103,7 @@ void payoutsHandler(asyncBase *base, p2pConnection *connection, const Query *Q, 
   
   unsigned count = Q->count();
   auto &db = accountindDb->getPayoutDb();
-  std::unique_ptr<levelDbBase::IteratorType> It(db.iterator());
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
 
   {
     payoutRecord pr;

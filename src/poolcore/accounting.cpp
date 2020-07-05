@@ -198,7 +198,7 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
   }
   
   {
-    std::unique_ptr<levelDbBase::IteratorType> It(_roundsDb.iterator());
+    std::unique_ptr<rocksdbBase::IteratorType> It(_roundsDb.iterator());
     It->seekFirst();
     for (; It->valid(); It->next()) {
       miningRound *R = new miningRound;
@@ -221,7 +221,7 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
   }
 
   {
-    std::unique_ptr<levelDbBase::IteratorType> It(_balanceDb.iterator());
+    std::unique_ptr<rocksdbBase::IteratorType> It(_balanceDb.iterator());
     It->seekFirst();
     for (; It->valid(); It->next()) {
       userBalance ub;

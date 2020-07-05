@@ -1,21 +1,21 @@
-#include "poolcore/leveldbBase.h"
+#include "poolcore/rocksdbBase.h"
 #include "loguru.hpp"
 
-levelDbBase::IteratorType::~IteratorType()
+rocksdbBase::IteratorType::~IteratorType()
 {
   delete iterator;
 }
 
 
-bool levelDbBase::IteratorType::valid()
+bool rocksdbBase::IteratorType::valid()
 {
   return iterator && iterator->Valid();
 }
 
-void levelDbBase::IteratorType::prev()
+void rocksdbBase::IteratorType::prev()
 {
   if (end) {
-    leveldb::ReadOptions options;
+    rocksdb::ReadOptions options;
     auto lastp = base->getLastPartition();
     if (!lastp.db)
       return;
@@ -35,7 +35,7 @@ void levelDbBase::IteratorType::prev()
     if (!p.db)
       return;
     
-    leveldb::ReadOptions options;
+    rocksdb::ReadOptions options;
     id = p.id;
     iterator = p.db->NewIterator(options);
     iterator->SeekToLast();
@@ -45,7 +45,7 @@ void levelDbBase::IteratorType::prev()
 }
 
 
-void levelDbBase::IteratorType::next()
+void rocksdbBase::IteratorType::next()
 {
   if (iterator)
     iterator->Next();
@@ -58,14 +58,14 @@ void levelDbBase::IteratorType::next()
     if (!p.db)
       return;
     
-    leveldb::ReadOptions options;
+    rocksdb::ReadOptions options;
     id = p.id;
     iterator = p.db->NewIterator(options);
     iterator->SeekToFirst();  
   }
 }
 
-void levelDbBase::IteratorType::seekFirst()
+void rocksdbBase::IteratorType::seekFirst()
 {
   auto p = base->getFirstPartition();
   if (id == p.id && iterator) {
@@ -78,12 +78,12 @@ void levelDbBase::IteratorType::seekFirst()
     return;
   
   id = p.id;
-  leveldb::ReadOptions options;
+  rocksdb::ReadOptions options;
   iterator = p.db->NewIterator(options);
   iterator->SeekToFirst();  
 }
 
-void levelDbBase::IteratorType::seekLast()
+void rocksdbBase::IteratorType::seekLast()
 {
   auto p = base->getLastPartition();
   if (id == p.id && iterator) {
@@ -96,13 +96,13 @@ void levelDbBase::IteratorType::seekLast()
     return;
 
   id = p.id;  
-  leveldb::ReadOptions options;
+  rocksdb::ReadOptions options;
   iterator = p.db->NewIterator(options);
   iterator->SeekToLast();
 }
 
 
-RawData levelDbBase::IteratorType::key()
+RawData rocksdbBase::IteratorType::key()
 {
   RawData data;
   if (iterator) {
@@ -115,7 +115,7 @@ RawData levelDbBase::IteratorType::key()
   return data;
 }
 
-RawData levelDbBase::IteratorType::value()
+RawData rocksdbBase::IteratorType::value()
 {
   RawData data;
   if (iterator) {
@@ -129,21 +129,21 @@ RawData levelDbBase::IteratorType::value()
 }
 
 
-leveldb::DB *levelDbBase::open(levelDbBase::partition &partition)
+rocksdb::DB *rocksdbBase::open(rocksdbBase::partition &partition)
 {
   if (!partition.db) {
     std::filesystem::path partitionPath(_path);
     partitionPath /= partition.id;
     
-    leveldb::Options options;
+    rocksdb::Options options;
     options.create_if_missing = true;
-    leveldb::Status status = leveldb::DB::Open(options, partitionPath.u8string(), &partition.db);
+    rocksdb::Status status = rocksdb::DB::Open(options, partitionPath.u8string(), &partition.db);
   }
   
   return partition.db;
 }
 
-levelDbBase::partition levelDbBase::getFirstPartition()
+rocksdbBase::partition rocksdbBase::getFirstPartition()
 {
   if (!_partitions.empty()) {
     auto &p = _partitions.front();
@@ -154,7 +154,7 @@ levelDbBase::partition levelDbBase::getFirstPartition()
   }
 }
 
-levelDbBase::partition levelDbBase::getLastPartition()
+rocksdbBase::partition rocksdbBase::getLastPartition()
 {
   if (!_partitions.empty()) {
     auto &p = _partitions.back();
@@ -166,7 +166,7 @@ levelDbBase::partition levelDbBase::getLastPartition()
 }
 
 
-leveldb::DB *levelDbBase::getPartition(const std::string &id)
+rocksdb::DB *rocksdbBase::getPartition(const std::string &id)
 {
   auto It = std::lower_bound(_partitions.begin(),
                              _partitions.end(),
@@ -177,7 +177,7 @@ leveldb::DB *levelDbBase::getPartition(const std::string &id)
   return open(*It);
 }
 
-levelDbBase::partition levelDbBase::lessPartition(const std::string &id)
+rocksdbBase::partition rocksdbBase::lessPartition(const std::string &id)
 {
   auto It = std::lower_bound(_partitions.begin(),
                              _partitions.end(),
@@ -192,7 +192,7 @@ levelDbBase::partition levelDbBase::lessPartition(const std::string &id)
 }
 
 
-levelDbBase::partition levelDbBase::greaterPartition(const std::string &id)
+rocksdbBase::partition rocksdbBase::greaterPartition(const std::string &id)
 {
   auto It = std::lower_bound(_partitions.begin(),
                              _partitions.end(),
@@ -207,7 +207,7 @@ levelDbBase::partition levelDbBase::greaterPartition(const std::string &id)
 }
 
 
-levelDbBase::partition levelDbBase::greaterOrEqualPartition(const std::string &id)
+rocksdbBase::partition rocksdbBase::greaterOrEqualPartition(const std::string &id)
 {
   auto It = std::lower_bound(_partitions.begin(),
                              _partitions.end(),
@@ -222,7 +222,7 @@ levelDbBase::partition levelDbBase::greaterOrEqualPartition(const std::string &i
   }
 }
 
-leveldb::DB *levelDbBase::getOrCreatePartition(const std::string &id)
+rocksdb::DB *rocksdbBase::getOrCreatePartition(const std::string &id)
 {
   auto It = std::lower_bound(_partitions.begin(),
                              _partitions.end(),
@@ -233,7 +233,7 @@ leveldb::DB *levelDbBase::getOrCreatePartition(const std::string &id)
   return open(*It);
 }
 
-levelDbBase::levelDbBase(const std::filesystem::path &path) : _path(path)
+rocksdbBase::rocksdbBase(const std::filesystem::path &path) : _path(path)
 {
   std::filesystem::create_directories(path);
   
@@ -249,7 +249,7 @@ levelDbBase::levelDbBase(const std::filesystem::path &path) : _path(path)
   std::sort(_partitions.begin(), _partitions.end());
 }
 
-levelDbBase::~levelDbBase()
+rocksdbBase::~rocksdbBase()
 {
   for (auto &p: _partitions) {
     delete p.db;
@@ -258,12 +258,12 @@ levelDbBase::~levelDbBase()
   }
 }
 
-bool levelDbBase::put(const std::string &partitionId, const void *key, size_t keySize, const void *value, size_t valueSize)
+bool rocksdbBase::put(const std::string &partitionId, const void *key, size_t keySize, const void *value, size_t valueSize)
 {
-  if (leveldb::DB *db = getOrCreatePartition(partitionId)) {
-    leveldb::WriteOptions write_options;
-    leveldb::Slice K((const char*)key, keySize);
-    leveldb::Slice V((const char*)value, valueSize);
+  if (rocksdb::DB *db = getOrCreatePartition(partitionId)) {
+    rocksdb::WriteOptions write_options;
+    rocksdb::Slice K((const char*)key, keySize);
+    rocksdb::Slice V((const char*)value, valueSize);
     write_options.sync = true;
     return db->Put(write_options, K, V).ok();
   } else {
@@ -271,11 +271,11 @@ bool levelDbBase::put(const std::string &partitionId, const void *key, size_t ke
   }
 }
 
-bool levelDbBase::deleteRow(const std::string &partitionId, const void *key, size_t keySize)
+bool rocksdbBase::deleteRow(const std::string &partitionId, const void *key, size_t keySize)
 {
-  if (leveldb::DB *db = getOrCreatePartition(partitionId)) {
-    leveldb::WriteOptions write_options;
-    leveldb::Slice K((const char*)key, keySize);
+  if (rocksdb::DB *db = getOrCreatePartition(partitionId)) {
+    rocksdb::WriteOptions write_options;
+    rocksdb::Slice K((const char*)key, keySize);
     write_options.sync = true;
     return db->Delete(write_options, K).ok();
   } else {
@@ -283,10 +283,10 @@ bool levelDbBase::deleteRow(const std::string &partitionId, const void *key, siz
   }
 }
 
-void levelDbBase::clear()
+void rocksdbBase::clear()
 {
   for (auto I = _partitions.begin(), IE = _partitions.end(); I != IE; ++I) {
-    if (leveldb::DB *db = open(*I)) {
+    if (rocksdb::DB *db = open(*I)) {
       delete db;
       I->db = 0;
     }
@@ -299,7 +299,7 @@ void levelDbBase::clear()
   _partitions.clear();
 }
 
-levelDbBase::IteratorType *levelDbBase::iterator()
+rocksdbBase::IteratorType *rocksdbBase::iterator()
 {
   return new IteratorType(this);
 }

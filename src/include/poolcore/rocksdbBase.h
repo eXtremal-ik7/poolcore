@@ -3,7 +3,7 @@
 
 #include "p2putils/coreTypes.h"
 #include "p2putils/xmstream.h"
-#include "leveldb/db.h"
+#include "rocksdb/db.h"
 
 #include <filesystem>
 #include <string>
@@ -15,17 +15,17 @@ namespace leveldb {
 }
 
 
-class levelDbBase {
+class rocksdbBase {
 public:
   struct IteratorType {
-    levelDbBase *base;
+    rocksdbBase *base;
     std::string id;
-    leveldb::Iterator *iterator;
+    rocksdb::Iterator *iterator;
     bool end;
     
     void cleanup() { delete iterator; iterator = 0; }
     
-    IteratorType(levelDbBase *baseArg) : base(baseArg), id(), iterator(0), end(false) {}
+    IteratorType(rocksdbBase *baseArg) : base(baseArg), id(), iterator(0), end(false) {}
     ~IteratorType();
     bool valid();
     void prev();
@@ -45,7 +45,7 @@ public:
           return;
         }
         
-        leveldb::ReadOptions options;
+        rocksdb::ReadOptions options;
         id = p.id;
         iterator = p.db->NewIterator(options);
       }
@@ -54,7 +54,7 @@ public:
       xmstream S(buffer, sizeof(buffer));
       S.reset();
       data.serializeKey(S);
-      leveldb::Slice slice(S.data<const char>(), S.sizeOf());
+      rocksdb::Slice slice(S.data<const char>(), S.sizeOf());
       iterator->Seek(slice);
       while (!iterator->Valid()) {
         cleanup();
@@ -64,7 +64,7 @@ public:
           return;
         }
           
-        leveldb::ReadOptions options;
+        rocksdb::ReadOptions options;
         id = np.id;
         iterator = np.db->NewIterator(options);
         iterator->SeekToFirst();
@@ -75,7 +75,7 @@ public:
 private:
   struct partition {
     std::string id;
-    leveldb::DB *db;
+    rocksdb::DB *db;
     partition() : id(), db(0) {}
     partition(const std::string &idArg) : id(idArg), db(0) {}
     friend bool operator<(const partition &l, const partition &r) { return l.id < r.id; }
@@ -91,14 +91,14 @@ private:
   partition greaterPartition(const std::string &id);
   partition greaterOrEqualPartition(const std::string &id);  
   
-  leveldb::DB *open(partition &partition);
-  leveldb::DB *getPartition(const std::string &id);
-  leveldb::DB *getOrCreatePartition(const std::string &id);
+  rocksdb::DB *open(partition &partition);
+  rocksdb::DB *getPartition(const std::string &id);
+  rocksdb::DB *getOrCreatePartition(const std::string &id);
   
   
 public:
-  levelDbBase(const std::filesystem::path &path);
-  ~levelDbBase();
+  rocksdbBase(const std::filesystem::path &path);
+  ~rocksdbBase();
   
   bool put(const std::string &partitionId, const void *key, size_t keySize, const void *data, size_t dataSize);
   bool deleteRow(const std::string &partitionId, const void *key, size_t keySize);
