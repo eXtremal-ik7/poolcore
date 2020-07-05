@@ -8,10 +8,6 @@ cmake_minimum_required(VERSION 3.11)
 project(poolcore)
 
 set (CMAKE_CXX_STANDARD 17)
-option(BTC_ENABLED "Build bitcoin core client integration" OFF)
-option(DTC_ENABLED "Build datacoin client integration" OFF)
-option(XPM_ENABLED "Build primecoin/XPM client integration" OFF)
-option(ZCASH_ENABLED "Build ZCash/ZEC client integration" OFF)
 option(SANITIZER_ENABLED "Build with address sanitizer" OFF)
 option(GPROF_ENABLED "Build with GNU profiler (use gprof ./exename -p > out.txt)" OFF)
 
@@ -80,20 +76,3 @@ add_library(loguru STATIC ${CMAKE_SOURCE_DIR}/loguru/loguru.cpp)
 add_subdirectory(poolcommon)
 add_subdirectory(poolcore)
 add_subdirectory(poolrpccmd)
-
-if (BTC_ENABLED)
-  add_subdirectory(btc)
-endif()
-
-if (DTC_ENABLED)
-  add_subdirectory(dtc)
-endif()
-
-if (XPM_ENABLED)
-  add_subdirectory(xpm)
-endif()
-
-if (ZCASH_ENABLED)
-  add_subdirectory(zcash)
-endif()
-
