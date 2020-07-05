@@ -29,6 +29,25 @@ set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake
 )
 
+if(MSVC)
+  add_definitions(
+    -D_CRT_SECURE_NO_DEPRECATE
+    -D_CRT_SECURE_NO_WARNINGS
+    -D_CRT_NONSTDC_NO_DEPRECATE
+    -D__STDC_LIMIT_MACROS
+    -D__STDC_FORMAT_MACROS
+    -DNOMINMAX
+    -DNOGDI
+  )
+
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GR-")
+  include_directories(${CMAKE_SOURCE_DIR}/msvc/include)
+else(MSVC)
+  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -fno-rtti")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcx16")
+endif(MSVC)
+
 hunter_add_package(OpenSSL)
 hunter_add_package(leveldb)
 hunter_add_package(flatbuffers)
@@ -37,7 +56,6 @@ include(${CMAKE_SOURCE_DIR}/cmake/ProjectLibp2p.cmake)
 find_package(OpenSSL REQUIRED)
 find_package(leveldb CONFIG REQUIRED)
 find_package(Flatbuffers CONFIG REQUIRED)
-find_package(Boost COMPONENTS thread system REQUIRED)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
   add_definitions(-fPIC)
@@ -51,7 +69,6 @@ include_directories(
   poolcommon
   ${libp2p_SOURCE_DIR}/src/include
   ${libp2p_BINARY_DIR}/include
-  ${BOOST_INCLUDEDIR}
   ${OPENSSL_INCLUDE_DIR}
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_BINARY_DIR}

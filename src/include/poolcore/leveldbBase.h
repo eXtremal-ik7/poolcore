@@ -3,9 +3,9 @@
 
 #include "p2putils/coreTypes.h"
 #include "p2putils/xmstream.h"
-#include <boost/filesystem.hpp>
 #include "leveldb/db.h"
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -82,7 +82,7 @@ private:
   };
   
 private:
-  boost::filesystem::path _path;
+  std::filesystem::path _path;
   std::vector<partition> _partitions;
   
   partition getFirstPartition();
@@ -97,7 +97,7 @@ private:
   
   
 public:
-  levelDbBase(const std::string &path);
+  levelDbBase(const std::filesystem::path &path);
   ~levelDbBase();
   
   bool put(const std::string &partitionId, const void *key, size_t keySize, const void *data, size_t dataSize);

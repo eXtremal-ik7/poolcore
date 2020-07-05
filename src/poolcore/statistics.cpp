@@ -3,12 +3,10 @@
 #include "p2p/p2p.h"
 #include <algorithm>
 
-using namespace boost::filesystem;
-
 StatisticDb::StatisticDb(StatisticDb::config *cfg, p2pNode *client) : _cfg(*cfg),
   _poolStats("pool", 0),
-  _workerStatsDb(path(_cfg.dbPath / "workerStats").c_str()),
-  _poolStatsDb(path(_cfg.dbPath / "poolstats").c_str())
+  _workerStatsDb(_cfg.dbPath / "workerStats"),
+  _poolStatsDb(_cfg.dbPath / "poolstats")
 {
 }
 

@@ -1,8 +1,6 @@
 #include "poolcore/leveldbBase.h"
 #include "loguru.hpp"
 
-using namespace boost::filesystem;
-
 levelDbBase::IteratorType::~IteratorType()
 {
   delete iterator;
@@ -134,12 +132,12 @@ RawData levelDbBase::IteratorType::value()
 leveldb::DB *levelDbBase::open(levelDbBase::partition &partition)
 {
   if (!partition.db) {
-    path partitionPath(_path);
+    std::filesystem::path partitionPath(_path);
     partitionPath /= partition.id;
     
     leveldb::Options options;
     options.create_if_missing = true;
-    leveldb::Status status = leveldb::DB::Open(options, partitionPath.c_str(), &partition.db);
+    leveldb::Status status = leveldb::DB::Open(options, partitionPath.u8string(), &partition.db);
   }
   
   return partition.db;
@@ -235,15 +233,15 @@ leveldb::DB *levelDbBase::getOrCreatePartition(const std::string &id)
   return open(*It);
 }
 
-levelDbBase::levelDbBase(const std::string &path) : _path(path)
+levelDbBase::levelDbBase(const std::filesystem::path &path) : _path(path)
 {
-  create_directories(path);
+  std::filesystem::create_directories(path);
   
-  directory_iterator dirItEnd;
-  for (directory_iterator dirIt(path); dirIt != dirItEnd; ++dirIt) {
+  std::filesystem::directory_iterator dirItEnd;
+  for (std::filesystem::directory_iterator dirIt(path); dirIt != dirItEnd; ++dirIt) {
     if (is_directory(dirIt->status())) {
       // Add a partition
-      _partitions.push_back(partition(dirIt->path().filename().c_str()));
+      _partitions.push_back(partition(dirIt->path().filename().u8string()));
       LOG_F(INFO, "   * found partition %s for %s", dirIt->path().c_str(), path.c_str());
     }
   }
@@ -256,7 +254,7 @@ levelDbBase::~levelDbBase()
   for (auto &p: _partitions) {
     delete p.db;
     if (p.db)
-      LOG_F(INFO, "partition %s / %s was closed", _path.c_str(), p.id.c_str());
+      LOG_F(INFO, "partition %s / %s was closed", _path.u8string().c_str(), p.id.c_str());
   }
 }
 
@@ -293,9 +291,9 @@ void levelDbBase::clear()
       I->db = 0;
     }
 
-    path partitionPath(_path);
+    std::filesystem::path partitionPath(_path);
     partitionPath /= I->id;
-    boost::filesystem::remove_all(partitionPath);
+    std::filesystem::remove_all(partitionPath);
   }
   
   _partitions.clear();

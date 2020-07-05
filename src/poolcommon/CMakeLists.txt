@@ -21,6 +21,9 @@ add_custom_command(
 )
 
 add_library(poolcommon STATIC
+  file.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/pool_generated.cpp
   poolapi.cpp
 )
+
+target_link_libraries(poolcommon flatbuffers::flatbuffers)

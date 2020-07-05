@@ -3,8 +3,6 @@
 #include "asyncio/coroutine.h"
 #include "p2p/p2p.h"
 #include "p2putils/xmstream.h"
-
-#include "boost/bind.hpp"
 #include "loguru.hpp"
 
 static void checkConsistency(AccountingDb *accounting)
@@ -64,17 +62,17 @@ bool PoolBackend::sendMessage(asyncBase *base, void *msg, uint32_t msgSize)
 
 void PoolBackend::start()
 {
-  _thread = new boost::thread(boost::bind(&PoolBackend::backendMain, boost::ref(*this)));
+  _thread = std::thread([](PoolBackend *backend){ backend->backendMain(); }, this);
 }
 
 void PoolBackend::stop()
 {
   postQuitOperation(_base);
-  _thread->join();
+  _thread.join();
 }
 
 
-void *PoolBackend::backendMain()
+void PoolBackend::backendMain()
 {
   if (_cfg.useAsyncPayout && (_cfg.poolZAddr.empty() || _cfg.poolTAddr.empty())) {
     LOG_F(ERROR, "<error> pool configured to use async payouts(like ZCash) but not specified pool Z-Addr/T-Addr");
@@ -154,6 +152,8 @@ void *PoolBackend::msgHandler()
         LOG_F(ERROR, " * pool backend error: unknown message type");
     }
   }
+
+  return nullptr;
 }
 
 void *PoolBackend::checkConfirmationsHandler()

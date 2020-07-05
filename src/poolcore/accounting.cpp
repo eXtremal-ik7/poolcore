@@ -8,7 +8,13 @@
 #include "poolcore/statistics.h"
 #include "loguru.hpp"
 #include <stdarg.h>
+#include <poolcommon/file.h>
 
+#ifndef _WIN32
+#include <unistd.h>
+#else
+#include <io.h>
+#endif
 #define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
 
 // #ifndef PRI64d
@@ -27,9 +33,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-
-
-using namespace boost::filesystem;
 
 
 std::string real_strprintf(const std::string &format, int dummy, ...);
@@ -101,22 +104,22 @@ std::string FormatMoney(int64_t n, bool fPlus=false)
 AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
   _cfg(*cfg),
   _client(client),
-  _roundsDb(path(_cfg.dbPath / "rounds").c_str()),
-  _balanceDb(path(_cfg.dbPath / "balance").c_str()),
-  _foundBlocksDb(path(_cfg.dbPath / "foundBlocks").c_str()),
-  _poolBalanceDb(path(_cfg.dbPath / "poolBalance").c_str()),
-  _payoutDb(path(_cfg.dbPath / "payouts").c_str())
+  _roundsDb(_cfg.dbPath / "rounds"),
+  _balanceDb(_cfg.dbPath / "balance"),
+  _foundBlocksDb(_cfg.dbPath / "foundBlocks"),
+  _poolBalanceDb(_cfg.dbPath / "poolBalance"),
+  _payoutDb(_cfg.dbPath / "payouts")
 {   
   {
     unsigned counter = 0;
-    _sharesFd = open((path(_cfg.dbPath) / "shares.raw").c_str(), O_RDWR | O_SYNC | O_CREAT, S_IRUSR | S_IWUSR);
-    if (_sharesFd == -1)
-      LOG_F(ERROR, "can't open shares file %s (%s)", (path(_cfg.dbPath) / "shares.raw").c_str(), strerror(errno));
-    auto fileSize = lseek(_sharesFd, 0, SEEK_END);
-    lseek(_sharesFd, 0, SEEK_SET);
+    _sharesFd.open(_cfg.dbPath / "shares.raw");
+    if (!_sharesFd.isOpened())
+      LOG_F(ERROR, "can't open shares file %s (%s)", (_cfg.dbPath / "shares.raw").u8string().c_str(), strerror(errno));
+
+    auto fileSize = _sharesFd.size();
     if (fileSize > 0) {
       xmstream stream;
-      read(_sharesFd, stream.reserve(fileSize), fileSize);
+      _sharesFd.read(stream.reserve(fileSize), 0, fileSize);
     
       stream.seekSet(0);
       while (stream.remaining()) {
@@ -135,20 +138,21 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
     LOG_F(INFO, "loaded %u shares from shares.raw file", counter);
     for (auto s: _currentScores)
       LOG_F(INFO, "   * %s: %" PRId64 "", s.first.c_str(), s.second);
+
+    _sharesFd.seekSet(fileSize);
   }
   
   {
-    int _payoutsFdOld = open((path(_cfg.dbPath) / "payouts.raw.old").c_str(), O_RDWR | O_SYNC | O_CREAT, S_IRUSR | S_IWUSR);
-    if (_payoutsFdOld == -1)
-      LOG_F(ERROR, "can't open payouts file %s (%s)", (path(_cfg.dbPath) / "payouts.raw.old").c_str(), strerror(errno));
-    
-    struct stat s;
-    fstat(_payoutsFdOld, &s);
-    auto fileSize = s.st_size;
+    FileDescriptor payoutsFdOld;
+    payoutsFdOld.open(_cfg.dbPath / "payouts.raw.old");
+    if (!payoutsFdOld.isOpened())
+      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / "payouts.raw.old").u8string().c_str(), strerror(errno));
+
+    auto fileSize = payoutsFdOld.size();
 
     if (fileSize > 0) {
       xmstream stream;
-      read(_payoutsFdOld, stream.reserve(fileSize), fileSize);
+      payoutsFdOld.read(stream.reserve(fileSize), 0, fileSize);
       
       stream.seekSet(0);
       while (stream.remaining()) {
@@ -162,22 +166,21 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
         _payoutQueue.push_back(payoutElement(std::string(userIdData, userIdSize), value, 0));
       }
     }
-    
-    ftruncate(_payoutsFdOld, 0); 
+
+    payoutsFdOld.truncate(0);
     LOG_F(INFO, "loaded %u payouts from payouts.raw.old file", (unsigned)_payoutQueue.size());
   }
   
   {
     unsigned payoutsNum = 0;
-    _payoutsFd = open((path(_cfg.dbPath) / "payouts.raw").c_str(), O_RDWR | O_SYNC | O_CREAT, S_IRUSR | S_IWUSR);
-    if (_payoutsFd == -1)
-      LOG_F(ERROR, "can't open payouts file %s (%s)", (path(_cfg.dbPath) / "payouts.raw").c_str(), strerror(errno));
-      struct stat s;
-      fstat(_payoutsFd, &s);
-      auto fileSize = s.st_size;    
+    _payoutsFd.open(_cfg.dbPath / "payouts.raw");
+    if (!_payoutsFd.isOpened())
+      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / "payouts.raw").u8string().c_str(), strerror(errno));
+
+    auto fileSize = _payoutsFd.size();
     if (fileSize > 0) {
       xmstream stream;
-      read(_payoutsFd, stream.reserve(fileSize), fileSize);
+      _payoutsFd.read(stream.reserve(fileSize), 0, fileSize);
       
       stream.seekSet(0);
       while (stream.remaining()) {
@@ -237,9 +240,8 @@ void AccountingDb::updatePayoutFile()
   for (auto &p: _payoutQueue)
     p.serializeValue(stream);
   
-  lseek(_payoutsFd, 0, SEEK_SET);
-  ftruncate(_payoutsFd, 0);  
-  write(_payoutsFd, stream.data(), stream.sizeOf());
+  _payoutsFd.write(stream.data(), 0, stream.sizeOf());
+  _payoutsFd.truncate(stream.sizeOf());
 }
 
 void AccountingDb::cleanupRounds()
@@ -268,10 +270,9 @@ void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
     stream.write<uint32_t>(share->userId()->size());
     stream.write(share->userId()->c_str(), share->userId()->size());
     stream.write<int64_t>(share->value());
-    if (write(_sharesFd, stream.data(), stream.sizeOf()) != stream.sizeOf())
+    if (_sharesFd.write(stream.data(), stream.sizeOf() != stream.sizeOf()))
       LOG_F(ERROR, "can't save share to file (%s fd=%i), it can be lost", strerror(errno), _sharesFd);
   }
-  
   
   // increment score
   _currentScores[share->userId()->c_str()] += share->value();
@@ -425,8 +426,7 @@ void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
     
     // store round to DB and clear shares map
     _roundsDb.put(*R);
-    lseek(_sharesFd, 0, SEEK_SET);
-    ftruncate(_sharesFd, 0);
+    _sharesFd.truncate(0);
   }
 }
 

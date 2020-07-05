@@ -3,6 +3,7 @@
 
 #include "backendData.h"
 #include "poolcommon/pool_generated.h"
+#include "poolcommon/file.h"
 #include "kvdb.h"
 #include "poolcore/leveldbBase.h"
 #include <deque>
@@ -27,7 +28,7 @@ public:
     int64_t defaultMinimalPayout;
     int64_t minimalPayout;
     unsigned keepRoundTime;
-    std::string dbPath;
+    std::filesystem::path dbPath;
     std::string poolZAddr;
     std::string poolTAddr;
     CheckAddressProcTy *checkAddressProc;
@@ -53,8 +54,8 @@ private:
   std::set<miningRound*> _roundsWithPayouts;
   std::list<payoutElement> _payoutQueue;  
   
-  int _sharesFd;
-  int _payoutsFd;
+  FileDescriptor _sharesFd;
+  FileDescriptor _payoutsFd;
   kvdb<levelDbBase> _roundsDb;
   kvdb<levelDbBase> _balanceDb;
   kvdb<levelDbBase> _foundBlocksDb;

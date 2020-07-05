@@ -6,7 +6,7 @@
 #include "asyncio/asyncio.h"
 #include "asyncio/device.h"
 #include "poolcommon/pool_generated.h"
-#include "boost/thread.hpp"
+#include <thread>
 
 class p2pNode;
 
@@ -44,22 +44,21 @@ private:
   pipeTy _pipeFd;
   aioObject *_write;
   aioObject *_read;
-  boost::thread *_thread;
+  std::thread _thread;
   
   config _cfg;
   p2pNode *_client;
   p2pNode *_node;
   AccountingDb *_accounting;
   StatisticDb *_statistics;
-  
-  static void *threadProc(void *arg) { return ((PoolBackend*)arg)->backendMain(); }
+
   static void msgHandlerProc(void *arg) { ((PoolBackend*)arg)->msgHandler(); }
   static void checkConfirmationsProc(void *arg) { ((PoolBackend*)arg)->checkConfirmationsHandler(); }
   static void payoutProc(void *arg) { ((PoolBackend*)arg)->payoutHandler(); }
   static void checkBalanceProc(void *arg) { ((PoolBackend*)arg)->checkBalanceHandler(); }
   static void updateStatisticProc(void *arg) { ((PoolBackend*)arg)->updateStatisticHandler(); }
   
-  void *backendMain();
+  void backendMain();
   void *msgHandler();
   void *checkConfirmationsHandler();  
   void *payoutHandler();    

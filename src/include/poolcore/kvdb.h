@@ -4,7 +4,7 @@
 #include "leveldb/db.h"
 #include "p2putils/coreTypes.h"
 #include "p2putils/xmstream.h"
-
+#include <filesystem>
 
 
 
@@ -16,7 +16,7 @@ private:
   DbTy _db;
   
 public:
-  kvdb(const std::string &path) : _db(path) {}
+  kvdb(const std::filesystem::path &path) : _db(path) {}
   
   template<typename D>
   void put(const D &data) {

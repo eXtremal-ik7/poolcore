@@ -13,7 +13,7 @@ class p2pPeer;
 class StatisticDb {
 public:
   struct config {
-    std::string dbPath;
+    std::filesystem::path dbPath;
     unsigned keepStatsTime;
   };
   
