@@ -1,0 +1,2 @@
+#include "poolcore/usermgr.h"
+

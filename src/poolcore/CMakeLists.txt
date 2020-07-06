@@ -8,6 +8,7 @@ add_library(poolcore STATIC
   backend.cpp
   accounting.cpp
   statistics.cpp
+  usermgr.cpp
 )
 
 target_link_libraries(poolcore poolcommon RocksDB::rocksdb)

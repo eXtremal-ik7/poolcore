@@ -12,9 +12,9 @@ void foundBlockHandler(asyncBase *base, p2pConnection *connection, const Query *
   auto &db = backend->accountingDb()->getFoundBlocksDb();
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
   if (Q->heightFrom() != -1) {
-    foundBlock blk;
-    blk.height = Q->heightFrom();
-    blk.hash = Q->hashFrom() ? Q->hashFrom()->c_str() : "";
+    FoundBlockRecord blk;
+    blk.Height = Q->heightFrom();
+    blk.Hash = Q->hashFrom() ? Q->hashFrom()->c_str() : "";
     It->seek(blk);
     It->prev();
   } else {
@@ -23,15 +23,15 @@ void foundBlockHandler(asyncBase *base, p2pConnection *connection, const Query *
   
   std::vector<std::string> hashes;
   std::vector<int> confirmations;
-  std::vector<foundBlock> foundBlocks;
+  std::vector<FoundBlockRecord> foundBlocks;
   for (unsigned i = 0; i < Q->count() && It->valid(); i++) {
-    foundBlock dbBlock;
+    FoundBlockRecord dbBlock;
     RawData data = It->value();
     if (!dbBlock.deserializeValue(data.data, data.size))
       break;
     foundBlocks.push_back(dbBlock);
     confirmations.push_back(-1);
-    hashes.push_back(dbBlock.hash);
+    hashes.push_back(dbBlock.Hash);
     It->prev();
   }
   
@@ -47,12 +47,12 @@ void foundBlockHandler(asyncBase *base, p2pConnection *connection, const Query *
   std::vector<flatbuffers::Offset<Block>> offsets;
   for (size_t i = 0; i < foundBlocks.size(); i++) {
     BlockT block;  
-    block.height = foundBlocks[i].height;
-    block.hash = foundBlocks[i].hash;
-    block.time = foundBlocks[i].time;
+    block.height = foundBlocks[i].Height;
+    block.hash = foundBlocks[i].Hash;
+    block.time = foundBlocks[i].Time;
     block.confirmations = confirmations[i];
-    block.generatedCoins = foundBlocks[i].availableCoins;
-    block.foundBy = foundBlocks[i].foundBy;
+    block.generatedCoins = foundBlocks[i].AvailableCoins;
+    block.foundBy = foundBlocks[i].FoundBy;
     offsets.push_back(CreateBlock(fbb, &block));
   }
   
@@ -71,8 +71,8 @@ void poolBalanceHandler(asyncBase *base, p2pConnection *connection, const Query 
   auto &db = accountindDb->getPoolBalanceDb();
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
   if (Q->timeFrom() != -1) {
-    poolBalance pb;
-    pb.time = Q->timeFrom();
+    PoolBalanceRecord pb;
+    pb.Time = Q->timeFrom();
     It->seek(pb);
     It->prev();
   } else {
@@ -81,12 +81,12 @@ void poolBalanceHandler(asyncBase *base, p2pConnection *connection, const Query 
   
   std::vector<flatbuffers::Offset<PoolBalance>> offsets;
   for (unsigned i = 0; i < count && It->valid(); i++) {
-    poolBalance pb;
+    PoolBalanceRecord pb;
     RawData data = It->value();
     if (!pb.deserializeValue(data.data, data.size))
       break;
     
-    offsets.push_back(CreatePoolBalance(fbb, pb.time, pb.balance, pb.immature, pb.users, pb.queued, pb.net));
+    offsets.push_back(CreatePoolBalance(fbb, pb.Time, pb.Balance, pb.Immature, pb.Users, pb.Queued, pb.Net));
     It->prev();
   }
   
@@ -106,7 +106,7 @@ void payoutsHandler(asyncBase *base, p2pConnection *connection, const Query *Q, 
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
 
   {
-    payoutRecord pr;
+    PayoutDbRecord pr;
     pr.userId = Q->userId() ? Q->userId()->c_str() : "";
     pr.time = (Q->timeFrom() == -1) ? time(nullptr)+1 : Q->timeFrom();
     It->seek(pr);
@@ -118,7 +118,7 @@ void payoutsHandler(asyncBase *base, p2pConnection *connection, const Query *Q, 
     if (!It->valid())
       break;
     
-    payoutRecord pr;
+    PayoutDbRecord pr;
     RawData data = It->value();
     if (!pr.deserializeValue(data.data, data.size) || pr.userId != Q->userId()->c_str())
       break;

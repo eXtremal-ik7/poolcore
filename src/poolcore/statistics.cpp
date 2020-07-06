@@ -17,16 +17,16 @@ void StatisticDb::addStats(const Stats *stats)
     key.push_back('/');
     key.append(stats->workerId()->c_str());
   
-  clientStats s;
-  s.userId = stats->userId()->c_str();
-  s.workerId = stats->workerId()->c_str();
-  s.time = time(0);
-  s.power = stats->power();
-  s.latency = stats->latency();
-  s.address = stats->address()->c_str();
-  s.unitType = stats->type();
-  s.units = stats->units();
-  s.temp = stats->temp();
+  ClientStatsRecord s;
+  s.Login = stats->userId()->c_str();
+  s.WorkerId = stats->workerId()->c_str();
+  s.Time = time(0);
+  s.Power = stats->power();
+  s.Latency = stats->latency();
+  s.Address = stats->address()->c_str();
+  s.UnitType = stats->type();
+  s.Units = stats->units();
+  s.Temp = stats->temp();
   _statsMap[key] = s;
 }
 
@@ -41,49 +41,49 @@ void StatisticDb::update()
   time_t removeTimeLabel = currentTime - _cfg.keepStatsTime;
   memset(units, 0, sizeof(units));
   
-  std::map<std::string, siteStats> uniqueClients;
+  std::map<std::string, SiteStatsRecord> uniqueClients;
   for (auto I = _statsMap.begin(), IE = _statsMap.end(); I != IE;) {
-    const clientStats &stats = I->second;
-    if (stats.time >= removeTimeLabel) {
-      if (stats.power < 16000)
-        power += stats.power;
-      if (stats.latency >= 0) {
-        avgLatency += stats.latency;
+    const ClientStatsRecord &stats = I->second;
+    if (stats.Time >= removeTimeLabel) {
+      if (stats.Power < 16000)
+        power += stats.Power;
+      if (stats.Latency >= 0) {
+        avgLatency += stats.Latency;
         lcount++;
       }
 
       {
-        auto clIt = uniqueClients.find(stats.userId);
+        auto clIt = uniqueClients.find(stats.Login);
         if (clIt == uniqueClients.end())
-          clIt = uniqueClients.insert(clIt, std::make_pair(stats.userId, siteStats("cl:" + stats.userId, currentTime)));
-        siteStats &clientAggregate = clIt->second;
-        clientAggregate.clients = 1;
-        clientAggregate.workers++;
-        switch (stats.unitType) {
+          clIt = uniqueClients.insert(clIt, std::make_pair(stats.Login, SiteStatsRecord("cl:" + stats.Login, currentTime)));
+        SiteStatsRecord &clientAggregate = clIt->second;
+        clientAggregate.Clients = 1;
+        clientAggregate.Workers++;
+        switch (stats.UnitType) {
           case UnitType_CPU :
-            clientAggregate.cpus += stats.units;
+            clientAggregate.CPUNum += stats.Units;
             break;
           case UnitType_GPU :
-            clientAggregate.gpus += stats.units;
+            clientAggregate.GPUNum += stats.Units;
             break;
           case UnitType_ASIC :
-            clientAggregate.asics += stats.units;
+            clientAggregate.ASICNum += stats.Units;
             break;
           default :
-            clientAggregate.other += stats.units;
+            clientAggregate.OtherNum += stats.Units;
             break;
         }
         
-        if (stats.latency >= 0) {
-          clientAggregate.latency += stats.latency;
-          clientAggregate.lcount++;
+        if (stats.Latency >= 0) {
+          clientAggregate.Latency += stats.Latency;
+          clientAggregate.LCount++;
         }
         
-        clientAggregate.power += stats.power;
+        clientAggregate.Power += stats.Power;
       }
       
 
-      units[std::min(stats.unitType, (int)UnitType_OTHER)] += stats.units;
+      units[std::min(stats.UnitType, static_cast<uint32_t>(UnitType_OTHER))] += stats.Units;
       ++count;
       ++I;
       
@@ -99,26 +99,26 @@ void StatisticDb::update()
     _poolStatsDb.put(cs.second);
   
   {
-    _poolStats.time = currentTime;
-    _poolStats.clients = uniqueClients.size();
-    _poolStats.workers = count;
-    _poolStats.cpus = units[UnitType_CPU];
-    _poolStats.gpus = units[UnitType_GPU];
-    _poolStats.asics = units[UnitType_ASIC];
-    _poolStats.other = units[UnitType_OTHER];
-    _poolStats.latency = lcount ? (double)avgLatency / lcount : -1;
-    _poolStats.power = power;
+    _poolStats.Time = currentTime;
+    _poolStats.Clients = uniqueClients.size();
+    _poolStats.Workers = count;
+    _poolStats.CPUNum = units[UnitType_CPU];
+    _poolStats.GPUNum = units[UnitType_GPU];
+    _poolStats.ASICNum = units[UnitType_ASIC];
+    _poolStats.OtherNum = units[UnitType_OTHER];
+    _poolStats.Latency = lcount ? (double)avgLatency / lcount : -1;
+    _poolStats.Power = power;
     _poolStatsDb.put(_poolStats);
     LOG_F(INFO,
           "clients: %u, workers: %u, cpus: %u, gpus: %u, asics: %u, other: %u, latency: %u, power: %u",
-          (unsigned)_poolStats.clients,
-          (unsigned)_poolStats.workers,
-          (unsigned)_poolStats.cpus,
-          (unsigned)_poolStats.gpus,
-          (unsigned)_poolStats.asics,
-          (unsigned)_poolStats.other,
-          (unsigned)_poolStats.latency,
-          (unsigned)_poolStats.power);
+          (unsigned)_poolStats.Clients,
+          (unsigned)_poolStats.Workers,
+          (unsigned)_poolStats.CPUNum,
+          (unsigned)_poolStats.GPUNum,
+          (unsigned)_poolStats.ASICNum,
+          (unsigned)_poolStats.OtherNum,
+          (unsigned)_poolStats.Latency,
+          (unsigned)_poolStats.Power);
              
   }
 }
@@ -127,17 +127,17 @@ uint64_t StatisticDb::getClientPower(const std::string &userId) const
 {
   uint64_t power = 0;
   for (auto It = _statsMap.lower_bound(userId); It != _statsMap.end(); ++It) {
-    const clientStats &stats = It->second;
-    if (stats.userId != userId)
+    const ClientStatsRecord &stats = It->second;
+    if (stats.Login != userId)
       break;
-    power += stats.power;
+    power += stats.Power;
   }
   return power;
 }
 
 uint64_t StatisticDb::getPoolPower() const
 {
-  return _poolStats.power;
+  return _poolStats.Power;
 }
 
 void StatisticDb::queryClientStats(p2pPeer *peer, uint32_t id, const std::string &userId)
@@ -151,27 +151,27 @@ void StatisticDb::queryClientStats(p2pPeer *peer, uint32_t id, const std::string
   
   std::vector<flatbuffers::Offset<WorkerStatsRecord>> workers;
   for (auto It = _statsMap.lower_bound(userId); It != _statsMap.end(); ++It) {
-    const clientStats &stats = It->second;
-    if (stats.userId != userId)
+    const ClientStatsRecord &stats = It->second;
+    if (stats.Login != userId)
       break;
     
-    power += stats.power;
-    if (stats.latency >= 0) {
-      avgLatency += stats.latency;
+    power += stats.Power;
+    if (stats.Latency >= 0) {
+      avgLatency += stats.Latency;
       lcount++;
     }
     
-    units[std::min(stats.unitType, (int)UnitType_OTHER)] += stats.units;
+    units[std::min(stats.UnitType, static_cast<uint32_t>(UnitType_OTHER))] += stats.Units;
     
     workers.push_back(CreateWorkerStatsRecord(fbb,
-                                              fbb.CreateString(stats.workerId),
+                                              fbb.CreateString(stats.WorkerId),
                                               0,
-                                              fbb.CreateString(stats.address),
-                                              stats.power,
-                                              stats.latency,
-                                              (UnitType)stats.unitType,
-                                              stats.units,
-                                              stats.temp));
+                                              fbb.CreateString(stats.Address),
+                                              stats.Power,
+                                              stats.Latency,
+                                              (UnitType)stats.UnitType,
+                                              stats.Units,
+                                              stats.Temp));
 
   }
   
@@ -198,14 +198,14 @@ void StatisticDb::queryPoolStats( p2pPeer *peer, uint32_t id)
   flatbuffers::FlatBufferBuilder fbb;  
   
   auto offset = CreateWorkerStatsAggregate(fbb, 0,
-    _poolStats.clients,
-    _poolStats.workers,
-    _poolStats.cpus,
-    _poolStats.gpus,
-    _poolStats.asics,
-    _poolStats.other,
-    _poolStats.latency,
-    _poolStats.power);
+    _poolStats.Clients,
+    _poolStats.Workers,
+    _poolStats.CPUNum,
+    _poolStats.GPUNum,
+    _poolStats.ASICNum,
+    _poolStats.OtherNum,
+    _poolStats.Latency,
+    _poolStats.Power);
   
   QueryResultBuilder qrb(fbb);    
   qrb.add_aggregate(offset);

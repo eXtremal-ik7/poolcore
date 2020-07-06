@@ -20,8 +20,8 @@ public:
 private:
   config _cfg;
   
-  std::map<std::string, clientStats> _statsMap;
-  siteStats _poolStats;
+  std::map<std::string, ClientStatsRecord> _statsMap;
+  SiteStatsRecord _poolStats;
   
   kvdb<rocksdbBase> _workerStatsDb;
   kvdb<rocksdbBase> _poolStatsDb;

@@ -22,13 +22,13 @@ static void checkConsistency(AccountingDb *accounting)
     auto *It = balanceDb.iterator();
     It->seekFirst();
     for (; It->valid(); It->next()) {
-      userBalance balance;
+      UserBalanceRecord balance;
       RawData data = It->value();
       if (!balance.deserializeValue(data.data, data.size))
         break;      
         
-      balancesRequested[balance.userId] = balance.requested;
-      totalInBalance += balance.requested;
+      balancesRequested[balance.Login] = balance.Requested;
+      totalInBalance += balance.Requested;
     }
   }
   

@@ -67,20 +67,56 @@ struct miningRound {
   void dump();
 };
 
-struct userBalance {
+struct UsersRecord {
+  enum { CurrentRecordVersion = 1 };
+
+  std::string Login;
+  std::string PasswordHash;
+  std::string EMail;
+  std::string Name;
+  std::string TwoFactorAuthData;
+
+  UsersRecord() {}
+  std::string getPartitionId() const { return "default"; }
+  bool deserializeValue(const void *data, size_t size);
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;
+};
+
+struct UserSettingsRecord {
+  enum { CurrentRecordVersion = 1 };
+
+  std::string Login;
+  std::string Coin;
+  std::string Address;
+  int64_t MinimalPayout;
+  bool AutoPayout;
+
+  UserSettingsRecord() {}
+  std::string getPartitionId() const { return "default"; }
+  bool deserializeValue(const void *data, size_t size);
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;
+};
+
+struct UserBalanceRecord {
   enum { CurrentRecordVersion = 1 };
   
-  std::string userId;
+  std::string Login;
+  std::string Coin;
+  int64_t Balance;
+  int64_t Requested;
+  int64_t Paid;
+
+  // Moved to other table
   std::string name;
   std::string email;
   std::string passwordHash;
-  int64_t balance;
-  int64_t requested;
-  int64_t paid;
   int64_t minimalPayout;
-  userBalance() {}
-  userBalance(const std::string &userIdArg, int64_t defaultMinimalPayout) :
-    userId(userIdArg), balance(0), requested(0), paid(0), minimalPayout(defaultMinimalPayout) {}
+
+  UserBalanceRecord() {}
+  UserBalanceRecord(const std::string &userIdArg, int64_t defaultMinimalPayout) :
+    Login(userIdArg), Balance(0), Requested(0), Paid(0) {}
       
   std::string getPartitionId() const { return "default"; }
   bool deserializeValue(const void *data, size_t size);
@@ -88,106 +124,112 @@ struct userBalance {
   void serializeValue(xmstream &stream) const;
 };
 
-struct foundBlock {
+
+struct FoundBlockRecord {
   enum { CurrentRecordVersion = 1 };
   
-  unsigned height;
-  std::string hash;
-  time_t time;
-  int64_t availableCoins;
-  std::string foundBy;
+  time_t Time;
+  std::string Coin;
+  std::string Hash;
+  uint64_t Height;
+  int64_t AvailableCoins;
+  std::string FoundBy;
   
-  std::string getPartitionId() const { return partByHeight(height); }
+  std::string getPartitionId() const { return partByHeight(Height); }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;
 };
 
-struct poolBalance {
+struct PoolBalanceRecord {
   enum { CurrentRecordVersion = 1 };
   
-  time_t time;
-  int64_t balance;
-  int64_t immature;
-  int64_t users;
-  int64_t queued;
-  int64_t net;
+  time_t Time;
+  std::string Coin;
+  int64_t Balance;
+  int64_t Immature;
+  int64_t Users;
+  int64_t Queued;
+  int64_t Net;
 
-  std::string getPartitionId() const { return partByTime(time); }
+  std::string getPartitionId() const { return partByTime(Time); }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
-  void serializeValue(xmstream &stream) const;  
+  void serializeValue(xmstream &stream) const;
 };
 
-struct siteStats {
+struct SiteStatsRecord {
   enum { CurrentRecordVersion = 1 };
   
-  std::string userId;
-  time_t time;
-  unsigned clients;
-  unsigned workers;
-  unsigned cpus;
-  unsigned gpus;
-  unsigned asics;
-  unsigned other;
-  unsigned latency;
-  uint64_t power;
+  std::string Login;
+  std::string Coin;
+  time_t Time;
+  unsigned Clients;
+  unsigned Workers;
+  unsigned CPUNum;
+  unsigned GPUNum;
+  unsigned ASICNum;
+  unsigned OtherNum;
+  unsigned Latency;
+  uint64_t Power;
   
-  unsigned lcount;
+  unsigned LCount;
   
-  siteStats(const std::string &userIdArg, time_t timeArg) :
-    userId(userIdArg), time(timeArg),
-    clients(0), workers(0), cpus(0), gpus(0), asics(0), other(0),
-    latency(0), power(0),
-    lcount(0) {}
+  SiteStatsRecord(const std::string &userIdArg, time_t timeArg) :
+    Login(userIdArg), Time(timeArg),
+    Clients(0), Workers(0), CPUNum(0), GPUNum(0), ASICNum(0), OtherNum(0),
+    Latency(0), Power(0),
+    LCount(0) {}
   
-  std::string getPartitionId() const { return partByTime(time); }
-  bool deserializeValue(const void *data, size_t size);
-  void serializeKey(xmstream &stream) const;
-  void serializeValue(xmstream &stream) const;    
-};
-
-struct clientStats {
-  enum { CurrentRecordVersion = 1 };
-  
-  std::string userId;
-  std::string workerId;
-  time_t time;
-  uint64_t power;
-  int latency;
-  
-  std::string address;
-  int unitType;
-  unsigned units;
-  unsigned temp;
-  
-  std::string getPartitionId() const { return partByTime(time); }
+  std::string getPartitionId() const { return partByTime(Time); }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;    
 };
 
-struct shareStats {
+struct ClientStatsRecord {
   enum { CurrentRecordVersion = 1 };
   
-  time_t time;
-  int64_t total;
-  std::vector<shareInfo> info;
+  std::string Login;
+  std::string Coin;
+  std::string WorkerId;
+  time_t Time;
+  uint64_t Power;
+  int32_t Latency;
   
-  std::string getPartitionId() const { return partByTime(time); }
+  std::string Address;
+  uint32_t UnitType;
+  uint32_t Units;
+  uint32_t Temp;
+  
+  std::string getPartitionId() const { return partByTime(Time); }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;    
 };
 
-struct payoutRecord {
+struct ShareStatsRecord {
+  enum { CurrentRecordVersion = 1 };
+  
+  std::string Coin;
+  time_t Time;
+  int64_t Total;
+  std::vector<shareInfo> Info;
+  
+  std::string getPartitionId() const { return partByTime(Time); }
+  bool deserializeValue(const void *data, size_t size);
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;    
+};
+
+struct PayoutDbRecord {
   enum { CurrentRecordVersion = 1 };
   
   std::string userId;
   time_t time;
   int64_t value;
   std::string transactionId;
-  friend bool operator<(const payoutRecord &r1, const payoutRecord &r2) { return r1.userId < r2.userId; }
+  friend bool operator<(const PayoutDbRecord &r1, const PayoutDbRecord &r2) { return r1.userId < r2.userId; }
   
   std::string getPartitionId() const { return partByTime(time); }
   bool deserializeValue(const void *data, size_t size);

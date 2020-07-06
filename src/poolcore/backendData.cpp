@@ -164,214 +164,285 @@ void miningRound::dump()
   }  
 }
 
+bool UsersRecord::deserializeValue(const void *data, size_t size)
+{
+  xmstream stream(const_cast<void*>(data), size);
+  uint32_t version = stream.readle<uint32_t>();
+  if (version >= 1) {
+    deserializeString(stream, Login);
+    deserializeString(stream, PasswordHash);
+    deserializeString(stream, EMail);
+    deserializeString(stream, Name);
+    deserializeString(stream, TwoFactorAuthData);
+  }
 
-bool userBalance::deserializeValue(const void *data, size_t size)
+  return !stream.eof();
+}
+
+void UsersRecord::serializeKey(xmstream &stream) const
+{
+  serializeStringForKey(stream, Login);
+}
+
+void UsersRecord::serializeValue(xmstream &stream) const
+{
+  stream.writele<uint32_t>(CurrentRecordVersion);
+  serializeString(stream, Login);
+  serializeString(stream, PasswordHash);
+  serializeString(stream, EMail);
+  serializeString(stream, Name);
+  serializeString(stream, TwoFactorAuthData);
+}
+
+bool UserSettingsRecord::deserializeValue(const void *data, size_t size)
+{
+  xmstream stream(const_cast<void*>(data), size);
+  uint32_t version = stream.readle<uint32_t>();
+  if (version >= 1) {
+    deserializeString(stream, Login);
+    deserializeString(stream, Coin);
+    deserializeString(stream, Address);
+    MinimalPayout = stream.readle<int64_t>();
+    AutoPayout = stream.read<uint8_t>();
+  }
+
+  return !stream.eof();
+}
+
+void UserSettingsRecord::serializeKey(xmstream &stream) const
+{
+  serializeStringForKey(stream, Login);
+  serializeStringForKey(stream, Coin);
+}
+
+void UserSettingsRecord::serializeValue(xmstream &stream) const
+{
+  stream.writele<uint32_t>(CurrentRecordVersion);
+  serializeString(stream, Login);
+  serializeString(stream, Coin);
+  serializeString(stream, Address);
+  stream.writele<int64_t>(MinimalPayout);
+  stream.write<uint8_t>(AutoPayout);
+}
+
+// TODO: remove obsolete table
+bool UserBalanceRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) { 
-    deserializeString(stream, userId);
-    deserializeString(stream, name);
-    deserializeString(stream, email);
-    deserializeString(stream, passwordHash);
-    balance = stream.read<int64_t>();
-    requested = stream.read<int64_t>();
-    paid = stream.read<int64_t>();
-    minimalPayout = stream.read<int64_t>();
+    deserializeString(stream, Login);
+    deserializeString(stream, Coin);
+    Balance = stream.readle<int64_t>();
+    Requested = stream.readle<int64_t>();
+    Paid = stream.readle<int64_t>();
   }
   
   return !stream.eof();
 }
 
-void userBalance::serializeKey(xmstream &stream) const
+// TODO: remove obsolete table
+void UserBalanceRecord::serializeKey(xmstream &stream) const
 {
-  serializeStringForKey(stream, userId);
+  serializeStringForKey(stream, Login);
+  serializeStringForKey(stream, Coin);
 }
 
-void userBalance::serializeValue(xmstream &stream) const
+// TODO: remove obsolete table
+void UserBalanceRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);  
-  serializeString(stream, userId);
-  serializeString(stream, name);
-  serializeString(stream, email);
-  serializeString(stream, passwordHash);
-  stream.write<int64_t>(balance);
-  stream.write<int64_t>(requested);
-  stream.write<int64_t>(paid);
-  stream.write<int64_t>(minimalPayout);
+  serializeString(stream, Login);
+  serializeString(stream, Coin);
+  stream.writele<int64_t>(Balance);
+  stream.writele<int64_t>(Requested);
+  stream.writele<int64_t>(Paid);
 }
 
-// ====================== foundBlock ====================== \\
+// ====================== FoundBlock ======================
 
-bool foundBlock::deserializeValue(const void *data, size_t size)
+bool FoundBlockRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
-    height = stream.read<uint32_t>();
-    deserializeString(stream, hash);
-    time = (time_t)stream.read<uint64_t>();
-    availableCoins = stream.read<int64_t>();
-    deserializeString(stream, foundBy);
+    Time = stream.readle<uint64_t>();
+    deserializeString(stream, Coin);
+    deserializeString(stream, Hash);
+    Height = stream.read<uint64_t>();
+    AvailableCoins = stream.read<int64_t>();
+    deserializeString(stream, FoundBy);
   }
   
   return !stream.eof();
 }
 
 
-void foundBlock::serializeKey(xmstream &stream) const
+void FoundBlockRecord::serializeKey(xmstream &stream) const
 {
-  stream.writebe<uint32_t>(height);
-  serializeStringForKey(stream, hash);
+  stream.writebe<uint64_t>(Time);
+  serializeStringForKey(stream, Coin);
+  serializeStringForKey(stream, Hash);
 }
 
-void foundBlock::serializeValue(xmstream &stream) const
+void FoundBlockRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
-  stream.write<uint32_t>(height);
-  serializeString(stream, hash);
-  stream.write<uint64_t>(time);
-  stream.write<int64_t>(availableCoins);
-  serializeString(stream, foundBy);
+  stream.writele<uint64_t>(Time);
+  serializeString(stream, Coin);
+  serializeString(stream, Hash);
+  stream.writele<uint64_t>(Height);
+  stream.writele<int64_t>(AvailableCoins);
+  serializeString(stream, FoundBy);
 }
 
-// ====================== poolBalance ====================== \\
+// ====================== PoolBalance ======================
 
-bool poolBalance::deserializeValue(const void *data, size_t size)
+bool PoolBalanceRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
-    time = (time_t)stream.read<uint64_t>();
-    balance = stream.read<int64_t>();
-    immature = stream.read<int64_t>();
-    users = stream.read<int64_t>();
-    queued = stream.read<int64_t>();
-    net = stream.read<int64_t>();
+    Time = (time_t)stream.read<uint64_t>();
+    deserializeString(stream, Coin);
+    Balance = stream.read<int64_t>();
+    Immature = stream.read<int64_t>();
+    Users = stream.read<int64_t>();
+    Queued = stream.read<int64_t>();
+    Net = stream.read<int64_t>();
   }
   
   return !stream.eof();
 }
 
-void poolBalance::serializeKey(xmstream &stream) const
+void PoolBalanceRecord::serializeKey(xmstream &stream) const
 {
-  stream.writebe<uint64_t>(time);
+  stream.writebe<uint64_t>(Time);
+  serializeStringForKey(stream, Coin);
 }
 
-void poolBalance::serializeValue(xmstream &stream) const
+void PoolBalanceRecord::serializeValue(xmstream &stream) const
 {
-  stream.write<uint32_t>(CurrentRecordVersion);
-  stream.write<uint64_t>(time);
-  stream.write<int64_t>(balance);
-  stream.write<int64_t>(immature);
-  stream.write<int64_t>(users);
-  stream.write<int64_t>(queued);
-  stream.write<int64_t>(net);  
+  stream.writele<uint32_t>(CurrentRecordVersion);
+  serializeString(stream, Coin);
+  stream.writele<uint64_t>(Time);
+  stream.writele<int64_t>(Balance);
+  stream.writele<int64_t>(Immature);
+  stream.writele<int64_t>(Users);
+  stream.writele<int64_t>(Queued);
+  stream.writele<int64_t>(Net);
 }
 
-// ====================== siteStats ====================== \\
+// ====================== SiteStats ======================
 
-bool siteStats::deserializeValue(const void *data, size_t size)
+bool SiteStatsRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
-    deserializeString(stream, userId);
-    time = (time_t)stream.read<uint64_t>();
-    clients = stream.read<uint32_t>();
-    workers = stream.read<uint32_t>();
-    cpus = stream.read<uint32_t>();
-    gpus = stream.read<uint32_t>();
-    asics = stream.read<uint32_t>();
-    other = stream.read<uint32_t>();
-    latency = stream.read<uint32_t>();
-    power = stream.read<uint64_t>();
+    deserializeString(stream, Login);
+    deserializeString(stream, Coin);
+    Time = (time_t)stream.read<uint64_t>();
+    Clients = stream.read<uint32_t>();
+    Workers = stream.read<uint32_t>();
+    CPUNum = stream.read<uint32_t>();
+    GPUNum = stream.read<uint32_t>();
+    ASICNum = stream.read<uint32_t>();
+    OtherNum = stream.read<uint32_t>();
+    Latency = stream.read<uint32_t>();
+    Power = stream.read<uint64_t>();
   }
   
   return !stream.eof();  
 }
 
-void siteStats::serializeKey(xmstream &stream) const
+void SiteStatsRecord::serializeKey(xmstream &stream) const
 {
-  serializeStringForKey(stream, userId);
-  stream.writebe<uint64_t>(time);
+  serializeStringForKey(stream, Login);
+  serializeStringForKey(stream, Coin);
+  stream.writebe<uint64_t>(Time);
 }
 
-void siteStats::serializeValue(xmstream &stream) const
+void SiteStatsRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
-  serializeString(stream, userId);
-  stream.write<uint64_t>(time);
-  stream.write<uint32_t>(clients);
-  stream.write<uint32_t>(workers);
-  stream.write<uint32_t>(cpus);
-  stream.write<uint32_t>(gpus);
-  stream.write<uint32_t>(asics);  
-  stream.write<uint32_t>(other);
-  stream.write<uint32_t>(latency);
-  stream.write<uint64_t>(power);
+  serializeString(stream, Login);
+  serializeString(stream, Coin);
+  stream.write<uint64_t>(Time);
+  stream.write<uint32_t>(Clients);
+  stream.write<uint32_t>(Workers);
+  stream.write<uint32_t>(CPUNum);
+  stream.write<uint32_t>(GPUNum);
+  stream.write<uint32_t>(ASICNum);
+  stream.write<uint32_t>(OtherNum);
+  stream.write<uint32_t>(Latency);
+  stream.write<uint64_t>(Power);
 }
 
-// ====================== clientStats ====================== \\
+// ====================== ClientStatsRecord ======================
 
-bool clientStats::deserializeValue(const void *data, size_t size)
+bool ClientStatsRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
-    deserializeString(stream, userId);
-    deserializeString(stream, workerId);
-    time = (time_t)stream.read<uint64_t>();
-    power = stream.read<uint64_t>();
-    latency = stream.read<int32_t>();
-    deserializeString(stream, address);
-    unitType = stream.read<int32_t>();
-    units = stream.read<uint32_t>();
-    temp = stream.read<uint32_t>();
+    deserializeString(stream, Login);
+    deserializeString(stream, Coin);
+    deserializeString(stream, WorkerId);
+    Time = (time_t)stream.read<uint64_t>();
+    Power = stream.read<uint64_t>();
+    Latency = stream.read<int32_t>();
+    deserializeString(stream, Address);
+    UnitType = stream.read<int32_t>();
+    Units = stream.read<uint32_t>();
+    Temp = stream.read<uint32_t>();
   }
   
   return !stream.eof();    
 }
 
-void clientStats::serializeKey(xmstream &stream) const
+void ClientStatsRecord::serializeKey(xmstream &stream) const
 {
-  serializeStringForKey(stream, userId);
-  serializeStringForKey(stream, workerId);
-  stream.writebe<uint64_t>(time);
+  serializeStringForKey(stream, Login);
+  serializeStringForKey(stream, Coin);
+  serializeStringForKey(stream, WorkerId);
+  stream.writebe<uint64_t>(Time);
 }
 
-void clientStats::serializeValue(xmstream &stream) const
+void ClientStatsRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
-  serializeString(stream, userId);
-  serializeString(stream, workerId);
-  stream.write<uint64_t>(time);
-  stream.write<uint64_t>(power);
-  stream.write<int32_t>(latency);
-  serializeString(stream, address);
-  stream.write<int32_t>(unitType);
-  stream.write<uint32_t>(units);
-  stream.write<uint32_t>(temp);
+  serializeString(stream, Login);
+  serializeString(stream, Coin);
+  serializeString(stream, WorkerId);
+  stream.write<uint64_t>(Time);
+  stream.write<uint64_t>(Power);
+  stream.write<int32_t>(Latency);
+  serializeString(stream, Address);
+  stream.write<int32_t>(UnitType);
+  stream.write<uint32_t>(Units);
+  stream.write<uint32_t>(Temp);
 }
 
-// ====================== shareStats ====================== \\
+// ====================== ShareStatsRecord ======================
 
-bool shareStats::deserializeValue(const void *data, size_t size)
+bool ShareStatsRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
-    time = (time_t)stream.read<uint64_t>();
-    total = stream.read<int64_t>();
+    deserializeString(stream, Coin);
+    Time = (time_t)stream.read<uint64_t>();
+    Total = stream.read<int64_t>();
     
     {
-      info.clear();
+      Info.clear();
       unsigned size = stream.read<uint32_t>();
       for (unsigned i = 0; i < size; i++) {
         shareInfo si;
         serializeString(stream, si.type);
         si.count = stream.read<int64_t>();
-        info.push_back(si);
+        Info.push_back(si);
       }
     }
   }
@@ -379,26 +450,28 @@ bool shareStats::deserializeValue(const void *data, size_t size)
   return !stream.eof();
 }
 
-void shareStats::serializeKey(xmstream &stream) const
+void ShareStatsRecord::serializeKey(xmstream &stream) const
 {
-  stream.writebe<uint64_t>(time);
+  serializeStringForKey(stream, Coin);
+  stream.writebe<uint64_t>(Time);
 }
 
-void shareStats::serializeValue(xmstream &stream) const
+void ShareStatsRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
-  stream.write<uint64_t>(time);
-  stream.write<uint64_t>(total);
-  stream.write<uint32_t>(info.size());
-  for (auto I: info) {
+  serializeString(stream, Coin);
+  stream.write<uint64_t>(Time);
+  stream.write<uint64_t>(Total);
+  stream.write<uint32_t>(Info.size());
+  for (auto I: Info) {
     serializeString(stream, I.type);
     stream.write<int64_t>(I.count);
   }
 }
 
-// ====================== payoutRecord ====================== \\
+// ====================== payoutRecord ======================
 
-bool payoutRecord::deserializeValue(const void *data, size_t size)
+bool PayoutDbRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
   uint32_t version = stream.read<uint32_t>();
@@ -412,13 +485,13 @@ bool payoutRecord::deserializeValue(const void *data, size_t size)
   return !stream.eof();  
 }
 
-void payoutRecord::serializeKey(xmstream &stream) const
+void PayoutDbRecord::serializeKey(xmstream &stream) const
 {
   serializeStringForKey(stream, userId);
   stream.writebe<uint64_t>(time);
 }
 
-void payoutRecord::serializeValue(xmstream &stream) const
+void PayoutDbRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
   serializeString(stream, userId);

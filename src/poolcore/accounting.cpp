@@ -224,10 +224,10 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
     std::unique_ptr<rocksdbBase::IteratorType> It(_balanceDb.iterator());
     It->seekFirst();
     for (; It->valid(); It->next()) {
-      userBalance ub;
+      UserBalanceRecord ub;
       RawData data = It->value();
       if (ub.deserializeValue(data.data, data.size))
-        _balanceMap[ub.userId] = ub;
+        _balanceMap[ub.Login] = ub;
     }
     
     LOG_F(INFO, "loaded %u user balance data from db", (unsigned)_balanceMap.size());
@@ -281,12 +281,12 @@ void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
   if (share->isBlock()) {
     {
       // save to database
-      foundBlock blk;
-      blk.height = share->height();
-      blk.hash = share->hash()->c_str();
-      blk.time = time(0);
-      blk.availableCoins = share->generatedCoins();
-      blk.foundBy = share->userId()->c_str();
+      FoundBlockRecord blk;
+      blk.Height = share->height();
+      blk.Hash = share->hash()->c_str();
+      blk.Time = time(0);
+      blk.AvailableCoins = share->generatedCoins();
+      blk.FoundBy = share->userId()->c_str();
       _foundBlocksDb.put(blk);
     }
     
@@ -633,11 +633,11 @@ void AccountingDb::makePayout()
   
   int64_t totalLost = 0;  
   for (auto &userIt: _balanceMap) {
-    if (userIt.second.requested > 0 && waitingForPayout.count(userIt.second.userId) == 0) {
+    if (userIt.second.Requested > 0 && waitingForPayout.count(userIt.second.Login) == 0) {
       // payout lost? add to back of queue
-      LOG_F(WARNING, "found lost payout! %s", userIt.second.userId.c_str());
-       _payoutQueue.push_back(payoutElement(userIt.second.userId, userIt.second.requested, 0));
-       totalLost = userIt.second.requested;
+      LOG_F(WARNING, "found lost payout! %s", userIt.second.Login.c_str());
+       _payoutQueue.push_back(payoutElement(userIt.second.Login, userIt.second.Requested, 0));
+       totalLost = userIt.second.Requested;
     }    
   }
   
@@ -677,8 +677,8 @@ void AccountingDb::checkBalance()
   immature = result->immature;
 
   for (auto &userIt: _balanceMap) {
-    userBalance += userIt.second.balance+userIt.second.requested;
-    requestedInBalance += userIt.second.requested;
+    userBalance += userIt.second.Balance+userIt.second.Requested;
+    requestedInBalance += userIt.second.Requested;
   }
   
   for (auto &p: _payoutQueue)
@@ -692,13 +692,13 @@ void AccountingDb::checkBalance()
   net = balance + immature - userBalance - queued;
   
   {
-    poolBalance pb;
-    pb.time = time(0);
-    pb.balance = balance;
-    pb.immature = immature;
-    pb.users = userBalance;
-    pb.queued = queued;
-    pb.net = net;
+    PoolBalanceRecord pb;
+    pb.Time = time(0);
+    pb.Balance = balance;
+    pb.Immature = immature;
+    pb.Users = userBalance;
+    pb.Queued = queued;
+    pb.Net = net;
     _poolBalanceDb.put(pb);
   }
   
@@ -719,14 +719,14 @@ void AccountingDb::requestPayout(const std::string &address, int64_t value, bool
 {
   auto It = _balanceMap.find(address);
   if (It == _balanceMap.end())
-    It = _balanceMap.insert(It, std::make_pair(address, userBalance(address, _cfg.defaultMinimalPayout)));
+    It = _balanceMap.insert(It, std::make_pair(address, UserBalanceRecord(address, _cfg.defaultMinimalPayout)));
   
-  userBalance &balance = It->second;
-  balance.balance += value;
-  if (force || (balance.balance >= balance.minimalPayout)) {
-    _payoutQueue.push_back(payoutElement(address, balance.balance, 0));
-    balance.requested += balance.balance;
-    balance.balance = 0;
+  UserBalanceRecord &balance = It->second;
+  balance.Balance += value;
+  if (force || (balance.Balance >= balance.minimalPayout)) {
+    _payoutQueue.push_back(payoutElement(address, balance.Balance, 0));
+    balance.Requested += balance.Balance;
+    balance.Balance = 0;
   }
   
   _balanceDb.put(balance);
@@ -741,7 +741,7 @@ void AccountingDb::payoutSuccess(const std::string &address, int64_t value, int6
   }
   
   {
-    payoutRecord record;
+    PayoutDbRecord record;
     record.userId = address;
     record.time = time(0);
     record.value = value;
@@ -749,14 +749,14 @@ void AccountingDb::payoutSuccess(const std::string &address, int64_t value, int6
     _payoutDb.put(record);
   }
   
-  userBalance &balance = It->second;
-  balance.requested -= (value+fee);
-  if (balance.requested < 0) {
-    balance.balance += balance.requested;
-    balance.requested = 0;
+  UserBalanceRecord &balance = It->second;
+  balance.Requested -= (value+fee);
+  if (balance.Requested < 0) {
+    balance.Balance += balance.Requested;
+    balance.Requested = 0;
   }  
 
-  balance.paid += value;
+  balance.Paid += value;
   _balanceDb.put(balance);
 }
 
@@ -767,8 +767,8 @@ void AccountingDb::queryClientBalance(p2pPeer *peer, uint32_t id, const std::str
   flatbuffers::Offset<ClientInfo> offset;
   auto It = _balanceMap.find(userId);
   if (It != _balanceMap.end()) {
-    const userBalance &B= It->second;
-    offset = CreateClientInfo(fbb, B.balance, B.requested, B.paid, fbb.CreateString(B.name), fbb.CreateString(B.email), B.minimalPayout);
+    const UserBalanceRecord &B= It->second;
+    offset = CreateClientInfo(fbb, B.Balance, B.Requested, B.Paid, fbb.CreateString(B.name), fbb.CreateString(B.email), B.minimalPayout);
   } else {
     offset = CreateClientInfo(fbb);
   }
@@ -789,7 +789,7 @@ void AccountingDb::updateClientInfo(p2pPeer *peer,
   flatbuffers::FlatBufferBuilder fbb;
   auto It = _balanceMap.find(userId);
   if (It == _balanceMap.end())
-    It = _balanceMap.insert(It, std::make_pair(userId, userBalance(userId, _cfg.defaultMinimalPayout)));
+    It = _balanceMap.insert(It, std::make_pair(userId, UserBalanceRecord(userId, _cfg.defaultMinimalPayout)));
   auto &B = It->second;
   
   if (!newName.empty())
@@ -815,7 +815,7 @@ void AccountingDb::manualPayout(p2pPeer *peer,
   auto It = _balanceMap.find(userId);
   if (It != _balanceMap.end()) {
     auto &B = It->second;
-    if (B.balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.balance >= _cfg.minimalPayout)
+    if (B.Balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance >= _cfg.minimalPayout)
       requestPayout(userId, 0, true);
     result = 1;
   } else {
@@ -840,12 +840,12 @@ void AccountingDb::moveBalance(p2pPeer *peer,
   if (FromIt != _balanceMap.end()) {
     auto ToIt = _balanceMap.find(to);
     if (ToIt == _balanceMap.end()) {
-      userBalance newUserBalance(to, _cfg.defaultMinimalPayout);
+      UserBalanceRecord newUserBalance(to, _cfg.defaultMinimalPayout);
       ToIt = _balanceMap.insert(ToIt, std::make_pair(to, newUserBalance));
     }
     
-    ToIt->second.balance += FromIt->second.balance; FromIt->second.balance = 0;
-    ToIt->second.requested += FromIt->second.requested; FromIt->second.requested = 0;
+    ToIt->second.Balance += FromIt->second.Balance; FromIt->second.Balance = 0;
+    ToIt->second.Requested += FromIt->second.Requested; FromIt->second.Requested = 0;
     _balanceDb.put(FromIt->second);
     _balanceDb.put(ToIt->second);
     
@@ -881,9 +881,9 @@ void AccountingDb::resendBrokenTx(p2pPeer *peer,
     int64_t totalPayed = 0;
     int64_t total = 0;
     unsigned count = 0;
-    std::vector<payoutRecord> allRecords;
+    std::vector<PayoutDbRecord> allRecords;
     for (; It->valid(); It->next()) {
-      payoutRecord pr;
+      PayoutDbRecord pr;
       RawData data = It->value();
       if (!pr.deserializeValue(data.data, data.size))
         break;      
@@ -901,16 +901,16 @@ void AccountingDb::resendBrokenTx(p2pPeer *peer,
     delete It;
     for (auto &p: allRecords) {
       LOG_F(INFO, "brokentx: %s %u %li", p.userId.c_str(), (unsigned)p.time, (long)p.value);
-      B.paid -= p.value;
+      B.Paid -= p.value;
       _balanceDb.put(B);
       db.deleteRow(p);    
       requestPayout(p.userId, p.value);
     }
     
-    if (totalPayed < B.paid) {
-      int64_t difference = B.paid - totalPayed;
+    if (totalPayed < B.Paid) {
+      int64_t difference = B.Paid - totalPayed;
       LOG_F(WARNING, "inconsistent balance, add payout resuest for %s: %li", userId.c_str(), difference);
-      B.paid -= difference;
+      B.Paid -= difference;
       requestPayout(userId, difference);
       _balanceDb.put(B);      
     }

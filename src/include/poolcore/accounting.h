@@ -48,7 +48,7 @@ private:
   config _cfg;
   p2pNode *_client;
   
-  std::map<std::string, userBalance> _balanceMap; 
+  std::map<std::string, UserBalanceRecord> _balanceMap;
   std::map<std::string, int64_t> _currentScores;
   std::deque<miningRound*> _allRounds;
   std::set<miningRound*> _roundsWithPayouts;
