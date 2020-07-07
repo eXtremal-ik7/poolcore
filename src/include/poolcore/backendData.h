@@ -4,10 +4,42 @@
 #include <list>
 #include <string>
 #include <vector>
+#include <filesystem>
 #include "p2putils/xmstream.h"
 
 std::string partByHeight(unsigned height);
 std::string partByTime(time_t time);
+
+typedef bool CheckAddressProcTy(const char*);
+
+struct PoolFeeEntry {
+  std::string Address;
+  float Percentage;
+};
+
+struct PoolBackendConfig {
+  bool isMaster;
+  std::filesystem::path dbPath;
+  std::string CoinName;
+  std::vector<PoolFeeEntry> PoolFee;
+  unsigned RequiredConfirmations;
+  int64_t DefaultMinimalPayout;
+  int64_t MinimalPayout;
+  unsigned KeepRoundTime;
+  unsigned KeepStatsTime;
+  unsigned ConfirmationsCheckInterval;
+  unsigned PayoutInterval;
+  unsigned BalanceCheckInterval;
+  unsigned StatisticCheckInterval;
+  bool CheckAddressEnabled;
+
+  // ZEC specify
+  std::string poolTAddr;
+  std::string poolZAddr;
+
+  // Temporary
+  CheckAddressProcTy *checkAddressProc = nullptr;
+};
 
 struct roundElement {
   std::string userId;
@@ -103,7 +135,6 @@ struct UserBalanceRecord {
   enum { CurrentRecordVersion = 1 };
   
   std::string Login;
-  std::string Coin;
   int64_t Balance;
   int64_t Requested;
   int64_t Paid;
@@ -129,7 +160,6 @@ struct FoundBlockRecord {
   enum { CurrentRecordVersion = 1 };
   
   time_t Time;
-  std::string Coin;
   std::string Hash;
   uint64_t Height;
   int64_t AvailableCoins;
@@ -145,7 +175,6 @@ struct PoolBalanceRecord {
   enum { CurrentRecordVersion = 1 };
   
   time_t Time;
-  std::string Coin;
   int64_t Balance;
   int64_t Immature;
   int64_t Users;
@@ -162,7 +191,6 @@ struct SiteStatsRecord {
   enum { CurrentRecordVersion = 1 };
   
   std::string Login;
-  std::string Coin;
   time_t Time;
   unsigned Clients;
   unsigned Workers;
@@ -191,7 +219,6 @@ struct ClientStatsRecord {
   enum { CurrentRecordVersion = 1 };
   
   std::string Login;
-  std::string Coin;
   std::string WorkerId;
   time_t Time;
   uint64_t Power;
@@ -210,8 +237,7 @@ struct ClientStatsRecord {
 
 struct ShareStatsRecord {
   enum { CurrentRecordVersion = 1 };
-  
-  std::string Coin;
+
   time_t Time;
   int64_t Total;
   std::vector<shareInfo> Info;
@@ -236,6 +262,5 @@ struct PayoutDbRecord {
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;      
 };
-
 
 #endif //__BACKEND_DATA_H_

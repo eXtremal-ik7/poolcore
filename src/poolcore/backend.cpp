@@ -37,18 +37,13 @@ static void checkConsistency(AccountingDb *accounting)
 }
 
 
-PoolBackend::PoolBackend(config *cfg) : _cfg(*cfg)
+PoolBackend::PoolBackend(PoolBackendConfig &&cfg) : _cfg(cfg)
 {
   _base = createAsyncBase(amOSDefault);
   _timeout = 8*1000000;
   pipeCreate(&_pipeFd, 1);
   _read = newDeviceIo(_base, _pipeFd.read);
   _write = newDeviceIo(_base, _pipeFd.write);
-}
-
-PoolBackend::~PoolBackend()
-{
-  delete _accounting;
 }
 
 bool PoolBackend::sendMessage(asyncBase *base, void *msg, uint32_t msgSize)
@@ -74,34 +69,9 @@ void PoolBackend::stop()
 
 void PoolBackend::backendMain()
 {
-  if (_cfg.useAsyncPayout && (_cfg.poolZAddr.empty() || _cfg.poolTAddr.empty())) {
-    LOG_F(ERROR, "<error> pool configured to use async payouts(like ZCash) but not specified pool Z-Addr/T-Addr");
-    exit(1);
-  }
-  
-  _client = p2pNode::createClient(_base, &_cfg.peers[0], _cfg.peers.size(), _cfg.walletAppName.c_str());  
-  
-  
-  AccountingDb::config accountingCfg;
-  accountingCfg.poolFee = _cfg.poolFee;
-  accountingCfg.poolFeeAddr = _cfg.poolFeeAddr;
-  accountingCfg.requiredConfirmations = _cfg.requiredConfirmations;
-  accountingCfg.defaultMinimalPayout = _cfg.defaultMinimalPayout;
-  accountingCfg.minimalPayout = _cfg.minimalPayout;
-  accountingCfg.dbPath = _cfg.dbPath;
-  accountingCfg.keepRoundTime = _cfg.keepRoundTime;
-  accountingCfg.poolZAddr = _cfg.poolZAddr;
-  accountingCfg.poolTAddr = _cfg.poolTAddr;
-  accountingCfg.checkAddressProc = _cfg.checkAddressProc;  
-  _accounting = new AccountingDb(&accountingCfg, _client);  
-  
-  StatisticDb::config statisticsCfg;
-  statisticsCfg.dbPath = _cfg.dbPath;
-  statisticsCfg.keepStatsTime = _cfg.keepStatsTime;
-  _statistics = new StatisticDb(&statisticsCfg, _client);
-  
-  _node = p2pNode::createNode(_base, &_cfg.listenAddress, _cfg.poolAppName.c_str(), true);
-  _node->setRequestHandler(poolcoreRequestHandler, this);  
+  loguru::set_thread_name(_cfg.CoinName.c_str());
+  _accounting.reset(new AccountingDb(_cfg));
+  _statistics.reset(new StatisticDb(_cfg));
 
   coroutineCall(coroutineNew(msgHandlerProc, this, 0x100000));
   coroutineCall(coroutineNew(checkConfirmationsProc, this, 0x100000));  
@@ -109,17 +79,16 @@ void PoolBackend::backendMain()
   coroutineCall(coroutineNew(updateStatisticProc, this, 0x100000));
   coroutineCall(coroutineNew(payoutProc, this, 0x100000)); 
   
-  LOG_F(INFO, "<info>: Pool backend started, mode is %s", _cfg.isMaster ? "MASTER" : "SLAVE");
-  if (_cfg.poolFee)
-    LOG_F(INFO, "<info>: Pool fee of %u%% to %s", _cfg.poolFee, _cfg.poolFeeAddr.c_str());
-  else
-    LOG_F(INFO, "<info>: Pool fee disabled");
+  LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s", _cfg.CoinName.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE");
+  if (!_cfg.PoolFee.empty()) {
+    for (const auto &poolFeeEntry: _cfg.PoolFee)
+      LOG_F(INFO, "  Pool fee of %.2f to %s", poolFeeEntry.Percentage, poolFeeEntry.Address.c_str());
+  } else {
+    LOG_F(INFO, "  Pool fee disabled");
+  }
   
-  checkConsistency(_accounting);
+  checkConsistency(_accounting.get());
   asyncLoop(_base);
-  
-  delete _statistics;
-  delete _accounting;
 }
 
 void *PoolBackend::msgHandler()
@@ -160,7 +129,7 @@ void *PoolBackend::checkConfirmationsHandler()
 {
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
-    ioSleep(timerEvent, _cfg.confirmationsCheckInterval);
+    ioSleep(timerEvent, _cfg.ConfirmationsCheckInterval);
     if (_client->connected()) {
       _accounting->cleanupRounds();
       _accounting->checkBlockConfirmations();
@@ -175,7 +144,7 @@ void *PoolBackend::payoutHandler()
 {
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
-    ioSleep(timerEvent, _cfg.payoutInterval);
+    ioSleep(timerEvent, _cfg.PayoutInterval);
     if (_client->connected()) {
       _accounting->makePayout();
     } else {
@@ -189,7 +158,7 @@ void *PoolBackend::checkBalanceHandler()
 {
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
-    ioSleep(timerEvent, _cfg.balanceCheckInterval);  
+    ioSleep(timerEvent, _cfg.BalanceCheckInterval);
     if (_client->connected()) {
       _accounting->checkBalance();
     } else {
@@ -202,14 +171,14 @@ void *PoolBackend::updateStatisticHandler()
 {
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
-    ioSleep(timerEvent, _cfg.statisticCheckInterval);
+    ioSleep(timerEvent, _cfg.StatisticCheckInterval);
     _statistics->update();
   }
 }
 
 void PoolBackend::onShare(const Share *share)
 {
-  _accounting->addShare(share, _statistics);
+  _accounting->addShare(share, _statistics.get());
 }
 
 void PoolBackend::onStats(const Stats *stats)

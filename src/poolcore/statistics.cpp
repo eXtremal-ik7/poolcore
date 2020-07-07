@@ -3,13 +3,12 @@
 #include "p2p/p2p.h"
 #include <algorithm>
 
-StatisticDb::StatisticDb(StatisticDb::config *cfg, p2pNode *client) : _cfg(*cfg),
+StatisticDb::StatisticDb(const PoolBackendConfig &config) : _cfg(config),
   _poolStats("pool", 0),
-  _workerStatsDb(_cfg.dbPath / "workerStats"),
-  _poolStatsDb(_cfg.dbPath / "poolstats")
+  _workerStatsDb(_cfg.dbPath / _cfg.CoinName / "workerStats"),
+  _poolStatsDb(_cfg.dbPath / _cfg.CoinName / "poolstats")
 {
 }
-
 
 void StatisticDb::addStats(const Stats *stats)
 {
@@ -38,7 +37,7 @@ void StatisticDb::update()
   unsigned count = 0;
   unsigned units[UnitType_OTHER+1];
   time_t currentTime = time(0);
-  time_t removeTimeLabel = currentTime - _cfg.keepStatsTime;
+  time_t removeTimeLabel = currentTime - _cfg.KeepStatsTime;
   memset(units, 0, sizeof(units));
   
   std::map<std::string, SiteStatsRecord> uniqueClients;

@@ -11,14 +11,8 @@ class p2pNode;
 class p2pPeer;
 
 class StatisticDb {
-public:
-  struct config {
-    std::filesystem::path dbPath;
-    unsigned keepStatsTime;
-  };
-  
 private:
-  config _cfg;
+  const PoolBackendConfig &_cfg;
   
   std::map<std::string, ClientStatsRecord> _statsMap;
   SiteStatsRecord _poolStats;
@@ -27,7 +21,7 @@ private:
   kvdb<rocksdbBase> _poolStatsDb;
   
 public:
-  StatisticDb(config *cfg, p2pNode *client);
+  StatisticDb(const PoolBackendConfig &config);
   
   void addStats(const Stats *stats);
   void update();

@@ -10,30 +10,7 @@
 #include <stdarg.h>
 #include <poolcommon/file.h>
 
-#ifndef _WIN32
-#include <unistd.h>
-#else
-#include <io.h>
-#endif
 #define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
-
-// #ifndef PRI64d
-// #if defined(_MSC_VER) || defined(__MSVCRT__)
-// #define PRI64d  "I64d"
-// #define PRI64u  "I64u"
-// #define PRI64x  "I64x"
-// #else
-// #define PRI64d  "lld"
-// #define PRI64u  "llu"
-// #define PRI64x  "llx"
-// #endif
-// #endif
-
-// TODO: user crossplatform way
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-
 
 std::string real_strprintf(const std::string &format, int dummy, ...);
 #define strprintf(format, ...) real_strprintf(format, 0, __VA_ARGS__)
@@ -101,20 +78,19 @@ std::string FormatMoney(int64_t n, bool fPlus=false)
     return str;
 }
 
-AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
-  _cfg(*cfg),
-  _client(client),
-  _roundsDb(_cfg.dbPath / "rounds"),
-  _balanceDb(_cfg.dbPath / "balance"),
-  _foundBlocksDb(_cfg.dbPath / "foundBlocks"),
-  _poolBalanceDb(_cfg.dbPath / "poolBalance"),
-  _payoutDb(_cfg.dbPath / "payouts")
+AccountingDb::AccountingDb(const PoolBackendConfig &config) :
+  _cfg(config),
+  _roundsDb(config.dbPath / config.CoinName / "rounds"),
+  _balanceDb(config.dbPath / config.CoinName / "balance"),
+  _foundBlocksDb(config.dbPath / config.CoinName / "foundBlocks"),
+  _poolBalanceDb(config.dbPath / config.CoinName / "poolBalance"),
+  _payoutDb(config.dbPath / config.CoinName / "payouts")
 {   
   {
     unsigned counter = 0;
-    _sharesFd.open(_cfg.dbPath / "shares.raw");
+    _sharesFd.open(_cfg.dbPath / config.CoinName / "shares.raw");
     if (!_sharesFd.isOpened())
-      LOG_F(ERROR, "can't open shares file %s (%s)", (_cfg.dbPath / "shares.raw").u8string().c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open shares file %s (%s)", (_cfg.dbPath / config.CoinName / "shares.raw").u8string().c_str(), strerror(errno));
 
     auto fileSize = _sharesFd.size();
     if (fileSize > 0) {
@@ -144,9 +120,9 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
   
   {
     FileDescriptor payoutsFdOld;
-    payoutsFdOld.open(_cfg.dbPath / "payouts.raw.old");
+    payoutsFdOld.open(_cfg.dbPath / config.CoinName / "payouts.raw.old");
     if (!payoutsFdOld.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / "payouts.raw.old").u8string().c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / config.CoinName / "payouts.raw.old").u8string().c_str(), strerror(errno));
 
     auto fileSize = payoutsFdOld.size();
 
@@ -173,9 +149,9 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
   
   {
     unsigned payoutsNum = 0;
-    _payoutsFd.open(_cfg.dbPath / "payouts.raw");
+    _payoutsFd.open(_cfg.dbPath / config.CoinName / "payouts.raw");
     if (!_payoutsFd.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / "payouts.raw").u8string().c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / config.CoinName / "payouts.raw").u8string().c_str(), strerror(errno));
 
     auto fileSize = _payoutsFd.size();
     if (fileSize > 0) {
@@ -246,7 +222,7 @@ void AccountingDb::updatePayoutFile()
 
 void AccountingDb::cleanupRounds()
 {
-  time_t timeLabel = time(0) - _cfg.keepRoundTime;
+  time_t timeLabel = time(0) - _cfg.KeepRoundTime;
   auto I = _allRounds.begin();
   while (I != _allRounds.end()) {
     if ((*I)->time >= timeLabel || _roundsWithPayouts.count(*I) > 0)
@@ -296,9 +272,15 @@ void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
       generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE);
     }
     
-    int64_t feeValue = generatedCoins * _cfg.poolFee / 100;
-    int64_t available = generatedCoins - feeValue;    
-    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share->height(), share->hash()->c_str(), generatedCoins, feeValue, available);
+    int64_t feeValuesSum = 0;
+    std::vector<int64_t> feeValues;
+    for (const auto &poolFeeRecord: _cfg.PoolFee) {
+      int64_t value = generatedCoins * (poolFeeRecord.Percentage / 100.0f);
+      feeValuesSum += value;
+    }
+
+    int64_t available = generatedCoins - feeValuesSum;
+    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share->height(), share->hash()->c_str(), generatedCoins, feeValuesSum, available);
 
     miningRound *R = new miningRound;
     R->height = share->height();
@@ -334,8 +316,10 @@ void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
       time_t previousRoundTime = R->time;
       int64_t totalValue = 0;
       std::list<payoutAggregate> agg;
-      agg.push_back(payoutAggregate(_cfg.poolFeeAddr, 0));
-      agg.front().payoutValue = feeValue;
+      for (size_t i = 0, ie = _cfg.PoolFee.size(); i != ie; ++i) {
+        agg.push_back(payoutAggregate(_cfg.PoolFee[0].Address, 0));
+        agg.front().payoutValue = feeValues[i];
+      }
       
       while (roundIt != _allRounds.rend() && ((R->time - previousRoundTime) < 3600)) {
         // merge sorted by userId lists
@@ -466,7 +450,7 @@ void AccountingDb::checkBlockConfirmations()
         I->queued = 0;
       _roundsWithPayouts.erase(R);
       _roundsDb.put(*R);
-    } else if (block->confirmations >= _cfg.requiredConfirmations) {
+    } else if (block->confirmations >= _cfg.RequiredConfirmations) {
       LOG_F(INFO, "Make payout for block %u/%s", (unsigned)block->height, block->hash.c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I) {
         requestPayout(I->userId, I->queued);
@@ -489,7 +473,7 @@ void AccountingDb::makePayout()
     {
       std::map<std::string, int64_t> payoutAccMap;
       for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
-        if (I->payoutValue < _cfg.minimalPayout ||
+        if (I->payoutValue < _cfg.MinimalPayout ||
             (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->userId.c_str())) ) {
           payoutAccMap[I->userId] += I->payoutValue;
           LOG_F(INFO,
@@ -510,13 +494,13 @@ void AccountingDb::makePayout()
     int64_t remaining = -1;
     unsigned index = 0;
     for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
-      if (I->payoutValue < _cfg.minimalPayout) {
+      if (I->payoutValue < _cfg.MinimalPayout) {
         LOG_F(INFO,
               "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
               index,
               I->userId.c_str(),
               FormatMoney(I->payoutValue).c_str(),
-              FormatMoney(_cfg.minimalPayout).c_str());
+              FormatMoney(_cfg.MinimalPayout).c_str());
         ++I;
         continue;
       }
@@ -719,7 +703,7 @@ void AccountingDb::requestPayout(const std::string &address, int64_t value, bool
 {
   auto It = _balanceMap.find(address);
   if (It == _balanceMap.end())
-    It = _balanceMap.insert(It, std::make_pair(address, UserBalanceRecord(address, _cfg.defaultMinimalPayout)));
+    It = _balanceMap.insert(It, std::make_pair(address, UserBalanceRecord(address, _cfg.DefaultMinimalPayout)));
   
   UserBalanceRecord &balance = It->second;
   balance.Balance += value;
@@ -789,7 +773,7 @@ void AccountingDb::updateClientInfo(p2pPeer *peer,
   flatbuffers::FlatBufferBuilder fbb;
   auto It = _balanceMap.find(userId);
   if (It == _balanceMap.end())
-    It = _balanceMap.insert(It, std::make_pair(userId, UserBalanceRecord(userId, _cfg.defaultMinimalPayout)));
+    It = _balanceMap.insert(It, std::make_pair(userId, UserBalanceRecord(userId, _cfg.DefaultMinimalPayout)));
   auto &B = It->second;
   
   if (!newName.empty())
@@ -815,7 +799,7 @@ void AccountingDb::manualPayout(p2pPeer *peer,
   auto It = _balanceMap.find(userId);
   if (It != _balanceMap.end()) {
     auto &B = It->second;
-    if (B.Balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance >= _cfg.minimalPayout)
+    if (B.Balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance >= _cfg.MinimalPayout)
       requestPayout(userId, 0, true);
     result = 1;
   } else {
@@ -840,7 +824,7 @@ void AccountingDb::moveBalance(p2pPeer *peer,
   if (FromIt != _balanceMap.end()) {
     auto ToIt = _balanceMap.find(to);
     if (ToIt == _balanceMap.end()) {
-      UserBalanceRecord newUserBalance(to, _cfg.defaultMinimalPayout);
+      UserBalanceRecord newUserBalance(to, _cfg.DefaultMinimalPayout);
       ToIt = _balanceMap.insert(ToIt, std::make_pair(to, newUserBalance));
     }
     
@@ -927,4 +911,3 @@ void AccountingDb::resendBrokenTx(p2pPeer *peer,
   fbb.Finish(qrb.Finish());
   aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
-                                  

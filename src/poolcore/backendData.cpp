@@ -232,7 +232,6 @@ bool UserBalanceRecord::deserializeValue(const void *data, size_t size)
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) { 
     deserializeString(stream, Login);
-    deserializeString(stream, Coin);
     Balance = stream.readle<int64_t>();
     Requested = stream.readle<int64_t>();
     Paid = stream.readle<int64_t>();
@@ -245,7 +244,6 @@ bool UserBalanceRecord::deserializeValue(const void *data, size_t size)
 void UserBalanceRecord::serializeKey(xmstream &stream) const
 {
   serializeStringForKey(stream, Login);
-  serializeStringForKey(stream, Coin);
 }
 
 // TODO: remove obsolete table
@@ -253,7 +251,6 @@ void UserBalanceRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);  
   serializeString(stream, Login);
-  serializeString(stream, Coin);
   stream.writele<int64_t>(Balance);
   stream.writele<int64_t>(Requested);
   stream.writele<int64_t>(Paid);
@@ -267,7 +264,6 @@ bool FoundBlockRecord::deserializeValue(const void *data, size_t size)
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
     Time = stream.readle<uint64_t>();
-    deserializeString(stream, Coin);
     deserializeString(stream, Hash);
     Height = stream.read<uint64_t>();
     AvailableCoins = stream.read<int64_t>();
@@ -281,7 +277,6 @@ bool FoundBlockRecord::deserializeValue(const void *data, size_t size)
 void FoundBlockRecord::serializeKey(xmstream &stream) const
 {
   stream.writebe<uint64_t>(Time);
-  serializeStringForKey(stream, Coin);
   serializeStringForKey(stream, Hash);
 }
 
@@ -289,7 +284,6 @@ void FoundBlockRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
   stream.writele<uint64_t>(Time);
-  serializeString(stream, Coin);
   serializeString(stream, Hash);
   stream.writele<uint64_t>(Height);
   stream.writele<int64_t>(AvailableCoins);
@@ -304,7 +298,6 @@ bool PoolBalanceRecord::deserializeValue(const void *data, size_t size)
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
     Time = (time_t)stream.read<uint64_t>();
-    deserializeString(stream, Coin);
     Balance = stream.read<int64_t>();
     Immature = stream.read<int64_t>();
     Users = stream.read<int64_t>();
@@ -318,13 +311,11 @@ bool PoolBalanceRecord::deserializeValue(const void *data, size_t size)
 void PoolBalanceRecord::serializeKey(xmstream &stream) const
 {
   stream.writebe<uint64_t>(Time);
-  serializeStringForKey(stream, Coin);
 }
 
 void PoolBalanceRecord::serializeValue(xmstream &stream) const
 {
   stream.writele<uint32_t>(CurrentRecordVersion);
-  serializeString(stream, Coin);
   stream.writele<uint64_t>(Time);
   stream.writele<int64_t>(Balance);
   stream.writele<int64_t>(Immature);
@@ -341,7 +332,6 @@ bool SiteStatsRecord::deserializeValue(const void *data, size_t size)
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
     deserializeString(stream, Login);
-    deserializeString(stream, Coin);
     Time = (time_t)stream.read<uint64_t>();
     Clients = stream.read<uint32_t>();
     Workers = stream.read<uint32_t>();
@@ -359,7 +349,6 @@ bool SiteStatsRecord::deserializeValue(const void *data, size_t size)
 void SiteStatsRecord::serializeKey(xmstream &stream) const
 {
   serializeStringForKey(stream, Login);
-  serializeStringForKey(stream, Coin);
   stream.writebe<uint64_t>(Time);
 }
 
@@ -367,7 +356,6 @@ void SiteStatsRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
   serializeString(stream, Login);
-  serializeString(stream, Coin);
   stream.write<uint64_t>(Time);
   stream.write<uint32_t>(Clients);
   stream.write<uint32_t>(Workers);
@@ -387,7 +375,6 @@ bool ClientStatsRecord::deserializeValue(const void *data, size_t size)
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
     deserializeString(stream, Login);
-    deserializeString(stream, Coin);
     deserializeString(stream, WorkerId);
     Time = (time_t)stream.read<uint64_t>();
     Power = stream.read<uint64_t>();
@@ -404,7 +391,6 @@ bool ClientStatsRecord::deserializeValue(const void *data, size_t size)
 void ClientStatsRecord::serializeKey(xmstream &stream) const
 {
   serializeStringForKey(stream, Login);
-  serializeStringForKey(stream, Coin);
   serializeStringForKey(stream, WorkerId);
   stream.writebe<uint64_t>(Time);
 }
@@ -413,7 +399,6 @@ void ClientStatsRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
   serializeString(stream, Login);
-  serializeString(stream, Coin);
   serializeString(stream, WorkerId);
   stream.write<uint64_t>(Time);
   stream.write<uint64_t>(Power);
@@ -431,7 +416,6 @@ bool ShareStatsRecord::deserializeValue(const void *data, size_t size)
   xmstream stream((void*)data, size);
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
-    deserializeString(stream, Coin);
     Time = (time_t)stream.read<uint64_t>();
     Total = stream.read<int64_t>();
     
@@ -452,14 +436,12 @@ bool ShareStatsRecord::deserializeValue(const void *data, size_t size)
 
 void ShareStatsRecord::serializeKey(xmstream &stream) const
 {
-  serializeStringForKey(stream, Coin);
   stream.writebe<uint64_t>(Time);
 }
 
 void ShareStatsRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
-  serializeString(stream, Coin);
   stream.write<uint64_t>(Time);
   stream.write<uint64_t>(Total);
   stream.write<uint32_t>(Info.size());

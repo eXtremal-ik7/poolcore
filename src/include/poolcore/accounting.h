@@ -17,24 +17,7 @@ class p2pNode;
 class p2pPeer;
 class StatisticDb;
 
-typedef bool CheckAddressProcTy(const char*);
-
-class AccountingDb {
-public:
-  struct config {
-    unsigned poolFee;
-    std::string poolFeeAddr;
-    unsigned requiredConfirmations;
-    int64_t defaultMinimalPayout;
-    int64_t minimalPayout;
-    unsigned keepRoundTime;
-    std::filesystem::path dbPath;
-    std::string poolZAddr;
-    std::string poolTAddr;
-    CheckAddressProcTy *checkAddressProc;
-    config() : checkAddressProc(0) {}
-  };
-  
+class AccountingDb {  
 private:
   struct payoutAggregate {
     std::string userId;
@@ -43,9 +26,9 @@ private:
     payoutAggregate(const std::string& userIdArg, int64_t shareValueArg) :
       userId(userIdArg), shareValue(shareValueArg), payoutValue(0) {}
   };
-  
+
 private:
-  config _cfg;
+  const PoolBackendConfig &_cfg;
   p2pNode *_client;
   
   std::map<std::string, UserBalanceRecord> _balanceMap;
@@ -64,7 +47,8 @@ private:
   
   
 public:
-  AccountingDb(config *cfg, p2pNode *client);
+  AccountingDb(const PoolBackendConfig &config);
+
   void updatePayoutFile();
   void cleanupRounds();
   
