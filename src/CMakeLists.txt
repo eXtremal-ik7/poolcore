@@ -37,7 +37,7 @@ if(MSVC)
   )
 
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GR-")
-  include_directories(${CMAKE_SOURCE_DIR}/msvc/include)
+  include_directories(${CMAKE_CURRENT_SOURCE_DIR}/msvc/include)
 else(MSVC)
   set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -fno-rtti")
@@ -47,7 +47,7 @@ endif(MSVC)
 hunter_add_package(OpenSSL)
 hunter_add_package(rocksdb)
 hunter_add_package(flatbuffers)
-include(${CMAKE_SOURCE_DIR}/cmake/ProjectLibp2p.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectLibp2p.cmake)
 
 find_package(OpenSSL REQUIRED)
 find_package(RocksDB CONFIG REQUIRED)
@@ -66,12 +66,12 @@ include_directories(
   ${libp2p_SOURCE_DIR}/src/include
   ${libp2p_BINARY_DIR}/include
   ${OPENSSL_INCLUDE_DIR}
-  ${CMAKE_SOURCE_DIR}/include
-  ${CMAKE_BINARY_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 # Logging library
-add_library(loguru STATIC ${CMAKE_SOURCE_DIR}/loguru/loguru.cpp)
+add_library(loguru STATIC ${CMAKE_CURRENT_SOURCE_DIR}/loguru/loguru.cpp)
 
 add_subdirectory(poolcommon)
 add_subdirectory(poolcore)
