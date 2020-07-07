@@ -49,14 +49,14 @@ struct roundElement {
 struct payoutElement {
   enum { CurrentRecordVersion = 1 };  
   
-  std::string userId;
+  std::string Login;
   int64_t payoutValue;
   int64_t queued;
   std::string asyncOpId;
   
   payoutElement() {}
   payoutElement(const std::string &userIdArg, int64_t paymentValueArg, int64_t queuedArg) :
-    userId(userIdArg), payoutValue(paymentValueArg), queued(queuedArg) {}
+    Login(userIdArg), payoutValue(paymentValueArg), queued(queuedArg) {}
     
   bool deserializeValue(const void *data, size_t size);
   bool deserializeValue(xmstream &stream);  
@@ -138,12 +138,6 @@ struct UserBalanceRecord {
   int64_t Balance;
   int64_t Requested;
   int64_t Paid;
-
-  // Moved to other table
-  std::string name;
-  std::string email;
-  std::string passwordHash;
-  int64_t minimalPayout;
 
   UserBalanceRecord() {}
   UserBalanceRecord(const std::string &userIdArg, int64_t defaultMinimalPayout) :

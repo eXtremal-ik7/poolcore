@@ -12,7 +12,7 @@ static void checkConsistency(AccountingDb *accounting)
   
   int64_t totalQueued = 0;
   for (auto &p: accounting->getPayoutsQueue()) {
-    queueRequested[p.userId] += p.payoutValue;
+    queueRequested[p.Login] += p.payoutValue;
     totalQueued += p.payoutValue;
   }  
   
@@ -37,7 +37,7 @@ static void checkConsistency(AccountingDb *accounting)
 }
 
 
-PoolBackend::PoolBackend(PoolBackendConfig &&cfg) : _cfg(cfg)
+PoolBackend::PoolBackend(PoolBackendConfig &&cfg, UserManager &userMgr) : _cfg(cfg), UserMgr_(userMgr)
 {
   _base = createAsyncBase(amOSDefault);
   _timeout = 8*1000000;
@@ -70,7 +70,7 @@ void PoolBackend::stop()
 void PoolBackend::backendMain()
 {
   loguru::set_thread_name(_cfg.CoinName.c_str());
-  _accounting.reset(new AccountingDb(_cfg));
+  _accounting.reset(new AccountingDb(_cfg, UserMgr_));
   _statistics.reset(new StatisticDb(_cfg));
 
   coroutineCall(coroutineNew(msgHandlerProc, this, 0x100000));

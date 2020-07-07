@@ -3,6 +3,7 @@
 
 #include "accounting.h"
 #include "statistics.h"
+#include "usermgr.h"
 #include "asyncio/asyncio.h"
 #include "asyncio/device.h"
 #include "poolcommon/pool_generated.h"
@@ -21,6 +22,7 @@ private:
   std::unordered_map<std::string, size_t> CoinNameMap_;
   
   PoolBackendConfig _cfg;
+  UserManager &UserMgr_;
   p2pNode *_client;
   p2pNode *_node;
   std::unique_ptr<AccountingDb> _accounting;
@@ -46,7 +48,7 @@ private:
 public:
   PoolBackend(const PoolBackend&) = delete;
   PoolBackend(PoolBackend&&) = default;
-  PoolBackend(PoolBackendConfig &&cfg);
+  PoolBackend(PoolBackendConfig &&cfg, UserManager &userMgr);
   const PoolBackendConfig &getConfig() { return _cfg; }
 
   void start();

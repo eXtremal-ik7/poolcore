@@ -2,6 +2,7 @@
 #define __ACCOUNTING_H_
 
 #include "backendData.h"
+#include "usermgr.h"
 #include "poolcommon/pool_generated.h"
 #include "poolcommon/file.h"
 #include "kvdb.h"
@@ -29,6 +30,7 @@ private:
 
 private:
   const PoolBackendConfig &_cfg;
+  UserManager &UserManager_;
   p2pNode *_client;
   
   std::map<std::string, UserBalanceRecord> _balanceMap;
@@ -47,7 +49,7 @@ private:
   
   
 public:
-  AccountingDb(const PoolBackendConfig &config);
+  AccountingDb(const PoolBackendConfig &config, UserManager &userMgr);
 
   void updatePayoutFile();
   void cleanupRounds();
@@ -68,12 +70,7 @@ public:
   kvdb<rocksdbBase> &getBalanceDb() { return _balanceDb; }
   
   void queryClientBalance(p2pPeer *peer, uint32_t id, const std::string &userId);
-  void updateClientInfo(p2pPeer *peer,
-                        uint32_t id,
-                        const std::string &userId,
-                        const std::string &newName,
-                        const std::string &newEmail,
-                        int64_t newMinimalPayout);
+  void updateClientInfo(p2pPeer *, uint32_t, const std::string &, const std::string &, const std::string &, int64_t);
   
   void manualPayout(p2pPeer *peer,
                     uint32_t id,

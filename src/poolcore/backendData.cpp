@@ -51,7 +51,7 @@ bool payoutElement::deserializeValue(xmstream &stream)
 {
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
-    deserializeString(stream, userId);
+    deserializeString(stream, Login);
     payoutValue = stream.read<int64_t>();
     queued = stream.read<int64_t>();
     deserializeString(stream, asyncOpId);
@@ -63,7 +63,7 @@ bool payoutElement::deserializeValue(xmstream &stream)
 void payoutElement::serializeValue(xmstream &stream) const
 {
   stream.write(CurrentRecordVersion);
-  serializeString(stream, userId);
+  serializeString(stream, Login);
   stream.write<int64_t>(payoutValue);
   stream.write<int64_t>(queued);
   serializeString(stream, asyncOpId);
@@ -93,7 +93,7 @@ void miningRound::serializeValue(xmstream &stream) const
   
   stream.write<uint32_t>(payouts.size());
   for (auto p: payouts) {
-    serializeString(stream, p.userId);
+    serializeString(stream, p.Login);
     stream.write<int64_t>(p.payoutValue);
     stream.write<int64_t>(p.queued);    
   }
@@ -133,7 +133,7 @@ bool miningRound::deserializeValue(const void *data, size_t size)
     
       for (size_t i = 0; i < payoutsNum; i++) {
         payoutElement element;
-        deserializeString(stream, element.userId);
+        deserializeString(stream, element.Login);
         element.payoutValue = stream.read<int64_t>();
         element.queued = stream.read<int64_t>();
         payouts.push_back(element);
@@ -158,7 +158,7 @@ void miningRound::dump()
   }
   for (auto p: payouts) {
     fprintf(stderr, " *** payout element ***\n");
-    fprintf(stderr, " * userId: %s\n", p.userId.c_str());
+    fprintf(stderr, " * userId: %s\n", p.Login.c_str());
     fprintf(stderr, " * payoutValue: %" PRId64 "\n", p.payoutValue);
     fprintf(stderr, " * queued: %" PRId64 "\n", p.queued);    
   }  

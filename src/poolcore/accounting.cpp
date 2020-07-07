@@ -78,8 +78,9 @@ std::string FormatMoney(int64_t n, bool fPlus=false)
     return str;
 }
 
-AccountingDb::AccountingDb(const PoolBackendConfig &config) :
+AccountingDb::AccountingDb(const PoolBackendConfig &config, UserManager &userMgr) :
   _cfg(config),
+  UserManager_(userMgr),
   _roundsDb(config.dbPath / config.CoinName / "rounds"),
   _balanceDb(config.dbPath / config.CoinName / "balance"),
   _foundBlocksDb(config.dbPath / config.CoinName / "foundBlocks"),
@@ -389,11 +390,11 @@ void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
       auto aggIt = agg.begin();
       auto payIt = R->payouts.begin();
       while (aggIt != agg.end()) {
-        if (payIt == R->payouts.end() || aggIt->userId < payIt->userId) {
+        if (payIt == R->payouts.end() || aggIt->userId < payIt->Login) {
           R->payouts.insert(payIt, payoutElement(aggIt->userId, aggIt->payoutValue, aggIt->payoutValue));
           _roundsWithPayouts.insert(R);
           ++aggIt;
-        } else if (aggIt->userId == payIt->userId) {
+        } else if (aggIt->userId == payIt->Login) {
           int64_t delta = aggIt->payoutValue - payIt->payoutValue;
           if (delta) {
             payIt->queued += delta;
@@ -453,7 +454,7 @@ void AccountingDb::checkBlockConfirmations()
     } else if (block->confirmations >= _cfg.RequiredConfirmations) {
       LOG_F(INFO, "Make payout for block %u/%s", (unsigned)block->height, block->hash.c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I) {
-        requestPayout(I->userId, I->queued);
+        requestPayout(I->Login, I->queued);
         I->queued = 0;
       }
       _roundsWithPayouts.erase(R);
@@ -474,13 +475,13 @@ void AccountingDb::makePayout()
       std::map<std::string, int64_t> payoutAccMap;
       for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
         if (I->payoutValue < _cfg.MinimalPayout ||
-            (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->userId.c_str())) ) {
-          payoutAccMap[I->userId] += I->payoutValue;
+            (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->Login.c_str())) ) {
+          payoutAccMap[I->Login] += I->payoutValue;
           LOG_F(INFO,
                 "Accounting: merge payout %s for %s (total already %s)",
                 FormatMoney(I->payoutValue).c_str(),
-                I->userId.c_str(),
-                FormatMoney(payoutAccMap[I->userId]).c_str());
+                I->Login.c_str(),
+                FormatMoney(payoutAccMap[I->Login]).c_str());
           _payoutQueue.erase(I++);        
         } else {
           ++I;
@@ -498,7 +499,7 @@ void AccountingDb::makePayout()
         LOG_F(INFO,
               "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
               index,
-              I->userId.c_str(),
+              I->Login.c_str(),
               FormatMoney(I->payoutValue).c_str(),
               FormatMoney(_cfg.MinimalPayout).c_str());
         ++I;
@@ -511,15 +512,24 @@ void AccountingDb::makePayout()
       }
       
       // Check address is valid
-      if (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->userId.c_str())) {
-        LOG_F(WARNING, "invalid payment address %s", I->userId.c_str());
+      if (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->Login.c_str())) {
+        LOG_F(WARNING, "invalid payment address %s", I->Login.c_str());
         ++I;
         continue;
       }
 
-      auto result = ioSendMoney(_client, I->userId, I->payoutValue);
+      // Get address for payment
+      UserManager::UserCoinSettings settings;
+      bool hasSettings = UserManager_.getUserCoinSettings(I->Login, _cfg.CoinName, settings);
+      if (!hasSettings) {
+        LOG_F(WARNING, "user %s did not setup payout address, ignoging", I->Login.c_str());
+        ++I;
+        continue;
+      }
+
+      auto result = ioSendMoney(_client, I->Login, I->payoutValue);
       if (!result) {
-        LOG_F(ERROR, "sendMoney failed for %s", I->userId.c_str());
+        LOG_F(ERROR, "sendMoney failed for %s", I->Login.c_str());
         ++I;
         continue;
       }
@@ -530,16 +540,16 @@ void AccountingDb::makePayout()
               "Accounting: [%u] %s coins sent to %s with txid %s",
               index,
               FormatMoney(I->payoutValue).c_str(),
-              I->userId.c_str(),
+              I->Login.c_str(),
               result->txid.c_str());
-        payoutSuccess(I->userId, I->payoutValue, result->fee, result->txid.c_str());
+        payoutSuccess(I->Login, I->payoutValue, result->fee, result->txid.c_str());
         _payoutQueue.erase(I++);
       } else {
         LOG_F(ERROR,
               "Accounting: [%u] SendMoneyToDestination FAILED: %s coins to %s because: %s",
               index,
               FormatMoney(I->payoutValue).c_str(),
-              I->userId.c_str(),
+              I->Login.c_str(),
               result->error.c_str());
         ++I;
         
@@ -613,7 +623,7 @@ void AccountingDb::makePayout()
   // Check consistency
   std::set<std::string> waitingForPayout;
   for (auto &p: _payoutQueue)
-    waitingForPayout.insert(p.userId);  
+    waitingForPayout.insert(p.Login);
   
   int64_t totalLost = 0;  
   for (auto &userIt: _balanceMap) {
@@ -707,7 +717,10 @@ void AccountingDb::requestPayout(const std::string &address, int64_t value, bool
   
   UserBalanceRecord &balance = It->second;
   balance.Balance += value;
-  if (force || (balance.Balance >= balance.minimalPayout)) {
+
+  UserManager::UserCoinSettings settings;
+  bool hasSettings = UserManager_.getUserCoinSettings(balance.Login, _cfg.CoinName, settings);
+  if (force || (hasSettings && balance.Balance >= settings.MinimalPayout)) {
     _payoutQueue.push_back(payoutElement(address, balance.Balance, 0));
     balance.Requested += balance.Balance;
     balance.Balance = 0;
@@ -752,7 +765,15 @@ void AccountingDb::queryClientBalance(p2pPeer *peer, uint32_t id, const std::str
   auto It = _balanceMap.find(userId);
   if (It != _balanceMap.end()) {
     const UserBalanceRecord &B= It->second;
-    offset = CreateClientInfo(fbb, B.Balance, B.Requested, B.Paid, fbb.CreateString(B.name), fbb.CreateString(B.email), B.minimalPayout);
+
+    UserManager::UserInfo info;
+    UserManager::UserCoinSettings settings;
+    bool hasInfo = UserManager_.getUserInfo(B.Login, info);
+    bool hasSettings = UserManager_.getUserCoinSettings(B.Login, _cfg.CoinName, settings);
+    if (hasInfo && hasSettings)
+      offset = CreateClientInfo(fbb, B.Balance, B.Requested, B.Paid, fbb.CreateString(info.Name), fbb.CreateString(info.EMail), settings.MinimalPayout);
+    else
+      offset = CreateClientInfo(fbb);
   } else {
     offset = CreateClientInfo(fbb);
   }
@@ -763,31 +784,14 @@ void AccountingDb::queryClientBalance(p2pPeer *peer, uint32_t id, const std::str
   aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }
 
-void AccountingDb::updateClientInfo(p2pPeer *peer,
-                                    uint32_t id,
-                                    const std::string &userId,
-                                    const std::string &newName,
-                                    const std::string &newEmail,
-                                    int64_t newMinimalPayout)
+void AccountingDb::updateClientInfo(p2pPeer*,
+                                    uint32_t,
+                                    const std::string&,
+                                    const std::string&,
+                                    const std::string&,
+                                    int64_t)
 {
-  flatbuffers::FlatBufferBuilder fbb;
-  auto It = _balanceMap.find(userId);
-  if (It == _balanceMap.end())
-    It = _balanceMap.insert(It, std::make_pair(userId, UserBalanceRecord(userId, _cfg.DefaultMinimalPayout)));
-  auto &B = It->second;
-  
-  if (!newName.empty())
-    B.name = newName;
-  if (!newEmail.empty())
-    B.email = newEmail;
-  if (newMinimalPayout > 0)
-    B.minimalPayout = newMinimalPayout;
-  
-  _balanceDb.put(B);
-  QueryResultBuilder qrb(fbb);
-  qrb.add_status(1);
-  fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
+  // TODO: move to user manager
 }
 
 void AccountingDb::manualPayout(p2pPeer *peer,
@@ -835,8 +839,8 @@ void AccountingDb::moveBalance(p2pPeer *peer,
     
     // Fix payout queue
     for (auto &p: _payoutQueue) {
-      if (p.userId == from)
-        p.userId = to;
+      if (p.Login == from)
+        p.Login = to;
     }
 
     result = 1;    
