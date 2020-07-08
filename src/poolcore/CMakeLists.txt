@@ -11,4 +11,4 @@ add_library(poolcore STATIC
   usermgr.cpp
 )
 
-target_link_libraries(poolcore poolcommon RocksDB::rocksdb)
+target_link_libraries(poolcore poolcommon RocksDB::rocksdb ${TBB_IMPORTED_TARGETS})

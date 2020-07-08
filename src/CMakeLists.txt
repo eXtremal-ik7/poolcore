@@ -25,6 +25,9 @@ set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake
 )
 
+set(CMAKE_DEBUG_POSTFIX d)
+add_definitions(-DTBB_USE_EXCEPTIONS=0)
+
 if(MSVC)
   add_definitions(
     -D_CRT_SECURE_NO_DEPRECATE
@@ -43,6 +46,13 @@ else(MSVC)
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -fno-rtti")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcx16")
 endif(MSVC)
+
+set(_tbb_cmake_module_path ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(${_tbb_cmake_module_path}/TBBGet.cmake)
+include(${_tbb_cmake_module_path}/TBBBuild.cmake)
+tbb_get(TBB_ROOT tbb_root SOURCE_CODE)
+tbb_build(TBB_ROOT ${tbb_root} CONFIG_DIR TBB_DIR)
+find_package(TBB REQUIRED tbb)
 
 hunter_add_package(OpenSSL)
 hunter_add_package(rocksdb)
