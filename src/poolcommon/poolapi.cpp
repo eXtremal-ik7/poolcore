@@ -22,6 +22,10 @@ static inline const T *request(p2pNode *client,
                                void *out,
                                size_t outSize)
 {
+  // NOTE: temporary disabled
+  LOG_F(ERROR, "poolapi: '%s' call failed", name);
+  return 0;
+
   if (client->ioRequest(fbb.GetBufferPointer(), fbb.GetSize(), timeout, out, outSize)) {
     flatbuffers::Verifier verifier((const uint8_t*)out, outSize);
     if (!verifier.VerifyBuffer<T>(nullptr)) {

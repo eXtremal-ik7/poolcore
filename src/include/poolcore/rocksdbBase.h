@@ -17,6 +17,14 @@ namespace leveldb {
 
 class rocksdbBase {
 public:
+  struct PartitionBatchType {
+    std::string PartitionId;
+    rocksdb::WriteBatch Batch;
+
+    bool put(const void *key, size_t keySize, const void *data, size_t dataSize);
+    bool deleteRow(const void *key, size_t keySize);
+  };
+
   struct IteratorType {
     rocksdbBase *base;
     std::string id;
@@ -105,6 +113,9 @@ public:
   void clear();
   
   IteratorType *iterator();
+
+  PartitionBatchType batch(const std::string &partitionId);
+  bool writeBatch(PartitionBatchType &batch);
 };
 
 #endif //__LEVELDB_BASE_H_

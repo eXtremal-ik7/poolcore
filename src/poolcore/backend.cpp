@@ -130,7 +130,8 @@ void *PoolBackend::checkConfirmationsHandler()
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.ConfirmationsCheckInterval);
-    if (_client->connected()) {
+    // NOTE: temporary disabled
+    if (false) {
       _accounting->cleanupRounds();
       _accounting->checkBlockConfirmations();
     } else {
@@ -145,7 +146,8 @@ void *PoolBackend::payoutHandler()
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.PayoutInterval);
-    if (_client->connected()) {
+    // NOTE: temporary disabled
+    if (false) {
       _accounting->makePayout();
     } else {
       LOG_F(ERROR, "<error>: can't make payouts, no connection to wallet");
@@ -159,7 +161,8 @@ void *PoolBackend::checkBalanceHandler()
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.BalanceCheckInterval);
-    if (_client->connected()) {
+    // NOTE: temporary disabled
+    if (false) {
       _accounting->checkBalance();
     } else {
       LOG_F(ERROR, "<error>: can't check balance, no connection to wallet");

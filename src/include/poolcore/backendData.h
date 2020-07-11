@@ -1,6 +1,7 @@
 #ifndef __BACKEND_DATA_H_
 #define __BACKEND_DATA_H_
 
+#include "uint256.h"
 #include <list>
 #include <string>
 #include <vector>
@@ -103,16 +104,61 @@ struct UsersRecord {
   enum { CurrentRecordVersion = 1 };
 
   std::string Login;
-  std::string PasswordHash;
   std::string EMail;
   std::string Name;
   std::string TwoFactorAuthData;
+  uint256 PasswordHash;
+  uint64_t RegistrationDate;
+  bool IsActive;
+  uint512 CurrentSessionId;
+  uint512 CurrentActionId;
 
   UsersRecord() {}
   std::string getPartitionId() const { return "default"; }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;
+};
+
+struct UserActionRecord {
+  enum { CurrentRecordVersion = 1 };
+
+  enum Type {
+    UserActivate = 0,
+    UserChangePassword,
+    UserChangeEmail
+  };
+
+  uint512 Id;
+  std::string Login;
+  uint32_t Type;
+  uint64_t CreationDate;
+
+  UserActionRecord() {}
+  std::string getPartitionId() const { return "default"; }
+  bool deserializeValue(const void *data, size_t size);
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;
+};
+
+struct UserSessionRecord {
+  enum { CurrentRecordVersion = 1 };
+
+  uint512 Id;
+  std::string Login;
+  uint64_t LastAccessTime;
+  bool Dirty = false;
+
+  UserSessionRecord() {}
+  std::string getPartitionId() const { return "default"; }
+  bool deserializeValue(const void *data, size_t size);
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;
+
+  void updateLastAccessTime(uint64_t time) {
+    LastAccessTime = time;
+    Dirty = true;
+  }
 };
 
 struct UserSettingsRecord {

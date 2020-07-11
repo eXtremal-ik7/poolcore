@@ -37,7 +37,7 @@ void foundBlockHandler(asyncBase *base, p2pConnection *connection, const Query *
   
   // query confirmations
   if (Q->count()) {
-    auto result = ioGetBlockByHash(backend->client(), hashes);
+    auto result = ioGetBlockByHash(nullptr, hashes);
     if (result && result->blocks.size() == hashes.size()) {
       for (size_t i = 0; i < result->blocks.size(); i++)
         confirmations[i] = result->blocks[i]->confirmations;

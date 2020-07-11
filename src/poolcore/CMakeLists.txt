@@ -9,6 +9,7 @@ add_library(poolcore STATIC
   accounting.cpp
   statistics.cpp
   usermgr.cpp
+  uint256.cpp
 )
 
-target_link_libraries(poolcore poolcommon RocksDB::rocksdb ${TBB_IMPORTED_TARGETS})
+target_link_libraries(poolcore poolcommon RocksDB::rocksdb ${TBB_IMPORTED_TARGETS} OpenSSL::SSL OpenSSL::Crypto)

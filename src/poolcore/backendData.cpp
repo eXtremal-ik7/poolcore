@@ -33,12 +33,24 @@ static inline void serializeString(xmstream &stream, const std::string &S)
   stream.write(S.data(), S.size());
 }
 
+template<unsigned int BITS>
+static inline void serializeUInt(xmstream &stream, const base_blob<BITS> &data)
+{
+  stream.write(data.begin(), data.size());
+}
+
 static inline void deserializeString(xmstream &stream, std::string &S)
 {
   size_t size = stream.read<uint32_t>();
   const char *data = stream.seek<const char>(size);
   if (data)
     S.assign(data, size);
+}
+
+template<unsigned int BITS>
+static inline void deserializeUInt(xmstream &stream, base_blob<BITS> &data)
+{
+  stream.read(data.begin(), data.size());
 }
 
 bool payoutElement::deserializeValue(const void *data, size_t size)
@@ -170,10 +182,15 @@ bool UsersRecord::deserializeValue(const void *data, size_t size)
   uint32_t version = stream.readle<uint32_t>();
   if (version >= 1) {
     deserializeString(stream, Login);
-    deserializeString(stream, PasswordHash);
     deserializeString(stream, EMail);
     deserializeString(stream, Name);
     deserializeString(stream, TwoFactorAuthData);
+    deserializeUInt(stream, PasswordHash);
+    RegistrationDate = stream.readle<uint64_t>();
+
+    IsActive = stream.read<uint8_t>();
+    deserializeUInt(stream, CurrentSessionId);
+    deserializeUInt(stream, CurrentActionId);
   }
 
   return !stream.eof();
@@ -188,10 +205,15 @@ void UsersRecord::serializeValue(xmstream &stream) const
 {
   stream.writele<uint32_t>(CurrentRecordVersion);
   serializeString(stream, Login);
-  serializeString(stream, PasswordHash);
   serializeString(stream, EMail);
   serializeString(stream, Name);
   serializeString(stream, TwoFactorAuthData);
+  serializeUInt(stream, PasswordHash);
+  stream.write<uint64_t>(RegistrationDate);
+
+  stream.write<uint8_t>(IsActive);
+  serializeUInt(stream, CurrentSessionId);
+  serializeUInt(stream, CurrentActionId);
 }
 
 bool UserSettingsRecord::deserializeValue(const void *data, size_t size)
@@ -225,7 +247,62 @@ void UserSettingsRecord::serializeValue(xmstream &stream) const
   stream.write<uint8_t>(AutoPayout);
 }
 
-// TODO: remove obsolete table
+// UserActionRecord
+
+bool UserActionRecord::deserializeValue(const void *data, size_t size)
+{
+  xmstream stream(const_cast<void*>(data), size);
+  uint32_t version = stream.readle<uint32_t>();
+  if (version >= 1) {
+    deserializeUInt(stream, Id);
+    deserializeString(stream, Login);
+    Type = stream.readle<uint32_t>();
+    CreationDate = stream.readle<uint64_t>();
+  }
+
+  return !stream.eof();
+}
+
+void UserActionRecord::serializeKey(xmstream &stream) const {
+  serializeUInt(stream, Id);
+}
+
+void UserActionRecord::serializeValue(xmstream &stream) const
+{
+  stream.writele<uint32_t>(CurrentRecordVersion);
+  serializeUInt(stream, Id);
+  serializeString(stream, Login);
+  stream.writele<uint32_t>(Type);
+  stream.writele<uint64_t>(CreationDate);
+}
+
+// UserSessionRecord
+
+bool UserSessionRecord::deserializeValue(const void *data, size_t size)
+{
+  xmstream stream(const_cast<void*>(data), size);
+  uint32_t version = stream.readle<uint32_t>();
+  if (version >= 1) {
+    deserializeUInt(stream, Id);
+    deserializeString(stream, Login);
+    LastAccessTime = stream.readle<uint64_t>();
+  }
+
+  return !stream.eof();
+}
+
+void UserSessionRecord::serializeKey(xmstream &stream) const {
+  serializeUInt(stream, Id);
+}
+
+void UserSessionRecord::serializeValue(xmstream &stream) const
+{
+  stream.writele<uint32_t>(CurrentRecordVersion);
+  serializeUInt(stream, Id);
+  serializeString(stream, Login);
+  stream.writele<uint64_t>(LastAccessTime);
+}
+
 bool UserBalanceRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);

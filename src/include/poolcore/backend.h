@@ -23,8 +23,6 @@ private:
   
   PoolBackendConfig _cfg;
   UserManager &UserMgr_;
-  p2pNode *_client;
-  p2pNode *_node;
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
 
@@ -55,7 +53,6 @@ public:
   void stop();
   bool sendMessage(asyncBase *base, void *msg, uint32_t msgSize);
 
-  p2pNode *client() { return _client; }
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }
 };
