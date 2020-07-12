@@ -93,6 +93,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
       }
 
       SessionsCache_.insert(std::make_pair(sessionRecord.Id, sessionRecord));
+      LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
     }
 
     LOG_F(INFO, "UserManager: loaded %zu user sessions", SessionsCache_.size());
@@ -112,6 +113,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
       }
 
       ActionsCache_.insert(std::make_pair(actionRecord.Id, actionRecord));
+      LoginActionMap_[actionRecord.Login] = actionRecord.Id;
     }
 
     LOG_F(INFO, "UserManager: loaded %zu user actions", ActionsCache_.size());
@@ -166,6 +168,7 @@ void UserManager::userManagerCleanup()
     for (const auto &session: SessionsCache_) {
       if (currentTime - session.second.LastAccessTime >= SessionLifeTime_) {
         sessionIdForDelete.push_back(session.second.Id);
+        LoginSessionMap_.erase(session.second.Login);
         UserSessionsDb_.deleteRow(sessionBatch, session.second);
       } else if (session.second.Dirty) {
         UserSessionsDb_.put(sessionBatch, session.second);
@@ -176,6 +179,7 @@ void UserManager::userManagerCleanup()
     for (const auto &action: ActionsCache_) {
       if (currentTime - action.second.CreationDate >= ActionLifeTime_) {
         actionIdForDelete.push_back(action.second.Id);
+        LoginActionMap_.erase(action.second.Login);
         UserActionsDb_.deleteRow(actionBatch, action.second);
         if (action.second.Type == UserActionRecord::UserActivate) {
           // Delete not activated user record
@@ -212,40 +216,57 @@ void UserManager::actionImpl(const uint512 &id, Task::DefaultCb callback)
 {
   auto It = ActionsCache_.find(id);
   if (It == ActionsCache_.end()) {
-    callback(false, "unknown_id");
+    callback("unknown_id");
     return;
   }
 
   UserActionRecord &actionRecord = It->second;
+  UsersRecord userRecord;
+
+  {
+    decltype(UsersCache_)::const_accessor accessor;
+    if (!UsersCache_.find(accessor, actionRecord.Login)) {
+      callback("unknown_login");
+      actionRemove(actionRecord);
+      return;
+    }
+
+    userRecord = accessor->second;
+  }
+
+  bool userRecordUpdated = false;
+  const char *status = "";
   switch (actionRecord.Type) {
     case UserActionRecord::UserActivate : {
-      // Check user status
-      decltype(UsersCache_)::accessor accessor;
-      if (!UsersCache_.find(accessor, actionRecord.Login)) {
-        LOG_F(ERROR, "Action %s linked to non existent login %s", id.ToString().c_str(), actionRecord.Login.c_str());
-        callback(false, "unknown_login");
-        return;
+      if (!userRecord.IsActive) {
+        userRecord.IsActive = true;
+        userRecordUpdated = true;
+        status = "ok";
+      } else {
+        status = "user_already_active";
       }
 
-      UsersRecord &userRecord = accessor->second;
-      if (userRecord.IsActive) {
-        LOG_F(ERROR, "User %s already active", id.ToString().c_str());
-        callback(false, "user_already_active");
-        return;
-      }
-
-      // Activate user
-      userRecord.IsActive = true;
-      actionRemove(actionRecord, userRecord);
-      callback(true, "ok");
-      return;
+      break;
     }
     default: {
       LOG_F(ERROR, "Action %s detected unknown type %u", id.ToString().c_str(), actionRecord.Type);
-      callback(false, "unknown_type");
-      return;
+      status = "unknown_type";
+      break;
     }
   }
+
+  if (userRecordUpdated) {
+    {
+      decltype(UsersCache_)::accessor accessor;
+      if (UsersCache_.find(accessor, actionRecord.Login))
+        accessor->second = userRecord;
+    }
+
+    UsersDb_.put(userRecord);
+  }
+
+  actionRemove(actionRecord);
+  callback(status);
 }
 
 void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callback)
@@ -254,19 +275,19 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
 
   // Check login format
   if (credentials.Login.empty() || credentials.Login.size() > 64 || credentials.Login == "admin") {
-    callback(false, "login_format_invalid");
+    callback("login_format_invalid");
     return;
   }
 
   // Check password format
   if (credentials.Password.size() < 8 || credentials.Password.size() > 64) {
-    callback(false, "password_format_invalid");
+    callback("password_format_invalid");
     return;
   }
 
   // Check email format
   if (credentials.EMail.size() > 256 || !validEmail(credentials.EMail)) {
-    callback(false, "email_format_invalid");
+    callback("email_format_invalid");
     return;
   }
 
@@ -274,13 +295,13 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
   if (credentials.Name.empty())
     credentials.Name = credentials.Login;
   if (credentials.Name.size() > 64) {
-    callback(false, "name_format_invalid");
+    callback("name_format_invalid");
     return;
   }
 
   // Check for known email
   if (AllEmails_.count(credentials.EMail)) {
-    callback(false, "duplicate_email");
+    callback("duplicate_email");
     return;
   }
 
@@ -301,11 +322,9 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
   userRecord.PasswordHash = generateHash(credentials.Login, credentials.Password);
   userRecord.RegistrationDate = time(nullptr);
   userRecord.IsActive = false;
-  userRecord.CurrentSessionId.SetNull();
-  userRecord.CurrentActionId = actionRecord.Id;
 
   if (!UsersCache_.insert(std::pair(credentials.Login, userRecord))) {
-    callback(false, "duplicate_login");
+    callback("duplicate_login");
     return;
   }
 
@@ -317,7 +336,7 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
     SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
     if (!client) {
       LOG_F(ERROR, "Can't create smtp client");
-      callback(false, "smtp_client_create_error");
+      callback("smtp_client_create_error");
       return;
     }
 
@@ -325,7 +344,7 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
     std::string activationLink = "http://";
       activationLink.append(BaseCfg.PoolHostAddress);
       activationLink.append(BaseCfg.ActivateLinkPrefix);
-      activationLink.append(userRecord.CurrentActionId.ToString());
+      activationLink.append(actionRecord.Id.ToString());
 
     EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
     EMailText.append("This email generated automatically, please don't reply.\r\n");
@@ -353,60 +372,159 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
       else
         LOG_F(ERROR, "SMTP client error %u", -result);
       smtpClientDelete(client);
-      callback(false, "email_send_error");
+      callback("email_send_error");
       return;
     }
 
     smtpClientDelete(client);
   }
 
-  // Modify memory databases
+  // Save changes to databases
   AllEmails_.insert(credentials.EMail);
-  ActionsCache_.insert(std::make_pair(actionRecord.Id, actionRecord));
-
-  // Modify disk databases
   UsersDb_.put(userRecord);
-  UserActionsDb_.put(actionRecord);
+  actionAdd(actionRecord);
 
-  LOG_F(INFO, "New user: %s (%s) email: %s; actionId: %s", userRecord.Login.c_str(), userRecord.Name.c_str(), userRecord.EMail.c_str(), userRecord.CurrentActionId.ToString().c_str());
-  callback(true, "ok");
+  LOG_F(INFO, "New user: %s (%s) email: %s; actionId: %s", userRecord.Login.c_str(), userRecord.Name.c_str(), userRecord.EMail.c_str(), actionRecord.Id.ToString().c_str());
+  callback("ok");
+}
+
+void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb callback)
+{
+  std::string email;
+  {
+    decltype (UsersCache_)::const_accessor accessor;
+    if (!UsersCache_.find(accessor, credentials.Login)) {
+      callback("invalid_password");
+      return;
+    }
+
+    const UsersRecord &record = accessor->second;
+
+    // Check password
+    if (record.PasswordHash != generateHash(credentials.Login, credentials.Password)) {
+      callback("invalid_password");
+      return;
+    }
+
+    // Check activation
+    if (record.IsActive) {
+      callback("user_already_active");
+      return;
+    }
+
+    email = record.EMail;
+  }
+
+  // Invalidate current action
+  auto It = LoginActionMap_.find(credentials.Login);
+  if (It != LoginActionMap_.end()) {
+    UserActionRecord record;
+    record.Id = It->second;
+    record.Login = credentials.Login;
+    actionRemove(record);
+  }
+
+  // Prepare new action
+  UserActionRecord actionRecord;
+  makeRandom(actionRecord.Id);
+  actionRecord.Login = credentials.Login;
+  actionRecord.Type = UserActionRecord::UserActivate;
+  actionRecord.CreationDate = time(nullptr);
+
+  // Send email
+  if (SMTP.Enabled) {
+    HostAddress localAddress;
+    localAddress.ipv4 = INADDR_ANY;
+    localAddress.family = AF_INET;
+    localAddress.port = 0;
+    SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
+    if (!client) {
+      LOG_F(ERROR, "Can't create smtp client");
+      callback("smtp_client_create_error");
+      return;
+    }
+
+    std::string EMailText;
+    std::string activationLink = "http://";
+      activationLink.append(BaseCfg.PoolHostAddress);
+      activationLink.append(BaseCfg.ActivateLinkPrefix);
+      activationLink.append(actionRecord.Id.ToString());
+
+    EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
+    EMailText.append("This email generated automatically, please don't reply.\r\n");
+    EMailText.append("For finish registration visit <a href=\"");
+    EMailText.append(activationLink);
+    EMailText.append("\">");
+    EMailText.append(activationLink);
+    EMailText.append("</a>\r\n");
+
+    int result = ioSmtpSendMail(client,
+                                SMTP.ServerAddress,
+                                SMTP.UseStartTls,
+                                BaseCfg.PoolHostAddress.c_str(),
+                                SMTP.Login.c_str(),
+                                SMTP.Password.c_str(),
+                                SMTP.SenderAddress.c_str(),
+                                email.c_str(),
+                                ("Registration at " + BaseCfg.PoolName).c_str(),
+                                EMailText.c_str(),
+                                afNone,
+                                16000000);
+    if (result != 0) {
+      if (result == -smtpError)
+        LOG_F(ERROR, "SMTP error; code: %u; text: %s", smtpClientGetResultCode(client), smtpClientGetResponse(client));
+      else
+        LOG_F(ERROR, "SMTP client error %u", -result);
+      smtpClientDelete(client);
+      callback("email_send_error");
+      return;
+    }
+
+    smtpClientDelete(client);
+  }
+
+  actionAdd(actionRecord);
+  LOG_F(INFO, "Resend email for %s to %s; actionId: %s", credentials.Login.c_str(), email.c_str(), actionRecord.Id.ToString().c_str());
+  callback("ok");
 }
 
 void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback)
 {
   // Find user in db
-  decltype (UsersCache_)::accessor accessor;
-  if (!UsersCache_.find(accessor, credentials.Login)) {
-    callback("", "unknown_login");
-    return;
+  {
+    decltype (UsersCache_)::const_accessor accessor;
+    if (!UsersCache_.find(accessor, credentials.Login)) {
+      callback("", "invalid_password");
+      return;
+    }
+
+    const UsersRecord &record = accessor->second;
+
+    // Check password
+    if (record.PasswordHash != generateHash(credentials.Login, credentials.Password)) {
+      callback("", "invalid_password");
+      return;
+    }
+
+    // Check activation
+    if (!record.IsActive) {
+      callback("", "user_not_active");
+      return;
+    }
   }
 
-  UsersRecord &record = accessor->second;
-
-  // Check password
-  if (record.PasswordHash != generateHash(credentials.Login, credentials.Password)) {
-    callback("", "invalid_password");
-    return;
-  }
-
-  // Check activation
-  if (!record.IsActive) {
-    callback("", "user_not_active");
-    return;
-  }
-
-  // Check existing session
-  if (!record.CurrentSessionId.IsNull()) {
-    callback(record.CurrentSessionId.ToString(), "ok");
+  auto It = LoginSessionMap_.find(credentials.Login);
+  if (It != LoginSessionMap_.end()) {
+    callback(It->second.ToString(), "ok");
     return;
   }
 
   // Create new session
   UserSessionRecord session;
   makeRandom(session.Id);
-  session.Login = record.Login;
+  session.Login = credentials.Login;
   session.LastAccessTime = time(nullptr);
-  sessionAdd(session, record);
+  sessionAdd(session);
   callback(session.Id.ToString(), "ok");
 }
 
@@ -416,22 +534,15 @@ void UserManager::logoutImpl(const uint512 &sessionId, Task::DefaultCb callback)
   {
     decltype (SessionsCache_)::const_accessor sessionAccessor;
     if (!SessionsCache_.find(sessionAccessor, sessionId)) {
-      callback(false, "unknown_id");
+      callback("unknown_id");
       return;
     }
 
     sessionRecord = sessionAccessor->second;
   }
 
-  decltype (UsersCache_)::accessor usersAccessor;
-  if (!UsersCache_.find(usersAccessor, sessionRecord.Login)) {
-    LOG_F(ERROR, "Session %s refers to non existent login %s", sessionId.ToString().c_str(), sessionRecord.Login.c_str());
-    callback(false, "unknown_login");
-    return;
-  }
-
-  sessionRemove(sessionRecord, usersAccessor->second);
-  callback(true, "ok");
+  sessionRemove(sessionRecord);
+  callback("ok");
 }
 
 bool UserManager::getUserInfo(const std::string &login, UserInfo &info)

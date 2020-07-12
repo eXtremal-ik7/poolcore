@@ -41,7 +41,7 @@ public:
   // Asynchronous api
   class Task {
   public:
-    using DefaultCb = std::function<void(bool, const std::string&)>;
+    using DefaultCb = std::function<void(const char*)>;
 
     Task(UserManager *userMgr) : UserMgr_(userMgr) {}
     virtual void run() = 0;
@@ -76,9 +76,25 @@ public:
     DefaultCb Callback_;
   };
 
+  class UserResendEmailTask: public Task {
+  public:
+    UserResendEmailTask(UserManager *userMgr, Credentials &&credentials, DefaultCb callback) : Task(userMgr), Credentials_(credentials), Callback_(callback) {}
+    void run() final {
+      coroutineTy *coroutine = coroutineNew([](void *arg) {
+        auto task =  static_cast<UserResendEmailTask*>(arg);
+        task->UserMgr_->resendEmailImpl(task->Credentials_, task->Callback_);
+      }, this, 0x10000);
+
+      coroutineCall(coroutine);
+    }
+  private:
+    Credentials Credentials_;
+    DefaultCb Callback_;
+  };
+
   class UserLoginTask: public Task {
   public:
-    using Cb = std::function<void(const std::string&, const std::string&)>;
+    using Cb = std::function<void(const std::string&, const char*)>;
     UserLoginTask(UserManager *userMgr, Credentials &&credentials, Cb callback) : Task(userMgr), Credentials_(credentials), Callback_(callback) {}
     void run() final { UserMgr_->loginImpl(Credentials_, Callback_); }
   private:
@@ -126,6 +142,7 @@ public:
   // Asynchronous api
   void userAction(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserActionTask(this, uint512S(id), callback)); }
   void userCreate(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserCreateTask(this, std::move(credentials), callback)); }
+  void userResendEmail(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserResendEmailTask(this, std::move(credentials), callback)); }
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
 
@@ -138,35 +155,32 @@ private:
   void startAsyncTask(Task *task);
   void actionImpl(const uint512 &id, Task::DefaultCb callback);
   void userCreateImpl(Credentials &credentials, Task::DefaultCb callback);
+  void resendEmailImpl(Credentials &credentials, Task::DefaultCb callback);
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
   void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);
 
-  void sessionAdd(const UserSessionRecord &sessionRecord, UsersRecord &usersRecord) {
-    usersRecord.CurrentSessionId = sessionRecord.Id;
+  void sessionAdd(const UserSessionRecord &sessionRecord) {
+    LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
     SessionsCache_.insert(std::make_pair(sessionRecord.Id, sessionRecord));
     UserSessionsDb_.put(sessionRecord);
-    UsersDb_.put(usersRecord);
   }
 
-  void sessionRemove(const UserSessionRecord &sessionRecord, UsersRecord &usersRecord) {
-    usersRecord.CurrentSessionId.SetNull();
+  void sessionRemove(const UserSessionRecord &sessionRecord) {
+    LoginSessionMap_.erase(sessionRecord.Login);
     SessionsCache_.erase(sessionRecord.Id);
     UserSessionsDb_.deleteRow(sessionRecord);
-    UsersDb_.put(usersRecord);
   }
 
-  void actionAdd(const UserActionRecord &actionRecord, UsersRecord &usersRecord) {
-    usersRecord.CurrentActionId = actionRecord.Id;
+  void actionAdd(const UserActionRecord &actionRecord) {
+    LoginActionMap_[actionRecord.Login] = actionRecord.Id;
     ActionsCache_.insert(std::make_pair(actionRecord.Id, actionRecord));
     UserActionsDb_.put(actionRecord);
-    UsersDb_.put(usersRecord);
   }
 
-  void actionRemove(const UserActionRecord &actionRecord, UsersRecord &usersRecord) {
-    usersRecord.CurrentActionId.SetNull();
+  void actionRemove(const UserActionRecord &actionRecord) {
+    LoginActionMap_.erase(actionRecord.Login);
     ActionsCache_.erase(actionRecord.Id);
     UserActionsDb_.deleteRow(actionRecord);
-    UsersDb_.put(usersRecord);
   }
 
   void userManagerMain();
@@ -191,6 +205,8 @@ private:
   // Thread local structures
   std::unordered_map<uint512, UserActionRecord> ActionsCache_;
   std::unordered_set<std::string> AllEmails_;
+  std::map<std::string, uint512> LoginSessionMap_;
+  std::map<std::string, uint512> LoginActionMap_;
 
   // Configuration
   struct {

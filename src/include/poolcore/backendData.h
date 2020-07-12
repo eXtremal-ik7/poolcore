@@ -110,8 +110,6 @@ struct UsersRecord {
   uint256 PasswordHash;
   uint64_t RegistrationDate;
   bool IsActive;
-  uint512 CurrentSessionId;
-  uint512 CurrentActionId;
 
   UsersRecord() {}
   std::string getPartitionId() const { return "default"; }

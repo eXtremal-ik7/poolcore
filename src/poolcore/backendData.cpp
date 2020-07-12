@@ -187,10 +187,7 @@ bool UsersRecord::deserializeValue(const void *data, size_t size)
     deserializeString(stream, TwoFactorAuthData);
     deserializeUInt(stream, PasswordHash);
     RegistrationDate = stream.readle<uint64_t>();
-
     IsActive = stream.read<uint8_t>();
-    deserializeUInt(stream, CurrentSessionId);
-    deserializeUInt(stream, CurrentActionId);
   }
 
   return !stream.eof();
@@ -210,10 +207,7 @@ void UsersRecord::serializeValue(xmstream &stream) const
   serializeString(stream, TwoFactorAuthData);
   serializeUInt(stream, PasswordHash);
   stream.write<uint64_t>(RegistrationDate);
-
   stream.write<uint8_t>(IsActive);
-  serializeUInt(stream, CurrentSessionId);
-  serializeUInt(stream, CurrentActionId);
 }
 
 bool UserSettingsRecord::deserializeValue(const void *data, size_t size)
