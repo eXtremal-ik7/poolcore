@@ -24,6 +24,8 @@ add_library(poolcommon STATIC
   file.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/pool_generated.cpp
   poolapi.cpp
+  uint256.cpp
+  utils.cpp
 )
 
 target_link_libraries(poolcommon flatbuffers::flatbuffers)

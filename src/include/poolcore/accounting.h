@@ -12,8 +12,6 @@
 #include <map>
 #include <string>
 
-static const int64_t COIN = 100000000;
-
 class p2pNode;
 class p2pPeer;
 class StatisticDb;

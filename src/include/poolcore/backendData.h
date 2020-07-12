@@ -1,7 +1,7 @@
 #ifndef __BACKEND_DATA_H_
 #define __BACKEND_DATA_H_
 
-#include "uint256.h"
+#include "poolcommon/uint256.h"
 #include <list>
 #include <string>
 #include <vector>
@@ -18,14 +18,19 @@ struct PoolFeeEntry {
   float Percentage;
 };
 
+struct CoinInfo {
+  std::string Name;
+  int64_t DefaultPayoutThreshold;
+};
+
 struct PoolBackendConfig {
   bool isMaster;
   std::filesystem::path dbPath;
   std::string CoinName;
   std::vector<PoolFeeEntry> PoolFee;
   unsigned RequiredConfirmations;
-  int64_t DefaultMinimalPayout;
-  int64_t MinimalPayout;
+  int64_t DefaultPayoutThreshold;
+  int64_t MinimalAllowedPayout;
   unsigned KeepRoundTime;
   unsigned KeepStatsTime;
   unsigned ConfirmationsCheckInterval;

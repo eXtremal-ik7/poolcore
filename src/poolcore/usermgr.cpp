@@ -49,11 +49,13 @@ static void makeRandom(base_blob<BITS> &number)
   RAND_bytes(number.begin(), number.size());
 }
 
-UserManager::UserManager(const std::filesystem::path &dbPath) :
+UserManager::UserManager(const std::filesystem::path &dbPath, std::vector<CoinInfo> &coinInfo, std::unordered_map<std::string, size_t> &coinIdxMap) :
   UsersDb_(dbPath / "users"),
   UserSettingsDb_(dbPath / "usersettings"),
   UserActionsDb_(dbPath / "useractions"),
-  UserSessionsDb_(dbPath / "usersessions")
+  UserSessionsDb_(dbPath / "usersessions"),
+  CoinInfo_(coinInfo),
+  CoinIdxMap_(coinIdxMap)
 {
   // Load all users data to memory
   {
@@ -78,6 +80,21 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
 
   {
     // User settings
+    std::unique_ptr<rocksdbBase::IteratorType> It(UserSettingsDb_.iterator());
+    for (It->seekFirst(); It->valid(); It->next()) {
+      UserSettingsRecord settingsRecord;
+      if (!settingsRecord.deserializeValue(It->value().data, It->value().size)) {
+        LOG_F(ERROR, "Database corrupted (user settings)");
+        exit(1);
+      }
+
+      std::string key = settingsRecord.Login;
+      key.push_back('\0');
+      key.append(settingsRecord.Coin);
+      SettingsCache_.insert(std::make_pair(key, settingsRecord));
+    }
+
+    LOG_F(INFO, "UserManager: loaded %zu user settings records", SettingsCache_.size());
   }
 
   {
@@ -545,14 +562,67 @@ void UserManager::logoutImpl(const uint512 &sessionId, Task::DefaultCb callback)
   callback("ok");
 }
 
+void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback)
+{
+  std::string key = settings.Login;
+  key.push_back('\0');
+  key.append(settings.Coin);
+  {
+    decltype (SettingsCache_)::accessor accessor;
+    if (SettingsCache_.find(accessor, key)) {
+      accessor->second = settings;
+    } else {
+      SettingsCache_.insert(std::make_pair(key, settings));
+    }
+  }
+
+  UserSettingsDb_.put(settings);
+  callback("ok");
+}
+
+bool UserManager::validateSession(const std::string &id, std::string &login)
+{
+  time_t currentTime = time(nullptr);
+  decltype (SessionsCache_)::accessor accessor;
+  if (SessionsCache_.find(accessor, uint512S(id))) {
+    login = accessor->second.Login;
+    accessor->second.updateLastAccessTime(currentTime);
+    return true;
+  } else {
+    return false;
+  }
+}
+
+bool UserManager::getUserCredentials(const std::string &login, Credentials &out)
+{
+  decltype (UsersCache_)::const_accessor accessor;
+  if (UsersCache_.find(accessor, login)) {
+    out.Name = accessor->second.Name;
+    out.EMail = accessor->second.EMail;
+    out.RegistrationDate = accessor->second.RegistrationDate;
+    return true;
+  } else {
+    return false;
+  }
+}
+
 bool UserManager::getUserInfo(const std::string &login, UserInfo &info)
 {
   // TODO: use rwlock
   return false;
 }
 
-bool UserManager::getUserCoinSettings(const std::string &login, const std::string &coin, UserCoinSettings &settings)
+bool UserManager::getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings)
 {
-  // TODO: use rwlock
-  return false;
+  std::string key = login;
+  key.push_back('\0');
+  key.append(coin);
+
+  decltype (SettingsCache_)::const_accessor accessor;
+  if (SettingsCache_.find(accessor, key)) {
+    settings = accessor->second;
+    return true;
+  } else {
+    return false;
+  }
 }

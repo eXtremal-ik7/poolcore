@@ -19,7 +19,6 @@ private:
   aioObject *_write;
   aioObject *_read;
   std::thread _thread;
-  std::unordered_map<std::string, size_t> CoinNameMap_;
   
   PoolBackendConfig _cfg;
   UserManager &UserMgr_;

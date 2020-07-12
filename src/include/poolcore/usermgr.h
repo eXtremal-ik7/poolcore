@@ -3,7 +3,7 @@
 #include "kvdb.h"
 #include "poolcore/backendData.h"
 #include "poolcore/rocksdbBase.h"
-#include "poolcore/uint256.h"
+#include "poolcommon/uint256.h"
 #include "asyncio/asyncio.h"
 #include <tbb/concurrent_queue.h>
 #include <tbb/concurrent_hash_map.h>
@@ -18,17 +18,12 @@ public:
     std::string Name;
     std::string EMail;
     std::string TwoFactor;
+    uint64_t RegistrationDate;
   };
 
   struct UserInfo {
     std::string Name;
     std::string EMail;
-  };
-
-  struct UserCoinSettings {
-    std::string Address;
-    int64_t MinimalPayout;
-    bool AutoPayoutEnabled;
   };
 
   // User session life time from last access (default: 30 minutes)
@@ -111,8 +106,17 @@ public:
     DefaultCb Callback_;
   };
 
+  class UpdateSettingsTask: public Task {
+  public:
+    UpdateSettingsTask(UserManager *userMgr, UserSettingsRecord &&settings, DefaultCb callback) : Task(userMgr), Settings_(settings), Callback_(callback) {}
+    void run() final { UserMgr_->updateSettingsImpl(Settings_, Callback_); }
+  private:
+    UserSettingsRecord Settings_;
+    DefaultCb Callback_;
+  };
+
 public:
-  UserManager(const std::filesystem::path &dbPath);
+  UserManager(const std::filesystem::path &dbPath, std::vector<CoinInfo> &coinInfo, std::unordered_map<std::string, size_t> &coinIdxMap);
   void start();
   void stop();
 
@@ -139,16 +143,22 @@ public:
     SMTP.Enabled = true;
   }
 
+  std::vector<CoinInfo> &coinInfo() { return CoinInfo_; }
+  std::unordered_map<std::string, size_t> &coinIdxMap() { return CoinIdxMap_; }
+
   // Asynchronous api
   void userAction(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserActionTask(this, uint512S(id), callback)); }
   void userCreate(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserCreateTask(this, std::move(credentials), callback)); }
   void userResendEmail(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserResendEmailTask(this, std::move(credentials), callback)); }
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
+  void updateSettings(UserSettingsRecord &&settings, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), callback)); }
 
   // Synchronous api
+  bool validateSession(const std::string &id, std::string &login);
+  bool getUserCredentials(const std::string &login, Credentials &out);
   bool getUserInfo(const std::string &login, UserInfo &info);
-  bool getUserCoinSettings(const std::string &login, const std::string &coin, UserCoinSettings &settings);
+  bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);
 
 private:
   // Asynchronous api implementation
@@ -158,6 +168,7 @@ private:
   void resendEmailImpl(Credentials &credentials, Task::DefaultCb callback);
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
   void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);
+  void updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback);
 
   void sessionAdd(const UserSessionRecord &sessionRecord) {
     LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
@@ -201,6 +212,7 @@ private:
   // Concurrent access structures
   tbb::concurrent_hash_map<std::string, UsersRecord> UsersCache_;
   tbb::concurrent_hash_map<uint512, UserSessionRecord, TbbHash<512>> SessionsCache_;
+  tbb::concurrent_hash_map<std::string, UserSettingsRecord> SettingsCache_;
 
   // Thread local structures
   std::unordered_map<uint512, UserActionRecord> ActionsCache_;
@@ -209,6 +221,9 @@ private:
   std::map<std::string, uint512> LoginActionMap_;
 
   // Configuration
+  std::vector<CoinInfo> &CoinInfo_;
+  std::unordered_map<std::string, size_t> &CoinIdxMap_;
+
   struct {
     std::string PoolName;
     std::string PoolHostAddress;

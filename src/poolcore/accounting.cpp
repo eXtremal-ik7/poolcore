@@ -4,6 +4,7 @@
 #include "poolcore/accounting.h"
 #include "p2p/p2p.h"
 #include "poolcommon/poolapi.h"
+#include "poolcommon/utils.h"
 #include "poolcore/base58.h"
 #include "poolcore/statistics.h"
 #include "loguru.hpp"
@@ -12,71 +13,6 @@
 
 #define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
 
-std::string real_strprintf(const std::string &format, int dummy, ...);
-#define strprintf(format, ...) real_strprintf(format, 0, __VA_ARGS__)
-
-std::string vstrprintf(const char *format, va_list ap)
-{
-    char buffer[50000];
-    char* p = buffer;
-    int limit = sizeof(buffer);
-    int ret;
-    for (;;)
-    {
-        va_list arg_ptr;
-        va_copy(arg_ptr, ap);
-#ifdef WIN32
-        ret = _vsnprintf(p, limit, format, arg_ptr);
-#else
-        ret = vsnprintf(p, limit, format, arg_ptr);
-#endif
-        va_end(arg_ptr);
-        if (ret >= 0 && ret < limit)
-            break;
-        if (p != buffer)
-            delete[] p;
-        limit *= 2;
-        p = new char[limit];
-        if (p == NULL)
-            throw std::bad_alloc();
-    }
-    std::string str(p, p+ret);
-    if (p != buffer)
-        delete[] p;
-    return str;
-}
-
-std::string real_strprintf(const std::string &format, int dummy, ...)
-{
-    va_list arg_ptr;
-    va_start(arg_ptr, dummy);
-    std::string str = vstrprintf(format.c_str(), arg_ptr);
-    va_end(arg_ptr);
-    return str;
-}
-
-std::string FormatMoney(int64_t n, bool fPlus=false)
-{
-    // Note: not using straight sprintf here because we do NOT want
-    // localized number formatting.
-    int64_t n_abs = (n > 0 ? n : -n);
-    int64_t quotient = n_abs/COIN;
-    int64_t remainder = n_abs%COIN;
-    std::string str = strprintf("%" PRId64 ".%08" PRId64, quotient, remainder);
-
-    // Right-trim excess zeros before the decimal point:
-    int nTrim = 0;
-    for (int i = str.size()-1; (str[i] == '0' && isdigit(str[i-2])); --i)
-        ++nTrim;
-    if (nTrim)
-        str.erase(str.size()-nTrim, nTrim);
-
-    if (n < 0)
-        str.insert((unsigned int)0, 1, '-');
-    else if (fPlus && n > 0)
-        str.insert((unsigned int)0, 1, '+');
-    return str;
-}
 
 AccountingDb::AccountingDb(const PoolBackendConfig &config, UserManager &userMgr) :
   _cfg(config),
@@ -474,14 +410,14 @@ void AccountingDb::makePayout()
     {
       std::map<std::string, int64_t> payoutAccMap;
       for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
-        if (I->payoutValue < _cfg.MinimalPayout ||
+        if (I->payoutValue < _cfg.MinimalAllowedPayout ||
             (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->Login.c_str())) ) {
           payoutAccMap[I->Login] += I->payoutValue;
           LOG_F(INFO,
                 "Accounting: merge payout %s for %s (total already %s)",
-                FormatMoney(I->payoutValue).c_str(),
+                FormatMoney(I->payoutValue, COIN).c_str(),
                 I->Login.c_str(),
-                FormatMoney(payoutAccMap[I->Login]).c_str());
+                FormatMoney(payoutAccMap[I->Login], COIN).c_str());
           _payoutQueue.erase(I++);        
         } else {
           ++I;
@@ -495,13 +431,13 @@ void AccountingDb::makePayout()
     int64_t remaining = -1;
     unsigned index = 0;
     for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
-      if (I->payoutValue < _cfg.MinimalPayout) {
+      if (I->payoutValue < _cfg.MinimalAllowedPayout) {
         LOG_F(INFO,
               "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
               index,
               I->Login.c_str(),
-              FormatMoney(I->payoutValue).c_str(),
-              FormatMoney(_cfg.MinimalPayout).c_str());
+              FormatMoney(I->payoutValue, COIN).c_str(),
+              FormatMoney(_cfg.MinimalAllowedPayout, COIN).c_str());
         ++I;
         continue;
       }
@@ -519,7 +455,7 @@ void AccountingDb::makePayout()
       }
 
       // Get address for payment
-      UserManager::UserCoinSettings settings;
+      UserSettingsRecord settings;
       bool hasSettings = UserManager_.getUserCoinSettings(I->Login, _cfg.CoinName, settings);
       if (!hasSettings) {
         LOG_F(WARNING, "user %s did not setup payout address, ignoging", I->Login.c_str());
@@ -539,7 +475,7 @@ void AccountingDb::makePayout()
         LOG_F(INFO,
               "Accounting: [%u] %s coins sent to %s with txid %s",
               index,
-              FormatMoney(I->payoutValue).c_str(),
+              FormatMoney(I->payoutValue, COIN).c_str(),
               I->Login.c_str(),
               result->txid.c_str());
         payoutSuccess(I->Login, I->payoutValue, result->fee, result->txid.c_str());
@@ -548,7 +484,7 @@ void AccountingDb::makePayout()
         LOG_F(ERROR,
               "Accounting: [%u] SendMoneyToDestination FAILED: %s coins to %s because: %s",
               index,
-              FormatMoney(I->payoutValue).c_str(),
+              FormatMoney(I->payoutValue, COIN).c_str(),
               I->Login.c_str(),
               result->error.c_str());
         ++I;
@@ -698,13 +634,13 @@ void AccountingDb::checkBalance()
   
   LOG_F(INFO,
         "accounting: balance=%s req/balance=%s req/queue=%s immature=%s users=%s queued=%s, net=%s",
-        FormatMoney(balance).c_str(),
-        FormatMoney(requestedInBalance).c_str(),
-        FormatMoney(requestedInQueue).c_str(),
-        FormatMoney(immature).c_str(),
-        FormatMoney(userBalance).c_str(),
-        FormatMoney(queued).c_str(),
-        FormatMoney(net).c_str());
+        FormatMoney(balance, COIN).c_str(),
+        FormatMoney(requestedInBalance, COIN).c_str(),
+        FormatMoney(requestedInQueue, COIN).c_str(),
+        FormatMoney(immature, COIN).c_str(),
+        FormatMoney(userBalance, COIN).c_str(),
+        FormatMoney(queued, COIN).c_str(),
+        FormatMoney(net, COIN).c_str());
  
 
 }
@@ -713,12 +649,12 @@ void AccountingDb::requestPayout(const std::string &address, int64_t value, bool
 {
   auto It = _balanceMap.find(address);
   if (It == _balanceMap.end())
-    It = _balanceMap.insert(It, std::make_pair(address, UserBalanceRecord(address, _cfg.DefaultMinimalPayout)));
+    It = _balanceMap.insert(It, std::make_pair(address, UserBalanceRecord(address, _cfg.DefaultPayoutThreshold)));
   
   UserBalanceRecord &balance = It->second;
   balance.Balance += value;
 
-  UserManager::UserCoinSettings settings;
+  UserSettingsRecord settings;
   bool hasSettings = UserManager_.getUserCoinSettings(balance.Login, _cfg.CoinName, settings);
   if (force || (hasSettings && balance.Balance >= settings.MinimalPayout)) {
     _payoutQueue.push_back(payoutElement(address, balance.Balance, 0));
@@ -767,7 +703,7 @@ void AccountingDb::queryClientBalance(p2pPeer *peer, uint32_t id, const std::str
     const UserBalanceRecord &B= It->second;
 
     UserManager::UserInfo info;
-    UserManager::UserCoinSettings settings;
+    UserSettingsRecord settings;
     bool hasInfo = UserManager_.getUserInfo(B.Login, info);
     bool hasSettings = UserManager_.getUserCoinSettings(B.Login, _cfg.CoinName, settings);
     if (hasInfo && hasSettings)
@@ -803,7 +739,7 @@ void AccountingDb::manualPayout(p2pPeer *peer,
   auto It = _balanceMap.find(userId);
   if (It != _balanceMap.end()) {
     auto &B = It->second;
-    if (B.Balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance >= _cfg.MinimalPayout)
+    if (B.Balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance >= _cfg.MinimalAllowedPayout)
       requestPayout(userId, 0, true);
     result = 1;
   } else {
@@ -828,7 +764,7 @@ void AccountingDb::moveBalance(p2pPeer *peer,
   if (FromIt != _balanceMap.end()) {
     auto ToIt = _balanceMap.find(to);
     if (ToIt == _balanceMap.end()) {
-      UserBalanceRecord newUserBalance(to, _cfg.DefaultMinimalPayout);
+      UserBalanceRecord newUserBalance(to, _cfg.DefaultPayoutThreshold);
       ToIt = _balanceMap.insert(ToIt, std::make_pair(to, newUserBalance));
     }
     

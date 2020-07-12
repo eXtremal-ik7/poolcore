@@ -1,5 +1,5 @@
 #include "poolcore/base58.h"
-#include "poolcore/uint256.h"
+#include "poolcommon/uint256.h"
 #include <openssl/crypto.h>
 #include <openssl/sha.h>
 #include <string.h>
