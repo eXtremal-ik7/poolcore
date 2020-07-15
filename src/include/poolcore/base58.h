@@ -1,33 +1,33 @@
+// Copyright (c) 2009-2010 Satoshi Nakamoto
+// Copyright (c) 2009-2018 The Bitcoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#pragma once
+
 #include <string>
 #include <vector>
 
+/**
+ * Encode a byte sequence as a base58-encoded string.
+ * pbegin and pend cannot be nullptr, unless both are.
+ */
+std::string EncodeBase58(const unsigned char* pbegin, const unsigned char* pend);
 
 /**
- * Base class for all base58-encoded data
+ * Encode a byte vector as a base58-encoded string
  */
-class CBase58Data
-{
-protected:
-    //! the version byte(s)
-    std::vector<unsigned char> vchVersion;
+std::string EncodeBase58(const std::vector<unsigned char>& vch);
 
-    //! the actually encoded data
-    typedef std::vector<unsigned char> vector_uchar;
-    vector_uchar vchData;
+/**
+ * Decode a base58-encoded string (psz) into a byte vector (vchRet).
+ * return true if decoding is successful.
+ * psz cannot be nullptr.
+ */
+bool DecodeBase58(const char* psz, std::vector<unsigned char>& vchRet);
 
-    CBase58Data();
-    void SetData(const std::vector<unsigned char> &vchVersionIn, const void* pdata, size_t nSize);
-    void SetData(const std::vector<unsigned char> &vchVersionIn, const unsigned char *pbegin, const unsigned char *pend);
-
-public:
-    bool SetString(const char* psz, unsigned int nVersionBytes);
-    bool SetString(const std::string& str, unsigned int nVersionBytes);
-    std::string ToString() const;
-    int CompareTo(const CBase58Data& b58) const;
-
-    bool operator==(const CBase58Data& b58) const { return CompareTo(b58) == 0; }
-    bool operator<=(const CBase58Data& b58) const { return CompareTo(b58) <= 0; }
-    bool operator>=(const CBase58Data& b58) const { return CompareTo(b58) >= 0; }
-    bool operator< (const CBase58Data& b58) const { return CompareTo(b58) <  0; }
-    bool operator> (const CBase58Data& b58) const { return CompareTo(b58) >  0; }
-};
+/**
+ * Decode a base58-encoded string (str) into a byte vector (vchRet).
+ * return true if decoding is successful.
+ */
+bool DecodeBase58(const std::string& str, std::vector<unsigned char>& vchRet);

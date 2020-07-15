@@ -49,13 +49,11 @@ static void makeRandom(base_blob<BITS> &number)
   RAND_bytes(number.begin(), number.size());
 }
 
-UserManager::UserManager(const std::filesystem::path &dbPath, std::vector<CoinInfo> &coinInfo, std::unordered_map<std::string, size_t> &coinIdxMap) :
+UserManager::UserManager(const std::filesystem::path &dbPath) :
   UsersDb_(dbPath / "users"),
   UserSettingsDb_(dbPath / "usersettings"),
   UserActionsDb_(dbPath / "useractions"),
-  UserSessionsDb_(dbPath / "usersessions"),
-  CoinInfo_(coinInfo),
-  CoinIdxMap_(coinIdxMap)
+  UserSessionsDb_(dbPath / "usersessions")
 {
   // Load all users data to memory
   {
@@ -395,6 +393,8 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
 
     smtpClientDelete(client);
   }
+
+  // TODO: Setup default settings for all coins
 
   // Save changes to databases
   AllEmails_.insert(credentials.EMail);

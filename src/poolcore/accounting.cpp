@@ -14,20 +14,21 @@
 #define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
 
 
-AccountingDb::AccountingDb(const PoolBackendConfig &config, UserManager &userMgr) :
+AccountingDb::AccountingDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr) :
   _cfg(config),
+  CoinInfo_(coinInfo),
   UserManager_(userMgr),
-  _roundsDb(config.dbPath / config.CoinName / "rounds"),
-  _balanceDb(config.dbPath / config.CoinName / "balance"),
-  _foundBlocksDb(config.dbPath / config.CoinName / "foundBlocks"),
-  _poolBalanceDb(config.dbPath / config.CoinName / "poolBalance"),
-  _payoutDb(config.dbPath / config.CoinName / "payouts")
+  _roundsDb(config.dbPath / coinInfo.Name / "rounds"),
+  _balanceDb(config.dbPath / coinInfo.Name / "balance"),
+  _foundBlocksDb(config.dbPath / coinInfo.Name / "foundBlocks"),
+  _poolBalanceDb(config.dbPath / coinInfo.Name / "poolBalance"),
+  _payoutDb(config.dbPath / coinInfo.Name / "payouts")
 {   
   {
     unsigned counter = 0;
-    _sharesFd.open(_cfg.dbPath / config.CoinName / "shares.raw");
+    _sharesFd.open(_cfg.dbPath / coinInfo.Name / "shares.raw");
     if (!_sharesFd.isOpened())
-      LOG_F(ERROR, "can't open shares file %s (%s)", (_cfg.dbPath / config.CoinName / "shares.raw").u8string().c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open shares file %s (%s)", (_cfg.dbPath / coinInfo.Name / "shares.raw").u8string().c_str(), strerror(errno));
 
     auto fileSize = _sharesFd.size();
     if (fileSize > 0) {
@@ -57,9 +58,9 @@ AccountingDb::AccountingDb(const PoolBackendConfig &config, UserManager &userMgr
   
   {
     FileDescriptor payoutsFdOld;
-    payoutsFdOld.open(_cfg.dbPath / config.CoinName / "payouts.raw.old");
+    payoutsFdOld.open(_cfg.dbPath / coinInfo.Name / "payouts.raw.old");
     if (!payoutsFdOld.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / config.CoinName / "payouts.raw.old").u8string().c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / coinInfo.Name / "payouts.raw.old").u8string().c_str(), strerror(errno));
 
     auto fileSize = payoutsFdOld.size();
 
@@ -86,9 +87,9 @@ AccountingDb::AccountingDb(const PoolBackendConfig &config, UserManager &userMgr
   
   {
     unsigned payoutsNum = 0;
-    _payoutsFd.open(_cfg.dbPath / config.CoinName / "payouts.raw");
+    _payoutsFd.open(_cfg.dbPath / coinInfo.Name / "payouts.raw");
     if (!_payoutsFd.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / config.CoinName / "payouts.raw").u8string().c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / coinInfo.Name / "payouts.raw").u8string().c_str(), strerror(errno));
 
     auto fileSize = _payoutsFd.size();
     if (fileSize > 0) {
@@ -410,14 +411,13 @@ void AccountingDb::makePayout()
     {
       std::map<std::string, int64_t> payoutAccMap;
       for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
-        if (I->payoutValue < _cfg.MinimalAllowedPayout ||
-            (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->Login.c_str())) ) {
+        if (I->payoutValue < _cfg.MinimalAllowedPayout) {
           payoutAccMap[I->Login] += I->payoutValue;
           LOG_F(INFO,
                 "Accounting: merge payout %s for %s (total already %s)",
-                FormatMoney(I->payoutValue, COIN).c_str(),
+                FormatMoney(I->payoutValue, CoinInfo_.RationalPartSize).c_str(),
                 I->Login.c_str(),
-                FormatMoney(payoutAccMap[I->Login], COIN).c_str());
+                FormatMoney(payoutAccMap[I->Login], CoinInfo_.RationalPartSize).c_str());
           _payoutQueue.erase(I++);        
         } else {
           ++I;
@@ -436,8 +436,8 @@ void AccountingDb::makePayout()
               "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
               index,
               I->Login.c_str(),
-              FormatMoney(I->payoutValue, COIN).c_str(),
-              FormatMoney(_cfg.MinimalAllowedPayout, COIN).c_str());
+              FormatMoney(I->payoutValue, CoinInfo_.RationalPartSize).c_str(),
+              FormatMoney(_cfg.MinimalAllowedPayout, CoinInfo_.RationalPartSize).c_str());
         ++I;
         continue;
       }
@@ -446,26 +446,25 @@ void AccountingDb::makePayout()
         LOG_F(WARNING, "[%u] Accounting: no money left to pay", index);
         break;
       }
-      
-      // Check address is valid
-      if (_cfg.checkAddressProc && !_cfg.checkAddressProc(I->Login.c_str())) {
-        LOG_F(WARNING, "invalid payment address %s", I->Login.c_str());
-        ++I;
-        continue;
-      }
 
       // Get address for payment
       UserSettingsRecord settings;
-      bool hasSettings = UserManager_.getUserCoinSettings(I->Login, _cfg.CoinName, settings);
-      if (!hasSettings) {
-        LOG_F(WARNING, "user %s did not setup payout address, ignoging", I->Login.c_str());
+      bool hasSettings = UserManager_.getUserCoinSettings(I->Login, CoinInfo_.Name, settings);
+      if (!hasSettings || settings.Address.empty()) {
+        LOG_F(WARNING, "user %s did not setup payout address, ignoring", I->Login.c_str());
         ++I;
         continue;
       }
 
-      auto result = ioSendMoney(_client, I->Login, I->payoutValue);
+      if (!CoinInfo_.checkAddress(settings.Address, CoinInfo_.PayoutAddressType)) {
+        LOG_F(ERROR, "Invalid payment address %s for %s", settings.Address.c_str(), I->Login.c_str());
+        ++I;
+        continue;
+      }
+
+      auto result = ioSendMoney(_client, settings.Address, I->payoutValue);
       if (!result) {
-        LOG_F(ERROR, "sendMoney failed for %s", I->Login.c_str());
+        LOG_F(ERROR, "sendMoney failed for %s (%s)", I->Login.c_str(), settings.Address.c_str());
         ++I;
         continue;
       }
@@ -473,19 +472,21 @@ void AccountingDb::makePayout()
       remaining = result->remaining;
       if (result->success) {
         LOG_F(INFO,
-              "Accounting: [%u] %s coins sent to %s with txid %s",
+              "Accounting: [%u] %s coins sent to %s (%s) with txid %s",
               index,
-              FormatMoney(I->payoutValue, COIN).c_str(),
+              FormatMoney(I->payoutValue, CoinInfo_.RationalPartSize).c_str(),
               I->Login.c_str(),
+              settings.Address.c_str(),
               result->txid.c_str());
         payoutSuccess(I->Login, I->payoutValue, result->fee, result->txid.c_str());
         _payoutQueue.erase(I++);
       } else {
         LOG_F(ERROR,
-              "Accounting: [%u] SendMoneyToDestination FAILED: %s coins to %s because: %s",
+              "Accounting: [%u] SendMoneyToDestination FAILED: %s (%s) coins to %s because: %s",
               index,
-              FormatMoney(I->payoutValue, COIN).c_str(),
+              FormatMoney(I->payoutValue, CoinInfo_.RationalPartSize).c_str(),
               I->Login.c_str(),
+              settings.Address.c_str(),
               result->error.c_str());
         ++I;
         
@@ -634,13 +635,13 @@ void AccountingDb::checkBalance()
   
   LOG_F(INFO,
         "accounting: balance=%s req/balance=%s req/queue=%s immature=%s users=%s queued=%s, net=%s",
-        FormatMoney(balance, COIN).c_str(),
-        FormatMoney(requestedInBalance, COIN).c_str(),
-        FormatMoney(requestedInQueue, COIN).c_str(),
-        FormatMoney(immature, COIN).c_str(),
-        FormatMoney(userBalance, COIN).c_str(),
-        FormatMoney(queued, COIN).c_str(),
-        FormatMoney(net, COIN).c_str());
+        FormatMoney(balance, CoinInfo_.RationalPartSize).c_str(),
+        FormatMoney(requestedInBalance, CoinInfo_.RationalPartSize).c_str(),
+        FormatMoney(requestedInQueue, CoinInfo_.RationalPartSize).c_str(),
+        FormatMoney(immature, CoinInfo_.RationalPartSize).c_str(),
+        FormatMoney(userBalance, CoinInfo_.RationalPartSize).c_str(),
+        FormatMoney(queued, CoinInfo_.RationalPartSize).c_str(),
+        FormatMoney(net, CoinInfo_.RationalPartSize).c_str());
  
 
 }
@@ -655,7 +656,7 @@ void AccountingDb::requestPayout(const std::string &address, int64_t value, bool
   balance.Balance += value;
 
   UserSettingsRecord settings;
-  bool hasSettings = UserManager_.getUserCoinSettings(balance.Login, _cfg.CoinName, settings);
+  bool hasSettings = UserManager_.getUserCoinSettings(balance.Login, CoinInfo_.Name, settings);
   if (force || (hasSettings && balance.Balance >= settings.MinimalPayout)) {
     _payoutQueue.push_back(payoutElement(address, balance.Balance, 0));
     balance.Requested += balance.Balance;
@@ -705,7 +706,7 @@ void AccountingDb::queryClientBalance(p2pPeer *peer, uint32_t id, const std::str
     UserManager::UserInfo info;
     UserSettingsRecord settings;
     bool hasInfo = UserManager_.getUserInfo(B.Login, info);
-    bool hasSettings = UserManager_.getUserCoinSettings(B.Login, _cfg.CoinName, settings);
+    bool hasSettings = UserManager_.getUserCoinSettings(B.Login, CoinInfo_.Name, settings);
     if (hasInfo && hasSettings)
       offset = CreateClientInfo(fbb, B.Balance, B.Requested, B.Paid, fbb.CreateString(info.Name), fbb.CreateString(info.EMail), settings.MinimalPayout);
     else

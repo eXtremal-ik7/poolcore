@@ -37,7 +37,7 @@ static void checkConsistency(AccountingDb *accounting)
 }
 
 
-PoolBackend::PoolBackend(PoolBackendConfig &&cfg, UserManager &userMgr) : _cfg(cfg), UserMgr_(userMgr)
+PoolBackend::PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr) : _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr)
 {
   _base = createAsyncBase(amOSDefault);
   _timeout = 8*1000000;
@@ -69,9 +69,9 @@ void PoolBackend::stop()
 
 void PoolBackend::backendMain()
 {
-  loguru::set_thread_name(_cfg.CoinName.c_str());
-  _accounting.reset(new AccountingDb(_cfg, UserMgr_));
-  _statistics.reset(new StatisticDb(_cfg));
+  loguru::set_thread_name(CoinInfo_.Name.c_str());
+  _accounting.reset(new AccountingDb(_cfg, CoinInfo_, UserMgr_));
+  _statistics.reset(new StatisticDb(_cfg, CoinInfo_));
 
   coroutineCall(coroutineNew(msgHandlerProc, this, 0x100000));
   coroutineCall(coroutineNew(checkConfirmationsProc, this, 0x100000));  
@@ -79,7 +79,7 @@ void PoolBackend::backendMain()
   coroutineCall(coroutineNew(updateStatisticProc, this, 0x100000));
   coroutineCall(coroutineNew(payoutProc, this, 0x100000)); 
   
-  LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s", _cfg.CoinName.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE");
+  LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE");
   if (!_cfg.PoolFee.empty()) {
     for (const auto &poolFeeEntry: _cfg.PoolFee)
       LOG_F(INFO, "  Pool fee of %.2f to %s", poolFeeEntry.Percentage, poolFeeEntry.Address.c_str());

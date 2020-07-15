@@ -41,13 +41,13 @@ std::string real_strprintf(const std::string &format, int dummy, ...)
     return str;
 }
 
-std::string FormatMoney(int64_t n, int64_t FractionalPartSize, bool fPlus)
+std::string FormatMoney(int64_t n, int64_t rationalPartSize, bool fPlus)
 {
     // Note: not using straight sprintf here because we do NOT want
     // localized number formatting.
     int64_t n_abs = (n > 0 ? n : -n);
-    int64_t quotient = n_abs/FractionalPartSize;
-    int64_t remainder = n_abs%FractionalPartSize;
+    int64_t quotient = n_abs/rationalPartSize;
+    int64_t remainder = n_abs%rationalPartSize;
     std::string str = strprintf("%" PRId64 ".%08" PRId64, quotient, remainder);
 
     // Right-trim excess zeros before the decimal point:
@@ -64,10 +64,10 @@ std::string FormatMoney(int64_t n, int64_t FractionalPartSize, bool fPlus)
     return str;
 }
 
-bool parseMoneyValue(const char *value, const int64_t FractionalPartSize, int64_t *out)
+bool parseMoneyValue(const char *value, const int64_t rationalPartSize, int64_t *out)
 {
   *out = 0;
-  int64_t fractionalMultiplier = FractionalPartSize;
+  int64_t fractionalMultiplier = rationalPartSize;
   int64_t rationalPart = 0;
   int64_t fractionalPart = 0;
   const char *p = value;
@@ -84,7 +84,7 @@ bool parseMoneyValue(const char *value, const int64_t FractionalPartSize, int64_
     } else if (s == '.') {
       break;
     } else if (s == '\0') {
-      *out = rationalPart * FractionalPartSize;
+      *out = rationalPart * rationalPartSize;
       return true;
     } else {
       return false;
@@ -108,6 +108,6 @@ bool parseMoneyValue(const char *value, const int64_t FractionalPartSize, int64_
     }
   }
 
-  *out = rationalPart*FractionalPartSize + fractionalPart*fractionalMultiplier;
+  *out = rationalPart*rationalPartSize + fractionalPart*fractionalMultiplier;
   return true;
 }

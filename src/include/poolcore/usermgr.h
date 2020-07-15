@@ -2,6 +2,7 @@
 
 #include "kvdb.h"
 #include "poolcore/backendData.h"
+#include "poolcore/poolCore.h"
 #include "poolcore/rocksdbBase.h"
 #include "poolcommon/uint256.h"
 #include "asyncio/asyncio.h"
@@ -12,6 +13,10 @@
 
 class UserManager {
 public:
+  struct BackendParameters {
+    int64_t DefaultMinimalPayout;
+  };
+
   struct Credentials {
     std::string Login;
     std::string Password;
@@ -116,9 +121,17 @@ public:
   };
 
 public:
-  UserManager(const std::filesystem::path &dbPath, std::vector<CoinInfo> &coinInfo, std::unordered_map<std::string, size_t> &coinIdxMap);
+  UserManager(const std::filesystem::path &dbPath);
   void start();
   void stop();
+
+  void configAddCoin(const CCoinInfo &info, int64_t defaultMinimalPayout) {
+    BackendParameters backendParameters;
+    backendParameters.DefaultMinimalPayout = defaultMinimalPayout;
+    CoinInfo_.push_back(info);
+    BackendParameters_.push_back(backendParameters);
+    CoinIdxMap_[info.Name] = CoinInfo_.size() - 1;
+  }
 
   void setBaseCfg(const std::string &poolName,
                   const std::string &poolHostAddress,
@@ -143,7 +156,7 @@ public:
     SMTP.Enabled = true;
   }
 
-  std::vector<CoinInfo> &coinInfo() { return CoinInfo_; }
+  std::vector<CCoinInfo> &coinInfo() { return CoinInfo_; }
   std::unordered_map<std::string, size_t> &coinIdxMap() { return CoinIdxMap_; }
 
   // Asynchronous api
@@ -221,8 +234,9 @@ private:
   std::map<std::string, uint512> LoginActionMap_;
 
   // Configuration
-  std::vector<CoinInfo> &CoinInfo_;
-  std::unordered_map<std::string, size_t> &CoinIdxMap_;
+  std::vector<CCoinInfo> CoinInfo_;
+  std::vector<BackendParameters> BackendParameters_;
+  std::unordered_map<std::string, size_t> CoinIdxMap_;
 
   struct {
     std::string PoolName;

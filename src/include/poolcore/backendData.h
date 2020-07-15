@@ -18,15 +18,9 @@ struct PoolFeeEntry {
   float Percentage;
 };
 
-struct CoinInfo {
-  std::string Name;
-  int64_t DefaultPayoutThreshold;
-};
-
 struct PoolBackendConfig {
   bool isMaster;
   std::filesystem::path dbPath;
-  std::string CoinName;
   std::vector<PoolFeeEntry> PoolFee;
   unsigned RequiredConfirmations;
   int64_t DefaultPayoutThreshold;
@@ -42,9 +36,6 @@ struct PoolBackendConfig {
   // ZEC specify
   std::string poolTAddr;
   std::string poolZAddr;
-
-  // Temporary
-  CheckAddressProcTy *checkAddressProc = nullptr;
 };
 
 struct roundElement {

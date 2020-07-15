@@ -3,10 +3,10 @@
 #include "p2p/p2p.h"
 #include <algorithm>
 
-StatisticDb::StatisticDb(const PoolBackendConfig &config) : _cfg(config),
+StatisticDb::StatisticDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo) : _cfg(config), CoinInfo_(coinInfo),
   _poolStats("pool", 0),
-  _workerStatsDb(_cfg.dbPath / _cfg.CoinName / "workerStats"),
-  _poolStatsDb(_cfg.dbPath / _cfg.CoinName / "poolstats")
+  _workerStatsDb(_cfg.dbPath / coinInfo.Name / "workerStats"),
+  _poolStatsDb(_cfg.dbPath / coinInfo.Name / "poolstats")
 {
 }
 

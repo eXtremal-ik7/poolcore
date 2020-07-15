@@ -28,6 +28,7 @@ private:
 
 private:
   const PoolBackendConfig &_cfg;
+  CCoinInfo CoinInfo_;
   UserManager &UserManager_;
   p2pNode *_client;
   
@@ -47,7 +48,7 @@ private:
   
   
 public:
-  AccountingDb(const PoolBackendConfig &config, UserManager &userMgr);
+  AccountingDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr);
 
   void updatePayoutFile();
   void cleanupRounds();

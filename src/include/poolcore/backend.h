@@ -21,6 +21,7 @@ private:
   std::thread _thread;
   
   PoolBackendConfig _cfg;
+  CCoinInfo CoinInfo_;
   UserManager &UserMgr_;
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
@@ -45,7 +46,7 @@ private:
 public:
   PoolBackend(const PoolBackend&) = delete;
   PoolBackend(PoolBackend&&) = default;
-  PoolBackend(PoolBackendConfig &&cfg, UserManager &userMgr);
+  PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr);
   const PoolBackendConfig &getConfig() { return _cfg; }
 
   void start();

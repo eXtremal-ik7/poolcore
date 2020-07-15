@@ -4,6 +4,7 @@
 #include "poolcommon/pool_generated.h"
 #include "kvdb.h"
 #include "backendData.h"
+#include "poolcore/poolCore.h"
 #include "poolcore/rocksdbBase.h"
 #include <map>
 
@@ -13,6 +14,7 @@ class p2pPeer;
 class StatisticDb {
 private:
   const PoolBackendConfig &_cfg;
+  CCoinInfo CoinInfo_;
   
   std::map<std::string, ClientStatsRecord> _statsMap;
   SiteStatsRecord _poolStats;
@@ -21,7 +23,7 @@ private:
   kvdb<rocksdbBase> _poolStatsDb;
   
 public:
-  StatisticDb(const PoolBackendConfig &config);
+  StatisticDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo);
   
   void addStats(const Stats *stats);
   void update();
