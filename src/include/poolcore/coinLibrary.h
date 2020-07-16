@@ -14,12 +14,21 @@ public:
       info.SegwitEnabled = true;
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 8332;
     } else if (strcmp(coinName, "XPM") == 0) {
       info.Name = "XPM";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
       info.PubkeyAddressPrefix = {23};
+      info.DefaultRpcPort = 9912;
+    } else if (strcmp(coinName, "XPM.testnet") == 0) {
+      info.Name = "XPM.testnet";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PubkeyAddressPrefix = {111};
+      info.DefaultRpcPort = 9914;
     } else {
       info.Name.clear();
     }

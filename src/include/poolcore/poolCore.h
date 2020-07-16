@@ -19,6 +19,8 @@ struct CCoinInfo {
   std::vector<uint8_t> PubkeyAddressPrefix;
   std::vector<uint8_t> ScriptAddressPrefix;
 
+  uint16_t DefaultRpcPort;
+
   bool checkAddress(const std::string &address, EAddressType type);
 };
 
@@ -26,7 +28,9 @@ class CNetworkClient {
 public:
   ~CNetworkClient() {}
 
-  virtual bool getBalance(int64_t *balance);
-  virtual bool getBlockTemplate(std::string &result);
-  virtual bool sendMoney(const char *address, int64_t value, std::string &txid);
+  virtual bool ioGetBalance(int64_t *balance) = 0;
+  virtual bool ioGetBlockTemplate(std::string &result) = 0;
+  virtual bool ioSendMoney(const char *address, int64_t value, std::string &txid) = 0;
+
+  virtual bool poll() = 0;
 };

@@ -57,11 +57,13 @@ find_package(TBB REQUIRED tbb)
 hunter_add_package(OpenSSL)
 hunter_add_package(rocksdb)
 hunter_add_package(flatbuffers)
+hunter_add_package(RapidJSON)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectLibp2p.cmake)
 
 find_package(OpenSSL REQUIRED)
 find_package(RocksDB CONFIG REQUIRED)
 find_package(Flatbuffers CONFIG REQUIRED)
+find_package(RapidJSON CONFIG REQUIRED)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
   add_definitions(-fPIC)

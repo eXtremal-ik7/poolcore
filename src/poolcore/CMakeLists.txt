@@ -4,6 +4,7 @@ add_library(poolcore STATIC
   api.cpp
   backendData.cpp
   bitcoinRpcClient.cpp
+  clientDispatcher.cpp
   kvdb.cpp
   rocksdbBase.cpp
   backend.cpp
@@ -11,6 +12,7 @@ add_library(poolcore STATIC
   statistics.cpp
   usermgr.cpp
   poolCore.cpp
+  thread.cpp
 )
 
-target_link_libraries(poolcore poolcommon RocksDB::rocksdb ${TBB_IMPORTED_TARGETS} OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(poolcore poolcommon RocksDB::rocksdb ${TBB_IMPORTED_TARGETS} OpenSSL::SSL OpenSSL::Crypto RapidJSON::rapidjson)
