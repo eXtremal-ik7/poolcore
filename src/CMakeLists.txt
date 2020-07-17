@@ -59,6 +59,7 @@ hunter_add_package(rocksdb)
 hunter_add_package(flatbuffers)
 hunter_add_package(RapidJSON)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectLibp2p.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectMPIR.cmake)
 
 find_package(OpenSSL REQUIRED)
 find_package(RocksDB CONFIG REQUIRED)
@@ -75,9 +76,10 @@ endif()
 
 include_directories(
   poolcommon
+  ${MPIR_INCLUDE_DIR}
+  ${OPENSSL_INCLUDE_DIR}
   ${libp2p_SOURCE_DIR}/src/include
   ${libp2p_BINARY_DIR}/include
-  ${OPENSSL_INCLUDE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_BINARY_DIR}
 )
@@ -85,6 +87,8 @@ include_directories(
 # Logging library
 add_library(loguru STATIC ${CMAKE_CURRENT_SOURCE_DIR}/loguru/loguru.cpp)
 
+add_subdirectory(blockmaker)
 add_subdirectory(poolcommon)
 add_subdirectory(poolcore)
+add_subdirectory(poolinstances)
 add_subdirectory(poolrpccmd)

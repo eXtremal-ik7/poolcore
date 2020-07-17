@@ -1,18 +1,19 @@
 # Backend library
 add_library(poolcore STATIC
-  base58.cpp
+  accounting.cpp
   api.cpp
+  backend.cpp
   backendData.cpp
+  base58.cpp
   bitcoinRpcClient.cpp
   clientDispatcher.cpp
   kvdb.cpp
-  rocksdbBase.cpp
-  backend.cpp
-  accounting.cpp
-  statistics.cpp
-  usermgr.cpp
   poolCore.cpp
+  poolInstance.cpp
+  rocksdbBase.cpp
+  statistics.cpp
   thread.cpp
+  usermgr.cpp
 )
 
-target_link_libraries(poolcore poolcommon RocksDB::rocksdb ${TBB_IMPORTED_TARGETS} OpenSSL::SSL OpenSSL::Crypto RapidJSON::rapidjson)
+target_link_libraries(poolcore poolcommon blockmaker RocksDB::rocksdb ${TBB_IMPORTED_TARGETS} OpenSSL::SSL OpenSSL::Crypto RapidJSON::rapidjson)

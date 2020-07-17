@@ -1,0 +1,48 @@
+diff --git a/msvc/vs19/lib_mpir_cxx/lib_mpir_cxx.vcxproj b/msvc/vs19/lib_mpir_cxx/lib_mpir_cxx.vcxproj
+index 1d3845d..3135b7d 100644
+--- a/msvc/vs19/lib_mpir_cxx/lib_mpir_cxx.vcxproj
++++ b/msvc/vs19/lib_mpir_cxx/lib_mpir_cxx.vcxproj
+@@ -96,6 +96,7 @@ postbuild "$(TargetPath)" 19
+     <ClCompile>
+       <AdditionalIncludeDirectories>..\..\..\</AdditionalIncludeDirectories>
+       <PreprocessorDefinitions>NDEBUG;WIN32;_LIB;HAVE_CONFIG_H;_WIN64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
++      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+     </ClCompile>
+     <PostBuildEvent>
+       <Command>cd ..\..\
+@@ -141,7 +142,7 @@ postbuild "$(TargetPath)" 19
+   <ItemGroup>
+   </ItemGroup>
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+-<ItemGroup>
++  <ItemGroup>
+     <None Include="..\..\..\gmp-h.in" />
+-    </ItemGroup>
+-</Project>
++  </ItemGroup>
++</Project>
+\ No newline at end of file
+diff --git a/msvc/vs19/lib_mpir_gc/lib_mpir_gc.vcxproj b/msvc/vs19/lib_mpir_gc/lib_mpir_gc.vcxproj
+index cc53296..8fc08a9 100644
+--- a/msvc/vs19/lib_mpir_gc/lib_mpir_gc.vcxproj
++++ b/msvc/vs19/lib_mpir_gc/lib_mpir_gc.vcxproj
+@@ -111,6 +111,7 @@ prebuild gc x64 19
+     <ClCompile>
+       <AdditionalIncludeDirectories>..\..\..\</AdditionalIncludeDirectories>
+       <PreprocessorDefinitions>NDEBUG;WIN32;_LIB;HAVE_CONFIG_H;_WIN64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
++      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+     </ClCompile>
+     <PostBuildEvent>
+       <Command>cd ..\..\
+@@ -667,7 +668,7 @@ postbuild "$(TargetPath)" 19
+   <ItemGroup>
+   </ItemGroup>
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+-<ItemGroup>
++  <ItemGroup>
+     <None Include="..\..\..\gmp-h.in" />
+-    </ItemGroup>
+-</Project>
++  </ItemGroup>
++</Project>
+\ No newline at end of file

@@ -1,7 +1,11 @@
 #pragma once
 
+#include <tbb/concurrent_queue.h>
 #include <string>
+#include <thread>
 #include <vector>
+#include "rapidjson/document.h"
+
 
 struct CCoinInfo {
   enum EAddressType {
@@ -34,3 +38,4 @@ public:
 
   virtual bool poll() = 0;
 };
+
