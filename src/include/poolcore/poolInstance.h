@@ -7,6 +7,8 @@
 #include <atomic>
 #include <thread>
 
+class CPoolThread;
+
 class CWorkInstance {
 private:
   mutable std::atomic<uintptr_t> Refs_ = 0;
@@ -18,7 +20,7 @@ public:
 
 class CPoolInstance {
 public:
-  CPoolInstance(asyncBase *base) : CommonBase_(base) {}
+  CPoolInstance(unsigned workersNum, CPoolThread *workers) : WorkersNum_(workersNum), Workers_(workers) {}
 
   // Functions running in listener thread
   /// Send all miners stopping work signal
@@ -33,14 +35,14 @@ public:
   virtual void acceptNewWork(unsigned workerId, intrusive_ptr<CWorkInstance> work) = 0;
 
 protected:
-  // All pool instances shares this base
-  asyncBase *CommonBase_;
+  unsigned WorkersNum_;
+  CPoolThread *Workers_;
 };
 
 class CPoolThread {
 public:
-  CPoolThread(unsigned id);
-  void start();
+  CPoolThread();
+  void start(unsigned id);
   void stop();
 
   void newConnection(CPoolInstance &instance, aioObject *socket) { startAsyncTask(new AcceptConnectionTask(instance, Id_, socket)); }

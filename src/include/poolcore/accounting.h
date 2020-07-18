@@ -50,6 +50,7 @@ private:
   };
 
 private:
+  asyncBase *Base_;
   const PoolBackendConfig &_cfg;
   CCoinInfo CoinInfo_;
   UserManager &UserManager_;
@@ -71,7 +72,7 @@ private:
   
   
 public:
-  AccountingDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher);
+  AccountingDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher);
 
   void updatePayoutFile();
   void cleanupRounds();

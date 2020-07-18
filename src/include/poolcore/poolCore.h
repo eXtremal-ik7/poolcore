@@ -7,6 +7,7 @@
 #include "rapidjson/document.h"
 
 class CNetworkClientDispatcher;
+struct asyncBase;
 
 struct CCoinInfo {
   enum EAddressType {
@@ -61,8 +62,8 @@ public:
 public:
   ~CNetworkClient() {}
 
-  virtual bool ioGetBalance(GetBalanceResult &result) = 0;
-  virtual bool ioSendMoney(const char *address, int64_t value, SendMoneyResult &result) = 0;
+  virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
+  virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, SendMoneyResult &result) = 0;
 
   virtual void poll() = 0;
 

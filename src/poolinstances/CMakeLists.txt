@@ -6,4 +6,5 @@ add_library(poolinstances STATIC
   xpm.cpp
 )
 
-target_link_libraries(poolinstances ${TBB_IMPORTED_TARGETS})
+target_link_libraries(poolinstances ${TBB_IMPORTED_TARGETS} ${MPIR_LIBRARIES})
+add_dependencies(poolinstances mpir)

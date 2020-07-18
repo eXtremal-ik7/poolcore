@@ -1,4 +1,5 @@
 #include "poolcore/backend.h"
+#include "poolcore/thread.h"
 #include "asyncio/coroutine.h"
 #include "p2putils/xmstream.h"
 #include "loguru.hpp"
@@ -57,8 +58,9 @@ void PoolBackend::stop()
 
 void PoolBackend::backendMain()
 {
+  InitializeWorkerThread();
   loguru::set_thread_name(CoinInfo_.Name.c_str());
-  _accounting.reset(new AccountingDb(_cfg, CoinInfo_, UserMgr_, ClientDispatcher_));
+  _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_));
   _statistics.reset(new StatisticDb(_cfg, CoinInfo_));
 
   coroutineCall(coroutineNew([](void *arg){ static_cast<PoolBackend*>(arg)->taskHandler(); }, this, 0x100000));
@@ -67,7 +69,7 @@ void PoolBackend::backendMain()
   coroutineCall(coroutineNew(updateStatisticProc, this, 0x100000));
   coroutineCall(coroutineNew(payoutProc, this, 0x100000)); 
   
-  LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE");
+  LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetWorkerThreadId());
   if (!_cfg.PoolFee.empty()) {
     for (const auto &poolFeeEntry: _cfg.PoolFee)
       LOG_F(INFO, "  Pool fee of %.2f to %s", poolFeeEntry.Percentage, poolFeeEntry.Address.c_str());

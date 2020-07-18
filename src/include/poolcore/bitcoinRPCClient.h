@@ -3,7 +3,6 @@
 #include "poolcore/poolCore.h"
 #include "asyncio/asyncio.h"
 #include "asyncio/http.h"
-#include <tbb/concurrent_queue.h>
 #include <chrono>
 #include <vector>
 #include "loguru.hpp"
@@ -12,10 +11,10 @@ struct HTTPClient;
 
 class CBitcoinRpcClient : public CNetworkClient {
 public:
-  CBitcoinRpcClient(asyncBase *base, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password);
+  CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password);
 
-  virtual bool ioGetBalance(GetBalanceResult &result) override;
-  virtual bool ioSendMoney(const char *address, int64_t value, CNetworkClient::SendMoneyResult &result) override;
+  virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
+  virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result) override;
 
   virtual void poll() override;
 
@@ -43,6 +42,10 @@ private:
       if (Client)
         httpClientDelete(Client);
     }
+  };
+
+  struct ThreadContext {
+    std::vector<Connection*> Pool;
   };
 
 private:
@@ -96,10 +99,11 @@ private:
   void onWorkFetchTimeout();
   void onClientRequestTimeout();
 
-  std::unique_ptr<CBitcoinRpcClient::Connection> ioExtractOrCreateConnection();
+  std::unique_ptr<Connection> ioExtractOrCreateConnection(asyncBase *base, ThreadContext &context);
 
 private:
-  asyncBase *Base_;
+  asyncBase *WorkFetcherBase_;
+  unsigned ThreadsNum_;
   CCoinInfo CoinInfo_;
 
   HostAddress Address_;
@@ -107,7 +111,8 @@ private:
   std::string BasicAuth_;
 
   GBTInstance WorkFetcher_;
-  tbb::concurrent_queue<Connection*> ConnectionPool_;
+  std::unique_ptr<ThreadContext[]> ThreadData_;
+
 
   bool HasGetWalletInfo_;
 

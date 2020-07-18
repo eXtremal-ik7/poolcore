@@ -16,7 +16,7 @@ public:
   };
 
 public:
-  BtcStratumInstance(asyncBase *base, rapidjson::Value &config, EPowAlgorithm algo) : CPoolInstance(base) {}
+  BtcStratumInstance(unsigned workersNum, CPoolThread *workers, const std::string &name, rapidjson::Value &config, EPowAlgorithm algo) : CPoolInstance(workersNum, workers) {}
 
   virtual void stopWork() override;
   virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate) override;

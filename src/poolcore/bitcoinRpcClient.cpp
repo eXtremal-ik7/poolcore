@@ -2,6 +2,7 @@
 
 #include "poolcommon/utils.h"
 #include "poolcore/clientDispatcher.h"
+#include "poolcore/thread.h"
 #include "asyncio/asyncio.h"
 #include "asyncio/base64.h"
 #include "asyncio/http.h"
@@ -127,13 +128,14 @@ std::string CBitcoinRpcClient::buildGetTransaction(const std::string &txId)
   result.append("]}");
 }
 
-CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password) :
-  Base_(base), CoinInfo_(coinInfo)
+CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password) :
+  WorkFetcherBase_(base), ThreadsNum_(threadsNum), CoinInfo_(coinInfo)
 {
   WorkFetcher_.Client = nullptr;
   WorkFetcher_.TimerEvent = newUserEvent(base, 0, [](aioUserEvent*, void *arg) {
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetchTimeout();
   }, this);
+  ThreadData_.reset(new ThreadContext[threadsNum]);
 
   URI uri;
   std::string uriAddress = (std::string)"http://" + address;
@@ -187,9 +189,10 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, const CCoinInfo &coinInfo,
   GetWalletInfoQuery_ = buildPostQuery(gGetWalletInfoQuery, HostName_, BasicAuth_);
 }
 
-bool CBitcoinRpcClient::ioGetBalance(CNetworkClient::GetBalanceResult &result)
+bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result)
 {
-  auto connection = ioExtractOrCreateConnection();
+  auto &threadCtx = ThreadData_[GetWorkerThreadId()];
+  auto connection = ioExtractOrCreateConnection(base, threadCtx);
   if (!connection->Client)
     return false;
 
@@ -206,7 +209,7 @@ bool CBitcoinRpcClient::ioGetBalance(CNetworkClient::GetBalanceResult &result)
       if (errorAcc &&
           parseMoneyValue(balance.c_str(), CoinInfo_.RationalPartSize, &result.Balance) &&
           parseMoneyValue(immatureBalance.c_str(), CoinInfo_.RationalPartSize, &result.Immatured)) {
-        ConnectionPool_.push(connection.release());
+        threadCtx.Pool.push_back(connection.release());
         return true;
       } else {
         LOG_F(WARNING, "%s %s:%u: getwalletinfo invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
@@ -214,7 +217,7 @@ bool CBitcoinRpcClient::ioGetBalance(CNetworkClient::GetBalanceResult &result)
       }
     } else if (connection->ParseCtx.resultCode == 404) {
       LOG_F(WARNING, "%s %s:%u: doesn't support getwalletinfo api; recommended update your node", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
-      connection = ioExtractOrCreateConnection();
+      connection = ioExtractOrCreateConnection(base, threadCtx);
       HasGetWalletInfo_ = false;
     } else {
       return false;
@@ -236,7 +239,7 @@ bool CBitcoinRpcClient::ioGetBalance(CNetworkClient::GetBalanceResult &result)
           parseMoneyValue(balanceS.c_str(), CoinInfo_.RationalPartSize, &result.Balance) &&
           parseMoneyValue(balanceFullS.c_str(), CoinInfo_.RationalPartSize, &balanceFull)) {
         result.Immatured = balanceFull - result.Balance;
-        ConnectionPool_.push(connection.release());
+        threadCtx.Pool.push_back(connection.release());
         return true;
       } else {
         LOG_F(WARNING, "%s %s:%u: getbalance invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
@@ -248,9 +251,10 @@ bool CBitcoinRpcClient::ioGetBalance(CNetworkClient::GetBalanceResult &result)
   return false;
 }
 
-bool CBitcoinRpcClient::ioSendMoney(const char *address, int64_t value, CNetworkClient::SendMoneyResult &result)
+bool CBitcoinRpcClient::ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result)
 {
-  auto connection = ioExtractOrCreateConnection();
+  auto &threadCtx = ThreadData_[GetWorkerThreadId()];
+  auto connection = ioExtractOrCreateConnection(base, threadCtx);
   if (!connection->Client)
     return false;
 
@@ -293,15 +297,15 @@ bool CBitcoinRpcClient::ioSendMoney(const char *address, int64_t value, CNetwork
     }
   }
 
-  ConnectionPool_.push(connection.release());
+  threadCtx.Pool.push_back(connection.release());
   return true;
 }
 
 void CBitcoinRpcClient::poll()
 {
   socketTy S = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
-  aioObject *object = newSocketIo(Base_, S);
-  WorkFetcher_.Client = httpClientNew(Base_, object);
+  aioObject *object = newSocketIo(WorkFetcherBase_, S);
+  WorkFetcher_.Client = httpClientNew(WorkFetcherBase_, object);
   WorkFetcher_.LongPollId = "0000000000000000000000000000000000000000000000000000000000000000";
   WorkFetcher_.PreviousBlock.clear();
   WorkFetcher_.LastTemplateTime = std::chrono::time_point<std::chrono::steady_clock>::min();
@@ -429,10 +433,13 @@ void CBitcoinRpcClient::onClientRequestTimeout()
 
 }
 
-std::unique_ptr<CBitcoinRpcClient::Connection> CBitcoinRpcClient::ioExtractOrCreateConnection()
+std::unique_ptr<CBitcoinRpcClient::Connection> CBitcoinRpcClient::ioExtractOrCreateConnection(asyncBase *base, ThreadContext &context)
 {
   Connection *connection;
-  if (ConnectionPool_.try_pop(connection)) {
+  if (!context.Pool.empty()) {
+    connection = context.Pool.back();
+    context.Pool.pop_back();
+
     // Check connection status
     char data;
     if (recv(connection->Socket, &data, 1, MSG_PEEK) == 0) {
@@ -445,7 +452,7 @@ std::unique_ptr<CBitcoinRpcClient::Connection> CBitcoinRpcClient::ioExtractOrCre
 
   if (!connection->Client) {
     connection->Socket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
-    connection->Client = httpClientNew(Base_, newSocketIo(Base_, connection->Socket));
+    connection->Client = httpClientNew(base, newSocketIo(WorkFetcherBase_, connection->Socket));
     if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) == 0) {
       httpParseDefaultInit(&connection->ParseCtx);
     } else {

@@ -9,7 +9,8 @@
 #define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
 
 
-AccountingDb::AccountingDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher) :
+AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher) :
+  Base_(base),
   _cfg(config),
   CoinInfo_(coinInfo),
   UserManager_(userMgr),
@@ -367,7 +368,7 @@ void AccountingDb::checkBlockConfirmations()
   for (auto &r: rounds)
     hashes.push_back(r->blockHash);
 
-  if (!ClientDispatcher_.ioGetBlockConfirmations(hashes, confirmations)) {
+  if (!ClientDispatcher_.ioGetBlockConfirmations(Base_, hashes, confirmations)) {
     LOG_F(ERROR, "ioGetBlockConfirmations api call failed");
     return;
   }
@@ -456,7 +457,7 @@ void AccountingDb::makePayout()
       }
 
       CNetworkClient::SendMoneyResult result;
-      if (!ClientDispatcher_.ioSendMoney(settings.Address.c_str(), I->payoutValue, result)) {
+      if (!ClientDispatcher_.ioSendMoney(Base_, settings.Address.c_str(), I->payoutValue, result)) {
         LOG_F(ERROR, "ioSendMoney api call failed for %s (%s)", I->Login.c_str(), settings.Address.c_str());
         ++I;
         continue;
@@ -499,7 +500,7 @@ void AccountingDb::makePayout()
     //    auto unspent = ioListUnspent(_client);
     //    if (unspent && !unspent->outs.empty()) {
     CNetworkClient::ListUnspentResult unspent;
-    if (ClientDispatcher_.ioListUnspent(unspent) && !unspent.Outs.empty()) {
+    if (ClientDispatcher_.ioListUnspent(Base_, unspent) && !unspent.Outs.empty()) {
 
       LOG_F(INFO, "Accounting: move %zu coinbase outs to Z-Addr", unspent.Outs.size());
       for (const auto &out: unspent.Outs) {
@@ -507,7 +508,7 @@ void AccountingDb::makePayout()
           continue;
 
         CNetworkClient::ZSendMoneyResult zsendResult;
-        if (!ClientDispatcher_.ioZSendMoney(out.Address, _cfg.poolZAddr, out.Amount, "", zsendResult) || zsendResult.AsyncOperationId.empty()) {
+        if (!ClientDispatcher_.ioZSendMoney(Base_, out.Address, _cfg.poolZAddr, out.Amount, "", zsendResult) || zsendResult.AsyncOperationId.empty()) {
           LOG_F(INFO,
                 "async operation start error %s: source=%s, destination=%s, amount=%li",
                 !zsendResult.Error.empty() ? zsendResult.Error.c_str() : "<unknown error>",
@@ -528,11 +529,11 @@ void AccountingDb::makePayout()
 
     // move Z-Addr to T-Addr
     int64_t zbalance;
-    if (ClientDispatcher_.ioZGetBalance(&zbalance) && zbalance > 0) {
+    if (ClientDispatcher_.ioZGetBalance(Base_, &zbalance) && zbalance > 0) {
 
       LOG_F(INFO, "<info> Accounting: move %.3lf coins to transparent address", zbalance/100000000.0);
       CNetworkClient::ZSendMoneyResult zsendResult;
-      if (ClientDispatcher_.ioZSendMoney(_cfg.poolZAddr, _cfg.poolTAddr, zbalance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE, "", zsendResult)) {
+      if (ClientDispatcher_.ioZSendMoney(Base_, _cfg.poolZAddr, _cfg.poolTAddr, zbalance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE, "", zsendResult)) {
         LOG_F(INFO,
               "moving %li coins from %s to %s started (%s)",
               (long)(zbalance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE),
@@ -576,14 +577,14 @@ void AccountingDb::checkBalance()
 
   int64_t zbalance = 0;
   if (!_cfg.poolZAddr.empty()) {
-    if (!ClientDispatcher_.ioZGetBalance(&zbalance)) {
+    if (!ClientDispatcher_.ioZGetBalance(Base_, &zbalance)) {
       LOG_F(ERROR, "can't get balance of Z-address %s", _cfg.poolZAddr.c_str());
       return;
     }
   }
 
   CNetworkClient::GetBalanceResult getBalanceResult;
-  if (!ClientDispatcher_.ioGetBalance(getBalanceResult)) {
+  if (!ClientDispatcher_.ioGetBalance(Base_, getBalanceResult)) {
     LOG_F(ERROR, "can't retrieve balance");
     return;
   }

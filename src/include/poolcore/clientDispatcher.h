@@ -18,14 +18,14 @@ public:
     client->setDispatcher(this);
   }
 
-  bool ioGetBalance(CNetworkClient::GetBalanceResult &result);
-  bool ioGetBlockConfirmations(const std::vector<std::string> &hashes, std::vector<int64_t> &result);
-  bool ioListUnspent(CNetworkClient::ListUnspentResult &result);
-  bool ioSendMoney(const char *address, int64_t value, CNetworkClient::SendMoneyResult &result);
+  bool ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result);
+  bool ioGetBlockConfirmations(asyncBase *base, const std::vector<std::string> &hashes, std::vector<int64_t> &result);
+  bool ioListUnspent(asyncBase *base, CNetworkClient::ListUnspentResult &result);
+  bool ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result);
 
   // ZEC specific
-  bool ioZGetBalance(int64_t *result);
-  bool ioZSendMoney(const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, CNetworkClient::ZSendMoneyResult &result);
+  bool ioZGetBalance(asyncBase *base, int64_t *result);
+  bool ioZSendMoney(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, CNetworkClient::ZSendMoneyResult &result);
 
   // Work polling
   void connectWith(CPoolInstance *instance) { LinkedInstances_.push_back(instance); }
