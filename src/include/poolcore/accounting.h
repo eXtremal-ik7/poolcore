@@ -3,18 +3,41 @@
 
 #include "backendData.h"
 #include "usermgr.h"
-#include "poolcommon/pool_generated.h"
 #include "poolcommon/file.h"
+#include "poolcore/clientDispatcher.h"
 #include "kvdb.h"
 #include "poolcore/rocksdbBase.h"
 #include <deque>
 #include <list>
 #include <map>
+#include <set>
 #include <string>
 
 class p2pNode;
 class p2pPeer;
 class StatisticDb;
+
+struct Share {
+  std::string userId;
+  int64_t height;
+  int64_t value;
+  bool isBlock;
+  std::string hash;
+  int64_t generatedCoins;
+};
+
+struct RoundElement {
+  std::string userId;
+  int64_t shareValue;
+};
+
+struct Round {
+  int64_t height;
+  std::string hash;
+  uint64_t time;
+  int64_t availableCoins;
+  std::vector<RoundElement> elements;
+};
 
 class AccountingDb {  
 private:
@@ -30,7 +53,7 @@ private:
   const PoolBackendConfig &_cfg;
   CCoinInfo CoinInfo_;
   UserManager &UserManager_;
-  p2pNode *_client;
+  CNetworkClientDispatcher &ClientDispatcher_;
   
   std::map<std::string, UserBalanceRecord> _balanceMap;
   std::map<std::string, int64_t> _currentScores;
@@ -48,7 +71,7 @@ private:
   
   
 public:
-  AccountingDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr);
+  AccountingDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher);
 
   void updatePayoutFile();
   void cleanupRounds();
@@ -67,19 +90,6 @@ public:
   kvdb<rocksdbBase> &getPoolBalanceDb() { return _poolBalanceDb; }
   kvdb<rocksdbBase> &getPayoutDb() { return _payoutDb; }
   kvdb<rocksdbBase> &getBalanceDb() { return _balanceDb; }
-  
-  void queryClientBalance(p2pPeer *peer, uint32_t id, const std::string &userId);
-  void updateClientInfo(p2pPeer *, uint32_t, const std::string &, const std::string &, const std::string &, int64_t);
-  
-  void manualPayout(p2pPeer *peer,
-                    uint32_t id,
-                    const std::string &userId);  
-  
-  void resendBrokenTx(p2pPeer *peer,
-                      uint32_t id,
-                      const std::string &userId);
-  
-  void moveBalance(p2pPeer *peer, uint32_t id, const std::string &userId, const std::string &to);
 };
 
 #endif //__ACCOUNTING_H_

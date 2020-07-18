@@ -5,3 +5,5 @@ add_library(poolinstances STATIC
   btc.cpp
   xpm.cpp
 )
+
+target_link_libraries(poolinstances ${TBB_IMPORTED_TARGETS})

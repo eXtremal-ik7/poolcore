@@ -1,4 +1,5 @@
 #include "poolcore/bitcoinRPCClient.h"
+#include "poolcore/clientDispatcher.h"
 #include "asyncio/asyncio.h"
 #include "asyncio/base64.h"
 #include "asyncio/http.h"
@@ -151,33 +152,22 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
 
 bool CBitcoinRpcClient::ioGetBalance(int64_t *balance)
 {
-
+  return false;
 }
 
 bool CBitcoinRpcClient::ioGetBlockTemplate(std::string &reslt)
 {
-
+  return false;
 }
 
 bool CBitcoinRpcClient::ioSendMoney(const char *address, int64_t value, std::string &txid)
 {
-
+  return false;
 }
 
-bool CBitcoinRpcClient::poll()
+void CBitcoinRpcClient::poll()
 {
-  HostAddress localAddress;
-  localAddress.family = AF_INET;
-  localAddress.ipv4 = INADDR_ANY;
-  localAddress.port = 0;
-
   socketTy S = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
-  if (socketBind(S, &localAddress) != 0) {
-    LOG_F(ERROR, "Can't bind socket to local address, wait for 10 seconds");
-    socketClose(S);
-    return false;
-  }
-
   aioObject *object = newSocketIo(Base_, S);
   WorkFetcher_.Client = httpClientNew(Base_, object);
   WorkFetcher_.LongPollId = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -194,6 +184,8 @@ void CBitcoinRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
 {
   if (status != aosSuccess) {
     // TODO: inform dispatcher
+    httpClientDelete(WorkFetcher_.Client);
+    Dispatcher_->onWorkFetcherConnectionError();
     return;
   }
 
@@ -207,7 +199,6 @@ void CBitcoinRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
 void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 {
   if (status != aosSuccess || WorkFetcher_.ParseCtx.resultCode != 200) {
-    // TODO: inform dispatcher
     LOG_F(WARNING, "%s %s:%u: request error code: %u (http result code: %u, data: %s)",
           CoinInfo_.Name.c_str(),
           HostName_.c_str(),
@@ -215,6 +206,8 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
           static_cast<unsigned>(status),
           WorkFetcher_.ParseCtx.resultCode,
           WorkFetcher_.ParseCtx.body.data ? WorkFetcher_.ParseCtx.body.data : "<null>");
+    httpClientDelete(WorkFetcher_.Client);
+    Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
@@ -222,13 +215,15 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   document.Parse(WorkFetcher_.ParseCtx.body.data);
   if (document.HasParseError()) {
     LOG_F(WARNING, "%s %s:%u: JSON parse error", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
-    // TODO: inform dispatcher
+    httpClientDelete(WorkFetcher_.Client);
+    Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
   if (!document["result"].IsObject()) {
     LOG_F(WARNING, "%s %s:%u: JSON invalid format: no result object", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
-    // TODO: inform dispatcher
+    httpClientDelete(WorkFetcher_.Client);
+    Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
@@ -237,12 +232,13 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   int64_t height;
   std::string prevBlockHash;
   bool validAcc = true;
-  const rapidjson::Value &resultObject = document["result"].GetObject();
+  rapidjson::Value &resultObject = document["result"];
   jsonParseString(resultObject, "previousblockhash", prevBlockHash, true, &validAcc);
   jsonParseInt(resultObject, "height", &height, &validAcc);
   if (!validAcc) {
     LOG_F(WARNING, "%s %s:%u: getblocktemplate invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
-    // TODO: inform dispatcher
+    httpClientDelete(WorkFetcher_.Client);
+    Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
@@ -260,13 +256,13 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     unsigned timeInterval = std::chrono::duration_cast<std::chrono::seconds>(now - WorkFetcher_.LastTemplateTime).count();
     if (timeInterval) {
       LOG_F(INFO, "%s: new work available; previous block: %s; height: %u", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height));
-      // TODO: inform dispatcher
+      Dispatcher_->onWorkFetcherNewWork(resultObject);
     }
   } else {
     // Without long polling we send new task to miner on new block found
     if (WorkFetcher_.PreviousBlock != prevBlockHash) {
       LOG_F(INFO, "%s: new work available; previous block: %s; height: %u", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height));
-      // TODO: inform dispatcher
+      Dispatcher_->onWorkFetcherNewWork(resultObject);
     }
   }
 

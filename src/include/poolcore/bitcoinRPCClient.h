@@ -16,7 +16,7 @@ public:
   virtual bool ioGetBlockTemplate(std::string &reslt) override;
   virtual bool ioSendMoney(const char *address, int64_t value, std::string &txid) override;
 
-  virtual bool poll() override;
+  virtual void poll() override;
 
 private:
   struct Instance {

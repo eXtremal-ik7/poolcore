@@ -12,7 +12,8 @@ class XpmZmqInstance : public CPoolInstance {
 public:
   XpmZmqInstance(asyncBase *base, rapidjson::Value &config) : CPoolInstance(base) {}
 
-  virtual void checkNewBlockTemplate(const rapidjson::Document &blockTemplate) override;
+  virtual void stopWork() override;
+  virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate) override;
   virtual void acceptNewConnection(unsigned workerId, aioObject *socket) override;
   virtual void acceptNewWork(unsigned workerId, intrusive_ptr<CWorkInstance> work) override
   ;

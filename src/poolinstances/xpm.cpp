@@ -1,6 +1,11 @@
 #include "poolinstances/xpm.h"
 
-void XpmZmqInstance::checkNewBlockTemplate(const rapidjson::Document &blockTemplate)
+void XpmZmqInstance::stopWork()
+{
+
+}
+
+void XpmZmqInstance::checkNewBlockTemplate(rapidjson::Value &blockTemplate)
 {
 
 }

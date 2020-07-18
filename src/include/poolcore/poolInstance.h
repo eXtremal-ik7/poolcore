@@ -18,13 +18,14 @@ public:
 
 class CPoolInstance {
 public:
-  CPoolInstance(asyncBase *base);
+  CPoolInstance(asyncBase *base) : CommonBase_(base) {}
 
   // Functions running in listener thread
-
+  /// Send all miners stopping work signal
+  virtual void stopWork() = 0;
   /// Function for interact with bitcoin RPC clients
   /// @arg blockTemplate: deserialized 'getblocktemplate' response
-  virtual void checkNewBlockTemplate(const rapidjson::Document &blockTemplate) = 0;
+  virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate) = 0;
 
 public:
   // Functions running in worker thread
@@ -34,7 +35,6 @@ public:
 protected:
   // All pool instances shares this base
   asyncBase *CommonBase_;
-  aioObject *ListenerSocket_;
 };
 
 class CPoolThread {

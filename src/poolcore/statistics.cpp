@@ -1,6 +1,5 @@
 #include "poolcore/statistics.h"
 #include "loguru.hpp"
-#include "p2p/p2p.h"
 #include <algorithm>
 
 StatisticDb::StatisticDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo) : _cfg(config), CoinInfo_(coinInfo),
@@ -12,20 +11,20 @@ StatisticDb::StatisticDb(const PoolBackendConfig &config, const CCoinInfo &coinI
 
 void StatisticDb::addStats(const Stats *stats)
 {
-  std::string key = stats->userId()->c_str();
+  std::string key = stats->userId;
     key.push_back('/');
-    key.append(stats->workerId()->c_str());
+    key.append(stats->workerId);
   
   ClientStatsRecord s;
-  s.Login = stats->userId()->c_str();
-  s.WorkerId = stats->workerId()->c_str();
+  s.Login = stats->userId;
+  s.WorkerId = stats->workerId;
   s.Time = time(0);
-  s.Power = stats->power();
-  s.Latency = stats->latency();
-  s.Address = stats->address()->c_str();
-  s.UnitType = stats->type();
-  s.Units = stats->units();
-  s.Temp = stats->temp();
+  s.Power = stats->power;
+  s.Latency = stats->latency;
+  s.Address = stats->address;
+  s.UnitType = stats->type;
+  s.Units = stats->units;
+  s.Temp = stats->temp;
   _statsMap[key] = s;
 }
 
@@ -35,7 +34,7 @@ void StatisticDb::update()
   uint64_t power = 0;
   unsigned lcount = 0;
   unsigned count = 0;
-  unsigned units[UnitType_OTHER+1];
+  unsigned units[EOTHER+1];
   time_t currentTime = time(0);
   time_t removeTimeLabel = currentTime - _cfg.KeepStatsTime;
   memset(units, 0, sizeof(units));
@@ -59,13 +58,13 @@ void StatisticDb::update()
         clientAggregate.Clients = 1;
         clientAggregate.Workers++;
         switch (stats.UnitType) {
-          case UnitType_CPU :
+          case ECPU :
             clientAggregate.CPUNum += stats.Units;
             break;
-          case UnitType_GPU :
+          case EGPU :
             clientAggregate.GPUNum += stats.Units;
             break;
-          case UnitType_ASIC :
+          case EASIC :
             clientAggregate.ASICNum += stats.Units;
             break;
           default :
@@ -82,7 +81,7 @@ void StatisticDb::update()
       }
       
 
-      units[std::min(stats.UnitType, static_cast<uint32_t>(UnitType_OTHER))] += stats.Units;
+      units[std::min(stats.UnitType, static_cast<uint32_t>(EOTHER))] += stats.Units;
       ++count;
       ++I;
       
@@ -101,10 +100,10 @@ void StatisticDb::update()
     _poolStats.Time = currentTime;
     _poolStats.Clients = uniqueClients.size();
     _poolStats.Workers = count;
-    _poolStats.CPUNum = units[UnitType_CPU];
-    _poolStats.GPUNum = units[UnitType_GPU];
-    _poolStats.ASICNum = units[UnitType_ASIC];
-    _poolStats.OtherNum = units[UnitType_OTHER];
+    _poolStats.CPUNum = units[ECPU];
+    _poolStats.GPUNum = units[EGPU];
+    _poolStats.ASICNum = units[EASIC];
+    _poolStats.OtherNum = units[EOTHER];
     _poolStats.Latency = lcount ? (double)avgLatency / lcount : -1;
     _poolStats.Power = power;
     _poolStatsDb.put(_poolStats);
@@ -137,77 +136,4 @@ uint64_t StatisticDb::getClientPower(const std::string &userId) const
 uint64_t StatisticDb::getPoolPower() const
 {
   return _poolStats.Power;
-}
-
-void StatisticDb::queryClientStats(p2pPeer *peer, uint32_t id, const std::string &userId)
-{
-  flatbuffers::FlatBufferBuilder fbb;  
-  uint64_t avgLatency = 0;
-  uint64_t power = 0;
-  unsigned lcount = 0;
-  unsigned units[UnitType_OTHER+1];
-  memset(units, 0, sizeof(units));  
-  
-  std::vector<flatbuffers::Offset<WorkerStatsRecord>> workers;
-  for (auto It = _statsMap.lower_bound(userId); It != _statsMap.end(); ++It) {
-    const ClientStatsRecord &stats = It->second;
-    if (stats.Login != userId)
-      break;
-    
-    power += stats.Power;
-    if (stats.Latency >= 0) {
-      avgLatency += stats.Latency;
-      lcount++;
-    }
-    
-    units[std::min(stats.UnitType, static_cast<uint32_t>(UnitType_OTHER))] += stats.Units;
-    
-    workers.push_back(CreateWorkerStatsRecord(fbb,
-                                              fbb.CreateString(stats.WorkerId),
-                                              0,
-                                              fbb.CreateString(stats.Address),
-                                              stats.Power,
-                                              stats.Latency,
-                                              (UnitType)stats.UnitType,
-                                              stats.Units,
-                                              stats.Temp));
-
-  }
-  
-  auto aggregate = CreateWorkerStatsAggregate(fbb, 0, 0,
-                                              workers.size(),
-                                              units[UnitType_CPU],
-                                              units[UnitType_GPU],
-                                              units[UnitType_ASIC],
-                                              units[UnitType_OTHER],
-                                              lcount ? (double)avgLatency / lcount : -1,
-                                              power);
-
-  auto workersOffset = fbb.CreateVector(workers);
-  
-  QueryResultBuilder qrb(fbb);  
-  qrb.add_workers(workersOffset);
-  qrb.add_aggregate(aggregate);
-  fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
-}
-
-void StatisticDb::queryPoolStats( p2pPeer *peer, uint32_t id)
-{
-  flatbuffers::FlatBufferBuilder fbb;  
-  
-  auto offset = CreateWorkerStatsAggregate(fbb, 0,
-    _poolStats.Clients,
-    _poolStats.Workers,
-    _poolStats.CPUNum,
-    _poolStats.GPUNum,
-    _poolStats.ASICNum,
-    _poolStats.OtherNum,
-    _poolStats.Latency,
-    _poolStats.Power);
-  
-  QueryResultBuilder qrb(fbb);    
-  qrb.add_aggregate(offset);
-  fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }

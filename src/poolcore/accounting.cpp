@@ -1,9 +1,4 @@
-#define __STDC_FORMAT_MACROS
-#include <inttypes.h>
-
 #include "poolcore/accounting.h"
-#include "p2p/p2p.h"
-#include "poolcommon/poolapi.h"
 #include "poolcommon/utils.h"
 #include "poolcore/base58.h"
 #include "poolcore/statistics.h"
@@ -14,10 +9,11 @@
 #define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
 
 
-AccountingDb::AccountingDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr) :
+AccountingDb::AccountingDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher) :
   _cfg(config),
   CoinInfo_(coinInfo),
   UserManager_(userMgr),
+  ClientDispatcher_(clientDispatcher),
   _roundsDb(config.dbPath / coinInfo.Name / "rounds"),
   _balanceDb(config.dbPath / coinInfo.Name / "balance"),
   _foundBlocksDb(config.dbPath / coinInfo.Name / "foundBlocks"),
@@ -181,30 +177,30 @@ void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
   // store share in shares.raw file
   {
     xmstream stream;
-    stream.write<uint32_t>(share->userId()->size());
-    stream.write(share->userId()->c_str(), share->userId()->size());
-    stream.write<int64_t>(share->value());
+    stream.write<uint32_t>(share->userId.size());
+    stream.write(share->userId.c_str(), share->userId.size());
+    stream.write<int64_t>(share->value);
     if (_sharesFd.write(stream.data(), stream.sizeOf() != stream.sizeOf()))
       LOG_F(ERROR, "can't save share to file (%s fd=%i), it can be lost", strerror(errno), _sharesFd);
   }
   
   // increment score
-  _currentScores[share->userId()->c_str()] += share->value();
+  _currentScores[share->userId.c_str()] += share->value;
   
   // create new round for block
-  if (share->isBlock()) {
+  if (share->isBlock) {
     {
       // save to database
       FoundBlockRecord blk;
-      blk.Height = share->height();
-      blk.Hash = share->hash()->c_str();
+      blk.Height = share->height;
+      blk.Hash = share->hash.c_str();
       blk.Time = time(0);
-      blk.AvailableCoins = share->generatedCoins();
-      blk.FoundBy = share->userId()->c_str();
+      blk.AvailableCoins = share->generatedCoins;
+      blk.FoundBy = share->userId.c_str();
       _foundBlocksDb.put(blk);
     }
     
-    int64_t generatedCoins = share->generatedCoins();
+    int64_t generatedCoins = share->generatedCoins;
     if (!_cfg.poolZAddr.empty()) {
       // calculate miners fee for Z-Addr moving
       generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE);
@@ -218,11 +214,11 @@ void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
     }
 
     int64_t available = generatedCoins - feeValuesSum;
-    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share->height(), share->hash()->c_str(), generatedCoins, feeValuesSum, available);
+    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share->height, share->hash.c_str(), generatedCoins, feeValuesSum, available);
 
     miningRound *R = new miningRound;
-    R->height = share->height();
-    R->blockHash = share->hash()->c_str();
+    R->height = share->height;
+    R->blockHash = share->hash.c_str();
     R->time = time(0);
     R->availableCoins = available;
     R->totalShareValue = 0;
@@ -365,31 +361,28 @@ void AccountingDb::checkBlockConfirmations()
   
   LOG_F(INFO, "Checking %u blocks for confirmations...", (unsigned)_roundsWithPayouts.size());
   std::vector<miningRound*> rounds(_roundsWithPayouts.begin(), _roundsWithPayouts.end());
+
+  std::vector<int64_t> confirmations;
   std::vector<std::string> hashes;
   for (auto &r: rounds)
     hashes.push_back(r->blockHash);
 
-  auto result = ioGetBlockByHash(_client, hashes);
-  if (!result)
-    return;
-  
-  if (hashes.size() != result->blocks.size()) {
-    LOG_F(ERROR, "response don't contains all requested blocks");
+  if (!ClientDispatcher_.ioGetBlockConfirmations(hashes, confirmations)) {
+    LOG_F(ERROR, "ioGetBlockConfirmations api call failed");
     return;
   }
-  
-  for (size_t i = 0; i < result->blocks.size(); i++) {
-    auto &block = result->blocks[i];
+
+  for (size_t i = 0; i < hashes.size(); i++) {
     miningRound *R = rounds[i];
     
-    if (block->confirmations == -1) {
-      LOG_F(INFO, "block %u/%s marked as orphan, can't do any payout", (unsigned)block->height, hashes[i].c_str());
+    if (confirmations[i] == -1) {
+      LOG_F(INFO, "block %u/%s marked as orphan, can't do any payout", R->height, hashes[i].c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I)
         I->queued = 0;
       _roundsWithPayouts.erase(R);
       _roundsDb.put(*R);
-    } else if (block->confirmations >= _cfg.RequiredConfirmations) {
-      LOG_F(INFO, "Make payout for block %u/%s", (unsigned)block->height, block->hash.c_str());
+    } else if (confirmations[i] >= _cfg.RequiredConfirmations) {
+      LOG_F(INFO, "Make payout for block %u/%s", R->height, R->blockHash.c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I) {
         requestPayout(I->Login, I->queued);
         I->queued = 0;
@@ -462,23 +455,23 @@ void AccountingDb::makePayout()
         continue;
       }
 
-      auto result = ioSendMoney(_client, settings.Address, I->payoutValue);
-      if (!result) {
-        LOG_F(ERROR, "sendMoney failed for %s (%s)", I->Login.c_str(), settings.Address.c_str());
+      CNetworkClientDispatcher::SendMoneyResult result;
+      if (!ClientDispatcher_.ioSendMoney(settings.Address.c_str(), I->payoutValue, result)) {
+        LOG_F(ERROR, "ioSendMoney api call failed for %s (%s)", I->Login.c_str(), settings.Address.c_str());
         ++I;
         continue;
       }
       
-      remaining = result->remaining;
-      if (result->success) {
+      remaining = result.Remaining;
+      if (result.Success) {
         LOG_F(INFO,
               "Accounting: [%u] %s coins sent to %s (%s) with txid %s",
               index,
               FormatMoney(I->payoutValue, CoinInfo_.RationalPartSize).c_str(),
               I->Login.c_str(),
               settings.Address.c_str(),
-              result->txid.c_str());
-        payoutSuccess(I->Login, I->payoutValue, result->fee, result->txid.c_str());
+              result.TxId.c_str());
+        payoutSuccess(I->Login, I->payoutValue, result.Fee, result.TxId.c_str());
         _payoutQueue.erase(I++);
       } else {
         LOG_F(ERROR,
@@ -487,11 +480,11 @@ void AccountingDb::makePayout()
               FormatMoney(I->payoutValue, CoinInfo_.RationalPartSize).c_str(),
               I->Login.c_str(),
               settings.Address.c_str(),
-              result->error.c_str());
+              result.Error.c_str());
         ++I;
         
         // zcash specific error
-        if (result->error == "Error: This transaction requires a transaction fee of at least 0.00 because of its amount, complexity, or use of recently received funds!")
+        if (result.Error == "Error: This transaction requires a transaction fee of at least 0.00 because of its amount, complexity, or use of recently received funds!")
           break;
       }
       
@@ -503,56 +496,49 @@ void AccountingDb::makePayout()
   
   if (!_cfg.poolZAddr.empty() && !_cfg.poolTAddr.empty()) {
     // move all to Z-Addr
-    auto unspent = ioListUnspent(_client);
-    if (unspent && !unspent->outs.empty()) {
-      LOG_F(INFO, "Accounting: move %u coinbase outs to Z-Addr", (unsigned)unspent->outs.size());
-      for (auto &out: unspent->outs) {
-        if (out->address == _cfg.poolTAddr || out->amount < ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE)
+    //    auto unspent = ioListUnspent(_client);
+    //    if (unspent && !unspent->outs.empty()) {
+    CNetworkClientDispatcher::ListUnspentResult unspent;
+    if (ClientDispatcher_.ioListUnspent(unspent) && !unspent.Outs.empty()) {
+
+      LOG_F(INFO, "Accounting: move %zu coinbase outs to Z-Addr", unspent.Outs.size());
+      for (const auto &out: unspent.Outs) {
+        if (out.Address == _cfg.poolTAddr || out.Amount < ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE)
           continue;
-    
-        ZDestinationT destination;
-        destination.address = _cfg.poolZAddr;
-        destination.amount = out->amount;
-        if (destination.amount > ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE)
-          destination.amount -= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE;
-        destination.memo = "";
-        auto result = ioZSendMoney(_client, out->address.c_str(), { destination });
-        if (!result || result->asyncOperationId.empty()) {
+
+        CNetworkClientDispatcher::ZSendMoneyResult zsendResult;
+        if (!ClientDispatcher_.ioZSendMoney(out.Address, _cfg.poolZAddr, out.Amount, "", zsendResult) || zsendResult.AsyncOperationId.empty()) {
           LOG_F(INFO,
                 "async operation start error %s: source=%s, destination=%s, amount=%li",
-                !result->error.empty() ? result->error.c_str() : "<unknown error>",
-                out->address.c_str(),
-                destination.address.c_str(),
-                (long)destination.amount);
+                !zsendResult.Error.empty() ? zsendResult.Error.c_str() : "<unknown error>",
+                out.Address.c_str(),
+                _cfg.poolZAddr.c_str(),
+                (long)out.Amount);
           continue;
         }
     
         LOG_F(INFO,
               "moving %li coins from %s to %s started (%s)",
-              (long)destination.amount,
-              out->address.c_str(),
-              destination.address.c_str(),
-              result->asyncOperationId.c_str());
+              (long)out.Amount,
+              out.Address.c_str(),
+              _cfg.poolZAddr.c_str(),
+              zsendResult.AsyncOperationId.c_str());
       }
     }
 
-    
     // move Z-Addr to T-Addr
-    auto zaddrBalance = ioZGetBalance(_client, _cfg.poolZAddr);
-    if (zaddrBalance && zaddrBalance->balance > 0) {
-      LOG_F(INFO, "<info> Accounting: move %.3lf coins to transparent address", zaddrBalance->balance/100000000.0);
-      ZDestinationT destination;
-      destination.address = _cfg.poolTAddr;
-      destination.amount = zaddrBalance->balance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE;
-      destination.memo = "";  
-      auto result = ioZSendMoney(_client, _cfg.poolZAddr, { destination });
-      if (result) {
+    int64_t zbalance;
+    if (ClientDispatcher_.ioZGetBalance(&zbalance) && zbalance > 0) {
+
+      LOG_F(INFO, "<info> Accounting: move %.3lf coins to transparent address", zbalance/100000000.0);
+      CNetworkClientDispatcher::ZSendMoneyResult zsendResult;
+      if (ClientDispatcher_.ioZSendMoney(_cfg.poolZAddr, _cfg.poolTAddr, zbalance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE, "", zsendResult)) {
         LOG_F(INFO,
               "moving %li coins from %s to %s started (%s)",
-              (long)destination.amount,
+              (long)(zbalance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE),
               _cfg.poolZAddr.c_str(),
               _cfg.poolTAddr.c_str(),
-              !result->asyncOperationId.empty() ? result->asyncOperationId.c_str() : "<none>");
+              !zsendResult.AsyncOperationId.empty() ? zsendResult.AsyncOperationId.c_str() : "<none>");
       }
     }
   }  
@@ -590,22 +576,20 @@ void AccountingDb::checkBalance()
 
   int64_t zbalance = 0;
   if (!_cfg.poolZAddr.empty()) {
-    auto result = ioZGetBalance(_client, _cfg.poolZAddr);
-    if (!result || result->balance == -1) {
+    if (!ClientDispatcher_.ioZGetBalance(&zbalance)) {
       LOG_F(ERROR, "can't get balance of Z-address %s", _cfg.poolZAddr.c_str());
       return;
     }
-    zbalance = result->balance;
   }
-  
-  auto result = ioGetBalance(_client);
-  if (!result) {
+
+  CNetworkClientDispatcher::GetBalanceResult getBalanceResult;
+  if (!ClientDispatcher_.ioGetBalance(getBalanceResult)) {
     LOG_F(ERROR, "can't retrieve balance");
     return;
   }
-  
-  balance = result->balance + zbalance;
-  immature = result->immature;
+
+  balance = getBalanceResult.Balance + zbalance;
+  immature = getBalanceResult.Immatured;
 
   for (auto &userIt: _balanceMap) {
     userBalance += userIt.second.Balance+userIt.second.Requested;
@@ -642,8 +626,6 @@ void AccountingDb::checkBalance()
         FormatMoney(userBalance, CoinInfo_.RationalPartSize).c_str(),
         FormatMoney(queued, CoinInfo_.RationalPartSize).c_str(),
         FormatMoney(net, CoinInfo_.RationalPartSize).c_str());
- 
-
 }
 
 void AccountingDb::requestPayout(const std::string &address, int64_t value, bool force)
@@ -692,163 +674,4 @@ void AccountingDb::payoutSuccess(const std::string &address, int64_t value, int6
 
   balance.Paid += value;
   _balanceDb.put(balance);
-}
-
-void AccountingDb::queryClientBalance(p2pPeer *peer, uint32_t id, const std::string &userId)
-{
-  flatbuffers::FlatBufferBuilder fbb;
-  
-  flatbuffers::Offset<ClientInfo> offset;
-  auto It = _balanceMap.find(userId);
-  if (It != _balanceMap.end()) {
-    const UserBalanceRecord &B= It->second;
-
-    UserManager::UserInfo info;
-    UserSettingsRecord settings;
-    bool hasInfo = UserManager_.getUserInfo(B.Login, info);
-    bool hasSettings = UserManager_.getUserCoinSettings(B.Login, CoinInfo_.Name, settings);
-    if (hasInfo && hasSettings)
-      offset = CreateClientInfo(fbb, B.Balance, B.Requested, B.Paid, fbb.CreateString(info.Name), fbb.CreateString(info.EMail), settings.MinimalPayout);
-    else
-      offset = CreateClientInfo(fbb);
-  } else {
-    offset = CreateClientInfo(fbb);
-  }
- 
-  QueryResultBuilder qrb(fbb);
-  qrb.add_info(offset);
-  fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
-}
-
-void AccountingDb::updateClientInfo(p2pPeer*,
-                                    uint32_t,
-                                    const std::string&,
-                                    const std::string&,
-                                    const std::string&,
-                                    int64_t)
-{
-  // TODO: move to user manager
-}
-
-void AccountingDb::manualPayout(p2pPeer *peer,
-                                uint32_t id,
-                                const std::string &userId)
-{
-  int result;
-  flatbuffers::FlatBufferBuilder fbb;
-  auto It = _balanceMap.find(userId);
-  if (It != _balanceMap.end()) {
-    auto &B = It->second;
-    if (B.Balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance >= _cfg.MinimalAllowedPayout)
-      requestPayout(userId, 0, true);
-    result = 1;
-  } else {
-    result = 0;
-  }
-  
-  QueryResultBuilder qrb(fbb);
-  qrb.add_status(result);
-  fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
-}
-
-void AccountingDb::moveBalance(p2pPeer *peer,
-                               uint32_t id,
-                               const std::string &from,
-                               const std::string &to)
-{
-  // Fix balance map
-  flatbuffers::FlatBufferBuilder fbb;
-  int result;
-  auto FromIt = _balanceMap.find(from);
-  if (FromIt != _balanceMap.end()) {
-    auto ToIt = _balanceMap.find(to);
-    if (ToIt == _balanceMap.end()) {
-      UserBalanceRecord newUserBalance(to, _cfg.DefaultPayoutThreshold);
-      ToIt = _balanceMap.insert(ToIt, std::make_pair(to, newUserBalance));
-    }
-    
-    ToIt->second.Balance += FromIt->second.Balance; FromIt->second.Balance = 0;
-    ToIt->second.Requested += FromIt->second.Requested; FromIt->second.Requested = 0;
-    _balanceDb.put(FromIt->second);
-    _balanceDb.put(ToIt->second);
-    
-    // Fix payout queue
-    for (auto &p: _payoutQueue) {
-      if (p.Login == from)
-        p.Login = to;
-    }
-
-    result = 1;    
-  } else {
-    result = 0;
-    LOG_F(WARNING, "moveBalance: source account not exists");
-  }
-  
-  QueryResultBuilder qrb(fbb);
-  qrb.add_status(result);
-  fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
-}
-
-void AccountingDb::resendBrokenTx(p2pPeer *peer,
-                                  uint32_t id,
-                                  const std::string &userId)
-{
-  int result;
-  auto It = _balanceMap.find(userId);
-  if (It != _balanceMap.end()) {
-    auto &B = It->second;
-    auto &db = getPayoutDb();
-    auto *It = db.iterator();
-    It->seekFirst();
-    int64_t totalPayed = 0;
-    int64_t total = 0;
-    unsigned count = 0;
-    std::vector<PayoutDbRecord> allRecords;
-    for (; It->valid(); It->next()) {
-      PayoutDbRecord pr;
-      RawData data = It->value();
-      if (!pr.deserializeValue(data.data, data.size))
-        break;      
-      if (pr.userId == userId) {
-        if (pr.transactionId == "<unknown>") {
-          allRecords.push_back(pr);
-          total += pr.value;
-          count++;
-        }
-        
-        totalPayed += pr.value;
-      }
-    }
-  
-    delete It;
-    for (auto &p: allRecords) {
-      LOG_F(INFO, "brokentx: %s %u %li", p.userId.c_str(), (unsigned)p.time, (long)p.value);
-      B.Paid -= p.value;
-      _balanceDb.put(B);
-      db.deleteRow(p);    
-      requestPayout(p.userId, p.value);
-    }
-    
-    if (totalPayed < B.Paid) {
-      int64_t difference = B.Paid - totalPayed;
-      LOG_F(WARNING, "inconsistent balance, add payout resuest for %s: %li", userId.c_str(), difference);
-      B.Paid -= difference;
-      requestPayout(userId, difference);
-      _balanceDb.put(B);      
-    }
-    
-    result = 1;
-  } else {
-    LOG_F(ERROR, "address not found %s", userId.c_str());
-    return;
-  }
-  
-  flatbuffers::FlatBufferBuilder fbb;  
-  QueryResultBuilder qrb(fbb);
-  qrb.add_status(result);
-  fbb.Finish(qrb.Finish());
-  aiop2pSend(peer->connection, fbb.GetBufferPointer(), id, p2pMsgResponse, fbb.GetSize(), afNone, 3000000, nullptr, nullptr);
 }

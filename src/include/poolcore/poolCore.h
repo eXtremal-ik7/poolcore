@@ -6,6 +6,7 @@
 #include <vector>
 #include "rapidjson/document.h"
 
+class CNetworkClientDispatcher;
 
 struct CCoinInfo {
   enum EAddressType {
@@ -36,6 +37,11 @@ public:
   virtual bool ioGetBlockTemplate(std::string &result) = 0;
   virtual bool ioSendMoney(const char *address, int64_t value, std::string &txid) = 0;
 
-  virtual bool poll() = 0;
+  virtual void poll() = 0;
+
+  void setDispatcher(CNetworkClientDispatcher *dispatcher) { Dispatcher_ = dispatcher; }
+
+protected:
+  CNetworkClientDispatcher *Dispatcher_ = nullptr;
 };
 

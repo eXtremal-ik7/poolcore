@@ -1,7 +1,5 @@
-#include "api.h"
 #include "poolcore/backend.h"
 #include "asyncio/coroutine.h"
-#include "p2p/p2p.h"
 #include "p2putils/xmstream.h"
 #include "loguru.hpp"
 
@@ -37,23 +35,13 @@ static void checkConsistency(AccountingDb *accounting)
 }
 
 
-PoolBackend::PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr) : _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr)
+PoolBackend::PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher) :
+  _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher)
 {
   _base = createAsyncBase(amOSDefault);
   _timeout = 8*1000000;
-  pipeCreate(&_pipeFd, 1);
-  _read = newDeviceIo(_base, _pipeFd.read);
-  _write = newDeviceIo(_base, _pipeFd.write);
+  TaskQueueEvent_ = newUserEvent(_base, 0, nullptr, nullptr);
 }
-
-bool PoolBackend::sendMessage(asyncBase *base, void *msg, uint32_t msgSize)
-{
-  xmstream stream;
-  stream.write<uint32_t>(msgSize);
-  stream.write(msg, msgSize);
-  return ioWrite(_write, stream.data(), stream.sizeOf(), afWaitAll, _timeout) == stream.sizeOf();
-}
-
 
 void PoolBackend::start()
 {
@@ -70,10 +58,10 @@ void PoolBackend::stop()
 void PoolBackend::backendMain()
 {
   loguru::set_thread_name(CoinInfo_.Name.c_str());
-  _accounting.reset(new AccountingDb(_cfg, CoinInfo_, UserMgr_));
+  _accounting.reset(new AccountingDb(_cfg, CoinInfo_, UserMgr_, ClientDispatcher_));
   _statistics.reset(new StatisticDb(_cfg, CoinInfo_));
 
-  coroutineCall(coroutineNew(msgHandlerProc, this, 0x100000));
+  coroutineCall(coroutineNew([](void *arg){ static_cast<PoolBackend*>(arg)->taskHandler(); }, this, 0x100000));
   coroutineCall(coroutineNew(checkConfirmationsProc, this, 0x100000));  
   coroutineCall(coroutineNew(checkBalanceProc, this, 0x100000));      
   coroutineCall(coroutineNew(updateStatisticProc, this, 0x100000));
@@ -91,38 +79,17 @@ void PoolBackend::backendMain()
   asyncLoop(_base);
 }
 
-void *PoolBackend::msgHandler()
+void PoolBackend::taskHandler()
 {
-  xmstream stream;
-  while (true) {
-    uint32_t msgSize;
-    stream.reset();
-    if (ioRead(_read, &msgSize, sizeof(msgSize), afWaitAll, 0) != sizeof(msgSize))
-      break;
-    if (ioRead(_read, stream.reserve(msgSize), msgSize, afWaitAll, 0) != msgSize)
-      break;
-    stream.seekSet(0);
-    
-    flatbuffers::Verifier verifier(stream.data<const uint8_t>(), stream.sizeOf());
-    if (!VerifyP2PMessageBuffer(verifier)) {
-      LOG_F(ERROR, " * pool backend error: can't decode message");
-      continue;
+  Task *task;
+  for (;;) {
+    while (TaskQueue_.try_pop(task)) {
+      std::unique_ptr<Task> taskHolder(task);
+      task->run(this);
     }
-    
-    const P2PMessage *msg = GetP2PMessage(stream.data());
-    switch (msg->functionId()) {
-      case FunctionId_Share :
-        onShare(static_cast<const Share*>(msg->data()));
-        break;
-      case FunctionId_Stats :
-        onStats(static_cast<const Stats*>(msg->data()));
-        break;
-      default :
-        LOG_F(ERROR, " * pool backend error: unknown message type");
-    }
-  }
 
-  return nullptr;
+    ioWaitUserEvent(TaskQueueEvent_);
+  }
 }
 
 void *PoolBackend::checkConfirmationsHandler()
@@ -130,13 +97,8 @@ void *PoolBackend::checkConfirmationsHandler()
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.ConfirmationsCheckInterval);
-    // NOTE: temporary disabled
-    if (false) {
-      _accounting->cleanupRounds();
-      _accounting->checkBlockConfirmations();
-    } else {
-      LOG_F(ERROR, "can't check block confirmations, no connection to wallet");
-    }
+    _accounting->cleanupRounds();
+    _accounting->checkBlockConfirmations();
   }
 }
 
@@ -146,12 +108,7 @@ void *PoolBackend::payoutHandler()
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.PayoutInterval);
-    // NOTE: temporary disabled
-    if (false) {
-      _accounting->makePayout();
-    } else {
-      LOG_F(ERROR, "<error>: can't make payouts, no connection to wallet");
-    }
+    _accounting->makePayout();
   }
 }
 
@@ -161,12 +118,7 @@ void *PoolBackend::checkBalanceHandler()
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.BalanceCheckInterval);
-    // NOTE: temporary disabled
-    if (false) {
-      _accounting->checkBalance();
-    } else {
-      LOG_F(ERROR, "<error>: can't check balance, no connection to wallet");
-    }  
+    _accounting->checkBalance();
   }
 }
 

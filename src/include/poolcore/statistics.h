@@ -1,7 +1,6 @@
 #ifndef __STATISTICS_H_
 #define __STATISTICS_H_
 
-#include "poolcommon/pool_generated.h"
 #include "kvdb.h"
 #include "backendData.h"
 #include "poolcore/poolCore.h"
@@ -10,6 +9,24 @@
 
 class p2pNode;
 class p2pPeer;
+
+enum EUnitType {
+  ECPU = 0,
+  EGPU,
+  EASIC,
+  EOTHER
+};
+
+struct Stats {
+  std::string userId;
+  std::string workerId;
+  uint64_t power;
+  int32_t latency;
+  std::string address;
+  EUnitType type;
+  uint32_t units;
+  uint32_t temp;
+};
 
 class StatisticDb {
 private:
@@ -30,8 +47,6 @@ public:
   
   uint64_t getClientPower(const std::string &userId) const;
   uint64_t getPoolPower() const;
-  void queryClientStats(p2pPeer *peer, uint32_t id, const std::string &userId);
-  void queryPoolStats(p2pPeer *peer, uint32_t id);
 };
 
 
