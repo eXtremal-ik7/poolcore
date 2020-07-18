@@ -455,7 +455,7 @@ void AccountingDb::makePayout()
         continue;
       }
 
-      CNetworkClientDispatcher::SendMoneyResult result;
+      CNetworkClient::SendMoneyResult result;
       if (!ClientDispatcher_.ioSendMoney(settings.Address.c_str(), I->payoutValue, result)) {
         LOG_F(ERROR, "ioSendMoney api call failed for %s (%s)", I->Login.c_str(), settings.Address.c_str());
         ++I;
@@ -498,7 +498,7 @@ void AccountingDb::makePayout()
     // move all to Z-Addr
     //    auto unspent = ioListUnspent(_client);
     //    if (unspent && !unspent->outs.empty()) {
-    CNetworkClientDispatcher::ListUnspentResult unspent;
+    CNetworkClient::ListUnspentResult unspent;
     if (ClientDispatcher_.ioListUnspent(unspent) && !unspent.Outs.empty()) {
 
       LOG_F(INFO, "Accounting: move %zu coinbase outs to Z-Addr", unspent.Outs.size());
@@ -506,7 +506,7 @@ void AccountingDb::makePayout()
         if (out.Address == _cfg.poolTAddr || out.Amount < ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE)
           continue;
 
-        CNetworkClientDispatcher::ZSendMoneyResult zsendResult;
+        CNetworkClient::ZSendMoneyResult zsendResult;
         if (!ClientDispatcher_.ioZSendMoney(out.Address, _cfg.poolZAddr, out.Amount, "", zsendResult) || zsendResult.AsyncOperationId.empty()) {
           LOG_F(INFO,
                 "async operation start error %s: source=%s, destination=%s, amount=%li",
@@ -531,7 +531,7 @@ void AccountingDb::makePayout()
     if (ClientDispatcher_.ioZGetBalance(&zbalance) && zbalance > 0) {
 
       LOG_F(INFO, "<info> Accounting: move %.3lf coins to transparent address", zbalance/100000000.0);
-      CNetworkClientDispatcher::ZSendMoneyResult zsendResult;
+      CNetworkClient::ZSendMoneyResult zsendResult;
       if (ClientDispatcher_.ioZSendMoney(_cfg.poolZAddr, _cfg.poolTAddr, zbalance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE, "", zsendResult)) {
         LOG_F(INFO,
               "moving %li coins from %s to %s started (%s)",
@@ -582,7 +582,7 @@ void AccountingDb::checkBalance()
     }
   }
 
-  CNetworkClientDispatcher::GetBalanceResult getBalanceResult;
+  CNetworkClient::GetBalanceResult getBalanceResult;
   if (!ClientDispatcher_.ioGetBalance(getBalanceResult)) {
     LOG_F(ERROR, "can't retrieve balance");
     return;

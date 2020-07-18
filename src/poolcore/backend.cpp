@@ -117,8 +117,8 @@ void *PoolBackend::checkBalanceHandler()
 {
   aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
-    ioSleep(timerEvent, _cfg.BalanceCheckInterval);
     _accounting->checkBalance();
+    ioSleep(timerEvent, _cfg.BalanceCheckInterval);
   }
 }
 

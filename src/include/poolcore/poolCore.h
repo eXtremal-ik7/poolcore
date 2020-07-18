@@ -31,11 +31,38 @@ struct CCoinInfo {
 
 class CNetworkClient {
 public:
+  struct GetBalanceResult {
+    int64_t Balance;
+    int64_t Immatured;
+  };
+
+  struct SendMoneyResult {
+    bool Success;
+    std::string TxId;
+    std::string Error;
+    int64_t Remaining;
+    int64_t Fee;
+  };
+
+  struct ListUnspentElement {
+    std::string Address;
+    int64_t Amount;
+  };
+
+  struct ListUnspentResult {
+    std::vector<ListUnspentElement> Outs;
+  };
+
+  struct ZSendMoneyResult {
+    std::string AsyncOperationId;
+    std::string Error;
+  };
+
+public:
   ~CNetworkClient() {}
 
-  virtual bool ioGetBalance(int64_t *balance) = 0;
-  virtual bool ioGetBlockTemplate(std::string &result) = 0;
-  virtual bool ioSendMoney(const char *address, int64_t value, std::string &txid) = 0;
+  virtual bool ioGetBalance(GetBalanceResult &result) = 0;
+  virtual bool ioSendMoney(const char *address, int64_t value, SendMoneyResult &result) = 0;
 
   virtual void poll() = 0;
 

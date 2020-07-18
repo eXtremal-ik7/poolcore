@@ -1,9 +1,17 @@
 #include "poolcore/clientDispatcher.h"
+#include "poolcore/thread.h"
 #include "loguru.hpp"
 
-bool CNetworkClientDispatcher::ioGetBalance(GetBalanceResult &result)
+bool CNetworkClientDispatcher::ioGetBalance(CNetworkClient::GetBalanceResult &result)
 {
-  LOG_F(ERROR, "ioGetBalance api not implemented");
+  unsigned threadId = GetWorkerThreadId();
+  size_t &currentClientIdx = CurrentClientIdx_[threadId];
+  for (size_t i = 0, ie = Clients_.size(); i != ie; ++i) {
+    if (Clients_[currentClientIdx]->ioGetBalance(result))
+      return true;
+    currentClientIdx = (currentClientIdx + 1) % Clients_.size();
+  }
+
   return false;
 }
 
@@ -13,13 +21,13 @@ bool CNetworkClientDispatcher::ioGetBlockConfirmations(const std::vector<std::st
   return false;
 }
 
-bool CNetworkClientDispatcher::ioListUnspent(ListUnspentResult &result)
+bool CNetworkClientDispatcher::ioListUnspent(CNetworkClient::ListUnspentResult &result)
 {
   LOG_F(ERROR, "ioListUnspent api not implemented");
   return false;
 }
 
-bool CNetworkClientDispatcher::ioSendMoney(const char *address, int64_t value, SendMoneyResult &result)
+bool CNetworkClientDispatcher::ioSendMoney(const char *address, int64_t value, CNetworkClient::SendMoneyResult &result)
 {
   LOG_F(ERROR, "ioSendMoney api not implemented");
   return false;
@@ -32,7 +40,7 @@ bool CNetworkClientDispatcher::ioZGetBalance(int64_t *result)
   return false;
 }
 
-bool CNetworkClientDispatcher::ioZSendMoney(const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, ZSendMoneyResult &result)
+bool CNetworkClientDispatcher::ioZSendMoney(const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, CNetworkClient::ZSendMoneyResult &result)
 {
   LOG_F(ERROR, "ioZSendMoney api not implemented");
   return false;

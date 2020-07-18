@@ -1,4 +1,6 @@
 #include "poolcore/bitcoinRPCClient.h"
+
+#include "poolcommon/utils.h"
 #include "poolcore/clientDispatcher.h"
 #include "asyncio/asyncio.h"
 #include "asyncio/base64.h"
@@ -18,6 +20,10 @@
 #include <netdb.h>
 #endif
 
+static const char gBalanceQuery[] = R"json({"method": "getbalance", "params": [] })json";
+static const char gBalanceQueryWithImmatured[] = R"json({"method": "getbalance", "params": ["*", 1] })json";
+static const char gGetWalletInfoQuery[] = R"json({"method": "getwalletinfo", "params": [] })json";
+
 static inline void jsonParseInt(const rapidjson::Value &value, const char *name, int64_t *out, bool *validAcc) {
   if (value.HasMember(name)) {
     if (value[name].IsInt64())
@@ -31,6 +37,17 @@ static inline void jsonParseString(const rapidjson::Value &value, const char *na
   if (value.HasMember(name)) {
     if (value[name].IsString())
       out = value[name].GetString();
+    else
+      *validAcc = false;
+  } else if (required) {
+    *validAcc = false;
+  }
+}
+
+static inline void jsonParseFloat(const rapidjson::Value &value, const char *name, double *out, bool required, bool *validAcc) {
+  if (value.HasMember(name)) {
+    if (value[name].IsString())
+      *out = value[name].GetFloat();
     else
       *validAcc = false;
   } else if (required) {
@@ -88,21 +105,35 @@ static std::string buildGetBlockTemplate(const std::string &longPollId, bool seg
   return query;
 }
 
-CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password) :
-  Base_(base), ThreadsNum_(threadsNum), CoinInfo_(coinInfo)
+std::string CBitcoinRpcClient::buildSendToAddress(const std::string &destination, int64_t amount)
+{
+  std::string result = "{";
+  std::string amountFormatted = FormatMoney(amount, CoinInfo_.RationalPartSize);
+
+  result.append(R"_("method": "sendtoaddress", )_");
+  result.append(R"_("params": [)_");
+    result.push_back('\"'); result.append(destination); result.append("\",");
+    result.append(FormatMoney(amount, CoinInfo_.RationalPartSize));
+  result.append("]}");
+}
+
+std::string CBitcoinRpcClient::buildGetTransaction(const std::string &txId)
+{
+  std::string result = "{";
+
+  result.append(R"_("method": "sendtoaddress", )_");
+  result.append(R"_("params": [)_");
+    result.push_back('\"'); result.append(txId); result.push_back('\"');
+  result.append("]}");
+}
+
+CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password) :
+  Base_(base), CoinInfo_(coinInfo)
 {
   WorkFetcher_.Client = nullptr;
-  WorkFetcher_.TimerEvent = newUserEvent(base, 0, [](aioUserEvent*, void *arg){
+  WorkFetcher_.TimerEvent = newUserEvent(base, 0, [](aioUserEvent*, void *arg) {
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetchTimeout();
   }, this);
-
-  Clients_.resize(threadsNum);
-  for (auto &client: Clients_) {
-    client.Client = nullptr;
-    client.TimerEvent = newUserEvent(base, 0, [](aioUserEvent*, void *arg){
-      static_cast<CBitcoinRpcClient*>(arg)->onClientRequestTimeout();
-    }, this);
-  }
 
   URI uri;
   std::string uriAddress = (std::string)"http://" + address;
@@ -148,21 +179,122 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
   basicAuth.append(password);
   BasicAuth_.resize(base64getEncodeLength(basicAuth.size()) + 1);
   base64Encode(BasicAuth_.data(), reinterpret_cast<uint8_t*>(basicAuth.data()), basicAuth.size());
+
+  HasGetWalletInfo_ = true;
+
+  BalanceQuery_ = buildPostQuery(gBalanceQuery, HostName_, BasicAuth_);
+  BalanceQueryWithImmatured_ = buildPostQuery(gBalanceQueryWithImmatured, HostName_, BasicAuth_);
+  GetWalletInfoQuery_ = buildPostQuery(gGetWalletInfoQuery, HostName_, BasicAuth_);
 }
 
-bool CBitcoinRpcClient::ioGetBalance(int64_t *balance)
+bool CBitcoinRpcClient::ioGetBalance(CNetworkClient::GetBalanceResult &result)
 {
+  auto connection = ioExtractOrCreateConnection();
+  if (!connection->Client)
+    return false;
+
+  if (HasGetWalletInfo_) {
+    rapidjson::Document document;
+    if (ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, GetWalletInfoQuery_, document, 10000000)) {
+      bool errorAcc = true;
+      rapidjson::Value &value = document["result"];
+      std::string balance;
+      std::string immatureBalance;
+      // TODO: Change json parser (need parse floats as strings)
+      jsonParseString(value, "balance", balance, true, &errorAcc);
+      jsonParseString(value, "immature_balance", immatureBalance, true, &errorAcc);
+      if (errorAcc &&
+          parseMoneyValue(balance.c_str(), CoinInfo_.RationalPartSize, &result.Balance) &&
+          parseMoneyValue(immatureBalance.c_str(), CoinInfo_.RationalPartSize, &result.Immatured)) {
+        ConnectionPool_.push(connection.release());
+        return true;
+      } else {
+        LOG_F(WARNING, "%s %s:%u: getwalletinfo invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+        return false;
+      }
+    } else if (connection->ParseCtx.resultCode == 404) {
+      LOG_F(WARNING, "%s %s:%u: doesn't support getwalletinfo api; recommended update your node", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      connection = ioExtractOrCreateConnection();
+      HasGetWalletInfo_ = false;
+    } else {
+      return false;
+    }
+  }
+
+  if (!HasGetWalletInfo_) {
+    rapidjson::Document balanceValue;
+    rapidjson::Document fullBalanceValue;
+    if (ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, BalanceQuery_, balanceValue, 10000000) &&
+        ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, BalanceQueryWithImmatured_, fullBalanceValue, 10000000)) {
+      std::string balanceS;
+      std::string balanceFullS;
+      int64_t balanceFull;
+      bool errorAcc = true;
+      jsonParseString(balanceValue, "result", balanceS, true, &errorAcc);
+      jsonParseString(fullBalanceValue, "result", balanceFullS, true, &errorAcc);
+      if (errorAcc &&
+          parseMoneyValue(balanceS.c_str(), CoinInfo_.RationalPartSize, &result.Balance) &&
+          parseMoneyValue(balanceFullS.c_str(), CoinInfo_.RationalPartSize, &balanceFull)) {
+        result.Immatured = balanceFull - result.Balance;
+        ConnectionPool_.push(connection.release());
+        return true;
+      } else {
+        LOG_F(WARNING, "%s %s:%u: getbalance invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+        return false;
+      }
+    }
+  }
+
   return false;
 }
 
-bool CBitcoinRpcClient::ioGetBlockTemplate(std::string &reslt)
+bool CBitcoinRpcClient::ioSendMoney(const char *address, int64_t value, CNetworkClient::SendMoneyResult &result)
 {
-  return false;
-}
+  auto connection = ioExtractOrCreateConnection();
+  if (!connection->Client)
+    return false;
 
-bool CBitcoinRpcClient::ioSendMoney(const char *address, int64_t value, std::string &txid)
-{
-  return false;
+  // call 'sendtoaddress' with 3-minute timeout
+  rapidjson::Document document;
+  std::string query = buildSendToAddress(address, value);
+  if (!ioQueryJson(*connection, query, document, 180*1000000)) {
+    result.Error = connection->LastError;
+    return false;
+  }
+
+  {
+    bool errorAcc = true;
+    jsonParseString(document, "txid", result.TxId, true, &errorAcc);
+    if (!errorAcc) {
+      LOG_F(WARNING, "%s %s:%u: sendtoaddress response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      return false;
+    }
+  }
+
+  // get fee by following gettransaction call
+  // TODO: subtractfeefromamount argument support
+  result.Fee = 0;
+  result.Error.clear();
+  result.Success = true;
+  query = buildGetTransaction(result.TxId);
+  if (!ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, query, document, 180*1000000)) {
+    LOG_F(ERROR, "%s %s:%u: can't get transaction fee, assume fee=0", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+    return true;
+  }
+
+  {
+    bool errorAcc = true;
+    std::string feeValue;
+    rapidjson::Value &value = document["result"];
+    jsonParseString(value, "fee", feeValue, true, &errorAcc);
+    if (!errorAcc || feeValue.empty() || !parseMoneyValue(feeValue.data() + 1, CoinInfo_.RationalPartSize, &result.Fee)) {
+      LOG_F(ERROR, "%s %s:%u: gettransaction response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      return true;
+    }
+  }
+
+  ConnectionPool_.push(connection.release());
+  return true;
 }
 
 void CBitcoinRpcClient::poll()
@@ -295,4 +427,32 @@ void CBitcoinRpcClient::onWorkFetchTimeout()
 void CBitcoinRpcClient::onClientRequestTimeout()
 {
 
+}
+
+std::unique_ptr<CBitcoinRpcClient::Connection> CBitcoinRpcClient::ioExtractOrCreateConnection()
+{
+  Connection *connection;
+  if (ConnectionPool_.try_pop(connection)) {
+    // Check connection status
+    char data;
+    if (recv(connection->Socket, &data, 1, MSG_PEEK) == 0) {
+      httpClientDelete(connection->Client);
+      connection->Client = nullptr;
+    }
+  } else {
+    connection = new Connection();
+  }
+
+  if (!connection->Client) {
+    connection->Socket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
+    connection->Client = httpClientNew(Base_, newSocketIo(Base_, connection->Socket));
+    if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) == 0) {
+      httpParseDefaultInit(&connection->ParseCtx);
+    } else {
+      httpClientDelete(connection->Client);
+      connection->Client = nullptr;
+    }
+  }
+
+  return std::unique_ptr<Connection>(connection);
 }
