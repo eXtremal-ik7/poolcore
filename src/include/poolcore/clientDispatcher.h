@@ -18,10 +18,15 @@ public:
     client->setDispatcher(this);
   }
 
+  void setBackend(PoolBackend *backend) { Backend_ = backend; }
+
+  // Common API
   bool ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result);
   bool ioGetBlockConfirmations(asyncBase *base, const std::vector<std::string> &hashes, std::vector<int64_t> &result);
   bool ioListUnspent(asyncBase *base, CNetworkClient::ListUnspentResult &result);
   bool ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result);
+  void aioSubmitBlockPrepared(asyncBase *base, const std::string *preparedData, void *callback);
+  void aioSubmitBlock(asyncBase *base, const std::string &block, void *callback);
 
   // ZEC specific
   bool ioZGetBalance(asyncBase *base, int64_t *result);
@@ -46,6 +51,7 @@ private:
 private:
   asyncBase *Base_;
   CCoinInfo CoinInfo_;
+  PoolBackend *Backend_ = nullptr;
   std::vector<std::unique_ptr<CNetworkClient>> Clients_;
   std::vector<size_t> CurrentClientIdx_;
   size_t CurrentWorkFetcherIdx = 0;

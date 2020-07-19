@@ -2,6 +2,12 @@
 #include "poolcore/thread.h"
 #include "loguru.hpp"
 
+void CPoolInstance::stopWork()
+{
+  for (unsigned i = 0; i < WorkersNum_; i++)
+    Workers_[i].stopWork(*this);
+}
+
 CPoolThread::CPoolThread()
 {
   Base_ = createAsyncBase(amOSDefault);

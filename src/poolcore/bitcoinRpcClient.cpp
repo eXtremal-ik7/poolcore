@@ -21,9 +21,9 @@
 #include <netdb.h>
 #endif
 
-static const char gBalanceQuery[] = R"json({"method": "getbalance", "params": [] })json";
-static const char gBalanceQueryWithImmatured[] = R"json({"method": "getbalance", "params": ["*", 1] })json";
-static const char gGetWalletInfoQuery[] = R"json({"method": "getwalletinfo", "params": [] })json";
+static const std::string gBalanceQuery = R"json({"method": "getbalance", "params": [] })json";
+static const std::string gBalanceQueryWithImmatured = R"json({"method": "getbalance", "params": ["*", 1] })json";
+static const std::string gGetWalletInfoQuery = R"json({"method": "getwalletinfo", "params": [] })json";
 
 static inline void jsonParseInt(const rapidjson::Value &value, const char *name, int64_t *out, bool *validAcc) {
   if (value.HasMember(name)) {
@@ -56,10 +56,10 @@ static inline void jsonParseFloat(const rapidjson::Value &value, const char *nam
   }
 }
 
-static std::string buildPostQuery(const char *data, const std::string &host, const std::string &basicAuth)
+static std::string buildPostQuery(const char *data, size_t size, const std::string &host, const std::string &basicAuth)
 {
   char dataLength[16];
-  xitoa(strlen(data), dataLength);
+  xitoa(size, dataLength);
 
   std::string query = "POST / HTTP/1.1\r\n";
     query.append("Host: ");
@@ -73,6 +73,7 @@ static std::string buildPostQuery(const char *data, const std::string &host, con
       query.append(dataLength);
       query.append("\r\n");
     query.append("\r\n");
+  if (data)
     query.append(data);
   return query;
 }
@@ -184,9 +185,22 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
 
   HasGetWalletInfo_ = true;
 
-  BalanceQuery_ = buildPostQuery(gBalanceQuery, HostName_, BasicAuth_);
-  BalanceQueryWithImmatured_ = buildPostQuery(gBalanceQueryWithImmatured, HostName_, BasicAuth_);
-  GetWalletInfoQuery_ = buildPostQuery(gGetWalletInfoQuery, HostName_, BasicAuth_);
+  BalanceQuery_ = buildPostQuery(gBalanceQuery.data(), gBalanceQuery.size(), HostName_, BasicAuth_);
+  BalanceQueryWithImmatured_ = buildPostQuery(gBalanceQueryWithImmatured.data(), gBalanceQueryWithImmatured.size(), HostName_, BasicAuth_);
+  GetWalletInfoQuery_ = buildPostQuery(gGetWalletInfoQuery.data(), gGetWalletInfoQuery.size(), HostName_, BasicAuth_);
+}
+
+std::string CBitcoinRpcClient::prepareBlock(const std::string &blockData, size_t *blockDataPos)
+{
+  static const std::string firstPart = R"_({"method": "submitblock", "params": [")_";
+  static const std::string secondPart = R"_({""] })_";
+  size_t fullDataSize = firstPart.size() + blockData.size() + secondPart.size();
+
+  std::string query = buildPostQuery(nullptr, fullDataSize, HostName_, BasicAuth_);
+  query.append(firstPart);
+    *blockDataPos = query.size();
+  query.append(blockData);
+  query.append(secondPart);
 }
 
 bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result)
@@ -301,6 +315,11 @@ bool CBitcoinRpcClient::ioSendMoney(asyncBase *base, const char *address, int64_
   return true;
 }
 
+void CBitcoinRpcClient::aioSubmitBlockPrepared(asyncBase *base, const std::string &query, void *callback)
+{
+
+}
+
 void CBitcoinRpcClient::poll()
 {
   socketTy S = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
@@ -326,7 +345,7 @@ void CBitcoinRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
   }
 
   std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled);
-  std::string query = buildPostQuery(gbtQuery.data(), HostName_, BasicAuth_);
+  std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, BasicAuth_);
   aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherIncomingData(status);
   }, this);
@@ -409,7 +428,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   if (!WorkFetcher_.LongPollId.empty()) {
     // With long polling send new request immediately
     std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled);
-    std::string query = buildPostQuery(gbtQuery.data(), HostName_, BasicAuth_);
+    std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, BasicAuth_);
     aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), !WorkFetcher_.LongPollId.empty() ? 0 : 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
       static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherIncomingData(status);
     }, this);
@@ -422,7 +441,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 void CBitcoinRpcClient::onWorkFetchTimeout()
 {
   std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled);
-  std::string query = buildPostQuery(gbtQuery.data(), HostName_, BasicAuth_);
+  std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, BasicAuth_);
   aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), !WorkFetcher_.LongPollId.empty() ? 0 : 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherIncomingData(status);
   }, this);

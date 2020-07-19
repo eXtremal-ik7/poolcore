@@ -40,6 +40,19 @@ bool CNetworkClientDispatcher::ioSendMoney(asyncBase *base, const char *address,
   return false;
 }
 
+void CNetworkClientDispatcher::aioSubmitBlockPrepared(asyncBase *base, const std::string *preparedData, void *callback)
+{
+  for (size_t i = 0, ie = Clients_.size(); i != ie; ++i)
+    Clients_[i]->aioSubmitBlockPrepared(base, preparedData[i], callback);
+}
+
+void CNetworkClientDispatcher::aioSubmitBlock(asyncBase *base, const std::string &block, void *callback)
+{
+  size_t pos;
+  for (size_t i = 0, ie = Clients_.size(); i != ie; ++i)
+    Clients_[i]->aioSubmitBlockPrepared(base, Clients_[i]->prepareBlock(block, &pos), callback);
+}
+
 // ZEC specific
 bool CNetworkClientDispatcher::ioZGetBalance(asyncBase *base, int64_t *result)
 {
@@ -103,5 +116,5 @@ void CNetworkClientDispatcher::onWorkFetcherNewWork(rapidjson::Value &work)
 {
   WorkState_ = EWorkOk;
   for (auto &instance : LinkedInstances_)
-    instance->checkNewBlockTemplate(work);
+    instance->checkNewBlockTemplate(work, Backend_);
 }

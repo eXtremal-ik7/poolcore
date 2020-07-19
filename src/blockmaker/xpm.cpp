@@ -103,5 +103,39 @@ void Io<XPM::Proto::BlockHeader>::unpackFinalize(DynamicPtr<XPM::Proto::BlockHea
 {
   BTC::unpackFinalize(DynamicPtr<mpz_class>(dst.stream(), dst.offset()+offsetof(XPM::Proto::BlockHeader, bnPrimeChainMultiplier)));
 }
+}
 
+namespace XPM {
+bool Proto::loadHeaderFromTemplate(XPM::Proto::BlockHeader &header, rapidjson::Value &blockTemplate)
+{
+  // version
+  if (!blockTemplate.HasMember("version") || !blockTemplate["version"].IsUint())
+    return false;
+  header.nVersion = blockTemplate["version"].GetUint();
+
+  // hashPrevBlock
+  if (!blockTemplate.HasMember("previousblockhash") || !blockTemplate["previousblockhash"].IsString())
+    return false;
+  header.hashPrevBlock.SetHex(blockTemplate["previousblockhash"].GetString());
+
+  // hashMerkleRoot
+  header.hashMerkleRoot.SetNull();
+
+  // time
+  if (!blockTemplate.HasMember("mintime") || !blockTemplate["mintime"].IsUint())
+    return false;
+  header.nTime = blockTemplate["mintime"].GetUint();
+
+  // bits
+  if (!blockTemplate.HasMember("bits") || !blockTemplate["bits"].IsString())
+    return false;
+  header.nBits = strtoul(blockTemplate["bits"].GetString(), nullptr, 16);
+
+  // nonce
+  header.nNonce = 0;
+
+  // bnPrimeChainMultiplier
+  header.bnPrimeChainMultiplier = 0;
+  return true;
+}
 }

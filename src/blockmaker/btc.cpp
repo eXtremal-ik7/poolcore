@@ -89,4 +89,227 @@ void Io<Proto::TxOut>::unpackFinalize(DynamicPtr<BTC::Proto::TxOut> dst)
   BTC::unpackFinalize(DynamicPtr<decltype (dst->pkScript)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::TxOut, pkScript)));
 }
 
+bool Proto::loadHeaderFromTemplate(BTC::Proto::BlockHeader &header, rapidjson::Value &blockTemplate)
+{
+  // version
+  if (!blockTemplate.HasMember("version") || !blockTemplate["version"].IsUint())
+    return false;
+  header.nVersion = blockTemplate["version"].GetUint();
+
+  // hashPrevBlock
+  if (!blockTemplate.HasMember("previousblockhash") || !blockTemplate["previousblockhash"].IsString())
+    return false;
+  header.hashPrevBlock.SetHex(blockTemplate["previousblockhash"].GetString());
+
+  // hashMerkleRoot
+  header.hashMerkleRoot.SetNull();
+
+  // time
+  if (!blockTemplate.HasMember("mintime") || !blockTemplate["mintime"].IsUint())
+    return false;
+  header.nTime = blockTemplate["mintime"].GetUint();
+
+  // bits
+  if (!blockTemplate.HasMember("bits") || !blockTemplate["bits"].IsString())
+    return false;
+  header.nBits = strtoul(blockTemplate["bits"].GetString(), nullptr, 16);
+
+  // nonce
+  header.nNonce = 0;
+  return true;
+}
+}
+
+static inline uint8_t hexLowerCaseDigit(char c)
+{
+  uint8_t digit = c - '0';
+  if (digit >= 10)
+    digit -= ('a' - '0' - 10);
+  return digit;
+}
+
+static inline void hexLowerCase2bin(const char *in, size_t inSize, void *out)
+{
+  uint8_t *pOut = static_cast<uint8_t*>(out);
+  for (size_t i = 0; i < inSize/2; i++)
+    pOut[i] = (hexLowerCaseDigit(in[i*2]) << 4) | hexLowerCaseDigit(in[i*2+1]);
+}
+
+bool loadTransactionsFromTemplate(xvector<BTC::Proto::Transaction> &vtx, rapidjson::Value &blockTemplate, xmstream &buffer)
+{
+  if (!blockTemplate.HasMember("transactions") || !blockTemplate["transactions"].IsArray())
+    return false;
+  rapidjson::Value::Array transactions = blockTemplate["transactions"].GetArray();
+
+  vtx.resize(transactions.Size() + 1);
+  for (size_t i = 0, ie = transactions.Size(); i != ie; ++i) {
+    rapidjson::Value &txSrc = transactions[i];
+    BTC::Proto::Transaction &txDst = vtx[i + 1];
+
+    // Get data
+    if (!txSrc.HasMember("data") || !txSrc["data"].IsString())
+      return false;
+
+    const char *txData = txSrc["data"].GetString();
+    size_t txDataSize = txSrc["data"].GetStringLength();
+    buffer.reset();
+    hexLowerCase2bin(txData, txDataSize, buffer.reserve(txDataSize/2));
+    buffer.seekSet(0);
+    BTC::Io<BTC::Proto::Transaction>::unserialize(buffer, txDst);
+    if (buffer.eof())
+      return false;
+
+    // Get hash
+    if (!txSrc.HasMember("hash") || !txSrc["hash"].IsString())
+      return false;
+    txDst.Hash.SetHex(txSrc["hash"].GetString());
+  }
+
+  return true;
+}
+
+bool buildCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, const std::string &coinbaseMessage, rapidjson::Value &blockTemplate, size_t *extraNonceOffset)
+{
+  coinbaseTx.version = 1;
+
+  // TxIn
+  {
+    coinbaseTx.txIn.resize(1);
+    BTC::Proto::TxIn &txIn = coinbaseTx.txIn[0];
+    txIn.previousOutputHash.SetNull();
+    txIn.previousOutputIndex = std::numeric_limits<uint32_t>::max();
+
+    // scriptsig
+    if (!blockTemplate.HasMember("height") || !blockTemplate["height"].IsInt64())
+      return false;
+
+    xmstream scriptsig;
+    // Height
+    BTC::serializeVarSize(scriptsig, blockTemplate["height"].GetInt64());
+    // Coinbase message
+    scriptsig.write(coinbaseMessage.data(), coinbaseMessage.size());
+    // Extra nonce
+    *extraNonceOffset = scriptsig.offsetOf();
+    scriptsig.write<uint64_t>(0);
+    scriptsig.write<uint64_t>(0);
+    xvectorFromStream(std::move(scriptsig), txIn.scriptSig);
+    txIn.sequence = std::numeric_limits<uint32_t>::max();
+  }
+
+  // TxOut
+  {
+    coinbaseTx.txOut.resize(1);
+    // Value
+    BTC::Proto::TxOut &txOut = coinbaseTx.txOut[0];
+    if (!blockTemplate.HasMember("coinbasevalue") || !blockTemplate["coinbasevalue"].IsInt64())
+      return false;
+    txOut.value = blockTemplate["coinbasevalue"].GetInt64();
+
+    // pkScript (use single P2PKH)
+    txOut.pkScript.resize(sizeof(BTC::Proto::AddressTy) + 5);
+    xmstream p2pkh(txOut.pkScript.data(), txOut.pkScript.size());
+    p2pkh.write<uint8_t>(BTC::Script::OP_DUP);
+    p2pkh.write<uint8_t>(BTC::Script::OP_HASH160);
+    p2pkh.write<uint8_t>(sizeof(BTC::Proto::AddressTy));
+    p2pkh.write(address.begin(), address.size());
+    p2pkh.write<uint8_t>(BTC::Script::OP_EQUALVERIFY);
+    p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
+  }
+
+  coinbaseTx.lockTime = 0;
+  return true;
+}
+
+bool buildSegwitCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, rapidjson::Value &blockTemplate)
+{
+  coinbaseTx.version = 2;
+
+  // TxIn
+  {
+    coinbaseTx.txIn.resize(1);
+    typename BTC::Proto::TxIn &txIn = coinbaseTx.txIn[0];
+    txIn.previousOutputHash.SetNull();
+    txIn.previousOutputIndex = std::numeric_limits<uint32_t>::max();
+
+    // scriptsig
+    if (!blockTemplate.HasMember("height") || !blockTemplate["height"].IsInt64())
+      return false;
+
+    xmstream scriptsig;
+    // height
+    BTC::serializeVarSize(scriptsig, blockTemplate["height"].GetInt64());
+    // TODO: correct fill coinbase txin
+    txIn.sequence = std::numeric_limits<uint32_t>::max();
+  }
+
+  // TxOut
+  {
+    coinbaseTx.txOut.resize(2);
+
+    {
+      // First txout (funds)
+      BTC::Proto::TxOut &txOut = coinbaseTx.txOut[0];
+
+      if (!blockTemplate.HasMember("coinbasevalue") || !blockTemplate["coinbasevalue"].IsInt64())
+        return false;
+      txOut.value = blockTemplate["coinbasevalue"].GetInt64();
+
+      // pkScript (use single P2PKH)
+      txOut.pkScript.resize(sizeof(BTC::Proto::AddressTy) + 5);
+      xmstream p2pkh(txOut.pkScript.data(), txOut.pkScript.size());
+      p2pkh.write<uint8_t>(BTC::Script::OP_DUP);
+      p2pkh.write<uint8_t>(BTC::Script::OP_HASH160);
+      p2pkh.write<uint8_t>(sizeof(BTC::Proto::AddressTy));
+      p2pkh.write(address.begin(), address.size());
+      p2pkh.write<uint8_t>(BTC::Script::OP_EQUALVERIFY);
+      p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
+
+    }
+
+    {
+      // Second txout (witness)
+      BTC::Proto::TxOut &txOut = coinbaseTx.txOut[1];
+
+      if (!blockTemplate.HasMember("default_witness_commitment") || !blockTemplate["default_witness_commitment"].IsString())
+        return false;
+      const char *witnessCommitmentData = blockTemplate["default_witness_commitment"].GetString();
+      size_t witnessCommitmentDataSize = blockTemplate["default_witness_commitment"].GetStringLength();
+      txOut.value = 0;
+      txOut.pkScript.resize(witnessCommitmentDataSize/2);
+      hexLowerCase2bin(witnessCommitmentData, witnessCommitmentDataSize, txOut.pkScript.data());
+    }
+  }
+
+  coinbaseTx.lockTime = 0;
+  return true;
+}
+
+bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &prefix, BTC::Proto::AddressTy &address)
+{
+  std::vector<uint8_t> data;
+  if (!DecodeBase58(hrAddress.c_str(), data) ||
+      data.size() != (prefix.size() + sizeof(BTC::Proto::AddressTy) + 4))
+    return false;
+
+  if (memcmp(&data[0], &prefix[0], prefix.size()) != 0)
+    return false;
+
+  uint32_t addrHash;
+  memcpy(&addrHash, &data[prefix.size() + 20], 4);
+
+  uint8_t sha256[32];
+  SHA256_CTX ctx;
+  SHA256_Init(&ctx);
+  SHA256_Update(&ctx, &data[0], data.size() - 4);
+  SHA256_Final(sha256, &ctx);
+
+  SHA256_Init(&ctx);
+  SHA256_Update(&ctx, sha256, sizeof(sha256));
+  SHA256_Final(sha256, &ctx);
+
+  if (reinterpret_cast<uint32_t*>(sha256)[0] != addrHash)
+    return false;
+
+  memcpy(address.begin(), &data[prefix.size()], sizeof(BTC::Proto::AddressTy));
+  return true;
 }

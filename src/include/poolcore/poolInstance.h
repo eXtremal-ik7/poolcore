@@ -7,6 +7,7 @@
 #include <atomic>
 #include <thread>
 
+class PoolBackend;
 class CPoolThread;
 
 class CWorkInstance {
@@ -24,10 +25,10 @@ public:
 
   // Functions running in listener thread
   /// Send all miners stopping work signal
-  virtual void stopWork() = 0;
+  void stopWork();
   /// Function for interact with bitcoin RPC clients
   /// @arg blockTemplate: deserialized 'getblocktemplate' response
-  virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate) = 0;
+  virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate, PoolBackend *backend) = 0;
 
 public:
   // Functions running in worker thread
@@ -47,6 +48,7 @@ public:
 
   void newConnection(CPoolInstance &instance, aioObject *socket) { startAsyncTask(new AcceptConnectionTask(instance, Id_, socket)); }
   void newWork(CPoolInstance &instance, intrusive_ptr<CWorkInstance> work) { startAsyncTask(new AcceptBlockTemplateTask(instance, Id_, work)); }
+  void stopWork(CPoolInstance &instance) { startAsyncTask(new AcceptBlockTemplateTask(instance, Id_, nullptr)); }
 
 private:
   class Task {

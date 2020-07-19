@@ -11,6 +11,8 @@
 namespace XPM {
 class Proto {
 public:
+  static constexpr const char *TickerName = "XPM";
+
   using BlockHashTy = BTC::Proto::BlockHashTy;
   using TxHashTy = BTC::Proto::TxHashTy;
   using AddressTy = BTC::Proto::AddressTy;
@@ -62,9 +64,13 @@ public:
 
   using TxIn = BTC::Proto::TxIn;
   using TxOut = BTC::Proto::TxOut;
-  using Transaction = BTC::Proto::TransactionTy<XPM::Proto>;
+  using Transaction = BTC::Proto::Transaction;
   using Block = BTC::Proto::BlockTy<XPM::Proto>;
+
+  static bool loadHeaderFromTemplate(Proto::BlockHeader &header, rapidjson::Value &blockTemplate);
 };
+
+  bool loadHeaderFromTemplate(Proto::BlockHeader &header, rapidjson::Value &blockTemplate);
 }
 
 // Serialize

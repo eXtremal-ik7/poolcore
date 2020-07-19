@@ -6,12 +6,25 @@
 #include "blockmaker/serialize.h"
 #include "poolcommon/uint256.h"
 #include <openssl/sha.h>
+#include "rapidjson/document.h"
 #include "loguru.hpp"
 
-
 namespace BTC {
+namespace Script {
+  enum {
+    OP_0 = 0,
+    OP_RETURN = 0x6A,
+    OP_DUP = 0x76,
+    OP_EQUALVERIFY = 0x88,
+    OP_HASH160 = 0xA9,
+    OP_CHECKSIG = 0xAC
+  };
+}
+
 class Proto {
 public:
+  static constexpr const char *TickerName = "BTC";
+
   using BlockHashTy = ::uint256;
   using TxHashTy = ::uint256;
   using AddressTy = ::uint160;
@@ -93,6 +106,7 @@ public:
     // Memory only
     uint32_t SerializedDataOffset = 0;
     uint32_t SerializedDataSize = 0;
+    BTC::Proto::TxHashTy Hash;
 
     bool hasWitness() const {
       for (size_t i = 0; i < txIn.size(); i++) {
@@ -104,6 +118,9 @@ public:
     }
 
     BlockHashTy GetHash() const {
+      if (!Hash.IsNull())
+         return Hash;
+
       uint256 result;
       uint8_t buffer[4096];
       xmstream stream(buffer, sizeof(buffer));
@@ -117,6 +134,7 @@ public:
       SHA256_Init(&sha256);
       SHA256_Update(&sha256, result.begin(), sizeof(result));
       SHA256_Final(result.begin(), &sha256);
+      Hash = result;
       return result;
     }
   };
@@ -124,6 +142,8 @@ public:
   using Block = BlockTy<BTC::Proto>;
   using Transaction = TransactionTy<BTC::Proto>;
   using MessageBlock = Block;
+
+  static bool loadHeaderFromTemplate(BTC::Proto::BlockHeader &header, rapidjson::Value &blockTemplate);
 };
 }
 
@@ -308,5 +328,10 @@ template<typename T> struct Io<Proto::BlockTy<T>> {
     BTC::unpackFinalize(DynamicPtr<decltype (dst->vtx)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::BlockTy<T>, vtx)));
   }
 };
-
 }
+
+
+bool loadTransactionsFromTemplate(xvector<BTC::Proto::Transaction> &vtx, rapidjson::Value &blockTemplate, xmstream &buffer);
+bool buildSegwitCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, rapidjson::Value &blockTemplate);
+bool buildCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, const std::string &coinbaseMessage, rapidjson::Value &blockTemplate, size_t *extraNonceOffset);
+bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, BTC::Proto::AddressTy &address);

@@ -33,6 +33,9 @@ struct PoolBackendConfig {
   unsigned StatisticCheckInterval;
   bool CheckAddressEnabled;
 
+  std::string MiningAddress;
+  std::string CoinBaseMsg;
+
   // ZEC specify
   std::string poolTAddr;
   std::string poolZAddr;

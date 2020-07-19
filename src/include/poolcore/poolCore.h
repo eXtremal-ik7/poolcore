@@ -62,8 +62,10 @@ public:
 public:
   ~CNetworkClient() {}
 
+  virtual std::string prepareBlock(const std::string &blockData, size_t *blockDataPos) = 0;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
   virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, SendMoneyResult &result) = 0;
+  virtual void aioSubmitBlockPrepared(asyncBase *base, const std::string &query, void *callback) = 0;
 
   virtual void poll() = 0;
 

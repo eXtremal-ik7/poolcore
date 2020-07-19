@@ -15,4 +15,4 @@ add_library(poolcore STATIC
   usermgr.cpp
 )
 
-target_link_libraries(poolcore poolcommon blockmaker poolinstances RocksDB::rocksdb ${TBB_IMPORTED_TARGETS} OpenSSL::SSL OpenSSL::Crypto RapidJSON::rapidjson)
+target_link_libraries(poolcore poolcommon poolinstances RocksDB::rocksdb ${TBB_IMPORTED_TARGETS} OpenSSL::SSL OpenSSL::Crypto RapidJSON::rapidjson)

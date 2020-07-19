@@ -5,7 +5,7 @@ void BtcStratumInstance::stopWork()
 
 }
 
-void BtcStratumInstance::checkNewBlockTemplate(rapidjson::Value &blockTemplate)
+void BtcStratumInstance::checkNewBlockTemplate(rapidjson::Value &blockTemplate, PoolBackend *backend)
 {
 
 }

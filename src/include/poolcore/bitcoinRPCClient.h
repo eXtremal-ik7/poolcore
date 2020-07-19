@@ -13,8 +13,10 @@ class CBitcoinRpcClient : public CNetworkClient {
 public:
   CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password);
 
+  virtual std::string prepareBlock(const std::string &blockData, size_t *blockDataPos) override;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
   virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result) override;
+  virtual void aioSubmitBlockPrepared(asyncBase *base, const std::string &query, void *callback) override;
 
   virtual void poll() override;
 

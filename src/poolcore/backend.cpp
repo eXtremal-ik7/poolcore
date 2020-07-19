@@ -39,6 +39,7 @@ static void checkConsistency(AccountingDb *accounting)
 PoolBackend::PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher) :
   _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher)
 {
+  clientDispatcher.setBackend(this);
   _base = createAsyncBase(amOSDefault);
   _timeout = 8*1000000;
   TaskQueueEvent_ = newUserEvent(_base, 0, nullptr, nullptr);
