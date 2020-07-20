@@ -2,46 +2,52 @@
 #include "poolcore/thread.h"
 #include "loguru.hpp"
 
-void CPoolInstance::stopWork()
+
+CThreadPool::CThreadPool(unsigned threadsNum) : ThreadsNum_(threadsNum)
 {
-  for (unsigned i = 0; i < WorkersNum_; i++)
-    Workers_[i].stopWork(*this);
+  Threads_.reset(new ThreadData[threadsNum]);
+  for (unsigned i = 0; i < threadsNum; i++) {
+    ThreadData &threadData = Threads_[i];
+    threadData.Id = i;
+    threadData.Base = createAsyncBase(amOSDefault);
+    threadData.NewTaskEvent = newUserEvent(threadData.Base, 0, [](aioUserEvent*, void *arg) {
+      runTaskQueue(*static_cast<ThreadData*>(arg));
+    }, &threadData);
+  }
 }
 
-CPoolThread::CPoolThread()
+void CThreadPool::start()
 {
-  Base_ = createAsyncBase(amOSDefault);
-  NewTaskEvent_ = newUserEvent(Base_, 0, [](aioUserEvent*, void *arg) {
-    static_cast<CPoolThread*>(arg)->runTaskQueue();
-  }, this);
+  for (unsigned i = 0; i < ThreadsNum_; i++)  {
+    ThreadData &threadData = Threads_[i];
+    threadData.Thread = std::thread([](ThreadData &threadData) {
+      char name[32];
+      snprintf(name, sizeof(name), "worker%u", threadData.Id);
+      loguru::set_thread_name(name);
+      InitializeWorkerThread();
+      SetLocalThreadId(threadData.Id);
+      LOG_F(INFO, "worker %u started tid=%u", threadData.Id, GetGlobalThreadId());
+      asyncLoop(threadData.Base);
+    }, std::ref(threadData));
+  }
 }
 
-void CPoolThread::start(unsigned id)
+void CThreadPool::stop()
 {
-  Id_ = id;
-  Thread_ = std::thread([](CPoolThread *object) {
-    char name[32];
-    snprintf(name, sizeof(name), "worker%u", object->Id_);
-    loguru::set_thread_name(name);
-    InitializeWorkerThread();
-    LOG_F(INFO, "worker %u started tid=%u", object->Id_, GetWorkerThreadId());
-    asyncLoop(object->Base_);
-  }, this);
+  for (unsigned i = 0; i < ThreadsNum_; i++)  {
+    ThreadData &threadData = Threads_[i];
+    postQuitOperation(threadData.Base);
+    threadData.Thread.join();
+    LOG_F(INFO, "worker %u stopped", threadData.Id);
+  }
 }
 
-void CPoolThread::stop()
-{
-  postQuitOperation(Base_);
-  Thread_.join();
-  LOG_F(INFO, "worker %u stopped", Id_);
-}
-
-void CPoolThread::runTaskQueue()
+void CThreadPool::runTaskQueue(ThreadData &data)
 {
   Task *t;
   std::unique_ptr<Task> task;
-  while (TaskQueue_.try_pop(t)) {
+  while (data.TaskQueue.try_pop(t)) {
     task.reset(t);
-    t->run();
+    t->run(data.Id);
   }
 }

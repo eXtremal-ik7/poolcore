@@ -7,26 +7,13 @@
 #include "blockmaker/xpm.h"
 #include <unordered_map>
 
-//static void createListener(uint16_t port)
-//{
-//  HostAddress address;
-//  address.family = AF_INET;
-//  address.ipv4 = INADDR_ANY;
-//  address.port = htons(port);
-//  socketTy hSocket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
-//  socketReuseAddr(hSocket);
-//  if (socketBind(hSocket, &address) != 0) {
-//    LOG_F(ERROR, "cannot bind port: %i", port);
-//    exit(1);
-//  }
-//}
 
 template<typename Proto>
 class StratumInstance : public CPoolInstance {
 public:
-  StratumInstance(unsigned workersNum, CPoolThread *workers, rapidjson::Value &config) : CPoolInstance(workersNum, workers) {
+  StratumInstance(asyncBase *base, CThreadPool &threadPool, rapidjson::Value &config) : CPoolInstance(base, threadPool) {
     Name_ = (std::string)Proto::TickerName + ".stratum";
-    Data_.reset(new ThreadData[workersNum]);
+    Data_.reset(new ThreadData[threadPool.threadsNum()]);
     if (!(config.HasMember("port") && config["port"].IsUint())) {
       LOG_F(ERROR, "instance %s: can't read 'port' value from config", Name_.c_str());
       exit(1);
@@ -36,24 +23,39 @@ public:
   }
 
   virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate, PoolBackend *backend) override {
-    intrusive_ptr<CWorkInstance> work = ::checkNewBlockTemplate<Proto>(blockTemplate, backend->getConfig(), backend->getCoinInfo(), SerializeBuffer_, Name_);
+    intrusive_ptr<CSingleWorkInstance<Proto>> work = ::checkNewBlockTemplate<Proto>(blockTemplate, backend->getConfig(), backend->getCoinInfo(), SerializeBuffer_, Name_);
     if (!work.get())
       return;
-
-    for (unsigned i = 0; i < WorkersNum_; i++)
-      Workers_[i].newWork(*this, work);
+    for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
+      ThreadPool_.startAsyncTask(i, new AcceptWork(*this, work));
   }
 
-  virtual void acceptNewConnection(unsigned workerId, aioObject *socket) override {
+  virtual void stopWork() override {
+    for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
+      ThreadPool_.startAsyncTask(i, new AcceptWork(*this, nullptr));
+  }
+
+  void acceptConnection(unsigned workerId, socketTy socket, HostAddress address) {
 
   }
 
-  virtual void acceptNewWork(unsigned workerId, intrusive_ptr<CWorkInstance> work) override {
-    LOG_F(INFO, "work for %s received", Proto::TickerName);
+  void acceptWork(unsigned workerId, intrusive_ptr<CSingleWorkInstance<Proto>> work) {
+    LOG_F(INFO, "Work received for %s", Proto::TickerName);
   }
+
+public:
+  class AcceptWork : public CThreadPool::Task {
+  public:
+    AcceptWork(StratumInstance &instance, intrusive_ptr<CSingleWorkInstance<Proto>> work) : Instance_(instance), Work_(work) {}
+    void run(unsigned workerId) final { Instance_.acceptWork(workerId, Work_); }
+  private:
+    StratumInstance &Instance_;
+    intrusive_ptr<CSingleWorkInstance<Proto>> Work_;
+  };
 
 private:
   struct ThreadData {
+    asyncBase *WorkerBase;
     typename Proto::Block block;
   };
 

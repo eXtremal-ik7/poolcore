@@ -8,8 +8,9 @@
 template<typename Proto>
 class CSingleWorkInstance : public CWorkInstance {
 public:
-  typename Proto::Block block;
-  size_t extraNonceOffset;
+  typename Proto::Block Block;
+  uint64_t Height;
+  size_t ExtraNonceOffset;
 };
 
 template<typename Proto>
@@ -17,15 +18,22 @@ CSingleWorkInstance<Proto> *checkNewBlockTemplate(rapidjson::Value &blockTemplat
 {
   std::unique_ptr<CSingleWorkInstance<Proto>> work(new CSingleWorkInstance<Proto>);
 
+  // Height
+  if (!blockTemplate.HasMember("height") || !blockTemplate["height"].IsUint64()) {
+    LOG_F(WARNING, "%s: block template does not contains 'height' field", instanceName.c_str());
+    return nullptr;
+  }
+  work->Height = blockTemplate["height"].GetUint64();
+
   // Fill block with header fields and transactions
   // Header fields
-  if (!Proto::loadHeaderFromTemplate(work->block.header, blockTemplate)) {
+  if (!Proto::loadHeaderFromTemplate(work->Block.header, blockTemplate)) {
     LOG_F(WARNING, "%s: Malformed block template (can't parse block header)", instanceName.c_str());
     return nullptr;
   }
 
   // Transactions
-  if (!loadTransactionsFromTemplate(work->block.vtx, blockTemplate, serializeBuffer)) {
+  if (!loadTransactionsFromTemplate(work->Block.vtx, blockTemplate, serializeBuffer)) {
     LOG_F(WARNING, "%s: Malformed block template (can't parse transactions)", instanceName.c_str());
     return nullptr;
   }
@@ -38,8 +46,8 @@ CSingleWorkInstance<Proto> *checkNewBlockTemplate(rapidjson::Value &blockTemplat
   }
 
   bool coinBaseSuccess = coinInfo.SegwitEnabled ?
-    buildSegwitCoinbaseFromTemplate(work->block.vtx[0], miningAddress, blockTemplate) :
-    buildCoinbaseFromTemplate(work->block.vtx[0], miningAddress, cfg.CoinBaseMsg, blockTemplate, &work->extraNonceOffset);
+    buildSegwitCoinbaseFromTemplate(work->Block.vtx[0], miningAddress, blockTemplate) :
+    buildCoinbaseFromTemplate(work->Block.vtx[0], miningAddress, cfg.CoinBaseMsg, blockTemplate, &work->ExtraNonceOffset);
   if (!coinBaseSuccess) {
     LOG_F(WARNING, "%s: Insufficient data for coinbase transaction in block template", instanceName.c_str());
     return nullptr;

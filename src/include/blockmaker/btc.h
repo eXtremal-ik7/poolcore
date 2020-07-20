@@ -117,7 +117,7 @@ public:
       return false;
     }
 
-    BlockHashTy GetHash() const {
+    BlockHashTy GetHash() {
       if (!Hash.IsNull())
          return Hash;
 

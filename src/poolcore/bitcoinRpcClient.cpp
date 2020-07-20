@@ -205,7 +205,7 @@ std::string CBitcoinRpcClient::prepareBlock(const std::string &blockData, size_t
 
 bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result)
 {
-  auto &threadCtx = ThreadData_[GetWorkerThreadId()];
+  auto &threadCtx = ThreadData_[GetGlobalThreadId()];
   auto connection = ioExtractOrCreateConnection(base, threadCtx);
   if (!connection->Client)
     return false;
@@ -267,7 +267,7 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
 
 bool CBitcoinRpcClient::ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result)
 {
-  auto &threadCtx = ThreadData_[GetWorkerThreadId()];
+  auto &threadCtx = ThreadData_[GetGlobalThreadId()];
   auto connection = ioExtractOrCreateConnection(base, threadCtx);
   if (!connection->Client)
     return false;

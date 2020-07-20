@@ -6,4 +6,6 @@
 #pragma once
 
 void InitializeWorkerThread();
-unsigned GetWorkerThreadId();
+unsigned GetGlobalThreadId();
+unsigned GetLocalThreadId();
+unsigned SetLocalThreadId(unsigned threadId);

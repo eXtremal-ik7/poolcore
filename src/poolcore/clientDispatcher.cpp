@@ -4,7 +4,7 @@
 
 bool CNetworkClientDispatcher::ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result)
 {
-  unsigned threadId = GetWorkerThreadId();
+  unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
   for (size_t i = 0, ie = Clients_.size(); i != ie; ++i) {
     if (Clients_[currentClientIdx]->ioGetBalance(base, result))
@@ -29,7 +29,7 @@ bool CNetworkClientDispatcher::ioListUnspent(asyncBase *base, CNetworkClient::Li
 
 bool CNetworkClientDispatcher::ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result)
 {
-  unsigned threadId = GetWorkerThreadId();
+  unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
   for (size_t i = 0, ie = Clients_.size(); i != ie; ++i) {
     if (Clients_[currentClientIdx]->ioSendMoney(base, address, value, result))

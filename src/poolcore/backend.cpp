@@ -70,7 +70,7 @@ void PoolBackend::backendMain()
   coroutineCall(coroutineNew(updateStatisticProc, this, 0x100000));
   coroutineCall(coroutineNew(payoutProc, this, 0x100000)); 
   
-  LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetWorkerThreadId());
+  LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
   if (!_cfg.PoolFee.empty()) {
     for (const auto &poolFeeEntry: _cfg.PoolFee)
       LOG_F(INFO, "  Pool fee of %.2f to %s", poolFeeEntry.Percentage, poolFeeEntry.Address.c_str());

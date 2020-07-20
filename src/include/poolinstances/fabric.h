@@ -8,10 +8,10 @@
 
 class PoolInstanceFabric {
 public:
-  static CPoolInstance *get(unsigned workersNum, CPoolThread *workers, const std::string &type, const std::string &protocol, rapidjson::Value &config);
+  static CPoolInstance *get(asyncBase *base, CThreadPool &pool, const std::string &type, const std::string &protocol, rapidjson::Value &config);
 
 private:
-  using NewPoolInstanceFunction = std::function<CPoolInstance*(unsigned, CPoolThread*, rapidjson::Value&)>;
+  using NewPoolInstanceFunction = std::function<CPoolInstance*(asyncBase*, CThreadPool&, rapidjson::Value&)>;
 
 private:
   static std::unordered_map<std::string, NewPoolInstanceFunction> FabricData_;
