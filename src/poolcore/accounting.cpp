@@ -211,6 +211,7 @@ void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
     std::vector<int64_t> feeValues;
     for (const auto &poolFeeRecord: _cfg.PoolFee) {
       int64_t value = generatedCoins * (poolFeeRecord.Percentage / 100.0f);
+      feeValues.push_back(value);
       feeValuesSum += value;
     }
 

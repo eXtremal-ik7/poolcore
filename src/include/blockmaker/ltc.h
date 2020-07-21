@@ -22,6 +22,6 @@ public:
   using TxWitness = BTC::Proto::TxWitness;
   using Transaction = BTC::Proto::Transaction;
 
-  static bool loadHeaderFromTemplate(Proto::BlockHeader &header, rapidjson::Value &blockTemplate) { BTC::Proto::loadHeaderFromTemplate(header, blockTemplate); }
+  static bool loadHeaderFromTemplate(Proto::BlockHeader &header, rapidjson::Value &blockTemplate) { return BTC::Proto::loadHeaderFromTemplate(header, blockTemplate); }
 };
 }

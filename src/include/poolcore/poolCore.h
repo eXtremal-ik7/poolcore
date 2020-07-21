@@ -5,7 +5,12 @@
 #include <thread>
 #include <vector>
 #include "rapidjson/document.h"
+#include "p2putils/xmstream.h"
+#include "poolcore/thread.h"
+#include <functional>
+#include <stack>
 
+class CPreparedQuery;
 class CNetworkClientDispatcher;
 struct asyncBase;
 
@@ -32,6 +37,8 @@ struct CCoinInfo {
 
 class CNetworkClient {
 public:
+  using SumbitBlockCb = std::function<void(bool, const std::string &)>;
+
   struct GetBalanceResult {
     int64_t Balance;
     int64_t Immatured;
@@ -60,12 +67,16 @@ public:
   };
 
 public:
+  CNetworkClient(unsigned threadsNum) {
+    ThreadData_.reset(new ThreadData[threadsNum]);
+  }
+
   ~CNetworkClient() {}
 
-  virtual std::string prepareBlock(const std::string &blockData, size_t *blockDataPos) = 0;
+  virtual CPreparedQuery *prepareBlock(const void *data, size_t size) = 0;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
   virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, SendMoneyResult &result) = 0;
-  virtual void aioSubmitBlockPrepared(asyncBase *base, const std::string &query, void *callback) = 0;
+  virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, SumbitBlockCb callback) = 0;
 
   virtual void poll() = 0;
 
@@ -73,5 +84,45 @@ public:
 
 protected:
   CNetworkClientDispatcher *Dispatcher_ = nullptr;
+
+protected:
+
+
+private:
+  struct ThreadData {
+    std::stack<std::unique_ptr<xmstream>> MemoryPool;
+  };
+
+private:
+  std::unique_ptr<ThreadData[]> ThreadData_;
+
+friend class CPreparedQuery;
+};
+
+class CPreparedQuery {
+public:
+  CPreparedQuery(CNetworkClient *client) : Client_(client) {
+    auto &memoryPool = Client_->ThreadData_[GetGlobalThreadId()].MemoryPool;
+    if (!memoryPool.empty()) {
+      Stream_ = memoryPool.top().release();
+      memoryPool.pop();
+    } else {
+      Stream_ = new xmstream;
+    }
+  }
+
+  virtual ~CPreparedQuery() {
+    Client_->ThreadData_[GetGlobalThreadId()].MemoryPool.emplace(Stream_);
+  }
+
+  template<typename T> T *client() { return static_cast<T*>(Client_); }
+  xmstream &stream() { return *Stream_; }
+  void setPayLoadOffset(size_t offset) { PayLoadOffset_ = offset; }
+  size_t payLoadOffset() { return PayLoadOffset_; }
+
+protected:
+  CNetworkClient *Client_ = nullptr;
+  xmstream *Stream_ = nullptr;
+  size_t PayLoadOffset_ = 0;
 };
 

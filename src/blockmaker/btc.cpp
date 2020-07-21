@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "blockmaker/btc.h"
+#include "blockmaker/serializeJson.h"
 #include "poolcore/base58.h"
 
 namespace BTC {
@@ -185,7 +186,7 @@ bool buildCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::
 
     xmstream scriptsig;
     // Height
-    BTC::serializeVarSize(scriptsig, blockTemplate["height"].GetInt64());
+    BTC::serializeForCoinbase(scriptsig, blockTemplate["height"].GetInt64());
     // Coinbase message
     scriptsig.write(coinbaseMessage.data(), coinbaseMessage.size());
     // Extra nonce
@@ -237,7 +238,7 @@ bool buildSegwitCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::P
 
     xmstream scriptsig;
     // height
-    BTC::serializeVarSize(scriptsig, blockTemplate["height"].GetInt64());
+    BTC::serializeForCoinbase(scriptsig, blockTemplate["height"].GetInt64());
     // TODO: correct fill coinbase txin
     txIn.sequence = std::numeric_limits<uint32_t>::max();
   }
@@ -283,6 +284,62 @@ bool buildSegwitCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::P
   coinbaseTx.lockTime = 0;
   return true;
 }
+
+void serializeJsonInside(xmstream &stream, const BTC::Proto::BlockHeader &header)
+{
+  serializeJson(stream, "version", header.nVersion); stream.write(',');
+  serializeJson(stream, "hashPrevBlock", header.hashPrevBlock); stream.write(',');
+  serializeJson(stream, "hashMerkleRoot", header.hashMerkleRoot); stream.write(',');
+  serializeJson(stream, "time", header.nTime); stream.write(',');
+  serializeJson(stream, "bits", header.nBits); stream.write(',');
+  serializeJson(stream, "nonce", header.nNonce);
+}
+
+void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::TxIn &txin)
+{
+  if (fieldName) {
+    stream.write('\"');
+    stream.write(fieldName, strlen(fieldName));
+    stream.write("\":", 2);
+  }
+
+  stream.write('{');
+  serializeJson(stream, "previousOutputHash", txin.previousOutputHash); stream.write(',');
+  serializeJson(stream, "previousOutputIndex", txin.previousOutputIndex); stream.write(',');
+  serializeJson(stream, "scriptsig", txin.scriptSig); stream.write(',');
+  serializeJson(stream, "sequence", txin.sequence);
+  stream.write('}');
+}
+
+void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::TxOut &txout)
+{
+  if (fieldName) {
+    stream.write('\"');
+    stream.write(fieldName, strlen(fieldName));
+    stream.write("\":", 2);
+  }
+
+  stream.write('{');
+  serializeJson(stream, "value", txout.value); stream.write(',');
+  serializeJson(stream, "pkscript", txout.pkScript);
+  stream.write('}');
+}
+
+void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::Transaction &data) {
+  if (fieldName) {
+    stream.write('\"');
+    stream.write(fieldName, strlen(fieldName));
+    stream.write("\":", 2);
+  }
+
+  stream.write('{');
+  serializeJson(stream, "version", data.version); stream.write(',');
+  serializeJson(stream, "txin", data.txIn); stream.write(',');
+  serializeJson(stream, "txout", data.txOut); stream.write(',');
+  serializeJson(stream, "lockTime", data.lockTime);
+  stream.write('}');
+}
+
 
 bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &prefix, BTC::Proto::AddressTy &address)
 {

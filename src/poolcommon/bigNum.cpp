@@ -3,7 +3,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "bigNum.h"
+#include "poolcommon/bigNum.h"
 
 void uint256ToBN(mpz_ptr bignum, const uint256 &N)
 {

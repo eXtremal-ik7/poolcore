@@ -68,9 +68,26 @@ public:
   using Block = BTC::Proto::BlockTy<XPM::Proto>;
 
   static bool loadHeaderFromTemplate(Proto::BlockHeader &header, rapidjson::Value &blockTemplate);
-};
 
-  bool loadHeaderFromTemplate(Proto::BlockHeader &header, rapidjson::Value &blockTemplate);
+  // Consensus (PoW)
+  struct CheckConsensusCtx {
+    mpz_t bnPrimeChainOrigin;
+    mpz_t bn;
+    mpz_t exp;
+    mpz_t EulerResult;
+    mpz_t FermatResult;
+    mpz_t two;
+  };
+
+  struct ChainParams {
+    // XPM specific
+    uint32_t minimalChainLength;
+  };
+
+
+  static void checkConsensusInitialize(CheckConsensusCtx &ctx);
+  static bool checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx &ctx, ChainParams &chainParams, uint64_t *shareSize);
+};
 }
 
 // Serialize
@@ -90,3 +107,5 @@ template<> struct Io<XPM::Proto::BlockHeader> {
 };
 
 }
+
+void serializeJsonInside(xmstream &stream, const XPM::Proto::BlockHeader &header);

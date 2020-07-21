@@ -21,6 +21,26 @@ template<typename T> static inline void unserialize(xmstream &dst, T &data) { Io
 template<typename T> static inline void unpack(xmstream &src, DynamicPtr<T> dst) { Io<T>::unpack(src, dst); }
 template<typename T> static inline void unpackFinalize(DynamicPtr<T> dst) { Io<T>::unpackFinalize(dst); }
 
+static inline void serializeForCoinbase(xmstream &stream, uint64_t value)
+{
+  uint8_t size = 0;
+
+  {
+    uint64_t v = value;
+    do {
+      v >>= 8;
+      size++;
+    } while (v);
+  }
+
+  stream.write<uint8_t>(size);
+  uint64_t v = value;
+  do {
+    stream.write<uint8_t>(v & 0xFF);
+    v >>= 8;
+  } while (v);
+}
+
 // variable size
 static inline void serializeVarSize(xmstream &stream, uint64_t value)
 {

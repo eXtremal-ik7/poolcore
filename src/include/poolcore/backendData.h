@@ -183,7 +183,7 @@ struct UserBalanceRecord {
   int64_t Paid;
 
   UserBalanceRecord() {}
-  UserBalanceRecord(const std::string &userIdArg, int64_t defaultMinimalPayout) :
+  UserBalanceRecord(const std::string &userIdArg, int64_t) :
     Login(userIdArg), Balance(0), Requested(0), Paid(0) {}
       
   std::string getPartitionId() const { return "default"; }

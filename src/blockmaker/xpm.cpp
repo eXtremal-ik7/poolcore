@@ -4,6 +4,8 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "blockmaker/xpm.h"
+#include "blockmaker/serializeJson.h"
+#include "poolcommon/arith_uint256.h"
 
 namespace BTC {
 
@@ -106,6 +108,208 @@ void Io<XPM::Proto::BlockHeader>::unpackFinalize(DynamicPtr<XPM::Proto::BlockHea
 }
 
 namespace XPM {
+// XPM Proof of work
+static constexpr int nFractionalBits = 24;
+static constexpr unsigned TARGET_FRACTIONAL_MASK = (1u<<nFractionalBits) - 1;
+static constexpr unsigned TARGET_LENGTH_MASK = ~TARGET_FRACTIONAL_MASK;
+static constexpr uint64_t nFractionalDifficultyMax = (1llu << (nFractionalBits + 32));
+static constexpr uint64_t nFractionalDifficultyMin = (1llu << 32);
+static constexpr uint64_t nFractionalDifficultyThreshold = (1llu << (8 + 32));
+static constexpr unsigned nWorkTransitionRatio = 32;
+
+static inline unsigned int TargetGetLength(unsigned int nBits)
+{
+  return ((nBits & TARGET_LENGTH_MASK) >> nFractionalBits);
+}
+
+static inline unsigned int TargetGetFractional(unsigned int nBits)
+{
+    return (nBits & TARGET_FRACTIONAL_MASK);
+}
+
+/// Returns value of hyperbolic function of difficulty fractional part
+/// range:
+///   f(0.000000000000000000000000) = 2^32 = 4294967296
+///   f(0.999999940395355224609375) = 2^56 = 72057594037927936
+uint64_t TargetGetFractionalDifficulty(unsigned int nBits)
+{
+  return nFractionalDifficultyMax / static_cast<uint64_t>((1llu << nFractionalBits) - TargetGetFractional(nBits));
+}
+
+static inline unsigned int TargetFromInt(unsigned int nLength)
+{
+    return (nLength << nFractionalBits);
+}
+
+static uint32_t fractionalPart( XPM::Proto::CheckConsensusCtx &ctx)
+{
+  // Calculate fractional length
+  // ctx.exp = ((ctx.bn - ctx.result) << nFractionalBits) / ctx.bn
+  mpz_sub(ctx.exp, ctx.bn, ctx.FermatResult);
+  mpz_mul_2exp(ctx.exp, ctx.exp, nFractionalBits);
+  mpz_div(ctx.exp, ctx.exp, ctx.bn);
+  return static_cast<uint32_t>(mpz_get_ui(ctx.exp)) & ((1 << nFractionalBits) - 1);
+}
+
+static inline double getPrimeDifficulty(unsigned int nBits)
+{
+    return ((double) nBits / (double) (1 << nFractionalBits));
+}
+
+static bool FermatProbablePrimalityTest(XPM::Proto::CheckConsensusCtx &ctx)
+{
+  // FermatResult = 2^(bn - 1) mod bn
+  mpz_sub_ui(ctx.exp, ctx.bn, 1);
+  mpz_powm(ctx.FermatResult, ctx.two, ctx.exp, ctx.bn);
+  return mpz_cmp_ui(ctx.FermatResult, 1) == 0;
+}
+
+static bool EulerLagrangeLifchitzPrimalityTest(XPM::Proto::CheckConsensusCtx &ctx, bool isSophieGermain)
+{
+  // EulerResult = 2^((bn - 1)/2) mod bn
+  mpz_sub_ui(ctx.exp, ctx.bn, 1);
+  mpz_fdiv_q_2exp(ctx.exp, ctx.exp, 1);
+  mpz_powm(ctx.EulerResult, ctx.two, ctx.exp, ctx.bn);
+
+  // FermatResult = (EulerResult ^ 2) mod bn = 2^(bn - 1) mod bn
+  mpz_mul(ctx.FermatResult, ctx.EulerResult, ctx.EulerResult);
+  mpz_mod(ctx.FermatResult, ctx.FermatResult, ctx.bn);
+
+  auto mod8 = mpz_get_ui(ctx.bn) % 8;
+  bool passedTest = false;
+  if (isSophieGermain && (mod8 == 7)) {
+    passedTest = mpz_cmp_ui(ctx.EulerResult, 1) == 0;
+  } else if (isSophieGermain && (mod8 == 3)) {
+    mpz_add_ui(ctx.exp, ctx.EulerResult, 1);
+    passedTest = mpz_cmp(ctx.exp, ctx.bn) == 0;
+  } else if ((!isSophieGermain) && (mod8 == 5)) {
+    mpz_add_ui(ctx.exp, ctx.EulerResult, 1);
+    passedTest = mpz_cmp(ctx.exp, ctx.bn) == 0;
+  } else if ((!isSophieGermain) && (mod8 == 1)) {
+    passedTest = mpz_cmp_ui(ctx.EulerResult, 1) == 0;
+  }
+
+  return passedTest;
+}
+
+static unsigned primeChainLength(XPM::Proto::CheckConsensusCtx &ctx, bool isSophieGermain)
+{
+  if (!FermatProbablePrimalityTest(ctx))
+    return fractionalPart(ctx);
+
+  uint32_t rationalPart = 0;
+  while (true) {
+    rationalPart++;
+
+    // Calculate next number in Cunningham chain
+    // 1CC (Sophie Germain) bn = bn*2 + 1
+    // 2CC bn = bn*2 - 1
+    mpz_mul_2exp(ctx.bn, ctx.bn, 1);
+    if (isSophieGermain)
+      mpz_add_ui(ctx.bn, ctx.bn, 1);
+    else
+      mpz_sub_ui(ctx.bn, ctx.bn, 1);
+
+    bool EulerTestPassed = EulerLagrangeLifchitzPrimalityTest(ctx, isSophieGermain);
+    bool FermatTestPassed = mpz_cmp_ui(ctx.FermatResult, 1) == 0;
+    if (EulerTestPassed != FermatTestPassed) {
+      // Euler-Lagrange-Lifchitz and Fermat tests gives different results!
+      return 0;
+    }
+
+    if (!EulerTestPassed)
+      return (rationalPart << nFractionalBits) | fractionalPart(ctx);
+  }
+}
+
+/// Get length of chain type 1 / Sophie Germain (n, 2n+1, ...)
+static inline uint32_t c1Length(XPM::Proto::CheckConsensusCtx &ctx)
+{
+  mpz_sub_ui(ctx.bn, ctx.bnPrimeChainOrigin, 1);
+  return primeChainLength(ctx, true);
+}
+
+/// Get length of chain type 2 (n, 2n-1, ...)
+static inline uint32_t c2Length(XPM::Proto::CheckConsensusCtx &ctx)
+{
+  mpz_add_ui(ctx.bn, ctx.bnPrimeChainOrigin, 1);
+  return primeChainLength(ctx, false);
+}
+
+/// Get length of bitwin chain
+static inline uint32_t bitwinLength(uint32_t l1, uint32_t l2)
+{
+  return TargetGetLength(l1) > TargetGetLength(l2) ?
+    (l2 + TargetFromInt(TargetGetLength(l2)+1)) :
+    (l1 + TargetFromInt(TargetGetLength(l1)));
+}
+
+void Proto::checkConsensusInitialize(Proto::CheckConsensusCtx &ctx)
+{
+  mpz_init(ctx.bnPrimeChainOrigin);
+  mpz_init(ctx.bn);
+  mpz_init(ctx.exp);
+  mpz_init(ctx.EulerResult);
+  mpz_init(ctx.FermatResult);
+  mpz_init(ctx.two);
+  mpz_set_ui(ctx.two, 2);
+}
+
+bool Proto::checkConsensus(const Proto::BlockHeader &header, Proto::CheckConsensusCtx &ctx, Proto::ChainParams &chainParams, uint64_t *shareSize)
+{
+  // Check target
+  *shareSize = 0;
+  if (TargetGetLength(header.nBits) < chainParams.minimalChainLength || TargetGetLength(header.nBits) > 99)
+    return false;
+
+  XPM::Proto::BlockHashTy hash = header.GetOriginalHeaderHash();
+
+  {
+    // Check header hash limit (most significant bit of hash must be 1)
+    uint8_t hiByte = *(hash.begin() + 31);
+    if (!(hiByte & 0x80))
+      return false;
+  }
+
+  // Check target for prime proof-of-work
+  uint256ToBN(ctx.bnPrimeChainOrigin, hash);
+  mpz_mul(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, header.bnPrimeChainMultiplier.get_mpz_t());
+
+  auto bnPrimeChainOriginBitSize = mpz_sizeinbase(ctx.bnPrimeChainOrigin, 2);
+  if (bnPrimeChainOriginBitSize < 255)
+    return false;
+  if (bnPrimeChainOriginBitSize > 2000)
+    return false;
+
+  uint32_t l1 = c1Length(ctx);
+  uint32_t l2 = c2Length(ctx);
+  uint32_t lbitwin = bitwinLength(l1, l2);
+  if (!(l1 >= header.nBits || l2 >= header.nBits || lbitwin >= header.nBits))
+    return false;
+
+  uint32_t chainLength;
+  chainLength = std::max(l1, l2);
+  chainLength = std::max(chainLength, lbitwin);
+  *shareSize = TargetGetLength(chainLength);
+
+  // Check that the certificate (bnPrimeChainMultiplier) is normalized
+  if (mpz_get_ui(header.bnPrimeChainMultiplier.get_mpz_t()) % 2 == 0 && mpz_get_ui(ctx.bnPrimeChainOrigin) % 4 == 0) {
+     mpz_fdiv_q_2exp(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+
+     // Calculate extended C1, C2 & bitwin chain lengths
+     mpz_sub_ui(ctx.bn, ctx.bnPrimeChainOrigin, 1);
+     uint32_t l1Extended = FermatProbablePrimalityTest(ctx) ? l1 + (1 << nFractionalBits) : fractionalPart(ctx);
+     mpz_add_ui(ctx.bn, ctx.bnPrimeChainOrigin, 1);
+     uint32_t l2Extended = FermatProbablePrimalityTest(ctx) ? l2 + (1 << nFractionalBits) : fractionalPart(ctx);
+     uint32_t lbitwinExtended = bitwinLength(l1Extended, l2Extended);
+     if (l1Extended > chainLength || l2Extended > chainLength || lbitwinExtended > chainLength)
+       return false;
+  }
+
+  // TODO: store chain length and type (for what?)
+  return true;
+}
+
 bool Proto::loadHeaderFromTemplate(XPM::Proto::BlockHeader &header, rapidjson::Value &blockTemplate)
 {
   // version
@@ -138,4 +342,16 @@ bool Proto::loadHeaderFromTemplate(XPM::Proto::BlockHeader &header, rapidjson::V
   header.bnPrimeChainMultiplier = 0;
   return true;
 }
+}
+
+void serializeJsonInside(xmstream &stream, const XPM::Proto::BlockHeader &header)
+{
+  std::string bnPrimeChainMultiplier = header.bnPrimeChainMultiplier.get_str();
+  serializeJson(stream, "version", header.nVersion); stream.write(',');
+  serializeJson(stream, "hashPrevBlock", header.hashPrevBlock); stream.write(',');
+  serializeJson(stream, "hashMerkleRoot", header.hashMerkleRoot); stream.write(',');
+  serializeJson(stream, "time", header.nTime); stream.write(',');
+  serializeJson(stream, "bits", header.nBits); stream.write(',');
+  serializeJson(stream, "nonce", header.nNonce); stream.write(',');
+  serializeJson(stream, "bnPrimeChainMultiplier", bnPrimeChainMultiplier);
 }

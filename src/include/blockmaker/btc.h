@@ -330,6 +330,10 @@ template<typename T> struct Io<Proto::BlockTy<T>> {
 };
 }
 
+void serializeJsonInside(xmstream &stream, const BTC::Proto::BlockHeader &header);
+void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::TxIn &txin);
+void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::TxOut &txout);
+void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::Transaction &data);
 
 bool loadTransactionsFromTemplate(xvector<BTC::Proto::Transaction> &vtx, rapidjson::Value &blockTemplate, xmstream &buffer);
 bool buildSegwitCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, rapidjson::Value &blockTemplate);

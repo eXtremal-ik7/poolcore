@@ -77,6 +77,7 @@ public:
   PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher);
   const PoolBackendConfig &getConfig() { return _cfg; }
   const CCoinInfo &getCoinInfo() { return CoinInfo_; }
+  CNetworkClientDispatcher &getClientDispatcher() { return ClientDispatcher_; }
 
   void start();
   void stop();
