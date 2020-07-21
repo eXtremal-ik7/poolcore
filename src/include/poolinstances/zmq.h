@@ -5,53 +5,12 @@
 #include "poolcore/poolCore.h"
 #include "poolcore/poolInstance.h"
 #include "poolcore/thread.h"
+#include "poolcore/usermgr.h"
 #include "blockmaker/merkleTree.h"
 #include <asyncio/socket.h>
 #include <asyncioextras/zmtp.h>
 #include "protocol.pb.h"
 
-using ListenerCallback = std::function<void(socketTy, HostAddress, void*)>;
-
-struct ListenerContext {
-   ListenerCallback Callback;
-  void *Arg;
-};
-
-static void listenerAcceptCb(AsyncOpStatus status, aioObject *object, HostAddress address, socketTy socket, void *arg)
-{
-  if (status == aosSuccess) {
-    ListenerContext *ctx = static_cast<ListenerContext*>(arg);
-    ctx->Callback(socket, address, ctx->Arg);
-  }
-
-  aioAccept(object, 0, listenerAcceptCb, arg);
-}
-
-static void createListener(asyncBase *base, uint16_t port, ListenerCallback callback, void *arg)
-{
-  HostAddress address;
-  address.family = AF_INET;
-  address.ipv4 = INADDR_ANY;
-  address.port = htons(port);
-  socketTy hSocket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
-  socketReuseAddr(hSocket);
-  if (socketBind(hSocket, &address) != 0) {
-    LOG_F(ERROR, "cannot bind port: %i", port);
-    exit(1);
-  }
-
-  if (socketListen(hSocket) != 0) {
-    LOG_F(ERROR, "listen error: %i", port);
-    exit(1);
-  }
-
-  aioObject *object = newSocketIo(base, hSocket);
-
-  ListenerContext *context = new ListenerContext;
-  context->Callback = callback;
-  context->Arg = arg;
-  aioAccept(object, 0, listenerAcceptCb, context);
-}
 
 static bool checkRequest(pool::proto::Request &req,
                          pool::proto::Reply &rep,
@@ -73,7 +32,7 @@ static bool checkRequest(pool::proto::Request &req,
 template<typename Proto>
 class ZmqInstance : public CPoolInstance {
 public:
-  ZmqInstance(asyncBase *base, CThreadPool &threadPool, rapidjson::Value &config) : CPoolInstance(base, threadPool) {
+  ZmqInstance(asyncBase *monitorBase, UserManager &userMgr, CThreadPool &threadPool, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool) {
     Name_ = (std::string)Proto::TickerName + ".zmq";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
@@ -96,7 +55,7 @@ public:
     MinShareLength_ = config["minShareLength"].GetUint();
 
     // Frontend listener
-    createListener(base, port, [](socketTy socket, HostAddress, void *arg) { static_cast<ZmqInstance*>(arg)->newFrontendConnection(socket); }, this);
+    createListener(monitorBase, port, [](socketTy socket, HostAddress, void *arg) { static_cast<ZmqInstance*>(arg)->newFrontendConnection(socket); }, this);
 
     // Worker/signal listeners (2*<worker num> ports used)
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
@@ -215,8 +174,18 @@ private:
       return;
     }
 
-    // block height
     const pool::proto::Share& share = req.share();
+
+    // check user name
+    // TODO: move it to connection
+    UserManager::Credentials credentials;
+    if (!UserMgr_.getUserCredentials(share.addr(), credentials)) {
+      rep.set_errstr((std::string)"Unknown user " + share.addr());
+      rep.set_error(pool::proto::Reply::INVALID);
+      return;
+    }
+
+    // block height
     if (share.height() != data.Height) {
       rep.set_error(pool::proto::Reply::STALE);
       return;

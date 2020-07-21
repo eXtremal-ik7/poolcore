@@ -170,7 +170,6 @@ public:
   // Synchronous api
   bool validateSession(const std::string &id, std::string &login);
   bool getUserCredentials(const std::string &login, Credentials &out);
-  bool getUserInfo(const std::string &login, UserInfo &info);
   bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);
 
 private:

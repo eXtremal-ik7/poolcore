@@ -1,4 +1,5 @@
 #include "poolcore/backend.h"
+#include "poolcore/backendData.h"
 #include "poolcore/thread.h"
 #include "asyncio/coroutine.h"
 #include "p2putils/xmstream.h"
@@ -73,7 +74,7 @@ void PoolBackend::backendMain()
   LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
   if (!_cfg.PoolFee.empty()) {
     for (const auto &poolFeeEntry: _cfg.PoolFee)
-      LOG_F(INFO, "  Pool fee of %.2f to %s", poolFeeEntry.Percentage, poolFeeEntry.Address.c_str());
+      LOG_F(INFO, "  Pool fee of %.2f to %s", poolFeeEntry.Percentage, poolFeeEntry.User.c_str());
   } else {
     LOG_F(INFO, "  Pool fee disabled");
   }
@@ -142,4 +143,39 @@ void PoolBackend::onShare(const Share *share)
 void PoolBackend::onStats(const Stats *stats)
 {
   _statistics->addStats(stats);
+}
+
+void PoolBackend::queryFoundBlocksImpl(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback)
+{
+  auto &db = accountingDb()->getFoundBlocksDb();
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
+  if (heightFrom != -1) {
+    FoundBlockRecord blk;
+    blk.Height = heightFrom;
+    blk.Hash = hashFrom;
+    It->seek(blk);
+    It->prev();
+  } else {
+    It->seekLast();
+  }
+
+  std::vector<std::string> hashes;
+  std::vector<int64_t> confirmations;
+  std::vector<FoundBlockRecord> foundBlocks;
+  for (unsigned i = 0; i < count && It->valid(); i++) {
+    FoundBlockRecord dbBlock;
+    RawData data = It->value();
+    if (!dbBlock.deserializeValue(data.data, data.size))
+      break;
+    foundBlocks.push_back(dbBlock);
+    confirmations.push_back(-2);
+    hashes.push_back(dbBlock.Hash);
+    It->prev();
+  }
+
+  // query confirmations
+  if (count)
+    ClientDispatcher_.ioGetBlockConfirmations(_base, hashes, confirmations);
+
+  callback(foundBlocks, confirmations);
 }

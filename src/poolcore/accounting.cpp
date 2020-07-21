@@ -253,7 +253,7 @@ void AccountingDb::addShare(const Share *share, const StatisticDb *statistic)
       int64_t totalValue = 0;
       std::list<payoutAggregate> agg;
       for (size_t i = 0, ie = _cfg.PoolFee.size(); i != ie; ++i) {
-        agg.push_back(payoutAggregate(_cfg.PoolFee[0].Address, 0));
+        agg.push_back(payoutAggregate(_cfg.PoolFee[0].User, 0));
         agg.front().payoutValue = feeValues[i];
       }
       

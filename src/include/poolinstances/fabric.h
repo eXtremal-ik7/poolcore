@@ -6,12 +6,14 @@
 #include <functional>
 #include <unordered_map>
 
+class UserManager;
+
 class PoolInstanceFabric {
 public:
-  static CPoolInstance *get(asyncBase *base, CThreadPool &pool, const std::string &type, const std::string &protocol, rapidjson::Value &config);
+  static CPoolInstance *get(asyncBase *base, UserManager &userMgr, CThreadPool &pool, const std::string &type, const std::string &protocol, rapidjson::Value &config);
 
 private:
-  using NewPoolInstanceFunction = std::function<CPoolInstance*(asyncBase*, CThreadPool&, rapidjson::Value&)>;
+  using NewPoolInstanceFunction = std::function<CPoolInstance*(asyncBase*, UserManager&, CThreadPool&, rapidjson::Value&)>;
 
 private:
   static std::unordered_map<std::string, NewPoolInstanceFunction> FabricData_;

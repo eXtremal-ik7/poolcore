@@ -12,6 +12,9 @@
 class p2pNode;
 
 class PoolBackend {
+public:
+  using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<int64_t>&)>;
+
 private:
   class Task {
   public:
@@ -33,6 +36,17 @@ private:
     void run(PoolBackend *backend) final { backend->onStats(Stats_.get()); }
   private:
     std::unique_ptr<Stats> Stats_;
+  };
+
+  class QueryFoundBlocksTask : public Task {
+  public:
+    QueryFoundBlocksTask(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) : HeightFrom_(heightFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
+    void run(PoolBackend *backend) final { backend->queryFoundBlocksImpl(HeightFrom_, HashFrom_, Count_, Callback_); }
+  private:
+    uint64_t HeightFrom_;
+    std::string HashFrom_;
+    uint32_t Count_;
+    QueryFoundBlocksCallback Callback_;
   };
 
 private:
@@ -69,8 +83,9 @@ private:
   
   void onShare(const Share *share);
   void onStats(const Stats *stats);
+  void queryFoundBlocksImpl(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
   
-  
+
 public:
   PoolBackend(const PoolBackend&) = delete;
   PoolBackend(PoolBackend&&) = default;
@@ -87,6 +102,7 @@ public:
   // Asynchronous api
   void sendShare(Share *share) { startAsyncTask(new TaskShare(share)); }
   void sendStats(Stats *stats) { startAsyncTask(new TaskStats(stats)); }
+  void queryFoundBlocks(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { startAsyncTask(new QueryFoundBlocksTask(heightFrom, hashFrom, count, callback)); }
 
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }

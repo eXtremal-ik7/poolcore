@@ -11,7 +11,7 @@
 template<typename Proto>
 class StratumInstance : public CPoolInstance {
 public:
-  StratumInstance(asyncBase *base, CThreadPool &threadPool, rapidjson::Value &config) : CPoolInstance(base, threadPool) {
+  StratumInstance(asyncBase *base, UserManager &userMgr, CThreadPool &threadPool, rapidjson::Value &config) : CPoolInstance(base, userMgr, threadPool) {
     Name_ = (std::string)Proto::TickerName + ".stratum";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
     if (!(config.HasMember("port") && config["port"].IsUint())) {

@@ -347,16 +347,16 @@ bool FoundBlockRecord::deserializeValue(const void *data, size_t size)
 
 void FoundBlockRecord::serializeKey(xmstream &stream) const
 {
-  stream.writebe<uint64_t>(Time);
+  stream.writebe<uint64_t>(Height);
   serializeStringForKey(stream, Hash);
 }
 
 void FoundBlockRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
-  stream.writele<uint64_t>(Time);
-  serializeString(stream, Hash);
   stream.writele<uint64_t>(Height);
+  serializeString(stream, Hash);
+  stream.writele<uint64_t>(Time);
   stream.writele<int64_t>(AvailableCoins);
   serializeString(stream, FoundBy);
 }

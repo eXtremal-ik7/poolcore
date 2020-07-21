@@ -8,6 +8,7 @@
 #include <thread>
 
 class PoolBackend;
+class UserManager;
 
 class CWorkInstance {
 private:
@@ -58,7 +59,7 @@ private:
 
 class CPoolInstance {
 public:
-  CPoolInstance(asyncBase *base, CThreadPool &threadPool) : MonitorBase_(base), ThreadPool_(threadPool) {}
+  CPoolInstance(asyncBase *base, UserManager &userMgr, CThreadPool &threadPool) : MonitorBase_(base), UserMgr_(userMgr), ThreadPool_(threadPool) {}
 
   // Functions running in listener thread
   /// Send all miners stopping work signal
@@ -69,5 +70,6 @@ public:
 
 protected:
   asyncBase *MonitorBase_;
+  UserManager &UserMgr_;
   CThreadPool &ThreadPool_;
 };

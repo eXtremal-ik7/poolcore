@@ -14,7 +14,7 @@ std::string partByTime(time_t time);
 typedef bool CheckAddressProcTy(const char*);
 
 struct PoolFeeEntry {
-  std::string Address;
+  std::string User;
   float Percentage;
 };
 
@@ -196,9 +196,9 @@ struct UserBalanceRecord {
 struct FoundBlockRecord {
   enum { CurrentRecordVersion = 1 };
   
-  time_t Time;
-  std::string Hash;
   uint64_t Height;
+  std::string Hash;
+  time_t Time;
   int64_t AvailableCoins;
   std::string FoundBy;
   
