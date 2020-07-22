@@ -8,8 +8,8 @@
 #include <atomic>
  
 static std::atomic<unsigned> threadCounter = 0;
-static __tls unsigned globalThreadId;
-static __tls unsigned localThreadId;
+static __tls uint64_t globalThreadId;
+static __tls uint64_t localThreadId;
 
 void InitializeWorkerThread()
 {
@@ -26,7 +26,7 @@ unsigned GetLocalThreadId()
   return localThreadId;
 }
 
-unsigned SetLocalThreadId(unsigned threadId)
+void SetLocalThreadId(unsigned threadId)
 {
   localThreadId = threadId;
 }

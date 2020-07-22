@@ -8,4 +8,4 @@
 void InitializeWorkerThread();
 unsigned GetGlobalThreadId();
 unsigned GetLocalThreadId();
-unsigned SetLocalThreadId(unsigned threadId);
+void SetLocalThreadId(unsigned threadId);
