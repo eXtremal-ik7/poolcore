@@ -22,7 +22,7 @@ public:
 
   // Common API
   bool ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result);
-  bool ioGetBlockConfirmations(asyncBase *base, const std::vector<std::string> &hashes, std::vector<int64_t> &result);
+  bool ioGetBlockConfirmations(asyncBase *base, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &query);
   bool ioListUnspent(asyncBase *base, CNetworkClient::ListUnspentResult &result);
   bool ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result);
   void aioSubmitBlock(asyncBase *base, const void *data, size_t size, CNetworkClient::SumbitBlockCb callback);

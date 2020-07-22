@@ -9,11 +9,9 @@
 #include <thread>
 #include <tbb/concurrent_queue.h>
 
-class p2pNode;
-
 class PoolBackend {
 public:
-  using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<int64_t>&)>;
+  using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
 
 private:
   class Task {
@@ -25,6 +23,7 @@ private:
   class TaskShare : public Task {
   public:
     TaskShare(Share *share) : Share_(share) {}
+    virtual ~TaskShare() {}
     void run(PoolBackend *backend) final { backend->onShare(Share_.get()); }
   private:
     std::unique_ptr<Share> Share_;
@@ -33,6 +32,7 @@ private:
   class TaskStats : public Task {
   public:
     TaskStats(Stats *stats) : Stats_(stats) {}
+    virtual ~TaskStats() {}
     void run(PoolBackend *backend) final { backend->onStats(Stats_.get()); }
   private:
     std::unique_ptr<Stats> Stats_;
@@ -41,6 +41,7 @@ private:
   class QueryFoundBlocksTask : public Task {
   public:
     QueryFoundBlocksTask(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) : HeightFrom_(heightFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
+    virtual ~QueryFoundBlocksTask() {}
     void run(PoolBackend *backend) final { backend->queryFoundBlocksImpl(HeightFrom_, HashFrom_, Count_, Callback_); }
   private:
     uint64_t HeightFrom_;

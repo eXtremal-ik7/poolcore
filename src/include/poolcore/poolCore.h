@@ -39,6 +39,14 @@ class CNetworkClient {
 public:
   using SumbitBlockCb = std::function<void(bool, const std::string &)>;
 
+  struct GetBlockConfirmationsQuery {
+    std::string Hash;
+    uint64_t Height;
+    int64_t Confirmations;
+    GetBlockConfirmationsQuery() {}
+    GetBlockConfirmationsQuery(const std::string &hash, uint64_t height) : Hash(hash), Height(height) {}
+  };
+
   struct GetBalanceResult {
     int64_t Balance;
     int64_t Immatured;
@@ -71,9 +79,10 @@ public:
     ThreadData_.reset(new ThreadData[threadsNum]);
   }
 
-  ~CNetworkClient() {}
+  virtual ~CNetworkClient() {}
 
   virtual CPreparedQuery *prepareBlock(const void *data, size_t size) = 0;
+  virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) = 0;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
   virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, SendMoneyResult &result) = 0;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, SumbitBlockCb callback) = 0;

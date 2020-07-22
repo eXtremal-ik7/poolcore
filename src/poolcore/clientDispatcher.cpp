@@ -15,9 +15,16 @@ bool CNetworkClientDispatcher::ioGetBalance(asyncBase *base, CNetworkClient::Get
   return false;
 }
 
-bool CNetworkClientDispatcher::ioGetBlockConfirmations(asyncBase *base, const std::vector<std::string> &hashes, std::vector<int64_t> &result)
+bool CNetworkClientDispatcher::ioGetBlockConfirmations(asyncBase *base, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &query)
 {
-  LOG_F(ERROR, "ioGetBlockConfirmations api not implemented");
+  unsigned threadId = GetGlobalThreadId();
+  size_t &currentClientIdx = CurrentClientIdx_[threadId];
+  for (size_t i = 0, ie = Clients_.size(); i != ie; ++i) {
+    if (Clients_[currentClientIdx]->ioGetBlockConfirmations(base, query))
+      return true;
+    currentClientIdx = (currentClientIdx + 1) % Clients_.size();
+  }
+
   return false;
 }
 

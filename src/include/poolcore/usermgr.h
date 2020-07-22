@@ -122,6 +122,8 @@ public:
 
 public:
   UserManager(const std::filesystem::path &dbPath);
+  UserManager(const UserManager&) = delete;
+  UserManager& operator=(const UserManager&) = delete;
   void start();
   void stop();
 

@@ -20,15 +20,15 @@ void CThreadPool::start()
 {
   for (unsigned i = 0; i < ThreadsNum_; i++)  {
     ThreadData &threadData = Threads_[i];
-    threadData.Thread = std::thread([](ThreadData &threadData) {
+    threadData.Thread = std::thread([](ThreadData *threadData) {
       char name[32];
-      snprintf(name, sizeof(name), "worker%u", threadData.Id);
+      snprintf(name, sizeof(name), "worker%u", threadData->Id);
       loguru::set_thread_name(name);
       InitializeWorkerThread();
-      SetLocalThreadId(threadData.Id);
-      LOG_F(INFO, "worker %u started tid=%u", threadData.Id, GetGlobalThreadId());
-      asyncLoop(threadData.Base);
-    }, std::ref(threadData));
+      SetLocalThreadId(threadData->Id);
+      LOG_F(INFO, "worker %u started tid=%u", threadData->Id, GetGlobalThreadId());
+      asyncLoop(threadData->Base);
+    }, &threadData);
   }
 }
 

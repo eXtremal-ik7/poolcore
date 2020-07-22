@@ -31,6 +31,7 @@ public:
   class Task {
   public:
     Task() {}
+    virtual ~Task() {}
     virtual void run(unsigned workerId) = 0;
   };
 
@@ -42,6 +43,10 @@ public:
 
 private:
   struct ThreadData {
+    ThreadData() {}
+    ThreadData(const ThreadData&) = delete;
+    ThreadData& operator=(const ThreadData&) = delete;
+
     asyncBase *Base;
     unsigned Id;
     std::thread Thread;

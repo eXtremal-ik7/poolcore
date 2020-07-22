@@ -4,7 +4,7 @@ add_library(blockmaker STATIC
   xpm.cpp
 )
 
-target_link_libraries(blockmaker poolcommon)
+target_link_libraries(blockmaker ${MPIR_LIBRARIES})
 
 add_dependencies(blockmaker
   mpir

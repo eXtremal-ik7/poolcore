@@ -364,26 +364,27 @@ void AccountingDb::checkBlockConfirmations()
   LOG_F(INFO, "Checking %u blocks for confirmations...", (unsigned)_roundsWithPayouts.size());
   std::vector<miningRound*> rounds(_roundsWithPayouts.begin(), _roundsWithPayouts.end());
 
-  std::vector<int64_t> confirmations;
-  std::vector<std::string> hashes;
-  for (auto &r: rounds)
-    hashes.push_back(r->blockHash);
+  std::vector<CNetworkClient::GetBlockConfirmationsQuery> confirmationsQuery;
+  for (size_t i = 0, ie = rounds.size(); i != ie; ++i) {
+    confirmationsQuery[i].Hash = rounds[i]->blockHash;
+    confirmationsQuery[i].Height = rounds[i]->height;
+  }
 
-  if (!ClientDispatcher_.ioGetBlockConfirmations(Base_, hashes, confirmations)) {
+  if (!ClientDispatcher_.ioGetBlockConfirmations(Base_, confirmationsQuery)) {
     LOG_F(ERROR, "ioGetBlockConfirmations api call failed");
     return;
   }
 
-  for (size_t i = 0; i < hashes.size(); i++) {
+  for (size_t i = 0; i < confirmationsQuery.size(); i++) {
     miningRound *R = rounds[i];
     
-    if (confirmations[i] == -1) {
-      LOG_F(INFO, "block %u/%s marked as orphan, can't do any payout", R->height, hashes[i].c_str());
+    if (confirmationsQuery[i].Confirmations == -1) {
+      LOG_F(INFO, "block %u/%s marked as orphan, can't do any payout", R->height, confirmationsQuery[i].Hash.c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I)
         I->queued = 0;
       _roundsWithPayouts.erase(R);
       _roundsDb.put(*R);
-    } else if (confirmations[i] >= _cfg.RequiredConfirmations) {
+    } else if (confirmationsQuery[i].Confirmations >= _cfg.RequiredConfirmations) {
       LOG_F(INFO, "Make payout for block %u/%s", R->height, R->blockHash.c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I) {
         requestPayout(I->Login, I->queued);

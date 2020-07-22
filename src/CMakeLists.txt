@@ -77,7 +77,6 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
 endif()
 
 include_directories(
-  poolcommon
   ${MPIR_INCLUDE_DIR}
   ${OPENSSL_INCLUDE_DIR}
   ${libp2p_SOURCE_DIR}/src/include

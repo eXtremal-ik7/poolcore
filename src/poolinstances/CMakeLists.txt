@@ -6,5 +6,5 @@ add_library(poolinstances STATIC
   ${ProtoSources}
 )
 
-target_link_libraries(poolinstances asyncioextras-0.5 blockmaker ${TBB_IMPORTED_TARGETS} ${MPIR_LIBRARIES} protobuf::libprotobuf)
+target_link_libraries(poolinstances ${TBB_IMPORTED_TARGETS})
 add_dependencies(poolinstances mpir)

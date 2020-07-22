@@ -17,6 +17,7 @@ public:
 
   virtual CPreparedQuery *prepareBlock(const void *data, size_t size) override;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
+  virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) override;
   virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result) override;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, SumbitBlockCb callback) override;
 
@@ -118,7 +119,7 @@ private:
       return false;
     }
 
-    document.Parse<flag>(connection.ParseCtx.body.data);
+    document.Parse<flag>(connection.ParseCtx.body.data, connection.ParseCtx.body.size);
 
     if (connection.ParseCtx.resultCode != 200) {
       if (!document.HasParseError()) {
@@ -144,11 +145,6 @@ private:
       return false;
     }
 
-    if (!document.HasMember("result")) {
-      LOG_F(WARNING, "%s %s:%u: JSON: no 'result' object", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
-      return false;
-    }
-
     return true;
   }
 
@@ -169,7 +165,8 @@ private:
   std::string BasicAuth_;
 
   GBTInstance WorkFetcher_;
-  bool HasGetWalletInfo_;
+  bool HasGetWalletInfo_ = true;
+  bool HasGetBlockChainInfo_ = true;
 
   // Queries cache
   std::string BalanceQuery_;

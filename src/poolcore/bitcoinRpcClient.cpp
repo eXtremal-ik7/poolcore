@@ -13,6 +13,8 @@
 #include <string.h>
 #include <chrono>
 
+#include <inttypes.h>
+
 #ifndef WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -23,7 +25,8 @@
 static const std::string gBalanceQuery = R"json({"method": "getbalance", "params": [] })json";
 static const std::string gBalanceQueryWithImmatured = R"json({"method": "getbalance", "params": ["*", 1] })json";
 static const std::string gGetWalletInfoQuery = R"json({"method": "getwalletinfo", "params": [] })json";
-
+static const std::string gGetBlockChainInfoQuery = R"json({"method": "getblockchaininfo", "params": [] })json";
+static const std::string gGetInfoQuery = R"json({"method": "getinfo", "params": []})json";
 
 static inline char bin2hexLowerCaseDigit(uint8_t b)
 {
@@ -218,8 +221,6 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
   BasicAuth_.resize(base64getEncodeLength(basicAuth.size()) + 1);
   base64Encode(BasicAuth_.data(), reinterpret_cast<uint8_t*>(basicAuth.data()), basicAuth.size());
 
-  HasGetWalletInfo_ = true;
-
   BalanceQuery_ = buildPostQuery(gBalanceQuery.data(), gBalanceQuery.size(), HostName_, BasicAuth_);
   BalanceQueryWithImmatured_ = buildPostQuery(gBalanceQueryWithImmatured.data(), gBalanceQueryWithImmatured.size(), HostName_, BasicAuth_);
   GetWalletInfoQuery_ = buildPostQuery(gGetWalletInfoQuery.data(), gGetWalletInfoQuery.size(), HostName_, BasicAuth_);
@@ -305,6 +306,73 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
   }
 
   return false;
+}
+
+bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query)
+{
+  std::unique_ptr<CConnection> connection(getConnection(base));
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+    return false;
+
+  std::string jsonQuery = "[";
+  if (HasGetBlockChainInfo_)
+    jsonQuery.append(gGetBlockChainInfoQuery);
+  else
+    jsonQuery.append(gGetInfoQuery);
+  for (auto &block: query) {
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), ", {\"method\": \"getblockhash\", \"params\": [%" PRIu64 "]}", block.Height);
+    jsonQuery.append(buffer);
+    block.Confirmations = -2;
+  }
+  jsonQuery.push_back(']');
+
+  rapidjson::Document document;
+  if (!ioQueryJson(*connection, buildPostQuery(jsonQuery.data(), jsonQuery.size(), HostName_, BasicAuth_), document, 5*1000000)) {
+    return false;
+  }
+
+  if (!document.IsArray() ||
+      document.GetArray().Size() != query.size() + 1) {
+    LOG_F(WARNING, "%s %s:%u: response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+    return false;
+  }
+
+  // Check response to getinfo query
+  uint64_t bestBlockHeight = 0;
+  {
+    rapidjson::Value &value = document.GetArray()[0];
+    if (!value.HasMember("result") || !(value["result"].IsObject() || value["result"].IsNull())) {
+      LOG_F(WARNING, "%s %s:%u: response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      return false;
+    }
+
+    if (value["result"].IsNull()) {
+      HasGetBlockChainInfo_ = false;
+      return ioGetBlockConfirmations(base, query);
+    }
+
+    value = value["result"];
+    if (!value.HasMember("blocks") || !value["blocks"].IsUint64()) {
+      LOG_F(WARNING, "%s %s:%u: response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      return false;
+    }
+
+    bestBlockHeight = value["blocks"].GetUint64();
+  }
+
+  // Check getblockhash responses
+  for (size_t i = 1, ie = document.GetArray().Size(); i != ie; ++i) {
+    rapidjson::Value &value = document.GetArray()[i];
+    if (!value.IsObject() || !value.HasMember("result") || !value["result"].IsString()) {
+      LOG_F(WARNING, "%s %s:%u: response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      return false;
+    }
+
+    query[i-1].Confirmations = query[i-1].Hash == value["result"].GetString() ? bestBlockHeight - query[i-1].Height : -1;
+  }
+
+  return true;
 }
 
 bool CBitcoinRpcClient::ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result)

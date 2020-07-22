@@ -9,13 +9,13 @@ static void checkConsistency(AccountingDb *accounting)
 {
   std::map<std::string, int64_t> balancesRequested;
   std::map<std::string, int64_t> queueRequested;
-  
+
   int64_t totalQueued = 0;
   for (auto &p: accounting->getPayoutsQueue()) {
     queueRequested[p.Login] += p.payoutValue;
     totalQueued += p.payoutValue;
-  }  
-  
+  }
+
   int64_t totalInBalance = 0;
   auto &balanceDb = accounting->getBalanceDb();
   {
@@ -25,13 +25,13 @@ static void checkConsistency(AccountingDb *accounting)
       UserBalanceRecord balance;
       RawData data = It->value();
       if (!balance.deserializeValue(data.data, data.size))
-        break;      
-        
+        break;
+
       balancesRequested[balance.Login] = balance.Requested;
       totalInBalance += balance.Requested;
     }
   }
-  
+
   LOG_F(INFO, "totalQueued: %li", totalQueued);
   LOG_F(INFO, "totalRequested: %li", totalInBalance);
 }
@@ -66,11 +66,11 @@ void PoolBackend::backendMain()
   _statistics.reset(new StatisticDb(_cfg, CoinInfo_));
 
   coroutineCall(coroutineNew([](void *arg){ static_cast<PoolBackend*>(arg)->taskHandler(); }, this, 0x100000));
-  coroutineCall(coroutineNew(checkConfirmationsProc, this, 0x100000));  
-  coroutineCall(coroutineNew(checkBalanceProc, this, 0x100000));      
+  coroutineCall(coroutineNew(checkConfirmationsProc, this, 0x100000));
+  coroutineCall(coroutineNew(checkBalanceProc, this, 0x100000));
   coroutineCall(coroutineNew(updateStatisticProc, this, 0x100000));
-  coroutineCall(coroutineNew(payoutProc, this, 0x100000)); 
-  
+  coroutineCall(coroutineNew(payoutProc, this, 0x100000));
+
   LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
   if (!_cfg.PoolFee.empty()) {
     for (const auto &poolFeeEntry: _cfg.PoolFee)
@@ -78,7 +78,7 @@ void PoolBackend::backendMain()
   } else {
     LOG_F(INFO, "  Pool fee disabled");
   }
-  
+
   checkConsistency(_accounting.get());
   asyncLoop(_base);
 }
@@ -159,8 +159,7 @@ void PoolBackend::queryFoundBlocksImpl(uint64_t heightFrom, const std::string &h
     It->seekLast();
   }
 
-  std::vector<std::string> hashes;
-  std::vector<int64_t> confirmations;
+  std::vector<CNetworkClient::GetBlockConfirmationsQuery> confirmationsQuery;
   std::vector<FoundBlockRecord> foundBlocks;
   for (unsigned i = 0; i < count && It->valid(); i++) {
     FoundBlockRecord dbBlock;
@@ -168,14 +167,14 @@ void PoolBackend::queryFoundBlocksImpl(uint64_t heightFrom, const std::string &h
     if (!dbBlock.deserializeValue(data.data, data.size))
       break;
     foundBlocks.push_back(dbBlock);
-    confirmations.push_back(-2);
-    hashes.push_back(dbBlock.Hash);
+    confirmationsQuery.emplace_back(dbBlock.Hash, dbBlock.Height);
     It->prev();
   }
 
   // query confirmations
-  if (count)
-    ClientDispatcher_.ioGetBlockConfirmations(_base, hashes, confirmations);
 
-  callback(foundBlocks, confirmations);
+  if (count)
+    ClientDispatcher_.ioGetBlockConfirmations(_base, confirmationsQuery);
+
+  callback(foundBlocks, confirmationsQuery);
 }
