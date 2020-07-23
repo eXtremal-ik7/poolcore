@@ -97,6 +97,8 @@ public:
   kvdb<rocksdbBase> &getPoolBalanceDb() { return _poolBalanceDb; }
   kvdb<rocksdbBase> &getPayoutDb() { return _payoutDb; }
   kvdb<rocksdbBase> &getBalanceDb() { return _balanceDb; }
+
+  const std::map<std::string, UserBalanceRecord> &getUserBalanceMap() { return _balanceMap; }
 };
 
 #endif //__ACCOUNTING_H_

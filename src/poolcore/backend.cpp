@@ -177,9 +177,24 @@ void PoolBackend::queryFoundBlocksImpl(uint64_t heightFrom, const std::string &h
   }
 
   // query confirmations
-
   if (count)
     ClientDispatcher_.ioGetBlockConfirmations(_base, confirmationsQuery);
 
   callback(foundBlocks, confirmationsQuery);
+}
+
+void PoolBackend::queryBalanceImpl(const std::string &user, QueryBalanceCallback callback)
+{
+  auto &balanceMap = accountingDb()->getUserBalanceMap();
+  auto It = balanceMap.find(user);
+  if (It != balanceMap.end()) {
+    callback(It->second);
+  } else {
+    UserBalanceRecord record;
+    record.Login = user;
+    record.Balance = 0;
+    record.Requested = 0;
+    record.Paid = 0;
+    callback(record);
+  }
 }
