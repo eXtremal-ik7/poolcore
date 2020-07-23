@@ -155,16 +155,18 @@ std::string CBitcoinRpcClient::buildSendToAddress(const std::string &destination
     result.push_back('\"'); result.append(destination); result.append("\",");
     result.append(FormatMoney(amount, CoinInfo_.RationalPartSize));
   result.append("]}");
+  return result;
 }
 
 std::string CBitcoinRpcClient::buildGetTransaction(const std::string &txId)
 {
   std::string result = "{";
 
-  result.append(R"_("method": "sendtoaddress", )_");
+  result.append(R"_("method": "gettransaction", )_");
   result.append(R"_("params": [)_");
     result.push_back('\"'); result.append(txId); result.push_back('\"');
   result.append("]}");
+  return result;
 }
 
 CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password) :
@@ -384,14 +386,14 @@ bool CBitcoinRpcClient::ioSendMoney(asyncBase *base, const char *address, int64_
   // call 'sendtoaddress' with 3-minute timeout
   rapidjson::Document document;
   std::string query = buildSendToAddress(address, value);
-  if (!ioQueryJson(*connection, query, document, 180*1000000)) {
+  if (!ioQueryJson(*connection, buildPostQuery(query.data(), query.size(), HostName_, BasicAuth_), document, 180*1000000)) {
     result.Error = connection->LastError;
     return false;
   }
 
   {
     bool errorAcc = true;
-    jsonParseString(document, "txid", result.TxId, true, &errorAcc);
+    jsonParseString(document, "result", result.TxId, true, &errorAcc);
     if (!errorAcc) {
       LOG_F(WARNING, "%s %s:%u: sendtoaddress response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
       return false;
@@ -402,9 +404,8 @@ bool CBitcoinRpcClient::ioSendMoney(asyncBase *base, const char *address, int64_
   // TODO: subtractfeefromamount argument support
   result.Fee = 0;
   result.Error.clear();
-  result.Success = true;
   query = buildGetTransaction(result.TxId);
-  if (!ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, query, document, 180*1000000)) {
+  if (!ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(query.data(), query.size(), HostName_, BasicAuth_), document, 180*1000000)) {
     LOG_F(ERROR, "%s %s:%u: can't get transaction fee, assume fee=0", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
     return true;
   }

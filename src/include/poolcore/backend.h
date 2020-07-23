@@ -22,17 +22,23 @@ private:
 
   class TaskShare : public Task {
   public:
-    TaskShare(Share *share) : Share_(share) {}
-    virtual ~TaskShare() {}
+    TaskShare(CAccountingShare *share) : Share_(share) {}
     void run(PoolBackend *backend) final { backend->onShare(Share_.get()); }
   private:
-    std::unique_ptr<Share> Share_;
+    std::unique_ptr<CAccountingShare> Share_;
+  };
+
+  class TaskBlock : public Task {
+  public:
+    TaskBlock(CAccountingBlock *block) : Block_(block) {}
+    void run(PoolBackend *backend) final { backend->onBlock(Block_.get()); }
+  private:
+    std::unique_ptr<CAccountingBlock> Block_;
   };
 
   class TaskStats : public Task {
   public:
     TaskStats(Stats *stats) : Stats_(stats) {}
-    virtual ~TaskStats() {}
     void run(PoolBackend *backend) final { backend->onStats(Stats_.get()); }
   private:
     std::unique_ptr<Stats> Stats_;
@@ -41,7 +47,6 @@ private:
   class QueryFoundBlocksTask : public Task {
   public:
     QueryFoundBlocksTask(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) : HeightFrom_(heightFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
-    virtual ~QueryFoundBlocksTask() {}
     void run(PoolBackend *backend) final { backend->queryFoundBlocksImpl(HeightFrom_, HashFrom_, Count_, Callback_); }
   private:
     uint64_t HeightFrom_;
@@ -82,7 +87,8 @@ private:
   void *checkBalanceHandler();
   void *updateStatisticHandler();  
   
-  void onShare(const Share *share);
+  void onShare(const CAccountingShare *share);
+  void onBlock(const CAccountingBlock *block);
   void onStats(const Stats *stats);
   void queryFoundBlocksImpl(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
   
@@ -101,7 +107,8 @@ public:
   // Synchronous api
 
   // Asynchronous api
-  void sendShare(Share *share) { startAsyncTask(new TaskShare(share)); }
+  void sendShare(CAccountingShare *share) { startAsyncTask(new TaskShare(share)); }
+  void sendBlock(CAccountingBlock *block) { startAsyncTask(new TaskBlock(block)); }
   void sendStats(Stats *stats) { startAsyncTask(new TaskStats(stats)); }
   void queryFoundBlocks(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { startAsyncTask(new QueryFoundBlocksTask(heightFrom, hashFrom, count, callback)); }
 

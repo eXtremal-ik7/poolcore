@@ -135,9 +135,14 @@ void *PoolBackend::updateStatisticHandler()
   }
 }
 
-void PoolBackend::onShare(const Share *share)
+void PoolBackend::onShare(const CAccountingShare *share)
 {
   _accounting->addShare(share, _statistics.get());
+}
+
+void PoolBackend::onBlock(const CAccountingBlock *block)
+{
+  _accounting->addBlock(block, _statistics.get());
 }
 
 void PoolBackend::onStats(const Stats *stats)

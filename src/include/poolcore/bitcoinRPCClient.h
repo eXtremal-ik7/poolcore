@@ -78,7 +78,7 @@ private:
 
   template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>
   bool parseJson(CConnection &connection, rapidjson::Document &document) {
-    document.Parse<flag>(connection.ParseCtx.body.data);
+    document.Parse<flag>(connection.ParseCtx.body.data, connection.ParseCtx.body.size);
 
     if (connection.ParseCtx.resultCode != 200) {
       if (!document.HasParseError()) {

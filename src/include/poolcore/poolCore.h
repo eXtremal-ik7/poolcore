@@ -53,10 +53,8 @@ public:
   };
 
   struct SendMoneyResult {
-    bool Success;
     std::string TxId;
     std::string Error;
-    int64_t Remaining;
     int64_t Fee;
   };
 

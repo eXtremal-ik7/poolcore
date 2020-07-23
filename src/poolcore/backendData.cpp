@@ -334,9 +334,9 @@ bool FoundBlockRecord::deserializeValue(const void *data, size_t size)
   xmstream stream((void*)data, size);
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
-    Time = stream.readle<uint64_t>();
-    deserializeString(stream, Hash);
     Height = stream.read<uint64_t>();
+    deserializeString(stream, Hash);
+    Time = stream.readle<uint64_t>();
     AvailableCoins = stream.read<int64_t>();
     deserializeString(stream, FoundBy);
   }

@@ -107,8 +107,6 @@ private:
     bool IsConnected;
     zmtpStream Stream;
     zmtpUserMsgTy MsgType;
-    pool::proto::Request req;
-    pool::proto::Reply rep;
   };
 
   struct ThreadData {
@@ -122,8 +120,8 @@ private:
     std::set<Connection*> SignalSockets;
     std::unordered_map<uint256, CExtraNonce> ExtraNonceMap;
     std::unordered_set<uint256> KnownShares;
+    std::unordered_set<uint256> KnownBlocks;
     xmstream Bin;
-    bool BlockSubmitted = false;
   };
 
 private:
@@ -160,9 +158,27 @@ private:
     }, connection);
   }
 
-  void checkShare(ThreadData &data, Connection *connection, bool *isReadyToAnswer) {
-    pool::proto::Request &req = connection->req;
-    pool::proto::Reply &rep = connection->rep;
+  void onGetWork(ThreadData &data, pool::proto::Request &req, pool::proto::Reply &rep) {
+    if (data.HasWork) {
+      // Increment extra nonce
+      CExtraNonce extraNonce;
+      incrementExtraNonce<Proto>(data.Block, data.ExtraNonceOffset, ThreadPool_.threadsNum(), extraNonce);
+      data.ExtraNonceMap[data.Block.header.hashMerkleRoot] = extraNonce;
+
+      // Set work
+      pool::proto::Work* work = rep.mutable_work();
+      work->set_height(data.Height);
+      work->set_merkle(data.Block.header.hashMerkleRoot.ToString().c_str());
+      work->set_time(std::max(static_cast<uint32_t>(time(0)), data.Block.header.nTime));
+      work->set_bits(data.Block.header.nBits);
+    } else {
+      std::string error = Name_ + ": no network connection";
+      rep.set_error(pool::proto::Reply::HEIGHT);
+      rep.set_errstr(error);
+    }
+  }
+
+  void onShare(ThreadData &data, pool::proto::Request &req, pool::proto::Reply &rep) {
     if (!data.HasWork) {
       rep.set_error(pool::proto::Reply::INVALID);
       return;
@@ -228,8 +244,17 @@ private:
     uint64_t shareSize;
     typename Proto::ChainParams chainParams;
     chainParams.minimalChainLength = 2;
-    if (Proto::checkConsensus(data.Block.header, data.CheckConsensusCtx, chainParams, &shareSize)) {
-      LOG_F(INFO, "%s: new proof of work found!", Name_.c_str());
+    bool isBlock = Proto::checkConsensus(data.Block.header, data.CheckConsensusCtx, chainParams, &shareSize);
+
+    // Send share to backend
+    CAccountingShare *backendShare = new CAccountingShare;
+    backendShare->userId = share.addr();
+    backendShare->height = data.Height;
+    backendShare->value = 1;
+    data.Backend->sendShare(backendShare);
+
+    if (isBlock) {
+      LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.ToString().c_str(), data.Block.vtx.size());
       // Serialize block
       data.Bin.reset();
       BTC::serialize(data.Bin, data.Block);
@@ -238,39 +263,23 @@ private:
       uint64_t height = data.Height;
       int64_t generatedCoins = data.Block.vtx[0].txOut[0].value;
       CNetworkClientDispatcher &dispatcher = data.Backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase, data.Bin.data(), data.Bin.sizeOf(), [connection, addr, height, blockHash, generatedCoins, &data](bool result, const std::string error) {
-        if (result && !data.BlockSubmitted) {
-          data.BlockSubmitted = true;
-          // Send share to backend
-          Share *backendShare = new Share;
-          backendShare->userId = addr;
-          backendShare->height = height;
-          backendShare->value = 1;
-          backendShare->isBlock = true;
-          backendShare->hash = blockHash.ToString();
-          backendShare->generatedCoins = generatedCoins;
-          data.Backend->sendShare(backendShare);
+      dispatcher.aioSubmitBlock(data.WorkerBase, data.Bin.data(), data.Bin.sizeOf(), [addr, height, blockHash, generatedCoins, &data](bool result, const std::string error) {
+        if (result) {
+          if (!data.KnownBlocks.insert(blockHash).second)
+            return;
+          // Send block to backend
+          CAccountingBlock *block = new CAccountingBlock;
+          block->userId = addr;
+          block->height = height;
+          block->value = 1;
+          block->hash = blockHash.ToString();
+          block->generatedCoins = generatedCoins;
+          data.Backend->sendBlock(block);
+          LOG_F(INFO, " * block accepted by node");
         } else {
-          LOG_F(ERROR, "Send proof of work error: %s", error.c_str());
-          connection->rep.set_error(pool::proto::Reply::INVALID);
+          LOG_F(ERROR, " * block rejected by node: %s", error.c_str());
         }
-
-        size_t repSize = connection->rep.ByteSize();
-        connection->Stream.reset();
-        connection->rep.SerializeToArray(connection->Stream.reserve(repSize), repSize);
-        aioZmtpSend(connection->Socket, connection->Stream.data(), connection->Stream.sizeOf(), zmtpMessage, afNone, 0, nullptr, nullptr);
-        aioZmtpRecv(connection->Socket, connection->Stream, 65536, afNone, 0, workerRecvCb, connection);
       });
-      *isReadyToAnswer = false;
-    } else {
-      // Send share to backend
-      Share *backendShare = new Share;
-      backendShare->userId = share.addr();
-      backendShare->height = data.Height;
-      backendShare->value = 1;
-      backendShare->isBlock = false;
-      data.Backend->sendShare(backendShare);
-      LOG_F(INFO, "%s: share length: %u", Name_.c_str(), static_cast<unsigned>(shareSize));
     }
   }
 
@@ -333,7 +342,7 @@ private:
     initializeExtraNonce<Proto>(data.Block, data.ExtraNonceOffset, GetLocalThreadId());
     data.ExtraNonceMap.clear();
     data.KnownShares.clear();
-    data.BlockSubmitted = false;
+    data.KnownBlocks.clear();
 
     // Send signals
     for (const auto &connection: data.SignalSockets) {
@@ -397,45 +406,28 @@ private:
   }
 
   void workerProc(Connection *connection, zmtpUserMsgTy type) {
-    if (type != zmtpMessage || !checkRequest(connection->req, connection->rep, connection->Stream.data(), connection->Stream.remaining())) {
+    pool::proto::Request req;
+    pool::proto::Reply rep;
+    if (type != zmtpMessage || !checkRequest(req, rep, connection->Stream.data(), connection->Stream.remaining())) {
       delete connection;
       return;
     }
 
-    bool ready = true;
-    pool::proto::Request::Type requestType = connection->req.type();
+    pool::proto::Request::Type requestType = req.type();
     ThreadData &data = Data_[GetLocalThreadId()];
     if (requestType == pool::proto::Request::GETWORK) {
-      if (data.HasWork) {
-        // Increment extra nonce
-        CExtraNonce extraNonce;
-        incrementExtraNonce<Proto>(data.Block, data.ExtraNonceOffset, ThreadPool_.threadsNum(), extraNonce);
-        data.ExtraNonceMap[data.Block.header.hashMerkleRoot] = extraNonce;
-
-        // Set work
-        pool::proto::Work* work = connection->rep.mutable_work();
-        work->set_height(data.Height);
-        work->set_merkle(data.Block.header.hashMerkleRoot.ToString().c_str());
-        work->set_time(std::max(static_cast<uint32_t>(time(0)), data.Block.header.nTime));
-        work->set_bits(data.Block.header.nBits);
-      } else {
-        std::string error = Name_ + ": no network connection";
-        connection->rep.set_error(pool::proto::Reply::HEIGHT);
-        connection->rep.set_errstr(error);
-      }
+      onGetWork(data, req, rep);
     } else if (requestType == pool::proto::Request::SHARE) {
-      checkShare(data, connection, &ready);
+      onShare(data, req, rep);
     } else if (requestType == pool::proto::Request::STATS) {
 
     }
 
-    if (ready) {
-      size_t repSize = connection->rep.ByteSize();
-      connection->Stream.reset();
-      connection->rep.SerializeToArray(connection->Stream.reserve(repSize), repSize);
-      aioZmtpSend(connection->Socket, connection->Stream.data(), connection->Stream.sizeOf(), zmtpMessage, afNone, 0, nullptr, nullptr);
-      aioZmtpRecv(connection->Socket, connection->Stream, 65536, afNone, 0, workerRecvCb, connection);
-    }
+    size_t repSize = rep.ByteSize();
+    connection->Stream.reset();
+    rep.SerializeToArray(connection->Stream.reserve(repSize), repSize);
+    aioZmtpSend(connection->Socket, connection->Stream.data(), connection->Stream.sizeOf(), zmtpMessage, afNone, 0, nullptr, nullptr);
+    aioZmtpRecv(connection->Socket, connection->Stream, 65536, afNone, 0, workerRecvCb, connection);
   }
 
 private:
