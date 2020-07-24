@@ -8,7 +8,7 @@
 #include <filesystem>
 #include "p2putils/xmstream.h"
 
-std::string partByHeight(unsigned height);
+std::string partByHeight(uint64_t height);
 std::string partByTime(time_t time);
 
 typedef bool CheckAddressProcTy(const char*);

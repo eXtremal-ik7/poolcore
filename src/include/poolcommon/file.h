@@ -27,6 +27,7 @@ public:
   bool truncate(size_t size);
 
   bool isOpened();
+  int fd();
 private:
 #ifndef _WIN32
   int Fd_;

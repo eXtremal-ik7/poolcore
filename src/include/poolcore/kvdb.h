@@ -30,8 +30,6 @@ public:
     data.serializeKey(stream);
     size_t keySize = stream.offsetOf();
     data.serializeValue(stream);
-    size_t valueSize = stream.offsetOf() - keySize;
-
     const uint8_t *keyData = (const uint8_t*)stream.data();
     batch.put(keyData, keySize, keyData+keySize, stream.sizeOf()-keySize);
   }

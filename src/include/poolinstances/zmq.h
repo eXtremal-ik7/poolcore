@@ -148,7 +148,7 @@ private:
     work->set_time(std::max(static_cast<uint32_t>(time(0)), data.Block.header.nTime));
     work->set_bits(data.Block.header.nBits);
 
-    size_t repSize = sig.ByteSize();
+    size_t repSize = sig.ByteSizeLong();
     connection->Stream.reset();
     connection->Stream.template write<uint8_t>(1);
     sig.SerializeToArray(connection->Stream.reserve(repSize), repSize);
@@ -158,7 +158,7 @@ private:
     }, connection);
   }
 
-  void onGetWork(ThreadData &data, pool::proto::Request &req, pool::proto::Reply &rep) {
+  void onGetWork(ThreadData &data, pool::proto::Request&, pool::proto::Reply &rep) {
     if (data.HasWork) {
       // Increment extra nonce
       CExtraNonce extraNonce;
@@ -343,7 +343,7 @@ private:
   void newSignalsConnection(socketTy fd) {
     ThreadData &data = Data_[GetLocalThreadId()];
     Connection *connection = new Connection(this, zmtpSocketNew(data.WorkerBase, newSocketIo(data.WorkerBase, fd), zmtpSocketPUB), GetLocalThreadId(), true);
-    aioZmtpAccept(connection->Socket, afNone, 5000000, [](AsyncOpStatus status, zmtpSocket *socket, void *arg) {
+    aioZmtpAccept(connection->Socket, afNone, 5000000, [](AsyncOpStatus status, zmtpSocket*, void *arg) {
       Connection *connection = static_cast<Connection*>(arg);
       if (status == aosSuccess) {
         connection->IsConnected = true;
@@ -428,7 +428,7 @@ private:
       CurrentWorker_ = (CurrentWorker_ + 1) % ThreadPool_.threadsNum();
     }
 
-    size_t repSize = rep.ByteSize();
+    size_t repSize = rep.ByteSizeLong();
     connection->Stream.reset();
     rep.SerializeToArray(connection->Stream.reserve(repSize), repSize);
     aioZmtpSend(connection->Socket, connection->Stream.data(), connection->Stream.sizeOf(), zmtpMessage, afNone, 0, nullptr, nullptr);
@@ -453,7 +453,7 @@ private:
       onStats(data, req, rep);
     }
 
-    size_t repSize = rep.ByteSize();
+    size_t repSize = rep.ByteSizeLong();
     connection->Stream.reset();
     rep.SerializeToArray(connection->Stream.reserve(repSize), repSize);
     aioZmtpSend(connection->Socket, connection->Stream.data(), connection->Stream.sizeOf(), zmtpMessage, afNone, 0, nullptr, nullptr);

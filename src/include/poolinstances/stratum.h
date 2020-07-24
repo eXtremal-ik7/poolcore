@@ -18,8 +18,6 @@ public:
       LOG_F(ERROR, "instance %s: can't read 'port' value from config", Name_.c_str());
       exit(1);
     }
-
-    uint16_t port = config["port"].GetUint();
   }
 
   virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate, PoolBackend *backend) override {
@@ -35,11 +33,10 @@ public:
       ThreadPool_.startAsyncTask(i, new AcceptWork(*this, nullptr));
   }
 
-  void acceptConnection(unsigned workerId, socketTy socket, HostAddress address) {
-
+  void acceptConnection(unsigned, socketTy, HostAddress) {
   }
 
-  void acceptWork(unsigned workerId, intrusive_ptr<CSingleWorkInstance<Proto>> work) {
+  void acceptWork(unsigned, intrusive_ptr<CSingleWorkInstance<Proto>>) {
     LOG_F(INFO, "Work received for %s", Proto::TickerName);
   }
 

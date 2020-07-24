@@ -91,7 +91,7 @@ CSingleWorkInstance<Proto> *checkNewBlockTemplate(rapidjson::Value &blockTemplat
   // Build coinbase
   typename Proto::AddressTy miningAddress;
   if (!decodeHumanReadableAddress(cfg.MiningAddress, coinInfo.PubkeyAddressPrefix, miningAddress)) {
-    LOG_F(WARNING, "%s: mining address %s is invalid", cfg.MiningAddress.c_str());
+    LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), cfg.MiningAddress.c_str());
     return nullptr;
   }
 
@@ -144,7 +144,7 @@ static inline uint8_t hexLowerCaseDigit2bin(char c)
   return digit;
 }
 
-static inline const char bin2hexLowerCaseDigit(uint8_t b)
+static inline char bin2hexLowerCaseDigit(uint8_t b)
 {
   return b < 10 ? '0'+b : 'a'+b-10;
 }

@@ -59,10 +59,10 @@ private:
 
   class TaskQueryFoundBlocks : public Task {
   public:
-    TaskQueryFoundBlocks(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) : HeightFrom_(heightFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
+    TaskQueryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) : HeightFrom_(heightFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
     void run(PoolBackend *backend) final { backend->queryFoundBlocksImpl(HeightFrom_, HashFrom_, Count_, Callback_); }
   private:
-    uint64_t HeightFrom_;
+    int64_t HeightFrom_;
     std::string HashFrom_;
     uint32_t Count_;
     QueryFoundBlocksCallback Callback_;
@@ -130,7 +130,7 @@ private:
   void onBlock(const CAccountingBlock *block);
   void onStats(const CUserStats *stats);
   void manualPayoutImpl(const std::string &user, ManualPayoutCallback callback);
-  void queryFoundBlocksImpl(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
+  void queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
   void queryBalanceImpl(const std::string &user, QueryBalanceCallback callback);
   void queryPoolStatsImpl(QueryPoolStatsCallback callback);
   void queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback);
@@ -155,7 +155,7 @@ public:
   void sendBlock(CAccountingBlock *block) { startAsyncTask(new TaskBlock(block)); }
   void sendStats(CUserStats *stats) { startAsyncTask(new TaskStats(stats)); }
   void manualPayout(const std::string &user, ManualPayoutCallback callback) { startAsyncTask(new TaskManualPayout(user, callback)); }
-  void queryFoundBlocks(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { startAsyncTask(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
+  void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { startAsyncTask(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { startAsyncTask(new TaskQueryBalance(user, callback)); }
   void queryPoolStats(QueryPoolStatsCallback callback) { startAsyncTask(new TaskQueryPoolStats(callback)); }
   void queryUserStats(const std::string &user, QueryUserStatsCallback callback) { startAsyncTask(new TaskQueryUserStats(user, callback)); }

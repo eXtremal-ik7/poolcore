@@ -3,10 +3,10 @@
 #include <inttypes.h>
 #include <time.h>
 
-std::string partByHeight(unsigned height)
+std::string partByHeight(uint64_t height)
 {
   char buffer[16];
-  xitoa<unsigned>(height / 1000000, buffer);
+  xitoa<uint64_t>(height / 1000000, buffer);
   return buffer;
 }
 

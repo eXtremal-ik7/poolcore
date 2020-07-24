@@ -105,6 +105,11 @@ bool FileDescriptor::isOpened()
   return Fd_ > 0;
 }
 
+int FileDescriptor::fd()
+{
+  return Fd_;
+}
+
 #else // Win32 implementation
 
 #include <Windows.h>
@@ -237,5 +242,10 @@ bool FileDescriptor::truncate(size_t size)
 bool FileDescriptor::isOpened()
 {
   return Fd_ != INVALID_HANDLE_VALUE;
+}
+
+int FileDescriptor::fd()
+{
+  return reinterpret_cast<int>(Fd_);
 }
 #endif

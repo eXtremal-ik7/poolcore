@@ -172,7 +172,7 @@ void AccountingDb::cleanupRounds()
   }
 }
 
-void AccountingDb::addShare(const CAccountingShare *share, const StatisticDb *statistic)
+void AccountingDb::addShare(const CAccountingShare *share)
 {
   // store share in shares.raw file
   {
@@ -181,7 +181,7 @@ void AccountingDb::addShare(const CAccountingShare *share, const StatisticDb *st
     stream.write(share->userId.c_str(), share->userId.size());
     stream.write<int64_t>(share->value);
     if (_sharesFd.write(stream.data(), stream.sizeOf() != stream.sizeOf()))
-      LOG_F(ERROR, "can't save share to file (%s fd=%i), it can be lost", strerror(errno), _sharesFd);
+      LOG_F(ERROR, "can't save share to file (%s fd=%i), it can be lost", strerror(errno), _sharesFd.fd());
   }
 
   // increment score
@@ -309,7 +309,7 @@ void AccountingDb::addBlock(const CAccountingBlock *block, const StatisticDb *st
       int64_t mod = (diff > 0 ? diff : -diff) % agg.size();
 
       totalPayout = 0;
-      size_t i = 0;
+      int64_t i = 0;
       for (auto I = agg.begin(), IE = agg.end(); I != IE; ++I, ++i) {
         I->payoutValue -= div;
         if (i < mod)
@@ -349,11 +349,9 @@ void AccountingDb::addBlock(const CAccountingBlock *block, const StatisticDb *st
   _sharesFd.truncate(0);
 }
 
-void AccountingDb::mergeRound(const Round *round)
+void AccountingDb::mergeRound(const Round*)
 {
-
 }
-
 
 void AccountingDb::checkBlockConfirmations()
 {

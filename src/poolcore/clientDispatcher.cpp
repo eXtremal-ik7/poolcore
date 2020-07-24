@@ -28,7 +28,7 @@ bool CNetworkClientDispatcher::ioGetBlockConfirmations(asyncBase *base, std::vec
   return false;
 }
 
-bool CNetworkClientDispatcher::ioListUnspent(asyncBase *base, CNetworkClient::ListUnspentResult &result)
+bool CNetworkClientDispatcher::ioListUnspent(asyncBase*, CNetworkClient::ListUnspentResult&)
 {
   LOG_F(ERROR, "ioListUnspent api not implemented");
   return false;
@@ -54,13 +54,13 @@ void CNetworkClientDispatcher::aioSubmitBlock(asyncBase *base, const void *data,
 }
 
 // ZEC specific
-bool CNetworkClientDispatcher::ioZGetBalance(asyncBase *base, int64_t *result)
+bool CNetworkClientDispatcher::ioZGetBalance(asyncBase*, int64_t*)
 {
   LOG_F(ERROR, "ioZGetBalance api not implemented");
   return false;
 }
 
-bool CNetworkClientDispatcher::ioZSendMoney(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, CNetworkClient::ZSendMoneyResult &result)
+bool CNetworkClientDispatcher::ioZSendMoney(asyncBase*, const std::string&, const std::string&, int64_t, const std::string&, CNetworkClient::ZSendMoneyResult&)
 {
   LOG_F(ERROR, "ioZSendMoney api not implemented");
   return false;

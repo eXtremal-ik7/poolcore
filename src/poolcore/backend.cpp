@@ -137,7 +137,7 @@ void *PoolBackend::updateStatisticHandler()
 
 void PoolBackend::onShare(const CAccountingShare *share)
 {
-  _accounting->addShare(share, _statistics.get());
+  _accounting->addShare(share);
 }
 
 void PoolBackend::onBlock(const CAccountingBlock *block)
@@ -155,7 +155,7 @@ void PoolBackend::manualPayoutImpl(const std::string &user, ManualPayoutCallback
   callback(_accounting->manualPayout(user));
 }
 
-void PoolBackend::queryFoundBlocksImpl(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback)
+void PoolBackend::queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback)
 {
   auto &db = accountingDb()->getFoundBlocksDb();
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());

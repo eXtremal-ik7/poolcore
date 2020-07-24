@@ -85,7 +85,7 @@ public:
   void requestPayout(const std::string &address, int64_t value, bool force = false);
   void payoutSuccess(const std::string &address, int64_t value, int64_t fee, const std::string &transactionId);
   
-  void addShare(const CAccountingShare *share, const StatisticDb *statistic);
+  void addShare(const CAccountingShare *share);
   void addBlock(const CAccountingBlock *block, const StatisticDb *statistic);
   void mergeRound(const Round *round);
   void checkBlockConfirmations();
