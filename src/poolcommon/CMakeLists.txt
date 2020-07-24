@@ -5,3 +5,9 @@ add_library(poolcommon STATIC
   uint256.cpp
   utils.cpp
 )
+
+target_link_libraries(poolcommon ${MPIR_LIBRARIES})
+
+add_dependencies(poolcommon
+  mpir
+)

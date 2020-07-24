@@ -246,6 +246,6 @@ bool FileDescriptor::isOpened()
 
 int FileDescriptor::fd()
 {
-  return reinterpret_cast<int>(Fd_);
+  return static_cast<int>(reinterpret_cast<intptr_t>(Fd_));
 }
 #endif

@@ -11,10 +11,10 @@ class p2pNode;
 class p2pPeer;
 
 enum EUnitType {
-  ECPU = 0,
-  EGPU,
-  EASIC,
-  EOTHER
+  EUnitTypeCPU = 0,
+  EUnitTypeGPU,
+  EUnitTypeASIC,
+  EUnitTypeOther
 };
 
 struct CUserStats {

@@ -99,7 +99,8 @@ void CNetworkClientDispatcher::onWorkFetcherConnectionError()
     ConnectionLostTime_ = std::chrono::steady_clock::now();
   }
 
-  userEventStartTimer(WorkFetcherReconnectTimer_, 0.5*1000000, 1);
+  // 500 milliseconds
+  userEventStartTimer(WorkFetcherReconnectTimer_, 500000, 1);
 }
 
 void CNetworkClientDispatcher::onWorkFetcherConnectionLost()
@@ -109,7 +110,8 @@ void CNetworkClientDispatcher::onWorkFetcherConnectionLost()
     ConnectionLostTime_ = std::chrono::steady_clock::now();
   }
 
-  userEventStartTimer(WorkFetcherReconnectTimer_, 0.1*1000000, 1);
+  // 100 milliseconds
+  userEventStartTimer(WorkFetcherReconnectTimer_, 100000, 1);
 }
 
 void CNetworkClientDispatcher::onWorkFetcherNewWork(rapidjson::Value &work)

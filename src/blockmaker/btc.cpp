@@ -143,7 +143,7 @@ bool loadTransactionsFromTemplate(xvector<BTC::Proto::Transaction> &vtx, rapidjs
   rapidjson::Value::Array transactions = blockTemplate["transactions"].GetArray();
 
   vtx.resize(transactions.Size() + 1);
-  for (size_t i = 0, ie = transactions.Size(); i != ie; ++i) {
+  for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
     rapidjson::Value &txSrc = transactions[i];
     BTC::Proto::Transaction &txDst = vtx[i + 1];
 

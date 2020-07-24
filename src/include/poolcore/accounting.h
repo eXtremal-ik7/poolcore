@@ -21,12 +21,7 @@ struct CAccountingShare {
   std::string userId;
   int64_t height;
   int64_t value;
-};
-
-struct CAccountingBlock {
-  std::string userId;
-  int64_t height;
-  int64_t value;
+  bool isBlock;
   std::string hash;
   int64_t generatedCoins;
 };
@@ -85,8 +80,7 @@ public:
   void requestPayout(const std::string &address, int64_t value, bool force = false);
   void payoutSuccess(const std::string &address, int64_t value, int64_t fee, const std::string &transactionId);
   
-  void addShare(const CAccountingShare *share);
-  void addBlock(const CAccountingBlock *block, const StatisticDb *statistic);
+  void addShare(const CAccountingShare *share, const StatisticDb *statistic);
   void mergeRound(const Round *round);
   void checkBlockConfirmations();
   void makePayout();

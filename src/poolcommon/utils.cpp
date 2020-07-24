@@ -52,7 +52,7 @@ std::string FormatMoney(int64_t n, int64_t rationalPartSize, bool fPlus)
 
     // Right-trim excess zeros before the decimal point:
     int nTrim = 0;
-    for (int i = str.size()-1; (str[i] == '0' && isdigit(str[i-2])); --i)
+    for (int i = static_cast<int>(str.size())-1; (str[i] == '0' && isdigit(str[i-2])); --i)
         ++nTrim;
     if (nTrim)
         str.erase(str.size()-nTrim, nTrim);

@@ -71,7 +71,7 @@ struct shareInfo {
 struct miningRound {
   enum { CurrentRecordVersion = 1 };
   
-  unsigned height;
+  uint64_t height;
   std::string blockHash;
   time_t time;    
     

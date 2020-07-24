@@ -172,12 +172,12 @@ void AccountingDb::cleanupRounds()
   }
 }
 
-void AccountingDb::addShare(const CAccountingShare *share)
+void AccountingDb::addShare(const CAccountingShare *share, const StatisticDb *statistic)
 {
   // store share in shares.raw file
   {
     xmstream stream;
-    stream.write<uint32_t>(share->userId.size());
+    stream.write<uint32_t>(static_cast<uint32_t>(share->userId.size()));
     stream.write(share->userId.c_str(), share->userId.size());
     stream.write<int64_t>(share->value);
     if (_sharesFd.write(stream.data(), stream.sizeOf() != stream.sizeOf()))
@@ -186,167 +186,166 @@ void AccountingDb::addShare(const CAccountingShare *share)
 
   // increment score
   _currentScores[share->userId.c_str()] += share->value;
-}
 
-void AccountingDb::addBlock(const CAccountingBlock *block, const StatisticDb *statistic)
-{
-  {
-    // save to database
-    FoundBlockRecord blk;
-    blk.Height = block->height;
-    blk.Hash = block->hash.c_str();
-    blk.Time = time(0);
-    blk.AvailableCoins = block->generatedCoins;
-    blk.FoundBy = block->userId.c_str();
-    _foundBlocksDb.put(blk);
-  }
-
-  int64_t generatedCoins = block->generatedCoins;
-  if (!_cfg.poolZAddr.empty()) {
-    // calculate miners fee for Z-Addr moving
-    generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE);
-  }
-
-  int64_t feeValuesSum = 0;
-  std::vector<int64_t> feeValues;
-  for (const auto &poolFeeRecord: _cfg.PoolFee) {
-    int64_t value = generatedCoins * (poolFeeRecord.Percentage / 100.0f);
-    feeValues.push_back(value);
-    feeValuesSum += value;
-  }
-
-  int64_t available = generatedCoins - feeValuesSum;
-  LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)block->height, block->hash.c_str(), generatedCoins, feeValuesSum, available);
-
-  miningRound *R = new miningRound;
-  R->height = block->height;
-  R->blockHash = block->hash.c_str();
-  R->time = time(0);
-  R->availableCoins = available;
-  R->totalShareValue = 0;
-
-  {
-    for (auto It: _currentScores) {
-      roundElement element;
-      element.userId = It.first;
-      element.shareValue = It.second;
-      R->rounds.push_back(element);
-      R->totalShareValue += element.shareValue;
+  if (share->isBlock) {
+    {
+      // save to database
+      FoundBlockRecord blk;
+      blk.Height = share->height;
+      blk.Hash = share->hash.c_str();
+      blk.Time = time(0);
+      blk.AvailableCoins = share->generatedCoins;
+      blk.FoundBy = share->userId.c_str();
+      _foundBlocksDb.put(blk);
     }
 
-    _currentScores.clear();
-  }
-
-  // *** calculate payments ***
-  {
-    // insert round into accounting base, keep sorting by height
-    auto position = std::lower_bound(
-      _allRounds.begin(),
-      _allRounds.end(),
-      R->height,
-      [](const miningRound *roundArg, unsigned heightArg) -> bool { return roundArg->height < heightArg; });
-    auto insertIt = _allRounds.insert(position, R);
-    std::deque<miningRound*>::reverse_iterator roundIt(++insertIt);
-
-    // calculate shares for each client using last N rounds
-    time_t previousRoundTime = R->time;
-    int64_t totalValue = 0;
-    std::list<payoutAggregate> agg;
-    for (size_t i = 0, ie = _cfg.PoolFee.size(); i != ie; ++i) {
-      agg.push_back(payoutAggregate(_cfg.PoolFee[0].User, 0));
-      agg.front().payoutValue = feeValues[i];
+    int64_t generatedCoins = share->generatedCoins;
+    if (!_cfg.poolZAddr.empty()) {
+      // calculate miners fee for Z-Addr moving
+      generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE);
     }
 
-    while (roundIt != _allRounds.rend() && ((R->time - previousRoundTime) < 3600)) {
-      // merge sorted by userId lists
-      auto currentRound = *roundIt;
-      auto aggIt = agg.begin();
-      auto shareIt = currentRound->rounds.begin();
-      while (shareIt != currentRound->rounds.end()) {
-        if (aggIt == agg.end() || shareIt->userId < aggIt->userId) {
-          agg.insert(aggIt, payoutAggregate(shareIt->userId, shareIt->shareValue));
-          ++shareIt;
-        } else if (shareIt->userId == aggIt->userId) {
-          aggIt->shareValue += shareIt->shareValue;
-          ++shareIt;
-          ++aggIt;
-        } else {
-          ++aggIt;
+    int64_t feeValuesSum = 0;
+    std::vector<int64_t> feeValues;
+    for (const auto &poolFeeRecord: _cfg.PoolFee) {
+      int64_t value = static_cast<int64_t>(generatedCoins * (poolFeeRecord.Percentage / 100.0f));
+      feeValues.push_back(value);
+      feeValuesSum += value;
+    }
+
+    int64_t available = generatedCoins - feeValuesSum;
+    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share->height, share->hash.c_str(), generatedCoins, feeValuesSum, available);
+
+    miningRound *R = new miningRound;
+    R->height = share->height;
+    R->blockHash = share->hash.c_str();
+    R->time = time(0);
+    R->availableCoins = available;
+    R->totalShareValue = 0;
+
+    {
+      for (auto It: _currentScores) {
+        roundElement element;
+        element.userId = It.first;
+        element.shareValue = It.second;
+        R->rounds.push_back(element);
+        R->totalShareValue += element.shareValue;
+      }
+
+      _currentScores.clear();
+    }
+
+    // *** calculate payments ***
+    {
+      // insert round into accounting base, keep sorting by height
+      auto position = std::lower_bound(
+        _allRounds.begin(),
+        _allRounds.end(),
+        R->height,
+        [](const miningRound *roundArg, uint64_t heightArg) -> bool { return roundArg->height < heightArg; });
+      auto insertIt = _allRounds.insert(position, R);
+      std::deque<miningRound*>::reverse_iterator roundIt(++insertIt);
+
+      // calculate shares for each client using last N rounds
+      time_t previousRoundTime = R->time;
+      int64_t totalValue = 0;
+      std::list<payoutAggregate> agg;
+      for (size_t i = 0, ie = _cfg.PoolFee.size(); i != ie; ++i) {
+        agg.push_back(payoutAggregate(_cfg.PoolFee[0].User, 0));
+        agg.front().payoutValue = feeValues[i];
+      }
+
+      while (roundIt != _allRounds.rend() && ((R->time - previousRoundTime) < 3600)) {
+        // merge sorted by userId lists
+        auto currentRound = *roundIt;
+        auto aggIt = agg.begin();
+        auto shareIt = currentRound->rounds.begin();
+        while (shareIt != currentRound->rounds.end()) {
+          if (aggIt == agg.end() || shareIt->userId < aggIt->userId) {
+            agg.insert(aggIt, payoutAggregate(shareIt->userId, shareIt->shareValue));
+            ++shareIt;
+          } else if (shareIt->userId == aggIt->userId) {
+            aggIt->shareValue += shareIt->shareValue;
+            ++shareIt;
+            ++aggIt;
+          } else {
+            ++aggIt;
+          }
         }
+
+        previousRoundTime = (*roundIt)->time;
+        totalValue += currentRound->totalShareValue;
+        ++roundIt;
       }
 
-      previousRoundTime = (*roundIt)->time;
-      totalValue += currentRound->totalShareValue;
-      ++roundIt;
-    }
-
-    // calculate payout values for each client
-    int64_t totalPayout = 0;
-    LOG_F(INFO, " * total share value: %" PRId64 "", totalValue);
-    for (auto I = agg.begin(), IE = agg.end(); I != IE; ++I) {
-      I->payoutValue += ((double)I->shareValue / (double)totalValue) * R->availableCoins;
-      totalPayout += I->payoutValue;
-
-      // check correlation of share percent with power percent
-      uint64_t power = statistic->getClientPower(I->userId);
-      uint64_t poolPower = statistic->getPoolPower();
-      if (power && poolPower) {
-        double sharePercent = ((double)I->shareValue / (double)totalValue) * 100.0;
-        double powerPercent = (double)power / (double)poolPower * 100.0;
-        LOG_F(INFO, "   * addr: %s, payout: %" PRId64 " shares=%.3lf%% power=%.3lf%%", I->userId.c_str(), I->payoutValue, sharePercent, powerPercent);
-      } else {
-        LOG_F(INFO, "   * addr: %s, payout: %" PRId64 "", I->userId.c_str(), I->payoutValue);
-      }
-    }
-
-    LOG_F(INFO, " * total payout: %" PRId64 "", totalPayout);
-
-    // correct payouts for use all available coins
-    if (!agg.empty()) {
-      int64_t diff = totalPayout - generatedCoins;
-      int64_t div = diff / (int64_t)agg.size();
-      int64_t mv = diff >= 0 ? 1 : -1;
-      int64_t mod = (diff > 0 ? diff : -diff) % agg.size();
-
-      totalPayout = 0;
-      int64_t i = 0;
-      for (auto I = agg.begin(), IE = agg.end(); I != IE; ++I, ++i) {
-        I->payoutValue -= div;
-        if (i < mod)
-          I->payoutValue -= mv;
+      // calculate payout values for each client
+      int64_t totalPayout = 0;
+      LOG_F(INFO, " * total share value: %" PRId64 "", totalValue);
+      for (auto I = agg.begin(), IE = agg.end(); I != IE; ++I) {
+        I->payoutValue += static_cast<int64_t>((static_cast<double>(I->shareValue) / static_cast<double>(totalValue)) * R->availableCoins);
         totalPayout += I->payoutValue;
-      }
 
-      LOG_F(INFO, " * total payout (after correct): %" PRId64 "", totalPayout);
-    }
-
-    // calculate payout delta for each user and send to queue
-    // merge sorted by userId lists
-    auto aggIt = agg.begin();
-    auto payIt = R->payouts.begin();
-    while (aggIt != agg.end()) {
-      if (payIt == R->payouts.end() || aggIt->userId < payIt->Login) {
-        R->payouts.insert(payIt, payoutElement(aggIt->userId, aggIt->payoutValue, aggIt->payoutValue));
-        _roundsWithPayouts.insert(R);
-        ++aggIt;
-      } else if (aggIt->userId == payIt->Login) {
-        int64_t delta = aggIt->payoutValue - payIt->payoutValue;
-        if (delta) {
-          payIt->queued += delta;
-          _roundsWithPayouts.insert(R);
+        // check correlation of share percent with power percent
+        uint64_t power = statistic->getClientPower(I->userId);
+        uint64_t poolPower = statistic->getPoolPower();
+        if (power && poolPower) {
+          double sharePercent = ((double)I->shareValue / (double)totalValue) * 100.0;
+          double powerPercent = (double)power / (double)poolPower * 100.0;
+          LOG_F(INFO, "   * addr: %s, payout: %" PRId64 " shares=%.3lf%% power=%.3lf%%", I->userId.c_str(), I->payoutValue, sharePercent, powerPercent);
+        } else {
+          LOG_F(INFO, "   * addr: %s, payout: %" PRId64 "", I->userId.c_str(), I->payoutValue);
         }
-        payIt->payoutValue = aggIt->payoutValue;
-        ++aggIt;
-        ++payIt;
-      } else {
-        ++payIt;
+      }
+
+      LOG_F(INFO, " * total payout: %" PRId64 "", totalPayout);
+
+      // correct payouts for use all available coins
+      if (!agg.empty()) {
+        int64_t diff = totalPayout - generatedCoins;
+        int64_t div = diff / (int64_t)agg.size();
+        int64_t mv = diff >= 0 ? 1 : -1;
+        int64_t mod = (diff > 0 ? diff : -diff) % agg.size();
+
+        totalPayout = 0;
+        int64_t i = 0;
+        for (auto I = agg.begin(), IE = agg.end(); I != IE; ++I, ++i) {
+          I->payoutValue -= div;
+          if (i < mod)
+            I->payoutValue -= mv;
+          totalPayout += I->payoutValue;
+        }
+
+        LOG_F(INFO, " * total payout (after correct): %" PRId64 "", totalPayout);
+      }
+
+      // calculate payout delta for each user and send to queue
+      // merge sorted by userId lists
+      auto aggIt = agg.begin();
+      auto payIt = R->payouts.begin();
+      while (aggIt != agg.end()) {
+        if (payIt == R->payouts.end() || aggIt->userId < payIt->Login) {
+          R->payouts.insert(payIt, payoutElement(aggIt->userId, aggIt->payoutValue, aggIt->payoutValue));
+          _roundsWithPayouts.insert(R);
+          ++aggIt;
+        } else if (aggIt->userId == payIt->Login) {
+          int64_t delta = aggIt->payoutValue - payIt->payoutValue;
+          if (delta) {
+            payIt->queued += delta;
+            _roundsWithPayouts.insert(R);
+          }
+          payIt->payoutValue = aggIt->payoutValue;
+          ++aggIt;
+          ++payIt;
+        } else {
+          ++payIt;
+        }
       }
     }
-  }
 
-  // store round to DB and clear shares map
-  _roundsDb.put(*R);
-  _sharesFd.truncate(0);
+    // store round to DB and clear shares map
+    _roundsDb.put(*R);
+    _sharesFd.truncate(0);
+  }
 }
 
 void AccountingDb::mergeRound(const Round*)
@@ -376,13 +375,13 @@ void AccountingDb::checkBlockConfirmations()
     miningRound *R = rounds[i];
 
     if (confirmationsQuery[i].Confirmations == -1) {
-      LOG_F(INFO, "block %u/%s marked as orphan, can't do any payout", R->height, confirmationsQuery[i].Hash.c_str());
+      LOG_F(INFO, "block %" PRIu64 "/%s marked as orphan, can't do any payout", R->height, confirmationsQuery[i].Hash.c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I)
         I->queued = 0;
       _roundsWithPayouts.erase(R);
       _roundsDb.put(*R);
     } else if (confirmationsQuery[i].Confirmations >= _cfg.RequiredConfirmations) {
-      LOG_F(INFO, "Make payout for block %u/%s", R->height, R->blockHash.c_str());
+      LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R->height, R->blockHash.c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I) {
         requestPayout(I->Login, I->queued);
         I->queued = 0;

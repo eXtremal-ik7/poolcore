@@ -23,7 +23,7 @@ bool DecodeBase58(const char* psz, std::vector<unsigned char>& vch)
         psz++;
     }
     // Allocate enough space in big-endian base256 representation.
-    int size = strlen(psz) * 733 /1000 + 1; // log(58) / log(256), rounded up.
+    size_t size = strlen(psz) * 733 /1000 + 1; // log(58) / log(256), rounded up.
     std::vector<unsigned char> b256(size);
     // Process the characters.
     while (*psz && !isspace(*psz)) {
@@ -32,7 +32,7 @@ bool DecodeBase58(const char* psz, std::vector<unsigned char>& vch)
         if (ch == nullptr)
             return false;
         // Apply "b256 = b256 * 58 + ch".
-        int carry = ch - pszBase58;
+        size_t carry = ch - pszBase58;
         int i = 0;
         for (std::vector<unsigned char>::reverse_iterator it = b256.rbegin(); (carry != 0 || i < length) && (it != b256.rend()); ++it, ++i) {
             carry += 58 * (*it);
@@ -70,7 +70,7 @@ std::string EncodeBase58(const unsigned char* pbegin, const unsigned char* pend)
         zeroes++;
     }
     // Allocate enough space in big-endian base58 representation.
-    int size = (pend - pbegin) * 138 / 100 + 1; // log(256) / log(58), rounded up.
+    size_t size = (pend - pbegin) * 138 / 100 + 1; // log(256) / log(58), rounded up.
     std::vector<unsigned char> b58(size);
     // Process the bytes.
     while (pbegin != pend) {

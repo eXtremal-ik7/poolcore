@@ -34,7 +34,7 @@ void StatisticDb::update()
   uint64_t power = 0;
   unsigned lcount = 0;
   unsigned count = 0;
-  unsigned units[EOTHER+1];
+  unsigned units[EUnitTypeOther+1];
   time_t currentTime = time(0);
   time_t removeTimeLabel = currentTime - _cfg.KeepStatsTime;
   memset(units, 0, sizeof(units));
@@ -58,13 +58,13 @@ void StatisticDb::update()
         clientAggregate.Clients = 1;
         clientAggregate.Workers++;
         switch (stats.UnitType) {
-          case ECPU :
+          case EUnitTypeCPU :
             clientAggregate.CPUNum += stats.Units;
             break;
-          case EGPU :
+          case EUnitTypeGPU :
             clientAggregate.GPUNum += stats.Units;
             break;
-          case EASIC :
+          case EUnitTypeASIC :
             clientAggregate.ASICNum += stats.Units;
             break;
           default :
@@ -81,7 +81,7 @@ void StatisticDb::update()
       }
       
 
-      units[std::min(stats.UnitType, static_cast<uint32_t>(EOTHER))] += stats.Units;
+      units[std::min(stats.UnitType, static_cast<uint32_t>(EUnitTypeOther))] += stats.Units;
       ++count;
       ++I;
       
@@ -98,13 +98,13 @@ void StatisticDb::update()
   
   {
     _poolStats.Time = currentTime;
-    _poolStats.Clients = uniqueClients.size();
+    _poolStats.Clients = static_cast<unsigned>(uniqueClients.size());
     _poolStats.Workers = count;
-    _poolStats.CPUNum = units[ECPU];
-    _poolStats.GPUNum = units[EGPU];
-    _poolStats.ASICNum = units[EASIC];
-    _poolStats.OtherNum = units[EOTHER];
-    _poolStats.Latency = lcount ? (double)avgLatency / lcount : -1;
+    _poolStats.CPUNum = units[EUnitTypeCPU];
+    _poolStats.GPUNum = units[EUnitTypeGPU];
+    _poolStats.ASICNum = units[EUnitTypeASIC];
+    _poolStats.OtherNum = units[EUnitTypeOther];
+    _poolStats.Latency = lcount ? static_cast<unsigned>((double)avgLatency / lcount) : 0;
     _poolStats.Power = power;
     _poolStatsDb.put(_poolStats);
     LOG_F(INFO,
@@ -143,7 +143,7 @@ void StatisticDb::getUserStats(const std::string &user, SiteStatsRecord &aggrega
   uint64_t avgLatency = 0;
   uint64_t power = 0;
   unsigned lcount = 0;
-  unsigned units[EOTHER+1];
+  unsigned units[EUnitTypeOther+1];
   memset(units, 0, sizeof(units));
 
   LOG_F(WARNING, "requested for %s", user.c_str());
@@ -162,15 +162,15 @@ void StatisticDb::getUserStats(const std::string &user, SiteStatsRecord &aggrega
       lcount++;
     }
 
-    units[std::min(stats.UnitType, (uint32_t)EOTHER)] += stats.Units;
+    units[std::min(stats.UnitType, (uint32_t)EUnitTypeOther)] += stats.Units;
     workers.push_back(stats);
   }
 
-  aggregate.Workers = workers.size();
-  aggregate.CPUNum = units[ECPU];
-  aggregate.GPUNum = units[EGPU];
-  aggregate.ASICNum = units[EASIC];
-  aggregate.OtherNum = units[EOTHER];
-  aggregate.Latency = lcount ? static_cast<double>(avgLatency) / lcount : -1;
+  aggregate.Workers = static_cast<unsigned>(workers.size());
+  aggregate.CPUNum = units[EUnitTypeCPU];
+  aggregate.GPUNum = units[EUnitTypeGPU];
+  aggregate.ASICNum = units[EUnitTypeASIC];
+  aggregate.OtherNum = units[EUnitTypeOther];
+  aggregate.Latency = lcount ? static_cast<unsigned>(static_cast<double>(avgLatency) / lcount) : 0;
   aggregate.Power = power;
 }

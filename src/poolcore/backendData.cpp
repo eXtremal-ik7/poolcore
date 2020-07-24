@@ -1,4 +1,3 @@
-#define __STDC_FORMAT_MACROS
 #include "poolcore/backendData.h"
 #include <inttypes.h>
 #include <time.h>
@@ -23,13 +22,13 @@ std::string partByTime(time_t time)
 
 static inline void serializeStringForKey(xmstream &stream, const std::string &S)
 {
-  stream.writebe<uint32_t>(S.size());
+  stream.writebe<uint32_t>(static_cast<uint32_t>(S.size()));
   stream.write(S.data(), S.size());
 }
 
 static inline void serializeString(xmstream &stream, const std::string &S)
 {
-  stream.write<uint32_t>(S.size());
+  stream.write<uint32_t>(static_cast<uint32_t>(S.size()));
   stream.write(S.data(), S.size());
 }
 
@@ -84,26 +83,26 @@ void payoutElement::serializeValue(xmstream &stream) const
 
 void miningRound::serializeKey(xmstream &stream) const
 {
-  stream.writebe<uint32_t>(height);
+  stream.writebe<uint64_t>(height);
   serializeStringForKey(stream, blockHash);
 }
 
 void miningRound::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
-  stream.write<uint32_t>(height);
+  stream.write<uint64_t>(height);
   serializeString(stream, blockHash);
   stream.write<uint64_t>(time);
   stream.write<int64_t>(totalShareValue);
   stream.write<int64_t>(availableCoins);
   
-  stream.write<uint32_t>(rounds.size());
+  stream.write<uint32_t>(static_cast<uint32_t>(rounds.size()));
   for (auto r: rounds) {
     serializeString(stream, r.userId);
     stream.write<int64_t>(r.shareValue);
   }
   
-  stream.write<uint32_t>(payouts.size());
+  stream.write<uint32_t>(static_cast<uint32_t>(payouts.size()));
   for (auto p: payouts) {
     serializeString(stream, p.Login);
     stream.write<int64_t>(p.payoutValue);
@@ -117,7 +116,7 @@ bool miningRound::deserializeValue(const void *data, size_t size)
   
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
-    height = stream.read<uint32_t>();
+    height = stream.read<uint64_t>();
     deserializeString(stream, blockHash);
     time = (time_t)stream.read<uint64_t>();
     totalShareValue = stream.read<int64_t>();
@@ -515,7 +514,7 @@ void ShareStatsRecord::serializeValue(xmstream &stream) const
   stream.write<uint32_t>(CurrentRecordVersion);
   stream.write<uint64_t>(Time);
   stream.write<uint64_t>(Total);
-  stream.write<uint32_t>(Info.size());
+  stream.write<uint32_t>(static_cast<uint32_t>(Info.size()));
   for (auto I: Info) {
     serializeString(stream, I.type);
     stream.write<int64_t>(I.count);

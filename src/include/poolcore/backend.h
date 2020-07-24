@@ -32,14 +32,6 @@ private:
     std::unique_ptr<CAccountingShare> Share_;
   };
 
-  class TaskBlock : public Task {
-  public:
-    TaskBlock(CAccountingBlock *block) : Block_(block) {}
-    void run(PoolBackend *backend) final { backend->onBlock(Block_.get()); }
-  private:
-    std::unique_ptr<CAccountingBlock> Block_;
-  };
-
   class TaskStats : public Task {
   public:
     TaskStats(CUserStats *stats) : Stats_(stats) {}
@@ -127,7 +119,6 @@ private:
   void *updateStatisticHandler();  
   
   void onShare(const CAccountingShare *share);
-  void onBlock(const CAccountingBlock *block);
   void onStats(const CUserStats *stats);
   void manualPayoutImpl(const std::string &user, ManualPayoutCallback callback);
   void queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
@@ -152,7 +143,6 @@ public:
 
   // Asynchronous api
   void sendShare(CAccountingShare *share) { startAsyncTask(new TaskShare(share)); }
-  void sendBlock(CAccountingBlock *block) { startAsyncTask(new TaskBlock(block)); }
   void sendStats(CUserStats *stats) { startAsyncTask(new TaskStats(stats)); }
   void manualPayout(const std::string &user, ManualPayoutCallback callback) { startAsyncTask(new TaskManualPayout(user, callback)); }
   void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { startAsyncTask(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }

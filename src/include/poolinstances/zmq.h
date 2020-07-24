@@ -17,7 +17,8 @@ static bool checkRequest(pool::proto::Request &req,
                          void *msg,
                          size_t msgSize)
 {
-  if (!req.ParseFromArray(msg, msgSize)) {
+  // TODO: size limit check
+  if (!req.ParseFromArray(msg, static_cast<int>(msgSize))) {
     LOG_F(WARNING, "invalid message received");
     return false;
   }
@@ -135,7 +136,8 @@ private:
     pool::proto::Signal sig;
     pool::proto::Block* block = sig.mutable_block();
     sig.set_type(pool::proto::Signal::NEWBLOCK);
-    block->set_height(data.Height);
+    // TODO: switch to 64-bit height
+    block->set_height(static_cast<uint32_t>(data.Height));
     block->set_hash(data.Block.header.hashPrevBlock.ToString());
     block->set_prevhash(data.Block.header.hashPrevBlock.ToString());
     block->set_reqdiff(0);
@@ -143,7 +145,8 @@ private:
 
     // Fill work protobuf
     pool::proto::Work* work = sig.mutable_work();
-    work->set_height(data.Height);
+    // TODO: switch to 64-bit height
+    work->set_height(static_cast<uint32_t>(data.Height));
     work->set_merkle(data.Block.header.hashMerkleRoot.ToString().c_str());
     work->set_time(std::max(static_cast<uint32_t>(time(0)), data.Block.header.nTime));
     work->set_bits(data.Block.header.nBits);
@@ -151,7 +154,8 @@ private:
     size_t repSize = sig.ByteSizeLong();
     connection->Stream.reset();
     connection->Stream.template write<uint8_t>(1);
-    sig.SerializeToArray(connection->Stream.reserve(repSize), repSize);
+    // TODO: size limit check
+    sig.SerializeToArray(connection->Stream.reserve(repSize), static_cast<int>(repSize));
     aioZmtpSend(connection->Socket, connection->Stream.data(), connection->Stream.sizeOf(), zmtpMessage, afNone, 0, [](AsyncOpStatus status, zmtpSocket*, void *arg) {
       if (status != aosSuccess)
         delete static_cast<Connection*>(arg);
@@ -167,7 +171,8 @@ private:
 
       // Set work
       pool::proto::Work* work = rep.mutable_work();
-      work->set_height(data.Height);
+      // TODO: switch to 64-bit height
+      work->set_height(static_cast<uint32_t>(data.Height));
       work->set_merkle(data.Block.header.hashMerkleRoot.ToString().c_str());
       work->set_time(std::max(static_cast<uint32_t>(time(0)), data.Block.header.nTime));
       work->set_bits(data.Block.header.nBits);
@@ -236,7 +241,7 @@ private:
     // check duplicate
     typename Proto::BlockHashTy blockHash = header.GetHash();
     if (!data.KnownShares.insert(blockHash).second) {
-      rep.set_error(pool::proto::Reply::DUPLICATE);
+      rep.set_error(pool::proto::Reply::DUPLICATED);
       return;
     }
 
@@ -246,40 +251,42 @@ private:
     chainParams.minimalChainLength = 2;
     bool isBlock = Proto::checkConsensus(data.Block.header, data.CheckConsensusCtx, chainParams, &shareSize);
 
-    // Send share to backend
-    CAccountingShare *backendShare = new CAccountingShare;
-    backendShare->userId = share.addr();
-    backendShare->height = data.Height;
-    backendShare->value = 1;
-    data.Backend->sendShare(backendShare);
-
     if (isBlock) {
       LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.ToString().c_str(), data.Block.vtx.size());
       // Serialize block
       data.Bin.reset();
       BTC::serialize(data.Bin, data.Block);
       // Submit to nodes
-      std::string addr = share.addr();
       uint64_t height = data.Height;
+      std::string user = share.addr();
       int64_t generatedCoins = data.Block.vtx[0].txOut[0].value;
       CNetworkClientDispatcher &dispatcher = data.Backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase, data.Bin.data(), data.Bin.sizeOf(), [addr, height, blockHash, generatedCoins, &data](bool result, const std::string error) {
+      dispatcher.aioSubmitBlock(data.WorkerBase, data.Bin.data(), data.Bin.sizeOf(), [height, user, blockHash, generatedCoins, &data](bool result, const std::string &hostName, const std::string &error) {
         if (result) {
-          if (!data.KnownBlocks.insert(blockHash).second)
-            return;
-          // Send block to backend
-          CAccountingBlock *block = new CAccountingBlock;
-          block->userId = addr;
-          block->height = height;
-          block->value = 1;
-          block->hash = blockHash.ToString();
-          block->generatedCoins = generatedCoins;
-          data.Backend->sendBlock(block);
-          LOG_F(INFO, " * block accepted by node");
+          LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
+          if (data.KnownBlocks.insert(blockHash).second) {
+            // Send share with block to backend
+            CAccountingShare *backendShare = new CAccountingShare;
+            backendShare->userId = user;
+            backendShare->height = data.Height;
+            backendShare->value = 1;
+            backendShare->isBlock = true;
+            backendShare->hash = blockHash.ToString();
+            backendShare->generatedCoins = generatedCoins;
+            data.Backend->sendShare(backendShare);
+          }
         } else {
-          LOG_F(ERROR, " * block rejected by node: %s", error.c_str());
+          LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.ToString().c_str(), height, hostName.c_str(), error.c_str());
         }
       });
+    } else {
+      // Send share to backend
+      CAccountingShare *backendShare = new CAccountingShare;
+      backendShare->userId = share.addr();
+      backendShare->height = data.Height;
+      backendShare->value = 1;
+      backendShare->isBlock = false;
+      data.Backend->sendShare(backendShare);
     }
   }
 
@@ -307,7 +314,7 @@ private:
     stats->latency = src.latency();
     // TODO: fill with IP
     stats->address = "<unknown>";
-    stats->type = EGPU;
+    stats->type = EUnitTypeGPU;
     stats->units = src.ngpus();
     stats->temp = src.temp();
     data.Backend->sendStats(stats);
@@ -430,7 +437,8 @@ private:
 
     size_t repSize = rep.ByteSizeLong();
     connection->Stream.reset();
-    rep.SerializeToArray(connection->Stream.reserve(repSize), repSize);
+    // TODO: size limit check
+    rep.SerializeToArray(connection->Stream.reserve(repSize), static_cast<int>(repSize));
     aioZmtpSend(connection->Socket, connection->Stream.data(), connection->Stream.sizeOf(), zmtpMessage, afNone, 0, nullptr, nullptr);
     aioZmtpRecv(connection->Socket, connection->Stream, 65536, afNone, 0, frontendRecvCb, connection);
   }
@@ -455,7 +463,8 @@ private:
 
     size_t repSize = rep.ByteSizeLong();
     connection->Stream.reset();
-    rep.SerializeToArray(connection->Stream.reserve(repSize), repSize);
+    // TODO: size limit check
+    rep.SerializeToArray(connection->Stream.reserve(repSize), static_cast<int>(repSize));
     aioZmtpSend(connection->Socket, connection->Stream.data(), connection->Stream.sizeOf(), zmtpMessage, afNone, 0, nullptr, nullptr);
     aioZmtpRecv(connection->Socket, connection->Stream, 65536, afNone, 0, workerRecvCb, connection);
   }

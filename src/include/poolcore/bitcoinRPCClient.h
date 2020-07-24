@@ -73,7 +73,7 @@ private:
       }
     }
 
-    query->Callback(result, query->Connection->LastError);
+    query->Callback(result, HostName_, query->Connection->LastError);
   }
 
   template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>

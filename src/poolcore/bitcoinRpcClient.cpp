@@ -364,7 +364,7 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<Get
   }
 
   // Check getblockhash responses
-  for (size_t i = 1, ie = document.GetArray().Size(); i != ie; ++i) {
+  for (rapidjson::SizeType i = 1, ie = document.GetArray().Size(); i != ie; ++i) {
     rapidjson::Value &value = document.GetArray()[i];
     if (!value.IsObject() || !value.HasMember("result") || !value["result"].IsString()) {
       LOG_F(WARNING, "%s %s:%u: response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
@@ -537,7 +537,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   // Check new work available
   if (!WorkFetcher_.LongPollId.empty()) {
     // With long polling enabled now we check time since last response
-    unsigned timeInterval = std::chrono::duration_cast<std::chrono::seconds>(now - WorkFetcher_.LastTemplateTime).count();
+    uint64_t timeInterval = std::chrono::duration_cast<std::chrono::seconds>(now - WorkFetcher_.LastTemplateTime).count();
     if (timeInterval) {
       LOG_F(INFO, "%s: new work available; previous block: %s; height: %u", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height));
       Dispatcher_->onWorkFetcherNewWork(resultObject);

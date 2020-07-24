@@ -37,7 +37,7 @@ struct CCoinInfo {
 
 class CNetworkClient {
 public:
-  using SumbitBlockCb = std::function<void(bool, const std::string &)>;
+  using SumbitBlockCb = std::function<void(bool, const std::string&, const std::string&)>;
 
   struct GetBlockConfirmationsQuery {
     std::string Hash;

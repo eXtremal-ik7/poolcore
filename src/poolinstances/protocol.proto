@@ -117,7 +117,7 @@ message Work {
 
 message Reply {
   
-  enum ErrType { NONE = 0; VERSION = 1; HEIGHT = 2; REQNONCE = 3; STALE = 4; INVALID = 5; DUPLICATE = 6; }
+  enum ErrType { NONE = 0; VERSION = 1; HEIGHT = 2; REQNONCE = 3; STALE = 4; INVALID = 5; DUPLICATED = 6; }
   
   required Request.Type type = 1;
   required uint32 reqid = 2;
