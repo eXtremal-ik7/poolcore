@@ -665,3 +665,17 @@ void AccountingDb::payoutSuccess(const std::string &address, int64_t value, int6
   balance.Paid += value;
   _balanceDb.put(balance);
 }
+
+bool AccountingDb::manualPayout(const std::string &user)
+{
+  auto It = _balanceMap.find(user);
+  if (It != _balanceMap.end()) {
+    auto &B = It->second;
+    if (B.Balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance >= _cfg.MinimalAllowedPayout) {
+      requestPayout(user, 0, true);
+      return true;
+    }
+  }
+
+  return false;
+}

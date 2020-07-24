@@ -283,6 +283,36 @@ private:
     }
   }
 
+  void onStats(ThreadData &data, pool::proto::Request &req, pool::proto::Reply &rep) {
+    if (!req.has_stats()) {
+      LOG_F(WARNING, "!req.has_stats()");
+      return;
+    }
+
+    const pool::proto::ClientStats &src = req.stats();
+
+    // check user name
+    // TODO: move it to connection
+    UserManager::Credentials credentials;
+    if (!UserMgr_.getUserCredentials(src.addr(), credentials)) {
+      rep.set_errstr((std::string)"Unknown user " + src.addr());
+      rep.set_error(pool::proto::Reply::INVALID);
+      return;
+    }
+
+    CUserStats *stats = new CUserStats;
+    stats->userId = src.addr();
+    stats->workerId = src.name();
+    stats->power = (int64_t)(src.cpd()*1000.0);
+    stats->latency = src.latency();
+    // TODO: fill with IP
+    stats->address = "<unknown>";
+    stats->type = EGPU;
+    stats->units = src.ngpus();
+    stats->temp = src.temp();
+    data.Backend->sendStats(stats);
+  }
+
   void newFrontendConnection(socketTy fd) {
     Connection *connection = new Connection(this, zmtpSocketNew(MonitorBase_, newSocketIo(MonitorBase_, fd), zmtpSocketDEALER), -1, false);
     aioZmtpAccept(connection->Socket, afNone, 5000000, [](AsyncOpStatus status, zmtpSocket*, void *arg) {
@@ -420,7 +450,7 @@ private:
     } else if (requestType == pool::proto::Request::SHARE) {
       onShare(data, req, rep);
     } else if (requestType == pool::proto::Request::STATS) {
-
+      onStats(data, req, rep);
     }
 
     size_t repSize = rep.ByteSize();

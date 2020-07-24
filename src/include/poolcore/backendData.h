@@ -240,7 +240,7 @@ struct SiteStatsRecord {
   
   unsigned LCount;
   
-  SiteStatsRecord(const std::string &userIdArg, time_t timeArg) :
+  SiteStatsRecord(const std::string &userIdArg="", time_t timeArg=0) :
     Login(userIdArg), Time(timeArg),
     Clients(0), Workers(0), CPUNum(0), GPUNum(0), ASICNum(0), OtherNum(0),
     Latency(0), Power(0),

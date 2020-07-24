@@ -98,6 +98,7 @@ public:
   kvdb<rocksdbBase> &getPayoutDb() { return _payoutDb; }
   kvdb<rocksdbBase> &getBalanceDb() { return _balanceDb; }
 
+  bool manualPayout(const std::string &user);
   const std::map<std::string, UserBalanceRecord> &getUserBalanceMap() { return _balanceMap; }
 };
 

@@ -145,9 +145,14 @@ void PoolBackend::onBlock(const CAccountingBlock *block)
   _accounting->addBlock(block, _statistics.get());
 }
 
-void PoolBackend::onStats(const Stats *stats)
+void PoolBackend::onStats(const CUserStats *stats)
 {
   _statistics->addStats(stats);
+}
+
+void PoolBackend::manualPayoutImpl(const std::string &user, ManualPayoutCallback callback)
+{
+  callback(_accounting->manualPayout(user));
 }
 
 void PoolBackend::queryFoundBlocksImpl(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback)
@@ -197,4 +202,42 @@ void PoolBackend::queryBalanceImpl(const std::string &user, QueryBalanceCallback
     record.Paid = 0;
     callback(record);
   }
+}
+
+void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts)
+{
+  auto &db = accountingDb()->getPayoutDb();
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
+
+  {
+    PayoutDbRecord pr;
+    pr.userId = user;
+    pr.time = timeFrom == 0 ? std::numeric_limits<uint64_t>::max() : timeFrom;
+    It->seek(pr);
+    It->prev();
+  }
+
+  for (unsigned i = 0; i < count; i++) {
+    if (!It->valid())
+      break;
+
+    payouts.push_back(PayoutDbRecord());
+    RawData data = It->value();
+    if (!payouts.back().deserializeValue(data.data, data.size) || payouts.back().userId != user)
+      break;
+    It->prev();
+  }
+}
+
+void PoolBackend::queryPoolStatsImpl(QueryPoolStatsCallback callback)
+{
+  callback(statisticDb()->getPoolStats());
+}
+
+void PoolBackend::queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback)
+{
+  SiteStatsRecord aggregate;
+  std::vector<ClientStatsRecord> workers;
+  statisticDb()->getUserStats(user, aggregate, workers);
+  callback(aggregate, workers);
 }

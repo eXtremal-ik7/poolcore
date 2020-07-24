@@ -3,13 +3,13 @@
 #include <algorithm>
 
 StatisticDb::StatisticDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo) : _cfg(config), CoinInfo_(coinInfo),
-  _poolStats("pool", 0),
+  _poolStats("pool"),
   _workerStatsDb(_cfg.dbPath / coinInfo.Name / "workerStats"),
   _poolStatsDb(_cfg.dbPath / coinInfo.Name / "poolstats")
 {
 }
 
-void StatisticDb::addStats(const Stats *stats)
+void StatisticDb::addStats(const CUserStats *stats)
 {
   std::string key = stats->userId;
     key.push_back('/');
@@ -136,4 +136,41 @@ uint64_t StatisticDb::getClientPower(const std::string &userId) const
 uint64_t StatisticDb::getPoolPower() const
 {
   return _poolStats.Power;
+}
+
+void StatisticDb::getUserStats(const std::string &user, SiteStatsRecord &aggregate, std::vector<ClientStatsRecord> &workers)
+{
+  uint64_t avgLatency = 0;
+  uint64_t power = 0;
+  unsigned lcount = 0;
+  unsigned units[EOTHER+1];
+  memset(units, 0, sizeof(units));
+
+  LOG_F(WARNING, "requested for %s", user.c_str());
+  for (auto It = _statsMap.begin(); It != _statsMap.end(); ++It) {
+    LOG_F(WARNING, "stats record for %s", It->second.Login.c_str());
+  }
+
+  for (auto It = _statsMap.lower_bound(user); It != _statsMap.end(); ++It) {
+    const ClientStatsRecord &stats = It->second;
+    if (stats.Login != user)
+      break;
+
+    power += stats.Power;
+    if (stats.Latency >= 0) {
+      avgLatency += stats.Latency;
+      lcount++;
+    }
+
+    units[std::min(stats.UnitType, (uint32_t)EOTHER)] += stats.Units;
+    workers.push_back(stats);
+  }
+
+  aggregate.Workers = workers.size();
+  aggregate.CPUNum = units[ECPU];
+  aggregate.GPUNum = units[EGPU];
+  aggregate.ASICNum = units[EASIC];
+  aggregate.OtherNum = units[EOTHER];
+  aggregate.Latency = lcount ? static_cast<double>(avgLatency) / lcount : -1;
+  aggregate.Power = power;
 }

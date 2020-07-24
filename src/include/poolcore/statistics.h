@@ -17,7 +17,7 @@ enum EUnitType {
   EOTHER
 };
 
-struct Stats {
+struct CUserStats {
   std::string userId;
   std::string workerId;
   uint64_t power;
@@ -42,11 +42,13 @@ private:
 public:
   StatisticDb(const PoolBackendConfig &config, const CCoinInfo &coinInfo);
   
-  void addStats(const Stats *stats);
+  void addStats(const CUserStats *stats);
   void update();
   
   uint64_t getClientPower(const std::string &userId) const;
   uint64_t getPoolPower() const;
+  const SiteStatsRecord &getPoolStats() { return _poolStats; }
+  void getUserStats(const std::string &user, SiteStatsRecord &aggregate, std::vector<ClientStatsRecord> &workers);
 };
 
 

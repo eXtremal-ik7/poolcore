@@ -11,8 +11,11 @@
 
 class PoolBackend {
 public:
+  using ManualPayoutCallback = std::function<void(bool)>;
   using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
   using QueryBalanceCallback = std::function<void(const UserBalanceRecord&)>;
+  using QueryPoolStatsCallback = std::function<void(const SiteStatsRecord&)>;
+  using QueryUserStatsCallback = std::function<void(const SiteStatsRecord&, const std::vector<ClientStatsRecord>&)>;
 
 private:
   class Task {
@@ -39,10 +42,19 @@ private:
 
   class TaskStats : public Task {
   public:
-    TaskStats(Stats *stats) : Stats_(stats) {}
+    TaskStats(CUserStats *stats) : Stats_(stats) {}
     void run(PoolBackend *backend) final { backend->onStats(Stats_.get()); }
   private:
-    std::unique_ptr<Stats> Stats_;
+    std::unique_ptr<CUserStats> Stats_;
+  };
+
+  class TaskManualPayout : public Task {
+  public:
+    TaskManualPayout(const std::string &user, ManualPayoutCallback callback) : User_(user), Callback_(callback) {}
+    void run(PoolBackend *backend) final { backend->manualPayoutImpl(User_, Callback_); }
+  private:
+    std::string User_;
+    ManualPayoutCallback Callback_;
   };
 
   class TaskQueryFoundBlocks : public Task {
@@ -63,6 +75,23 @@ private:
   private:
     std::string User_;
     QueryBalanceCallback Callback_;
+  };
+
+  class TaskQueryPoolStats : public Task {
+  public:
+    TaskQueryPoolStats(QueryPoolStatsCallback callback) : Callback_(callback) {}
+    void run(PoolBackend *backend) final { backend->queryPoolStatsImpl(Callback_); }
+  private:
+    QueryPoolStatsCallback Callback_;
+  };
+
+  class TaskQueryUserStats : public Task {
+  public:
+    TaskQueryUserStats(const std::string &user, QueryUserStatsCallback callback) : User_(user), Callback_(callback) {}
+    void run(PoolBackend *backend) final { backend->queryUserStatsImpl(User_, Callback_); }
+  private:
+    std::string User_;
+    QueryUserStatsCallback Callback_;
   };
 
 private:
@@ -99,9 +128,12 @@ private:
   
   void onShare(const CAccountingShare *share);
   void onBlock(const CAccountingBlock *block);
-  void onStats(const Stats *stats);
+  void onStats(const CUserStats *stats);
+  void manualPayoutImpl(const std::string &user, ManualPayoutCallback callback);
   void queryFoundBlocksImpl(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
   void queryBalanceImpl(const std::string &user, QueryBalanceCallback callback);
+  void queryPoolStatsImpl(QueryPoolStatsCallback callback);
+  void queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback);
   
 
 public:
@@ -116,13 +148,17 @@ public:
   void stop();
 
   // Synchronous api
+  void queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts);
 
   // Asynchronous api
   void sendShare(CAccountingShare *share) { startAsyncTask(new TaskShare(share)); }
   void sendBlock(CAccountingBlock *block) { startAsyncTask(new TaskBlock(block)); }
-  void sendStats(Stats *stats) { startAsyncTask(new TaskStats(stats)); }
+  void sendStats(CUserStats *stats) { startAsyncTask(new TaskStats(stats)); }
+  void manualPayout(const std::string &user, ManualPayoutCallback callback) { startAsyncTask(new TaskManualPayout(user, callback)); }
   void queryFoundBlocks(uint64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { startAsyncTask(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { startAsyncTask(new TaskQueryBalance(user, callback)); }
+  void queryPoolStats(QueryPoolStatsCallback callback) { startAsyncTask(new TaskQueryPoolStats(callback)); }
+  void queryUserStats(const std::string &user, QueryUserStatsCallback callback) { startAsyncTask(new TaskQueryUserStats(user, callback)); }
 
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }
