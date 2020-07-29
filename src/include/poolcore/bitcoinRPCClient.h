@@ -13,7 +13,7 @@ struct HTTPClient;
 
 class CBitcoinRpcClient : public CNetworkClient {
 public:
-  CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password);
+  CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, bool longPollEnabled);
 
   virtual CPreparedQuery *prepareBlock(const void *data, size_t size) override;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
@@ -165,6 +165,7 @@ private:
   std::string BasicAuth_;
 
   GBTInstance WorkFetcher_;
+  bool HasLongPoll_;
   bool HasGetWalletInfo_ = true;
   bool HasGetBlockChainInfo_ = true;
 

@@ -580,6 +580,18 @@ void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, Task::D
   callback("ok");
 }
 
+bool UserManager::checkPassword(const std::string &login, const std::string &password)
+{
+  decltype (UsersCache_)::const_accessor accessor;
+  if (!UsersCache_.find(accessor, login))
+    return false;
+
+  const UsersRecord &record = accessor->second;
+
+  // Check password
+  return record.PasswordHash == generateHash(login, password);
+}
+
 bool UserManager::validateSession(const std::string &id, std::string &login)
 {
   time_t currentTime = time(nullptr);

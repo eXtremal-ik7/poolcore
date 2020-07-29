@@ -16,7 +16,7 @@ class CSingleWorkInstance : public CWorkInstance {
 public:
   typename Proto::Block Block;
   uint64_t Height;
-  size_t ExtraNonceOffset;
+  size_t ScriptSigExtraNonceOffset;
 };
 
 
@@ -64,7 +64,12 @@ static void createListener(asyncBase *base, uint16_t port, ListenerCallback call
 }
 
 template<typename Proto>
-CSingleWorkInstance<Proto> *checkNewBlockTemplate(rapidjson::Value &blockTemplate, const PoolBackendConfig &cfg, const CCoinInfo &coinInfo, xmstream &serializeBuffer, const std::string &instanceName)
+CSingleWorkInstance<Proto> *acceptBlockTemplate(rapidjson::Value &blockTemplate,
+                                                const PoolBackendConfig &cfg,
+                                                const CCoinInfo &coinInfo,
+                                                xmstream &serializeBuffer,
+                                                const std::string &instanceName,
+                                                size_t extraNonceSize)
 {
   std::unique_ptr<CSingleWorkInstance<Proto>> work(new CSingleWorkInstance<Proto>);
 
@@ -96,8 +101,8 @@ CSingleWorkInstance<Proto> *checkNewBlockTemplate(rapidjson::Value &blockTemplat
   }
 
   bool coinBaseSuccess = coinInfo.SegwitEnabled ?
-    buildSegwitCoinbaseFromTemplate(work->Block.vtx[0], miningAddress, blockTemplate) :
-    buildCoinbaseFromTemplate(work->Block.vtx[0], miningAddress, cfg.CoinBaseMsg, blockTemplate, &work->ExtraNonceOffset);
+    buildSegwitCoinbaseFromTemplate(work->Block.vtx[0], miningAddress, cfg.CoinBaseMsg, blockTemplate, extraNonceSize, &work->ScriptSigExtraNonceOffset) :
+    buildCoinbaseFromTemplate(work->Block.vtx[0], miningAddress, cfg.CoinBaseMsg, blockTemplate, extraNonceSize, &work->ScriptSigExtraNonceOffset);
   if (!coinBaseSuccess) {
     LOG_F(WARNING, "%s: Insufficient data for coinbase transaction in block template", instanceName.c_str());
     return nullptr;
@@ -133,34 +138,4 @@ void incrementExtraNonce(typename Proto::Block &block, size_t extraNonceOffset, 
   // Update merkle tree
   block.vtx[0].Hash.SetNull();
   block.header.hashMerkleRoot = calculateMerkleRoot<Proto>(block.vtx);
-}
-
-
-static inline uint8_t hexLowerCaseDigit2bin(char c)
-{
-  uint8_t digit = c - '0';
-  if (digit >= 10)
-    digit -= ('a' - '0' - 10);
-  return digit;
-}
-
-static inline char bin2hexLowerCaseDigit(uint8_t b)
-{
-  return b < 10 ? '0'+b : 'a'+b-10;
-}
-
-static inline void hexLowerCase2bin(const char *in, size_t inSize, void *out)
-{
-  uint8_t *pOut = static_cast<uint8_t*>(out);
-  for (size_t i = 0; i < inSize/2; i++)
-    pOut[i] = (hexLowerCaseDigit2bin(in[i*2]) << 4) | hexLowerCaseDigit2bin(in[i*2+1]);
-}
-
-static inline void bin2hexLowerCase(const void *in, char *out, size_t size)
-{
-  const uint8_t *pIn = static_cast<const uint8_t*>(in);
-  for (size_t i = 0, ie = size; i != ie; ++i) {
-    out[i*2] = bin2hexLowerCaseDigit(pIn[i] >> 4);
-    out[i*2+1] = bin2hexLowerCaseDigit(pIn[i] & 0xF);
-  }
 }

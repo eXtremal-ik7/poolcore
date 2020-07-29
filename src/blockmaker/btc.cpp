@@ -6,6 +6,7 @@
 #include "blockmaker/btc.h"
 #include "blockmaker/serializeJson.h"
 #include "poolcore/base58.h"
+#include "poolcommon/arith_uint256.h"
 
 namespace BTC {
 
@@ -67,6 +68,15 @@ void Io<Proto::TxIn>::unpackFinalize(DynamicPtr<BTC::Proto::TxIn> dst)
   BTC::unpackFinalize(DynamicPtr<decltype (dst->witnessStack)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::TxIn, witnessStack)));
 }
 
+size_t Proto::TxIn::scriptSigOffset()
+{
+  size_t result = 0;
+  result += sizeof(previousOutputHash);
+  result += sizeof(previousOutputIndex);
+  result += serializedVarSizeLength(scriptSig.size());
+  return result;
+}
+
 void Io<Proto::TxOut>::serialize(xmstream &src, const BTC::Proto::TxOut &data)
 {
   BTC::serialize(src, data.value);
@@ -90,6 +100,137 @@ void Io<Proto::TxOut>::unpackFinalize(DynamicPtr<BTC::Proto::TxOut> dst)
   BTC::unpackFinalize(DynamicPtr<decltype (dst->pkScript)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::TxOut, pkScript)));
 }
 
+void Io<Proto::Transaction>::serialize(xmstream &dst, const BTC::Proto::Transaction &data)
+{
+  uint8_t flags = 0;
+  BTC::serialize(dst, data.version);
+  if (data.hasWitness()) {
+    flags = 1;
+    BTC::serializeVarSize(dst, 0);
+    BTC::serialize(dst, flags);
+  }
+
+  BTC::serialize(dst, data.txIn);
+  BTC::serialize(dst, data.txOut);
+
+  if (flags) {
+    for (size_t i = 0; i < data.txIn.size(); i++)
+      BTC::serialize(dst, data.txIn[i].witnessStack);
+  }
+
+  BTC::serialize(dst, data.lockTime);
+}
+
+void Io<Proto::Transaction>::unserialize(xmstream &src, BTC::Proto::Transaction &data)
+{
+  uint8_t flags = 0;
+  BTC::unserialize(src, data.version);
+  BTC::unserialize(src, data.txIn);
+  if (data.txIn.empty()) {
+    BTC::unserialize(src, flags);
+    if (flags != 0) {
+      BTC::unserialize(src, data.txIn);
+      BTC::unserialize(src, data.txOut);
+    }
+  } else {
+    BTC::unserialize(src, data.txOut);
+  }
+
+  if (flags & 1) {
+    flags ^= 1;
+
+    for (size_t i = 0; i < data.txIn.size(); i++)
+      BTC::unserialize(src, data.txIn[i].witnessStack);
+
+    if (!data.hasWitness()) {
+      src.seekEnd(0, true);
+      return;
+    }
+  }
+
+  if (flags) {
+    src.seekEnd(0, true);
+    return;
+  }
+
+  BTC::unserialize(src, data.lockTime);
+}
+
+void Io<Proto::Transaction>::unpack(xmstream &src, DynamicPtr<BTC::Proto::Transaction> dst)
+{
+  uint8_t flags = 0;
+
+  BTC::unserialize(src, dst->version);
+  BTC::unpack(src, DynamicPtr<decltype(dst->txIn)>(dst.stream(), dst.offset()+ offsetof(BTC::Proto::Transaction, txIn)));
+
+  if (dst->txIn.empty()) {
+    BTC::unserialize(src, flags);
+    if (flags) {
+      BTC::unpack(src, DynamicPtr<decltype(dst->txIn)>(dst.stream(), dst.offset()+ offsetof(BTC::Proto::Transaction, txIn)));
+      BTC::unpack(src, DynamicPtr<decltype(dst->txOut)>(dst.stream(), dst.offset()+ offsetof(BTC::Proto::Transaction, txOut)));
+    }
+  } else {
+    BTC::unpack(src, DynamicPtr<decltype(dst->txOut)>(dst.stream(), dst.offset()+ offsetof(BTC::Proto::Transaction, txOut)));
+  }
+
+  if (flags & 1) {
+    flags ^= 1;
+
+    bool hasWitness = false;
+    for (size_t i = 0, ie = dst->txIn.size(); i < ie; i++) {
+      size_t txInDataOffset = reinterpret_cast<size_t>(dst->txIn.data());
+      size_t txInOffset = txInDataOffset + sizeof(BTC::Proto::TxIn)*i;
+      hasWitness |= BTC::Proto::TxIn::unpackWitnessStack(src, DynamicPtr<Proto::TxIn>(dst.stream(), txInOffset));
+    }
+
+    if (!hasWitness) {
+      src.seekEnd(0, true);
+      return;
+    }
+  }
+
+  if (flags) {
+    src.seekEnd(0, true);
+    return;
+  }
+
+  BTC::unserialize(src, dst->lockTime);
+}
+
+size_t Proto::Transaction::getFirstScriptSigOffset()
+{
+  size_t result = 0;
+  result += 4; //version
+  if (hasWitness()) {
+    result += serializedVarSizeLength(0);
+    result += 1; // flags
+  }
+
+  // txin count
+  result += serializedVarSizeLength(txIn.size());
+  // txin prefix
+  result += txIn[0].scriptSigOffset();
+  return result;
+}
+
+bool Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&)
+{
+  bool fNegative;
+  bool fOverflow;
+  arith_uint256 bnTarget;
+  bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
+
+  // Check range
+  if (fNegative || bnTarget == 0 || fOverflow)
+    return false;
+
+  // Check proof of work matches claimed amount
+  if (UintToArith256(header.GetHash()) > bnTarget)
+    return false;
+
+  return true;
+}
+
 bool Proto::loadHeaderFromTemplate(BTC::Proto::BlockHeader &header, rapidjson::Value &blockTemplate)
 {
   // version
@@ -106,9 +247,9 @@ bool Proto::loadHeaderFromTemplate(BTC::Proto::BlockHeader &header, rapidjson::V
   header.hashMerkleRoot.SetNull();
 
   // time
-  if (!blockTemplate.HasMember("mintime") || !blockTemplate["mintime"].IsUint())
+  if (!blockTemplate.HasMember("curtime") || !blockTemplate["curtime"].IsUint())
     return false;
-  header.nTime = blockTemplate["mintime"].GetUint();
+  header.nTime = blockTemplate["curtime"].GetUint();
 
   // bits
   if (!blockTemplate.HasMember("bits") || !blockTemplate["bits"].IsString())
@@ -169,7 +310,7 @@ bool loadTransactionsFromTemplate(xvector<BTC::Proto::Transaction> &vtx, rapidjs
   return true;
 }
 
-bool buildCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, const std::string &coinbaseMessage, rapidjson::Value &blockTemplate, size_t *extraNonceOffset)
+bool buildCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, const std::string &coinbaseMessage, rapidjson::Value &blockTemplate, size_t extraNonceSize, size_t *extraNonceOffset)
 {
   coinbaseTx.version = 1;
 
@@ -191,8 +332,9 @@ bool buildCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::
     scriptsig.write(coinbaseMessage.data(), coinbaseMessage.size());
     // Extra nonce
     *extraNonceOffset = scriptsig.offsetOf();
-    scriptsig.write<uint64_t>(0);
-    scriptsig.write<uint64_t>(0);
+    for (size_t i = 0; i < extraNonceSize; i++)
+      scriptsig.write(' ');
+
     xvectorFromStream(std::move(scriptsig), txIn.scriptSig);
     txIn.sequence = std::numeric_limits<uint32_t>::max();
   }
@@ -221,14 +363,14 @@ bool buildCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::
   return true;
 }
 
-bool buildSegwitCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, rapidjson::Value &blockTemplate)
+bool buildSegwitCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, const std::string &coinbaseMessage, rapidjson::Value &blockTemplate, size_t extraNonceSize, size_t *extraNonceOffset)
 {
   coinbaseTx.version = 2;
 
   // TxIn
   {
     coinbaseTx.txIn.resize(1);
-    typename BTC::Proto::TxIn &txIn = coinbaseTx.txIn[0];
+    BTC::Proto::TxIn &txIn = coinbaseTx.txIn[0];
     txIn.previousOutputHash.SetNull();
     txIn.previousOutputIndex = std::numeric_limits<uint32_t>::max();
 
@@ -237,9 +379,16 @@ bool buildSegwitCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::P
       return false;
 
     xmstream scriptsig;
-    // height
+    // Height
     BTC::serializeForCoinbase(scriptsig, blockTemplate["height"].GetInt64());
-    // TODO: correct fill coinbase txin
+    // Coinbase message
+    scriptsig.write(coinbaseMessage.data(), coinbaseMessage.size());
+    // Extra nonce
+    *extraNonceOffset = scriptsig.offsetOf();
+    for (size_t i = 0; i < extraNonceSize; i++)
+      scriptsig.write(' ');
+
+    xvectorFromStream(std::move(scriptsig), txIn.scriptSig);
     txIn.sequence = std::numeric_limits<uint32_t>::max();
   }
 

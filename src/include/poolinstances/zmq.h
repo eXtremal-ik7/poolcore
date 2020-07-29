@@ -66,7 +66,7 @@ public:
   }
 
   virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate, PoolBackend *backend) override {
-    intrusive_ptr<CSingleWorkInstance<Proto>> work = ::checkNewBlockTemplate<Proto>(blockTemplate, backend->getConfig(), backend->getCoinInfo(), SerializeBuffer_, Name_);
+    intrusive_ptr<CSingleWorkInstance<Proto>> work = ::acceptBlockTemplate<Proto>(blockTemplate, backend->getConfig(), backend->getCoinInfo(), SerializeBuffer_, Name_, 16);
     if (!work.get())
       return;
     for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
@@ -372,7 +372,7 @@ private:
 
     // TODO: don't do deep copy
     data.Block = work.get()->Block;
-    data.ExtraNonceOffset = work.get()->ExtraNonceOffset;
+    data.ExtraNonceOffset = work.get()->ScriptSigExtraNonceOffset;
     data.Height = work.get()->Height;
     data.HasWork = true;
     data.Backend = backend;

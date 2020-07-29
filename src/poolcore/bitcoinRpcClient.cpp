@@ -28,20 +28,6 @@ static const std::string gGetWalletInfoQuery = R"json({"method": "getwalletinfo"
 static const std::string gGetBlockChainInfoQuery = R"json({"method": "getblockchaininfo", "params": [] })json";
 static const std::string gGetInfoQuery = R"json({"method": "getinfo", "params": []})json";
 
-static inline char bin2hexLowerCaseDigit(uint8_t b)
-{
-  return b < 10 ? '0'+b : 'a'+b-10;
-}
-
-static inline void bin2hexLowerCase(const void *in, char *out, size_t size)
-{
-  const uint8_t *pIn = static_cast<const uint8_t*>(in);
-  for (size_t i = 0, ie = size; i != ie; ++i) {
-    out[i*2] = bin2hexLowerCaseDigit(pIn[i] >> 4);
-    out[i*2+1] = bin2hexLowerCaseDigit(pIn[i] & 0xF);
-  }
-}
-
 static inline void jsonParseInt(const rapidjson::Value &value, const char *name, int64_t *out, bool *validAcc) {
   if (value.HasMember(name)) {
     if (value[name].IsInt64())
@@ -91,7 +77,7 @@ static std::string buildPostQuery(const char *data, size_t size, const std::stri
       query.append("\r\n");
     query.append("\r\n");
   if (data)
-    query.append(data);
+    query.append(data, size);
   return query;
 }
 
@@ -106,7 +92,7 @@ static void buildPostQuery(const char *data, size_t size, const std::string &hos
       out.write("\r\n");
     out.write("Connection: keep-alive\r\n");
     out.write("Authorization: Basic ");
-      out.write(basicAuth.data());
+      out.write(basicAuth.data(), basicAuth.size());
       out.write("\r\n");
     out.write("Content-Length: ");
       out.write(static_cast<const char*>(dataLength));
@@ -169,9 +155,9 @@ std::string CBitcoinRpcClient::buildGetTransaction(const std::string &txId)
   return result;
 }
 
-CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password) :
+CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, bool longPollEnabled) :
   CNetworkClient(threadsNum),
-  WorkFetcherBase_(base), ThreadsNum_(threadsNum), CoinInfo_(coinInfo)
+  WorkFetcherBase_(base), ThreadsNum_(threadsNum), CoinInfo_(coinInfo), HasLongPoll_(longPollEnabled)
 {
   WorkFetcher_.Client = nullptr;
   WorkFetcher_.TimerEvent = newUserEvent(base, 0, [](aioUserEvent*, void *arg) {
@@ -220,7 +206,7 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
   std::string basicAuth = login;
   basicAuth.push_back(':');
   basicAuth.append(password);
-  BasicAuth_.resize(base64getEncodeLength(basicAuth.size()) + 1);
+  BasicAuth_.resize(base64getEncodeLength(basicAuth.size()));
   base64Encode(BasicAuth_.data(), reinterpret_cast<uint8_t*>(basicAuth.data()), basicAuth.size());
 
   BalanceQuery_ = buildPostQuery(gBalanceQuery.data(), gBalanceQuery.size(), HostName_, BasicAuth_);
@@ -251,6 +237,8 @@ CPreparedQuery *CBitcoinRpcClient::prepareBlock(const void *data, size_t size)
 bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result)
 {
   std::unique_ptr<CConnection> connection(getConnection(base));
+  if (!connection)
+    return false;
   if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
     return false;
 
@@ -276,6 +264,8 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
     } else if (connection->ParseCtx.resultCode == 404) {
       LOG_F(WARNING, "%s %s:%u: doesn't support getwalletinfo api; recommended update your node", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
       connection.reset(getConnection(base));
+      if (!connection)
+        return false;
       if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
         return false;
       HasGetWalletInfo_ = false;
@@ -313,6 +303,8 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
 bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query)
 {
   std::unique_ptr<CConnection> connection(getConnection(base));
+  if (!connection)
+    return false;
   if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
     return false;
 
@@ -380,6 +372,8 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<Get
 bool CBitcoinRpcClient::ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result)
 {
   std::unique_ptr<CConnection> connection(getConnection(base));
+  if (!connection)
+    return false;
   if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
     return false;
 
@@ -428,6 +422,10 @@ void CBitcoinRpcClient::aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr
 {
   CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(queryPtr);
   query->Connection.reset(getConnection(base));
+  if (!query->Connection) {
+    callback(false, HostName_, "Socket creation error");
+    return;
+  }
   query->Callback = callback;
   query->Base = base;
   aioHttpConnect(query->Connection->Client, &Address_, nullptr, 10000000, [](AsyncOpStatus status, HTTPClient *httpClient, void *arg) {
@@ -454,7 +452,7 @@ void CBitcoinRpcClient::poll()
   socketTy S = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
   aioObject *object = newSocketIo(WorkFetcherBase_, S);
   WorkFetcher_.Client = httpClientNew(WorkFetcherBase_, object);
-  WorkFetcher_.LongPollId = "0000000000000000000000000000000000000000000000000000000000000000";
+  WorkFetcher_.LongPollId = HasLongPoll_ ? "0000000000000000000000000000000000000000000000000000000000000000" : "";
   WorkFetcher_.PreviousBlock.clear();
   WorkFetcher_.LastTemplateTime = std::chrono::time_point<std::chrono::steady_clock>::min();
   httpParseDefaultInit(&WorkFetcher_.ParseCtx);
@@ -586,6 +584,11 @@ CBitcoinRpcClient::CConnection *CBitcoinRpcClient::getConnection(asyncBase *base
   CConnection *connection = new CConnection;
   httpParseDefaultInit(&connection->ParseCtx);
   connection->Socket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
+  // NOTE: Linux only
+  if (connection->Socket == -1) {
+    LOG_F(ERROR, "Can't create socket (open file descriptors limit is over?)");
+    return nullptr;
+  }
   connection->Client = httpClientNew(base, newSocketIo(base, connection->Socket));
   return connection;
 }

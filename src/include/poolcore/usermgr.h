@@ -170,6 +170,7 @@ public:
   void updateSettings(UserSettingsRecord &&settings, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), callback)); }
 
   // Synchronous api
+  bool checkPassword(const std::string &login, const std::string &password);
   bool validateSession(const std::string &id, std::string &login);
   bool getUserCredentials(const std::string &login, Credentials &out);
   bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);

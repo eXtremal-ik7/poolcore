@@ -3,6 +3,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 add_library(poolinstances STATIC
   fabric.cpp
+  stratumMsg.cpp
   ${ProtoSources}
 )
 

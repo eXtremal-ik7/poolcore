@@ -22,6 +22,11 @@ public:
   using TxWitness = BTC::Proto::TxWitness;
   using Transaction = BTC::Proto::Transaction;
 
+  using CheckConsensusCtx = BTC::Proto::CheckConsensusCtx;
+  using ChainParams = BTC::Proto::ChainParams;
+
+  static void checkConsensusInitialize(CheckConsensusCtx &ctx) {}
+  static bool checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams &chainParams);
   static bool loadHeaderFromTemplate(Proto::BlockHeader &header, rapidjson::Value &blockTemplate) { return BTC::Proto::loadHeaderFromTemplate(header, blockTemplate); }
 };
 }

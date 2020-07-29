@@ -71,6 +71,19 @@ static inline void unserializeVarSize(xmstream &stream, uint64_t &out)
     out = stream.readle<uint64_t>();
 }
 
+static inline size_t serializedVarSizeLength(uint64_t value)
+{
+  if (value < 0xFD) {
+    return 1;
+  } else if (value <= 0xFFFF) {
+    return 3;
+  } else if (value <= 0xFFFFFFFF) {
+    return 5;
+  } else {
+    return 9;
+  }
+}
+
 }
 
 namespace BTC {
