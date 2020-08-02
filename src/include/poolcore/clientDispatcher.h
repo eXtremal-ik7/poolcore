@@ -38,7 +38,7 @@ public:
   void onWorkFetchReconnectTimer();
   void onWorkFetcherConnectionError();
   void onWorkFetcherConnectionLost();
-  void onWorkFetcherNewWork(rapidjson::Value &work);
+  void onWorkFetcherNewWork(CBlockTemplate *blockTemplate);
 
 private:
   enum EWorkState {

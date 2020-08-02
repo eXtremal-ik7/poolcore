@@ -10,11 +10,13 @@
 class PoolBackend;
 class UserManager;
 
-class CWorkInstance {
+class CBlockTemplate {
 private:
   mutable std::atomic<uintptr_t> Refs_ = 0;
 public:
-  virtual ~CWorkInstance() {}
+  rapidjson::Document Document;
+  bool IsNewBlock = true;
+  virtual ~CBlockTemplate() {}
   uintptr_t ref_fetch_add(uintptr_t count) const { return Refs_.fetch_add(count); }
   uintptr_t ref_fetch_sub(uintptr_t count) const { return Refs_.fetch_sub(count); }
 };
@@ -71,7 +73,7 @@ public:
   virtual void stopWork() = 0;
   /// Function for interact with bitcoin RPC clients
   /// @arg blockTemplate: deserialized 'getblocktemplate' response
-  virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate, PoolBackend *backend) = 0;
+  virtual void checkNewBlockTemplate(CBlockTemplate *blockTemplate, PoolBackend *backend) = 0;
 
 protected:
   asyncBase *MonitorBase_;

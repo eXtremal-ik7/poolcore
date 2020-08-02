@@ -40,19 +40,38 @@ typename Proto::BlockHashTy calculateMerkleRoot(const xvector<typename Proto::Tr
   return hashes[0];
 }
 
-template<typename Proto>
-void dumpMerkleTree(const xvector<typename Proto::Transaction> &vtx, std::vector<typename Proto::BlockHashTy> &out)
+static inline uint256 calculateMerkleRoot(const void *data, size_t size, const std::vector<uint256> &merklePath)
+{
+  uint256 result;
+  SHA256_CTX sha256;
+  SHA256_Init(&sha256);
+  SHA256_Update(&sha256, data, size);
+  SHA256_Final(result.begin(), &sha256);
+  SHA256_Init(&sha256);
+  SHA256_Update(&sha256, result.begin(), result.size());
+  SHA256_Final(result.begin(), &sha256);
+
+  for (size_t i = 0, ie = merklePath.size(); i != ie; ++i) {
+    SHA256_Init(&sha256);
+    SHA256_Update(&sha256, result.begin(), result.size());
+    SHA256_Update(&sha256, merklePath[i].begin(), merklePath[i].size());
+    SHA256_Final(result.begin(), &sha256);
+
+    SHA256_Init(&sha256);
+    SHA256_Update(&sha256, result.begin(), result.size());
+    SHA256_Final(result.begin(), &sha256);
+  }
+
+  return result;
+}
+
+static inline void dumpMerkleTree(std::vector<uint256> &hashes, std::vector<uint256> &out)
 {
   out.clear();
-  if (vtx.size() < 2)
+  if (hashes.size() < 2)
     return;
 
-  size_t txNum = vtx.size();
-  std::unique_ptr<typename Proto::BlockHashTy[]> hashes(new typename Proto::BlockHashTy[txNum]);
-
-  // Get hashes for all transactions
-  for (size_t i = 0; i < txNum; i++)
-    hashes[i] = vtx[i].GetHash();
+  size_t txNum = hashes.size();
 
   SHA256_CTX sha256;
   while (txNum > 1) {

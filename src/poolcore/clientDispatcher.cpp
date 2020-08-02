@@ -114,9 +114,9 @@ void CNetworkClientDispatcher::onWorkFetcherConnectionLost()
   userEventStartTimer(WorkFetcherReconnectTimer_, 100000, 1);
 }
 
-void CNetworkClientDispatcher::onWorkFetcherNewWork(rapidjson::Value &work)
+void CNetworkClientDispatcher::onWorkFetcherNewWork(CBlockTemplate *blockTemplate)
 {
   WorkState_ = EWorkOk;
   for (auto &instance : LinkedInstances_)
-    instance->checkNewBlockTemplate(work, Backend_);
+    instance->checkNewBlockTemplate(blockTemplate, Backend_);
 }

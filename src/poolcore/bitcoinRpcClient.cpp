@@ -218,7 +218,7 @@ CPreparedQuery *CBitcoinRpcClient::prepareBlock(const void *data, size_t size)
 {
   static const std::string firstPart = R"_({"method": "submitblock", "params": [")_";
   static const std::string secondPart = R"_("]})_";
-  size_t fullDataSize = firstPart.size() + size*2 + secondPart.size();
+  size_t fullDataSize = firstPart.size() + size + secondPart.size();
 
   CPreparedSubmitBlock *query = new CPreparedSubmitBlock(this);
 
@@ -227,7 +227,7 @@ CPreparedQuery *CBitcoinRpcClient::prepareBlock(const void *data, size_t size)
   buildPostQuery(nullptr, fullDataSize, HostName_, BasicAuth_, stream);
   stream.write(firstPart.c_str());
     query->setPayLoadOffset(stream.offsetOf());
-  bin2hexLowerCase(data, stream.reserve<char>(size*2), size);
+  stream.write(data, size);
   stream.write(secondPart.c_str());
 
   query->Connection = nullptr;
@@ -493,16 +493,16 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     return;
   }
 
-  rapidjson::Document document;
-  document.Parse(WorkFetcher_.ParseCtx.body.data);
-  if (document.HasParseError()) {
+  std::unique_ptr<CBlockTemplate> blockTemplate(new CBlockTemplate);
+  blockTemplate->Document.Parse(WorkFetcher_.ParseCtx.body.data);
+  if (blockTemplate->Document.HasParseError()) {
     LOG_F(WARNING, "%s %s:%u: JSON parse error", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
-  if (!document["result"].IsObject()) {
+  if (!blockTemplate->Document["result"].IsObject()) {
     LOG_F(WARNING, "%s %s:%u: JSON invalid format: no result object", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
@@ -514,7 +514,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   int64_t height;
   std::string prevBlockHash;
   bool validAcc = true;
-  rapidjson::Value &resultObject = document["result"];
+  rapidjson::Value &resultObject = blockTemplate->Document["result"];
   jsonParseString(resultObject, "previousblockhash", prevBlockHash, true, &validAcc);
   jsonParseInt(resultObject, "height", &height, &validAcc);
   if (!validAcc) {
@@ -535,16 +535,17 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   // Check new work available
   if (!WorkFetcher_.LongPollId.empty()) {
     // With long polling enabled now we check time since last response
+    blockTemplate->IsNewBlock = WorkFetcher_.PreviousBlock != prevBlockHash;
     uint64_t timeInterval = std::chrono::duration_cast<std::chrono::seconds>(now - WorkFetcher_.LastTemplateTime).count();
     if (timeInterval) {
       LOG_F(INFO, "%s: new work available; previous block: %s; height: %u", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height));
-      Dispatcher_->onWorkFetcherNewWork(resultObject);
+      Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
     }
   } else {
     // Without long polling we send new task to miner on new block found
     if (WorkFetcher_.PreviousBlock != prevBlockHash) {
       LOG_F(INFO, "%s: new work available; previous block: %s; height: %u", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height));
-      Dispatcher_->onWorkFetcherNewWork(resultObject);
+      Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
     }
   }
 

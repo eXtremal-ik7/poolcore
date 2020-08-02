@@ -244,36 +244,33 @@ class Stratum {
 public:
   class Work {
   public:
-    Proto::Block Block;
     uint64_t Height;
     PoolBackend *Backend;
     unsigned ScriptSigExtraNonceOffset;
     unsigned TxExtraNonceOffset;
+    unsigned BlockHexExtraNonceOffset;
+
+    Proto::BlockHeader Header;
+    std::vector<uint256> MerklePath;
+    int64_t BlockReward;
+    xmstream FirstTxData;
+    xmstream BlockHexData;
     xmstream NotifyMessage;
 
   public:
-    mutable std::atomic<uintptr_t> Refs_ = 0;
-    uintptr_t ref_fetch_add(uintptr_t count) const { return Refs_.fetch_add(count); }
-    uintptr_t ref_fetch_sub(uintptr_t count) const { return Refs_.fetch_sub(count); }
-    Work() {}
-    Work(const Work &work) : Block(work.Block), Height(work.Height), ScriptSigExtraNonceOffset(work.ScriptSigExtraNonceOffset), TxExtraNonceOffset(work.TxExtraNonceOffset), Refs_(0) {}
-
     size_t backendsNum() { return 1; }
-    uint64_t height(size_t) { return Height; }
-    std::string hash(size_t) { return Block.header.GetHash().ToString(); }
-    size_t txNum(size_t) { return Block.vtx.size(); }
     PoolBackend *backend(size_t) { return Backend; }
-    bool isNewBlock(const Work &work) { return Height != work.Height || Backend != work.Backend; }
+    uint64_t height(size_t) { return Height; }
+    std::string hash(size_t) { return Header.GetHash().ToString(); }
+    size_t txNum(size_t) { return -1; }
+    int64_t blockReward(size_t) { return BlockReward; }
+    const xmstream &blockHexData(size_t) { return BlockHexData; }
 
     bool checkConsensus(size_t, double *shareDiff) {
       Proto::CheckConsensusCtx ctx;
       Proto::ChainParams params;
       Proto::checkConsensusInitialize(ctx);
-      return Proto::checkConsensus(Block.header, ctx, params, shareDiff);
-    }
-
-    void serializeBlock(size_t, xmstream &out) {
-      BTC::serialize(out, Block);
+      return Proto::checkConsensus(Header, ctx, params, shareDiff);
     }
   };
 
@@ -302,8 +299,8 @@ public:
   static void buildNotifyMessage(Work &work, MiningConfig &cfg, unsigned jobId, bool resetPreviousWork, xmstream &out);
   static void onSubscribe(MiningConfig &miningCfg, WorkerConfig &workerCfg, StratumMessage &msg, xmstream &out);
 
-  static Work *loadFromTemplate(rapidjson::Value &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string&, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error);
-  static bool prepareForSubmit(Work &work, const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg, std::vector<int64_t> blockReward);
+  static bool loadFromTemplate(Work &work, rapidjson::Value &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string&, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error);
+  static bool prepareForSubmit(Work &work, const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
 };
 
 struct X {

@@ -94,30 +94,37 @@ struct Zmq {
 public:
   class Work {
   public:
-    Proto::Block Block;
-    uint64_t Height;
+    uint64_t Height = 0;
+    PoolBackend *Backend = nullptr;
     unsigned ScriptSigExtraNonceOffset;
+    unsigned TxExtraNonceOffset;
+    unsigned BlockHexExtraNonceOffset;
+    size_t TransactionsNum;
+    int64_t BlockReward;
+
+    Proto::BlockHeader Header;
+    std::vector<uint256> MerklePath;
+    xmstream FirstTxData;
+    xmstream BlockHexData;
 
   public:
-    mutable std::atomic<uintptr_t> Refs_ = 0;
-    uintptr_t ref_fetch_add(uintptr_t count) const { return Refs_.fetch_add(count); }
-    uintptr_t ref_fetch_sub(uintptr_t count) const { return Refs_.fetch_sub(count); }
-    Work() {}
-    Work(const Work &work) : Block(work.Block), Height(work.Height), ScriptSigExtraNonceOffset(work.ScriptSigExtraNonceOffset), Refs_(0) {}
-    Work &operator=(const Work &work) {
-      Block = work.Block;
-      Height = work.Height;
-      ScriptSigExtraNonceOffset = work.ScriptSigExtraNonceOffset;
-      Refs_ = 0;
-      return *this;
+    PoolBackend *backend() { return Backend; }
+    uint64_t height() { return Height; }
+    uint256 hash() { return Header.GetHash(); }
+    size_t txNum() { return TransactionsNum; }
+    int64_t blockReward() { return BlockReward; }
+    const xmstream &blockHexData() { return BlockHexData; }
+
+    bool checkConsensus(Proto::CheckConsensusCtx &ctx, uint64_t *shareDiff) {
+      Proto::ChainParams params;
+      params.minimalChainLength = 2;
+      return XPM::Proto::checkConsensus(Header, ctx, params, shareDiff);
     }
   };
 
   struct MiningConfig {
     unsigned FixedExtraNonceSize = 8;
     unsigned MinShareLength = 7;
-    std::string CoinbaseMessage;
-    BTC::Proto::AddressTy Address;
   };
 
   struct ThreadConfig {
@@ -134,14 +141,13 @@ public:
   static void initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg);
   static void initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum);
   static void resetThreadConfig(ThreadConfig &cfg);
-  static bool buildFullMiningConfig(MiningConfig &cfg, const PoolBackendConfig &backendCfg, const CCoinInfo &coinInfo);
 
-  static void buildBlockProto(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Block &proto);
-  static void buildWorkProto(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Work &proto);
+  static void buildBlockProto(Work &work, MiningConfig &miningCfg, pool::proto::Block &proto);
+  static void buildWorkProto(Work &work, pool::proto::Work &proto);
 
-  static intrusive_ptr<Work> loadFromTemplate(rapidjson::Value &blockTemplate, const MiningConfig &cfg, std::string &error);
+  static bool loadFromTemplate(Work &work, rapidjson::Value &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string&, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error);
   static void generateNewWork(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg);
-  static bool prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Request &req, pool::proto::Reply &rep, int64_t *blockReward);
+  static bool prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Request &req, pool::proto::Reply &rep);
 };
 
 struct X {

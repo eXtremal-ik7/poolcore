@@ -65,10 +65,27 @@ public:
     createListener(monitorBase, port, [](socketTy socket, HostAddress address, void *arg) { static_cast<StratumInstance*>(arg)->newFrontendConnection(socket, address); }, this);
   }
 
-  virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate, PoolBackend *backend) override {
-    std::string error;
+  virtual void checkNewBlockTemplate(CBlockTemplate *blockTemplate, PoolBackend *backend) override {
+    for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
+      ThreadPool_.startAsyncTask(i, new AcceptWork(*this, blockTemplate, backend));
+  }
+
+  virtual void stopWork() override {
+    for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
+      ThreadPool_.startAsyncTask(i, new AcceptWork(*this, nullptr, nullptr));
+  }
+
+  void acceptWork(unsigned, CBlockTemplate *blockTemplate, PoolBackend *backend) {
+    if (!blockTemplate) {
+      return;
+    }
+
+    ThreadData &data = Data_[GetLocalThreadId()];
+    if (blockTemplate->IsNewBlock || data.WorkSet.empty())
+      data.WorkSet.emplace_back();
 
     // Get mining address and coinbase message
+    typename X::Stratum::Work &work = data.WorkSet.back();
     auto &backendConfig = backend->getConfig();
     auto &coinInfo = backend->getCoinInfo();
     typename X::Proto::AddressTy miningAddress;
@@ -77,42 +94,18 @@ public:
       return;
     }
 
-    auto work = X::Stratum::loadFromTemplate(blockTemplate, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg, error);
-    if (!work) {
+    std::string error;
+    if (!X::Stratum::loadFromTemplate(work, blockTemplate->Document, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg, error)) {
       LOG_F(ERROR, "%s: can't process block template; error: %s", Name_.c_str(), error.c_str());
       return;
     }
 
-    for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
-      ThreadPool_.startAsyncTask(i, new AcceptWork(*this, work));
-  }
-
-  virtual void stopWork() override {
-    for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
-      ThreadPool_.startAsyncTask(i, new AcceptWork(*this, nullptr));
-  }
-
-  void acceptWork(unsigned, intrusive_ptr<typename X::Stratum::Work> work) {
-    ThreadData &data = Data_[GetLocalThreadId()];
-    if (!work.get()) {
-      data.WorkSet.clear();
-      return;
+    if (blockTemplate->IsNewBlock) {
+      data.KnownShares.clear();
+      data.KnownBlocks.clear();
     }
 
-    bool isNewBlock = true;
-    if (!data.WorkSet.empty()) {
-      if (data.WorkSet.back().isNewBlock(*work.get()))
-        data.WorkSet.clear();
-      else
-        isNewBlock = false;
-    }
-
-    data.WorkSet.emplace_back(*work.get());
-    data.KnownShares.clear();
-    data.KnownBlocks.clear();
-
-    typename X::Stratum::Work &currentWork = data.WorkSet.back();
-    X::Stratum::buildNotifyMessage(currentWork, MiningCfg_, data.WorkSet.size()-1, isNewBlock, currentWork.NotifyMessage);
+    X::Stratum::buildNotifyMessage(work, MiningCfg_, data.WorkSet.size()-1, blockTemplate->IsNewBlock, work.NotifyMessage);
     for (auto &connection: data.Connections_) {
       stratumSendWork(connection);
     }
@@ -121,11 +114,12 @@ public:
 private:
   class AcceptWork : public CThreadPool::Task {
   public:
-    AcceptWork(StratumInstance &instance, intrusive_ptr<typename X::Stratum::Work> work) : Instance_(instance), Work_(work) {}
-    void run(unsigned workerId) final { Instance_.acceptWork(workerId, Work_); }
+    AcceptWork(StratumInstance &instance, CBlockTemplate *blockTemplate, PoolBackend *backend) : Instance_(instance), BlockTemplate_(blockTemplate), Backend_(backend) {}
+    void run(unsigned workerId) final { Instance_.acceptWork(workerId, BlockTemplate_.get(), Backend_); }
   private:
     StratumInstance &Instance_;
-    intrusive_ptr<typename X::Stratum::Work> Work_;
+    intrusive_ptr<CBlockTemplate> BlockTemplate_;
+    PoolBackend *Backend_;
   };
 
   struct Worker {
@@ -167,7 +161,6 @@ private:
     std::unordered_set<std::string> KnownBlocks;
     std::vector<typename X::Stratum::Work> WorkSet;
     std::set<Connection*> Connections_;
-    xmstream BlockSerializeBuffer;
 
     // Merged mining data
     typename X::Stratum::Work WorkAcc_;
@@ -266,12 +259,11 @@ private:
 
     // Build header and check proof of work
     std::string user = worker.User;
-    std::vector<int64_t> blocksReward;
     typename X::Stratum::Work &work = data.WorkSet[jobIndex];
-    X::Stratum::prepareForSubmit(work, connection->WorkerConfig, MiningCfg_, msg, blocksReward);
+    X::Stratum::prepareForSubmit(work, connection->WorkerConfig, MiningCfg_, msg);
 
     // Loop over all affected backends (usually 1 or 2 with enabled merged mining)
-    for (size_t i = 0, ie = blocksReward.size(); i != ie; ++i) {
+    for (size_t i = 0, ie = work.backendsNum(); i != ie; ++i) {
       PoolBackend *backend = work.backend(i);
       if (!backend)
         continue;
@@ -286,11 +278,9 @@ private:
         LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work.txNum(i));
 
         // Serialize block
-        data.BlockSerializeBuffer.reset();
-        work.serializeBlock(i, data.BlockSerializeBuffer);
-        int64_t generatedCoins = blocksReward[i];
+        int64_t generatedCoins = work.blockReward(i);
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, data.BlockSerializeBuffer.data(), data.BlockSerializeBuffer.sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](bool result, const std::string &hostName, const std::string &error) {
+        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](bool result, const std::string &hostName, const std::string &error) {
           if (result) {
             LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
             if (data.KnownBlocks.insert(blockHash).second) {
@@ -380,6 +370,12 @@ private:
   void stratumSendWork(Connection *connection) {
     ThreadData &data = Data_[GetLocalThreadId()];
     typename X::Stratum::Work &work = data.WorkSet.back();
+    {
+      // TODO: WARNING -> DEBUG
+      xmstream stream(work.NotifyMessage);
+      stream.write('\0');
+      LOG_F(WARNING, "%s", work.NotifyMessage.template data<char>());
+    }
     aioWrite(connection->Socket, work.NotifyMessage.data(), work.NotifyMessage.sizeOf(), afWaitAll, 0, nullptr, nullptr);
   }
 
