@@ -43,3 +43,46 @@ static inline void bin2hexLowerCase(const void *in, char *out, size_t size)
     out[i*2+1] = bin2hexLowerCaseDigit(pIn[i] & 0xF);
   }
 }
+
+
+template<typename T>
+std::string writeHexBE(T value, unsigned sizeInBytes)
+{
+  std::string result;
+  value = xswap(value);
+  value >>= 8*(sizeof(T) - sizeInBytes);
+
+  for (unsigned i = 0; i < sizeInBytes; i++) {
+    uint8_t byte = value & 0xFF;
+    result.push_back(bin2hexLowerCaseDigit(byte >> 4));
+    result.push_back(bin2hexLowerCaseDigit(byte & 0xF));
+    value >>= 8;
+  }
+
+  return result;
+}
+
+template<typename T>
+T readHexBE(const char *data, unsigned size)
+{
+  T result = 0;
+  for (unsigned i = 0; i < size; i++) {
+    result <<= 8;
+    result |= (hexDigit2bin(data[i*2]) << 4);
+    result |= hexDigit2bin(data[i*2 + 1]);
+  }
+
+  return result;
+}
+
+template<typename T>
+void writeBinBE(T value, unsigned sizeInBytes, void *out)
+{
+  value = xswap(value);
+  value >>= 8*(sizeof(T) - sizeInBytes);
+  uint8_t *p = static_cast<uint8_t*>(out);
+  for (size_t i = 0; i < sizeInBytes; i++) {
+    p[i] = value & 0xFF;
+    value >>= 8;
+  }
+}

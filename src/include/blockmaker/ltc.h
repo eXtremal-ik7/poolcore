@@ -26,7 +26,16 @@ public:
   using ChainParams = BTC::Proto::ChainParams;
 
   static void checkConsensusInitialize(CheckConsensusCtx &ctx) {}
-  static bool checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams &chainParams);
-  static bool loadHeaderFromTemplate(Proto::BlockHeader &header, rapidjson::Value &blockTemplate) { return BTC::Proto::loadHeaderFromTemplate(header, blockTemplate); }
+  static bool checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams &chainParams, double *shareDiff);
+  static bool checkConsensus(const LTC::Proto::Block &block, CheckConsensusCtx &ctx, LTC::Proto::ChainParams &chainParams, double *shareDiff) { return checkConsensus(block.header, ctx, chainParams, shareDiff); }
+};
+
+using Stratum = BTC::Stratum;
+
+struct X {
+  using Proto = LTC::Proto;
+  using Stratum = LTC::Stratum;
+  template<typename T> static inline void serialize(xmstream &src, const T &data) { BTC::Io<T>::serialize(src, data); }
+  template<typename T> static inline void unserialize(xmstream &dst, T &data) { BTC::Io<T>::unserialize(dst, data); }
 };
 }

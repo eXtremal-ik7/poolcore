@@ -7,7 +7,14 @@
 #include "poolcommon/uint256.h"
 #include <openssl/sha.h>
 #include "rapidjson/document.h"
+#include "poolinstances/stratumMsg.h"
 #include "loguru.hpp"
+#include "poolcommon/intrusive_ptr.h"
+#include "poolcore/poolCore.h"
+
+struct CCoinInfo;
+struct PoolBackendConfig;
+struct PoolBackend;
 
 namespace BTC {
 namespace Script {
@@ -123,20 +130,15 @@ public:
   };
 
   template<typename T>
-  struct BlockHeaderNetTy {
-    typename T::BlockHeader header;
-  };
-
-  template<typename T>
   struct BlockTy {
     typename T::BlockHeader header;
     xvector<typename T::Transaction> vtx;
+    size_t getTransactionsNum() { return vtx.size(); }
+    BlockHashTy getHash() { return header.GetHash(); }
   };
 
   using Block = BlockTy<BTC::Proto>;
   using MessageBlock = Block;
-
-  static bool loadHeaderFromTemplate(BTC::Proto::BlockHeader &header, rapidjson::Value &blockTemplate);
 
   // Consensus (PoW)
   struct CheckConsensusCtx {};
@@ -145,7 +147,8 @@ public:
   };
 
   static void checkConsensusInitialize(CheckConsensusCtx &ctx) {}
-  static bool checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&);
+  static bool checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&, double *shareDiff);
+  static bool checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, ChainParams &params, double *shareDiff) { return checkConsensus(block.header, ctx, params, shareDiff); }
 };
 }
 
@@ -236,14 +239,84 @@ template<typename T> struct Io<Proto::BlockTy<T>> {
     BTC::unpackFinalize(DynamicPtr<decltype (dst->vtx)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::BlockTy<T>, vtx)));
   }
 };
+
+class Stratum {
+public:
+  class Work {
+  public:
+    Proto::Block Block;
+    uint64_t Height;
+    PoolBackend *Backend;
+    unsigned ScriptSigExtraNonceOffset;
+    unsigned TxExtraNonceOffset;
+    xmstream NotifyMessage;
+
+  public:
+    mutable std::atomic<uintptr_t> Refs_ = 0;
+    uintptr_t ref_fetch_add(uintptr_t count) const { return Refs_.fetch_add(count); }
+    uintptr_t ref_fetch_sub(uintptr_t count) const { return Refs_.fetch_sub(count); }
+    Work() {}
+    Work(const Work &work) : Block(work.Block), Height(work.Height), ScriptSigExtraNonceOffset(work.ScriptSigExtraNonceOffset), TxExtraNonceOffset(work.TxExtraNonceOffset), Refs_(0) {}
+
+    size_t backendsNum() { return 1; }
+    uint64_t height(size_t) { return Height; }
+    std::string hash(size_t) { return Block.header.GetHash().ToString(); }
+    size_t txNum(size_t) { return Block.vtx.size(); }
+    PoolBackend *backend(size_t) { return Backend; }
+    bool isNewBlock(const Work &work) { return Height != work.Height || Backend != work.Backend; }
+
+    bool checkConsensus(size_t, double *shareDiff) {
+      Proto::CheckConsensusCtx ctx;
+      Proto::ChainParams params;
+      Proto::checkConsensusInitialize(ctx);
+      return Proto::checkConsensus(Block.header, ctx, params, shareDiff);
+    }
+
+    void serializeBlock(size_t, xmstream &out) {
+      BTC::serialize(out, Block);
+    }
+  };
+
+  struct MiningConfig {
+    unsigned FixedExtraNonceSize = 4;
+    unsigned MutableExtraNonceSize = 4;
+  };
+
+  struct WorkerConfig {
+    std::string SetDifficultySession;
+    std::string NotifySession;
+    uint64_t ExtraNonceFixed;
+  };
+
+  struct ThreadConfig {
+    uint64_t ExtraNonceCurrent;
+    unsigned ThreadsNum;
+  };
+
+public:
+  static void initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg);
+  static void initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum);
+  static void initializeWorkerConfig(WorkerConfig &cfg, ThreadConfig &threadCfg);
+  static bool buildFullMiningConfig(MiningConfig &cfg, const PoolBackendConfig &backendCfg, const CCoinInfo &coinInfo);
+
+  static void buildNotifyMessage(Work &work, MiningConfig &cfg, unsigned jobId, bool resetPreviousWork, xmstream &out);
+  static void onSubscribe(MiningConfig &miningCfg, WorkerConfig &workerCfg, StratumMessage &msg, xmstream &out);
+
+  static Work *loadFromTemplate(rapidjson::Value &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string&, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error);
+  static bool prepareForSubmit(Work &work, const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg, std::vector<int64_t> blockReward);
+};
+
+struct X {
+  using Proto = BTC::Proto;
+  using Stratum = BTC::Stratum;
+
+  template<typename T> static inline void serialize(xmstream &src, const T &data) { Io<T>::serialize(src, data); }
+  template<typename T> static inline void unserialize(xmstream &dst, T &data) { Io<T>::unserialize(dst, data); }
+};
 }
 
 void serializeJsonInside(xmstream &stream, const BTC::Proto::BlockHeader &header);
 void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::TxIn &txin);
 void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::TxOut &txout);
 void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::Transaction &data);
-
-bool loadTransactionsFromTemplate(xvector<BTC::Proto::Transaction> &vtx, rapidjson::Value &blockTemplate, xmstream &buffer);
-bool buildSegwitCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, const std::string &coinbaseMessage, rapidjson::Value &blockTemplate, size_t extraNonceSize, size_t *extraNonceOffset);
-bool buildCoinbaseFromTemplate(BTC::Proto::Transaction &coinbaseTx, BTC::Proto::AddressTy &address, const std::string &coinbaseMessage, rapidjson::Value &blockTemplate, size_t extraNonceSize, size_t *extraNonceOffset);
 bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, BTC::Proto::AddressTy &address);

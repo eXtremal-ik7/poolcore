@@ -9,8 +9,6 @@
 #include <vector>
 #include "loguru.hpp"
 
-struct HTTPClient;
-
 class CBitcoinRpcClient : public CNetworkClient {
 public:
   CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, bool longPollEnabled);
@@ -20,7 +18,6 @@ public:
   virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) override;
   virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result) override;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, SumbitBlockCb callback) override;
-
   virtual void poll() override;
 
 private:
@@ -151,7 +148,6 @@ private:
   void onWorkFetcherConnect(AsyncOpStatus status);
   void onWorkFetcherIncomingData(AsyncOpStatus status);
   void onWorkFetchTimeout();
-  void onClientRequestTimeout();
 
   CConnection *getConnection(asyncBase *base);
 

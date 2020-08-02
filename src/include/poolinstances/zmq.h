@@ -30,30 +30,30 @@ static bool checkRequest(pool::proto::Request &req,
   return true;
 }
 
-template<typename Proto>
+template<typename X>
 class ZmqInstance : public CPoolInstance {
 public:
   ZmqInstance(asyncBase *monitorBase, UserManager &userMgr, CThreadPool &threadPool, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool) {
-    Name_ = (std::string)Proto::TickerName + ".zmq";
+    Name_ = (std::string)X::Proto::TickerName + ".zmq";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
       Data_[i].WorkerBase = threadPool.getBase(i);
       Data_[i].HasWork = false;
-      Proto::checkConsensusInitialize(Data_[i].CheckConsensusCtx);
+      X::Proto::checkConsensusInitialize(Data_[i].CheckConsensusCtx);
     }
 
     if (!(config.HasMember("port") && config["port"].IsInt() &&
           config.HasMember("workerPort") && config["workerPort"].IsInt() &&
-          config.HasMember("hostName") && config["hostName"].IsString() &&
-          config.HasMember("minShareLength") && config["minShareLength"].IsUint())) {
-      LOG_F(ERROR, "instance %s: can't read 'port', 'workerPort', 'hostName', 'minShareLength' values from config", "XPM/zmq");
+          config.HasMember("hostName") && config["hostName"].IsString())) {
+      LOG_F(ERROR, "instance %s: can't read 'port', 'workerPort', 'hostName' values from config", "XPM/zmq");
       exit(1);
     }
 
     uint16_t port = config["port"].GetInt();
     WorkerPort_ = config["workerPort"].GetInt();
     HostName_ = config["hostName"].GetString();
-    MinShareLength_ = config["minShareLength"].GetUint();
+
+    X::Zmq::initializeMiningConfig(MiningCfg_, config);
 
     // Frontend listener
     createListener(monitorBase, port, [](socketTy socket, HostAddress, void *arg) { static_cast<ZmqInstance*>(arg)->newFrontendConnection(socket); }, this);
@@ -66,7 +66,12 @@ public:
   }
 
   virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate, PoolBackend *backend) override {
-    intrusive_ptr<CSingleWorkInstance<Proto>> work = ::acceptBlockTemplate<Proto>(blockTemplate, backend->getConfig(), backend->getCoinInfo(), SerializeBuffer_, Name_, 16);
+    std::string error;
+    typename X::Zmq::MiningConfig config = MiningCfg_;
+    if (!X::Zmq::buildFullMiningConfig(config, backend->getConfig(), backend->getCoinInfo()))
+      return;
+
+    auto work = X::Zmq::loadFromTemplate(blockTemplate, config, error);
     if (!work.get())
       return;
     for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
@@ -81,11 +86,11 @@ public:
 private:
   class AcceptWork : public CThreadPool::Task {
   public:
-    AcceptWork(ZmqInstance &instance, intrusive_ptr<CSingleWorkInstance<Proto>> work, PoolBackend *backend) : Instance_(instance), Work_(work), Backend_(backend) {}
+    AcceptWork(ZmqInstance &instance, intrusive_ptr<typename X::Zmq::Work> work, PoolBackend *backend) : Instance_(instance), Work_(work), Backend_(backend) {}
     void run(unsigned workerId) final { Instance_.acceptWork(workerId, Work_, Backend_); }
   private:
     ZmqInstance &Instance_;
-    intrusive_ptr<CSingleWorkInstance<Proto>> Work_;
+    intrusive_ptr<typename X::Zmq::Work> Work_;
     PoolBackend *Backend_;
   };
 
@@ -108,18 +113,18 @@ private:
     bool IsConnected;
     zmtpStream Stream;
     zmtpUserMsgTy MsgType;
+    typename X::Zmq::WorkerConfig WorkerConfig;
   };
 
   struct ThreadData {
     asyncBase *WorkerBase;
-    typename Proto::CheckConsensusCtx CheckConsensusCtx;
-    typename Proto::Block Block;
+    typename X::Proto::CheckConsensusCtx CheckConsensusCtx;
+    typename X::Zmq::Work Work;
+    typename X::Zmq::ThreadConfig ThreadConfig;
     PoolBackend *Backend;
     bool HasWork;
     uint64_t Height;
-    size_t ExtraNonceOffset;
     std::set<Connection*> SignalSockets;
-    std::unordered_map<uint256, CExtraNonce> ExtraNonceMap;
     std::unordered_set<uint256> KnownShares;
     std::unordered_set<uint256> KnownBlocks;
     xmstream Bin;
@@ -127,29 +132,13 @@ private:
 
 private:
   void sendWork(ThreadData &data, Connection *connection) {
-    // Increment extra nonce
-    CExtraNonce extraNonce;
-    incrementExtraNonce<Proto>(data.Block, data.ExtraNonceOffset, ThreadPool_.threadsNum(), extraNonce);
-    data.ExtraNonceMap[data.Block.header.hashMerkleRoot] = extraNonce;
+    X::Zmq::generateNewWork(data.Work, connection->WorkerConfig, data.ThreadConfig, MiningCfg_);
 
     // Fill block protobuf
     pool::proto::Signal sig;
-    pool::proto::Block* block = sig.mutable_block();
     sig.set_type(pool::proto::Signal::NEWBLOCK);
-    // TODO: switch to 64-bit height
-    block->set_height(static_cast<uint32_t>(data.Height));
-    block->set_hash(data.Block.header.hashPrevBlock.ToString());
-    block->set_prevhash(data.Block.header.hashPrevBlock.ToString());
-    block->set_reqdiff(0);
-    block->set_minshare(MinShareLength_);
-
-    // Fill work protobuf
-    pool::proto::Work* work = sig.mutable_work();
-    // TODO: switch to 64-bit height
-    work->set_height(static_cast<uint32_t>(data.Height));
-    work->set_merkle(data.Block.header.hashMerkleRoot.ToString().c_str());
-    work->set_time(std::max(static_cast<uint32_t>(time(0)), data.Block.header.nTime));
-    work->set_bits(data.Block.header.nBits);
+    X::Zmq::buildBlockProto(data.Work, connection->WorkerConfig, data.ThreadConfig, MiningCfg_, *sig.mutable_block());
+    X::Zmq::buildWorkProto(data.Work, connection->WorkerConfig, data.ThreadConfig, MiningCfg_, *sig.mutable_work());
 
     size_t repSize = sig.ByteSizeLong();
     connection->Stream.reset();
@@ -162,20 +151,10 @@ private:
     }, connection);
   }
 
-  void onGetWork(ThreadData &data, pool::proto::Request&, pool::proto::Reply &rep) {
+  void onGetWork(ThreadData &data, Connection *connection, pool::proto::Request&, pool::proto::Reply &rep) {
     if (data.HasWork) {
-      // Increment extra nonce
-      CExtraNonce extraNonce;
-      incrementExtraNonce<Proto>(data.Block, data.ExtraNonceOffset, ThreadPool_.threadsNum(), extraNonce);
-      data.ExtraNonceMap[data.Block.header.hashMerkleRoot] = extraNonce;
-
-      // Set work
-      pool::proto::Work* work = rep.mutable_work();
-      // TODO: switch to 64-bit height
-      work->set_height(static_cast<uint32_t>(data.Height));
-      work->set_merkle(data.Block.header.hashMerkleRoot.ToString().c_str());
-      work->set_time(std::max(static_cast<uint32_t>(time(0)), data.Block.header.nTime));
-      work->set_bits(data.Block.header.nBits);
+      X::Zmq::generateNewWork(data.Work, connection->WorkerConfig, data.ThreadConfig, MiningCfg_);
+      X::Zmq::buildWorkProto(data.Work, connection->WorkerConfig, data.ThreadConfig, MiningCfg_, *rep.mutable_work());
     } else {
       std::string error = Name_ + ": no network connection";
       rep.set_error(pool::proto::Reply::HEIGHT);
@@ -212,34 +191,24 @@ private:
       return;
     }
 
-    // minimal share length
-    if (share.length() < MinShareLength_) {
-      rep.set_error(pool::proto::Reply::INVALID);
-      return;
-    }
-
-    typename Proto::BlockHeader &header = data.Block.header;
-    header.nTime = share.time();
-    header.nNonce = share.nonce();
-    header.hashMerkleRoot = uint256S(share.merkle());;
-    header.bnPrimeChainMultiplier.set_str(share.multi().c_str(), 16);
-
-    // merkle must be present at extraNonce map
-    auto nonceIt = data.ExtraNonceMap.find(header.hashMerkleRoot);
-    if (nonceIt == data.ExtraNonceMap.end()) {
-      rep.set_error(pool::proto::Reply::STALE);
-      return;
-    }
-
     // candidate type must be valid
-    unsigned nCandidateType = share.chaintype();
-    if (nCandidateType > 2) {
+    if (share.chaintype() > 2) {
       rep.set_error(pool::proto::Reply::INVALID);
       return;
     }
+
+    // minimal share length
+    if (share.length() < MiningCfg_.MinShareLength) {
+      rep.set_error(pool::proto::Reply::INVALID);
+      return;
+    }
+
+    int64_t blockReward = 0;
+    if (!X::Zmq::prepareToSubmit(data.Work, data.ThreadConfig, MiningCfg_, req, rep, &blockReward))
+      return;
 
     // check duplicate
-    typename Proto::BlockHashTy blockHash = header.GetHash();
+    typename X::Proto::BlockHashTy blockHash = data.Work.Block.header.GetHash();
     if (!data.KnownShares.insert(blockHash).second) {
       rep.set_error(pool::proto::Reply::DUPLICATED);
       return;
@@ -247,21 +216,20 @@ private:
 
     // check proof of work
     uint64_t shareSize;
-    typename Proto::ChainParams chainParams;
+    typename X::Proto::ChainParams chainParams;
     chainParams.minimalChainLength = 2;
-    bool isBlock = Proto::checkConsensus(data.Block.header, data.CheckConsensusCtx, chainParams, &shareSize);
+    bool isBlock = X::Proto::checkConsensus(data.Work.Block.header, data.CheckConsensusCtx, chainParams, &shareSize);
 
     if (isBlock) {
-      LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.ToString().c_str(), data.Block.vtx.size());
+      LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.ToString().c_str(), data.Work.Block.vtx.size());
       // Serialize block
       data.Bin.reset();
-      BTC::serialize(data.Bin, data.Block);
+      BTC::serialize(data.Bin, data.Work.Block);
       // Submit to nodes
       uint64_t height = data.Height;
       std::string user = share.addr();
-      int64_t generatedCoins = data.Block.vtx[0].txOut[0].value;
       CNetworkClientDispatcher &dispatcher = data.Backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase, data.Bin.data(), data.Bin.sizeOf(), [height, user, blockHash, generatedCoins, &data](bool result, const std::string &hostName, const std::string &error) {
+      dispatcher.aioSubmitBlock(data.WorkerBase, data.Bin.data(), data.Bin.sizeOf(), [height, user, blockHash, blockReward, &data](bool result, const std::string &hostName, const std::string &error) {
         if (result) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
           if (data.KnownBlocks.insert(blockHash).second) {
@@ -272,7 +240,7 @@ private:
             backendShare->value = 1;
             backendShare->isBlock = true;
             backendShare->hash = blockHash.ToString();
-            backendShare->generatedCoins = generatedCoins;
+            backendShare->generatedCoins = blockReward;
             data.Backend->sendShare(backendShare);
           }
         } else {
@@ -363,21 +331,19 @@ private:
     }, connection);
   }
 
-  void acceptWork(unsigned, intrusive_ptr<CSingleWorkInstance<Proto>> work, PoolBackend *backend) {
+  void acceptWork(unsigned, intrusive_ptr<typename X::Zmq::Work> work, PoolBackend *backend) {
     ThreadData &data = Data_[GetLocalThreadId()];
     if (!work.get()) {
       data.HasWork = false;
       return;
     }
 
-    // TODO: don't do deep copy
-    data.Block = work.get()->Block;
-    data.ExtraNonceOffset = work.get()->ScriptSigExtraNonceOffset;
+    data.Work = *work.get();
     data.Height = work.get()->Height;
     data.HasWork = true;
     data.Backend = backend;
-    initializeExtraNonce<Proto>(data.Block, data.ExtraNonceOffset, GetLocalThreadId());
-    data.ExtraNonceMap.clear();
+
+    X::Zmq::resetThreadConfig(data.ThreadConfig);
     data.KnownShares.clear();
     data.KnownBlocks.clear();
 
@@ -454,7 +420,7 @@ private:
     pool::proto::Request::Type requestType = req.type();
     ThreadData &data = Data_[GetLocalThreadId()];
     if (requestType == pool::proto::Request::GETWORK) {
-      onGetWork(data, req, rep);
+      onGetWork(data, connection, req, rep);
     } else if (requestType == pool::proto::Request::SHARE) {
       onShare(data, req, rep);
     } else if (requestType == pool::proto::Request::STATS) {
@@ -474,7 +440,7 @@ private:
   unsigned CurrentWorker_ = 0;
   uint16_t WorkerPort_ = 0;
   std::string HostName_;
-  unsigned MinShareLength_;
+  typename X::Zmq::MiningConfig MiningCfg_;
   std::string Name_;
   xmstream SerializeBuffer_;
 };

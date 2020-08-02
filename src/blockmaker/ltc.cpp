@@ -2,10 +2,31 @@
 #include "blockmaker/ltc.h"
 #include "blockmaker/scrypt.h"
 
-bool LTC::Proto::checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams &chainParams)
+static inline double getDifficulty(uint32_t bits)
 {
-  uint256 scryptHash;
+    int nShift = (bits >> 24) & 0xff;
+    double dDiff =
+        (double)0x0000ffff / (double)(bits & 0x00ffffff);
+
+    while (nShift < 29)
+    {
+        dDiff *= 256.0;
+        nShift++;
+    }
+    while (nShift > 29)
+    {
+        dDiff /= 256.0;
+        nShift--;
+    }
+
+    return dDiff;
+}
+
+bool LTC::Proto::checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams &chainParams, double *shareDiff)
+{
+  arith_uint256 scryptHash;
   scrypt_1024_1_1_256(reinterpret_cast<const char*>(&header), reinterpret_cast<char*>(scryptHash.begin()));
+  *shareDiff = getDifficulty(scryptHash.GetCompact());
 
   bool fNegative;
   bool fOverflow;
@@ -18,7 +39,7 @@ bool LTC::Proto::checkConsensus(const LTC::Proto::BlockHeader &header, CheckCons
       return false;
 
   // Check proof of work matches claimed amount
-  if (UintToArith256(scryptHash) > bnTarget)
+  if (scryptHash > bnTarget)
       return false;
 
   return true;

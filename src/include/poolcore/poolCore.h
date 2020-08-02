@@ -1,6 +1,5 @@
 #pragma once
 
-#include <tbb/concurrent_queue.h>
 #include <string>
 #include <thread>
 #include <vector>
@@ -91,9 +90,6 @@ public:
 
 protected:
   CNetworkClientDispatcher *Dispatcher_ = nullptr;
-
-protected:
-
 
 private:
   struct ThreadData {

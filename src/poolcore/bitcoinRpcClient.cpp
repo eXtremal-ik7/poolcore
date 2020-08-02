@@ -574,10 +574,6 @@ void CBitcoinRpcClient::onWorkFetchTimeout()
   }, this);
 }
 
-void CBitcoinRpcClient::onClientRequestTimeout()
-{
-
-}
 
 CBitcoinRpcClient::CConnection *CBitcoinRpcClient::getConnection(asyncBase *base)
 {

@@ -6,6 +6,9 @@
 #include "blockmaker/xpm.h"
 #include "blockmaker/serializeJson.h"
 #include "poolcommon/arith_uint256.h"
+#include "poolcommon/utils.h"
+#include "poolcore/backendData.h"
+#include "blockmaker/merkleTree.h"
 
 namespace BTC {
 
@@ -310,37 +313,227 @@ bool Proto::checkConsensus(const Proto::BlockHeader &header, Proto::CheckConsens
   return true;
 }
 
-bool Proto::loadHeaderFromTemplate(XPM::Proto::BlockHeader &header, rapidjson::Value &blockTemplate)
+void Zmq::initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg)
 {
-  // version
-  if (!blockTemplate.HasMember("version") || !blockTemplate["version"].IsUint())
-    return false;
-  header.nVersion = blockTemplate["version"].GetUint();
+  if (instanceCfg.HasMember("minShareLength") && instanceCfg["minShareLength"].IsUint())
+    cfg.MinShareLength = instanceCfg["minShareLength"].GetUint();
+}
 
-  // hashPrevBlock
-  if (!blockTemplate.HasMember("previousblockhash") || !blockTemplate["previousblockhash"].IsString())
-    return false;
-  header.hashPrevBlock.SetHex(blockTemplate["previousblockhash"].GetString());
+void Zmq::initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum)
+{
+  cfg.ExtraNonceCurrent = threadId;
+  cfg.ThreadsNum = threadsNum;
+}
 
-  // hashMerkleRoot
-  header.hashMerkleRoot.SetNull();
+void Zmq::resetThreadConfig(ThreadConfig &cfg)
+{
+  cfg.ExtraNonceMap.clear();
+}
 
-  // time
-  if (!blockTemplate.HasMember("mintime") || !blockTemplate["mintime"].IsUint())
-    return false;
-  header.nTime = blockTemplate["mintime"].GetUint();
+bool Zmq::buildFullMiningConfig(MiningConfig &cfg, const PoolBackendConfig &backendCfg, const CCoinInfo &coinInfo)
+{
+  cfg.CoinbaseMessage = backendCfg.CoinBaseMsg;
 
-  // bits
-  if (!blockTemplate.HasMember("bits") || !blockTemplate["bits"].IsString())
-    return false;
-  header.nBits = strtoul(blockTemplate["bits"].GetString(), nullptr, 16);
+  Proto::AddressTy miningAddress;
+  if (!decodeHumanReadableAddress(backendCfg.MiningAddress, coinInfo.PubkeyAddressPrefix, miningAddress)) {
+      LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), backendCfg.MiningAddress.c_str());
+      return false;
+    }
 
-  // nonce
-  header.nNonce = 0;
-
-  // bnPrimeChainMultiplier
-  header.bnPrimeChainMultiplier = 0;
   return true;
+}
+
+void Zmq::buildBlockProto(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Block &proto)
+{
+  proto.set_height(static_cast<uint32_t>(work.Height));
+  proto.set_hash(work.Block.header.hashPrevBlock.ToString());
+  proto.set_prevhash(work.Block.header.hashPrevBlock.ToString());
+  proto.set_reqdiff(0);
+  proto.set_minshare(miningCfg.MinShareLength);
+}
+
+void Zmq::buildWorkProto(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Work &proto)
+{
+  // TODO: switch to 64-bit height
+  proto.set_height(static_cast<uint32_t>(work.Height));
+  proto.set_merkle(work.Block.header.hashMerkleRoot.ToString().c_str());
+  proto.set_time(std::max(static_cast<uint32_t>(time(0)), work.Block.header.nTime));
+  proto.set_bits(work.Block.header.nBits);
+}
+
+void Zmq::generateNewWork(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg)
+{
+  // Update extra nonce
+  workerCfg.ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
+  Proto::TxIn txIn = work.Block.vtx[0].txIn[0];
+  uint8_t *scriptSig = txIn.scriptSig.data() + work.ScriptSigExtraNonceOffset;
+  writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
+
+  // Recalculate merkle root
+  work.Block.vtx[0].Hash.SetNull();
+  work.Block.header.hashMerkleRoot = calculateMerkleRoot<Proto>(work.Block.vtx);
+
+  // Update thread config
+  threadCfg.ExtraNonceMap[work.Block.header.hashMerkleRoot] = workerCfg.ExtraNonceFixed;
+  threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
+}
+
+bool Zmq::prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Request &req, pool::proto::Reply &rep, int64_t *blockReward)
+{
+  const pool::proto::Share& share = req.share();
+
+  Proto::BlockHeader &header = work.Block.header;
+  header.nTime = share.time();
+  header.nNonce = share.nonce();
+  header.hashMerkleRoot = uint256S(share.merkle());
+  header.bnPrimeChainMultiplier.set_str(share.multi().c_str(), 16);
+
+  // merkle must be present at extraNonce map
+  auto nonceIt = threadCfg.ExtraNonceMap.find(header.hashMerkleRoot);
+  if (nonceIt == threadCfg.ExtraNonceMap.end()) {
+    rep.set_error(pool::proto::Reply::STALE);
+    return false;
+  }
+
+  // Write extra nonce
+  uint64_t extraNonceFixed = nonceIt->second;
+  Proto::TxIn txIn = work.Block.vtx[0].txIn[0];
+  uint8_t *scriptSig = txIn.scriptSig.data() + work.ScriptSigExtraNonceOffset;
+  writeBinBE(extraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
+  *blockReward = work.Block.vtx[0].txOut[0].value;
+}
+
+intrusive_ptr<Zmq::Work> Zmq::loadFromTemplate(rapidjson::Value &blockTemplate, const MiningConfig &cfg, std::string &error)
+{
+  std::unique_ptr<Zmq::Work> work(new Zmq::Work);
+
+  // Check fields:
+  // height
+  // header:
+  //   version
+  //   previousblockhash
+  //   curtime
+  //   bits
+  // transactions
+  if (!blockTemplate.HasMember("height") ||
+      !blockTemplate.HasMember("version") ||
+      !blockTemplate.HasMember("previousblockhash") ||
+      !blockTemplate.HasMember("curtime") ||
+      !blockTemplate.HasMember("bits") ||
+      !blockTemplate.HasMember("coinbasevalue") ||
+      !blockTemplate.HasMember("transactions") || !blockTemplate["transactions"].IsArray()) {
+    error = "missing data";
+    return nullptr;
+  }
+
+  rapidjson::Value &height = blockTemplate["height"];
+  rapidjson::Value &version = blockTemplate["version"];
+  rapidjson::Value &hashPrevBlock = blockTemplate["previousblockhash"];
+  rapidjson::Value &curtime = blockTemplate["curtime"];
+  rapidjson::Value &bits = blockTemplate["bits"];
+  rapidjson::Value &coinbaseValue = blockTemplate["coinbasevalue"];
+  rapidjson::Value::Array transactions = blockTemplate["transactions"].GetArray();
+  if (!height.IsUint64() ||
+      !version.IsUint() ||
+      !hashPrevBlock.IsString() ||
+      !curtime.IsUint() ||
+      !bits.IsString() ||
+      !coinbaseValue.IsInt64()) {
+    error = "height or header data invalid format";
+    return nullptr;
+  }
+
+  Proto::Block &block = work->Block;
+  Proto::BlockHeader &header = block.header;
+  work->Height = height.GetUint64();
+  header.nVersion = version.GetUint();
+  header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
+  header.hashMerkleRoot.SetNull();
+  header.nTime = curtime.GetUint();
+  header.nBits = strtoul(bits.GetString(), nullptr, 16);
+  header.nNonce = 0;
+  header.bnPrimeChainMultiplier = 0;
+
+  // Transactions
+  char data[4096];
+  xmstream buffer(data, sizeof(data));
+  block.vtx.resize(transactions.Size() + 1);
+  for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
+    rapidjson::Value &txSrc = transactions[i];
+    BTC::Proto::Transaction &txDst = block.vtx[i + 1];
+    if (!txSrc.HasMember("data") || !txSrc["data"].IsString()) {
+      error = "no 'data' for transaction";
+      return nullptr;
+    }
+
+    const char *txData = txSrc["data"].GetString();
+    size_t txDataSize = txSrc["data"].GetStringLength();
+    buffer.reset();
+    hex2bin(txData, txDataSize, buffer.reserve(txDataSize/2));
+    buffer.seekSet(0);
+    BTC::Io<BTC::Proto::Transaction>::unserialize(buffer, txDst);
+    if (buffer.eof()) {
+      error = "can't unserialize transaction";
+      return nullptr;
+    }
+
+    // Get hash
+    if (!txSrc.HasMember("hash") || !txSrc["hash"].IsString()) {
+      error = "no 'hash' for transaction";
+      return nullptr;
+    }
+
+    txDst.Hash.SetHex(txSrc["hash"].GetString());
+  }
+
+  // Coinbase
+  Proto::Transaction &coinbaseTx = block.vtx[0];
+  coinbaseTx.version = 1;
+
+  // TxIn
+  {
+    coinbaseTx.txIn.resize(1);
+    BTC::Proto::TxIn &txIn = coinbaseTx.txIn[0];
+    txIn.previousOutputHash.SetNull();
+    txIn.previousOutputIndex = std::numeric_limits<uint32_t>::max();
+
+    // scriptsig
+    xmstream scriptsig;
+    // Height
+    BTC::serializeForCoinbase(scriptsig, work->Height);
+    // Coinbase message
+    scriptsig.write(cfg.CoinbaseMessage.data(), cfg.CoinbaseMessage.size());
+    // Extra nonce
+    work->ScriptSigExtraNonceOffset = scriptsig.offsetOf();
+    for (size_t i = 0, ie = cfg.FixedExtraNonceSize; i != ie; ++i)
+      scriptsig.write('\0');
+
+    xvectorFromStream(std::move(scriptsig), txIn.scriptSig);
+    txIn.sequence = std::numeric_limits<uint32_t>::max();
+  }
+
+  // TxOut
+  {
+    coinbaseTx.txOut.resize(2);
+
+    {
+      // First txout (funds)
+      BTC::Proto::TxOut &txOut = coinbaseTx.txOut[0];
+      txOut.value = coinbaseValue.GetInt64();
+
+      // pkScript (use single P2PKH)
+      txOut.pkScript.resize(sizeof(BTC::Proto::AddressTy) + 5);
+      xmstream p2pkh(txOut.pkScript.data(), txOut.pkScript.size());
+      p2pkh.write<uint8_t>(BTC::Script::OP_DUP);
+      p2pkh.write<uint8_t>(BTC::Script::OP_HASH160);
+      p2pkh.write<uint8_t>(sizeof(BTC::Proto::AddressTy));
+      p2pkh.write(cfg.Address.begin(), cfg.Address.size());
+      p2pkh.write<uint8_t>(BTC::Script::OP_EQUALVERIFY);
+      p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
+    }
+  }
+
+  coinbaseTx.lockTime = 0;
 }
 }
 

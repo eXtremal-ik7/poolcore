@@ -47,6 +47,8 @@ else(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcx16")
 endif(MSVC)
 
+set(protobuf_MODULE_COMPATIBLE TRUE)
+
 set(_tbb_cmake_module_path ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(${_tbb_cmake_module_path}/TBBGet.cmake)
 include(${_tbb_cmake_module_path}/TBBBuild.cmake)
@@ -62,7 +64,6 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectLibp2p.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectMPIR.cmake)
 
 add_definitions(-DGOOGLE_PROTOBUF_NO_RTTI)
-set(protobuf_MODULE_COMPATIBLE TRUE)
 find_package(OpenSSL REQUIRED)
 find_package(RocksDB CONFIG REQUIRED)
 find_package(RapidJSON CONFIG REQUIRED)

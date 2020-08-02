@@ -11,25 +11,6 @@
 #include <rapidjson/writer.h>
 #include <unordered_map>
 
-static inline double getDifficulty(uint32_t bits)
-{
-    int nShift = (bits >> 24) & 0xff;
-    double dDiff =
-        (double)0x0000ffff / (double)(bits & 0x00ffffff);
-
-    while (nShift < 29)
-    {
-        dDiff *= 256.0;
-        nShift++;
-    }
-    while (nShift > 29)
-    {
-        dDiff /= 256.0;
-        nShift--;
-    }
-
-    return dDiff;
-}
 
 static inline void addId(JSON::Object &object, StratumMessage &msg) {
   if (!msg.stringId.empty())
@@ -38,100 +19,100 @@ static inline void addId(JSON::Object &object, StratumMessage &msg) {
     object.addInt("id", msg.integerId);
 }
 
-template<typename Proto>
+template<typename X>
 class StratumInstance : public CPoolInstance {
 public:
   StratumInstance(asyncBase *monitorBase, UserManager &userMgr, CThreadPool &threadPool, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0) {
-    Name_ = (std::string)Proto::TickerName + ".stratum";
+    Name_ = (std::string)X::Proto::TickerName + ".stratum";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
+      X::Stratum::initializeThreadConfig(Data_[i].ThreadCfg, i, threadPool.threadsNum());
+      X::Proto::checkConsensusInitialize(Data_[i].CheckConsensusCtx);
       Data_[i].WorkerBase = threadPool.getBase(i);
-      Data_[i].ExtraNonceCurrent = i+12345;
-      Data_[i].Height = 0;
-      Proto::checkConsensusInitialize(Data_[i].CheckConsensusCtx);
     }
 
-    if (!(config.HasMember("port") && config["port"].IsUint() &&
-          config.HasMember("sharesPerBlock") && config["sharesPerBlock"].IsUint64())) {
-      LOG_F(ERROR, "instance %s: can't read 'port', 'sharesPerBlock' values from config", Name_.c_str());
+    if (!config.HasMember("port") || !config["port"].IsUint()) {
+      LOG_F(ERROR, "instance %s: can't read 'port' valuee from config", Name_.c_str());
       exit(1);
     }
 
     uint16_t port = config["port"].GetInt();
-    SharesPerBlock_ = config["sharesPerBlock"].GetUint64();
 
-    if (config.HasMember("fixedExtraNonceSize") && config["fixedExtraNonceSize"].IsUint())
-      FixedExtraNonceSize_ = config["fixedExtraNonceSize"].GetUint();
-    if (config.HasMember("mutableExtraNonceSize") && config["mutableExtraNonceSize"].IsUint())
-      MutableExtraNonceSize_ = config["mutableExtraNonceSize"].GetUint();
-    if (config.HasMember("minShareDiff")) {
-      if (config["minShareDiff"].IsUint64()) {
-        MinShareDiff_ = config["minShareDiff"].GetUint64();
-      } else if (config["minShareDiff"].IsFloat()) {
-        MinShareDiff_ = config["minShareDiff"].GetFloat();
+    // Share diff
+    if (config.HasMember("shareDiff")) {
+      if (config["shareDiff"].IsUint64()) {
+        ConstantShareDiff_ = config["shareDiff"].GetUint64();
+      } else if (config["shareDiff"].IsFloat()) {
+        ConstantShareDiff_ = config["shareDiff"].GetFloat();
       } else {
-        LOG_F(ERROR, "instance %s: invalid field 'minShareDiff' format");
+        LOG_F(ERROR, "%s: 'shareDiff' must be an integer", Name_.c_str());
         exit(1);
       }
+    } else if (config.HasMember("varDiffTarget") && config.HasMember("minShareDiff")) {
+      LOG_F(ERROR, "%s: Vardiff not supported now", Name_.c_str());
+      exit(1);
+    } else {
+      LOG_F(ERROR, "instance %s: no share difficulty config (expected 'shareDiff' for constant difficulty or 'varDiffTarget' and 'minShareDiff' for variable diff", Name_.c_str());
+      exit(1);
     }
+
+    if (config.HasMember("mergedMiningEnabled")  && config["mergedMiningEnabled"].IsTrue())
+      MergedMiningEnabled_ = true;
+
+    X::Stratum::initializeMiningConfig(MiningCfg_, config);
 
     // Main listener
     createListener(monitorBase, port, [](socketTy socket, HostAddress address, void *arg) { static_cast<StratumInstance*>(arg)->newFrontendConnection(socket, address); }, this);
   }
 
   virtual void checkNewBlockTemplate(rapidjson::Value &blockTemplate, PoolBackend *backend) override {
-    intrusive_ptr<CSingleWorkInstance<Proto>> work = ::acceptBlockTemplate<Proto>(blockTemplate, backend->getConfig(), backend->getCoinInfo(), SerializeBuffer_, Name_, FixedExtraNonceSize_+MutableExtraNonceSize_);
-    if (!work.get())
+    std::string error;
+
+    // Get mining address and coinbase message
+    auto &backendConfig = backend->getConfig();
+    auto &coinInfo = backend->getCoinInfo();
+    typename X::Proto::AddressTy miningAddress;
+    if (!decodeHumanReadableAddress(backendConfig.MiningAddress, coinInfo.PubkeyAddressPrefix, miningAddress)) {
+      LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), backendConfig.MiningAddress.c_str());
       return;
+    }
+
+    auto work = X::Stratum::loadFromTemplate(blockTemplate, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg, error);
+    if (!work) {
+      LOG_F(ERROR, "%s: can't process block template; error: %s", Name_.c_str(), error.c_str());
+      return;
+    }
+
     for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
-      ThreadPool_.startAsyncTask(i, new AcceptWork(*this, work, backend));
+      ThreadPool_.startAsyncTask(i, new AcceptWork(*this, work));
   }
 
   virtual void stopWork() override {
     for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
-      ThreadPool_.startAsyncTask(i, new AcceptWork(*this, nullptr, nullptr));
+      ThreadPool_.startAsyncTask(i, new AcceptWork(*this, nullptr));
   }
 
-  void acceptWork(unsigned, intrusive_ptr<CSingleWorkInstance<Proto>> work, PoolBackend *backend) {
+  void acceptWork(unsigned, intrusive_ptr<typename X::Stratum::Work> work) {
     ThreadData &data = Data_[GetLocalThreadId()];
     if (!work.get()) {
-      data.JobSet.clear();
+      data.WorkSet.clear();
       return;
     }
 
-    bool difficultyChanged = false;
-    bool isNewBlock = data.Height != work.get()->Height || data.Backend != backend;
-    if (isNewBlock) {
-      // New block
-      data.Height = work.get()->Height;
-      data.Backend = backend;
-      data.JobSet.clear();
-      data.JobSet.emplace_back(work.get()->Block);
-
-      // Set share difficulty
-      double oldDifficulty = data.ShareDifficulty;
-      data.ShareDifficulty = getDifficulty(work.get()->Block.header.nBits) / SharesPerBlock_;
-      data.ShareDifficulty = std::max(data.ShareDifficulty, MinShareDiff_);
-      difficultyChanged = oldDifficulty != data.ShareDifficulty;
-      LOG_F(WARNING, "%s share difficulty %.2lf", Name_.c_str(), data.ShareDifficulty);
-    } else {
-      // Another work for same block
-      data.JobSet.emplace_back(work.get()->Block);
+    bool isNewBlock = true;
+    if (!data.WorkSet.empty()) {
+      if (data.WorkSet.back().isNewBlock(*work.get()))
+        data.WorkSet.clear();
+      else
+        isNewBlock = false;
     }
 
+    data.WorkSet.emplace_back(*work.get());
     data.KnownShares.clear();
     data.KnownBlocks.clear();
 
-    Job &job = data.JobSet.back();
-    job.ScriptSigExtraNonceOffset = work.get()->ScriptSigExtraNonceOffset;
-    job.TxExtraNonceOffset = job.ScriptSigExtraNonceOffset + work.get()->Block.vtx[0].getFirstScriptSigOffset();
-    buildNotifyMessage(job, data.Height, data.JobSet.size()-1, isNewBlock);
-
-    if (difficultyChanged) {
-      for (auto &connection: data.Connections_)
-        stratumSendTarget(connection);
-    }
-
+    typename X::Stratum::Work &currentWork = data.WorkSet.back();
+    X::Stratum::buildNotifyMessage(currentWork, MiningCfg_, data.WorkSet.size()-1, isNewBlock, currentWork.NotifyMessage);
     for (auto &connection: data.Connections_) {
       stratumSendWork(connection);
     }
@@ -140,12 +121,11 @@ public:
 private:
   class AcceptWork : public CThreadPool::Task {
   public:
-    AcceptWork(StratumInstance &instance, intrusive_ptr<CSingleWorkInstance<Proto>> work, PoolBackend *backend) : Instance_(instance), Work_(work), Backend_(backend) {}
-    void run(unsigned workerId) final { Instance_.acceptWork(workerId, Work_, Backend_); }
+    AcceptWork(StratumInstance &instance, intrusive_ptr<typename X::Stratum::Work> work) : Instance_(instance), Work_(work) {}
+    void run(unsigned workerId) final { Instance_.acceptWork(workerId, Work_); }
   private:
     StratumInstance &Instance_;
-    intrusive_ptr<CSingleWorkInstance<Proto>> Work_;
-    PoolBackend *Backend_;
+    intrusive_ptr<typename X::Stratum::Work> Work_;
   };
 
   struct Worker {
@@ -172,146 +152,33 @@ private:
     char Buffer[40960];
     unsigned Offset = 0;
     // Mining info
-    uint64_t ExtraNonceFixed = 0;
-    std::string SetDifficultySession;
-    std::string NotifySession;
+    typename X::Stratum::WorkerConfig WorkerConfig;
+    // Current share difficulty (one for all workers on connection)
+    double ShareDifficulty;
+    // Workers
     std::unordered_map<std::string, Worker> Workers;
-  };
-
-  struct Job {
-    typename Proto::Block Block;
-    size_t ScriptSigExtraNonceOffset;
-    size_t TxExtraNonceOffset;
-    xmstream NotifyMessage;
-    Job(const typename Proto::Block &block) : Block(block) {}
   };
 
   struct ThreadData {
     asyncBase *WorkerBase;
-    typename Proto::CheckConsensusCtx CheckConsensusCtx;
-    uint64_t ExtraNonceCurrent;
-    uint64_t Height;
-    PoolBackend *Backend;
-    double ShareDifficulty;
-    std::unordered_set<typename Proto::BlockHashTy> KnownShares;
-    std::unordered_set<typename Proto::BlockHashTy> KnownBlocks;
-    std::vector<Job> JobSet;
+    typename X::Proto::CheckConsensusCtx CheckConsensusCtx;
+    typename X::Stratum::ThreadConfig ThreadCfg;
+    std::unordered_set<std::string> KnownShares;
+    std::unordered_set<std::string> KnownBlocks;
+    std::vector<typename X::Stratum::Work> WorkSet;
     std::set<Connection*> Connections_;
-    xmstream Bin;
+    xmstream BlockSerializeBuffer;
+
+    // Merged mining data
+    typename X::Stratum::Work WorkAcc_;
   };
 
 private:
-  void buildNotifyMessage(Job &job, uint64_t height, unsigned jobId, bool resetPreviousWork) {
-    {
-      job.NotifyMessage.reset();
-      JSON::Object root(job.NotifyMessage);
-      root.addNull("id");
-      root.addString("method", "mining.notify");
-      root.addField("params");
-      {
-        JSON::Array params(job.NotifyMessage);
-        {
-          // Id
-          char buffer[32];
-          snprintf(buffer, sizeof(buffer), "%" PRIu64 "#%u", height, jobId);
-          params.addString(buffer);
-        }
-
-        // Previous block
-        {
-          std::string hash;
-          const uint32_t *data = reinterpret_cast<const uint32_t*>(job.Block.header.hashPrevBlock.begin());
-          for (unsigned i = 0; i < 8; i++) {
-            hash.append(writeHexBE(data[i], 4));
-          }
-          params.addString(hash);
-        }
-
-        {
-          // Coinbase Tx parts
-          uint8_t buffer[1024];
-          xmstream stream(buffer, sizeof(buffer));
-          stream.reset();
-          BTC::serialize(stream, job.Block.vtx[0]);
-
-          // Part 1
-          params.addHex(stream.data(), job.TxExtraNonceOffset);
-
-          // Part 2
-          size_t part2Offset = job.TxExtraNonceOffset + FixedExtraNonceSize_ + MutableExtraNonceSize_;
-          size_t part2Size = stream.sizeOf() - job.TxExtraNonceOffset - (FixedExtraNonceSize_ + MutableExtraNonceSize_);
-          params.addHex(stream.data<uint8_t>() + part2Offset, part2Size);
-        }
-
-        {
-          // Merkle branches
-          std::vector<typename Proto::BlockHashTy> merkleBranches;
-          dumpMerkleTree<Proto>(job.Block.vtx, merkleBranches);
-          params.addField();
-          {
-            JSON::Array branches(job.NotifyMessage);
-            for (const auto &hash: merkleBranches)
-              branches.addString(hash.ToString());
-          }
-        }
-        // nVersion
-        params.addString(writeHexBE(job.Block.header.nVersion, sizeof(job.Block.header.nVersion)));
-        // nBits
-        params.addString(writeHexBE(job.Block.header.nBits, sizeof(job.Block.header.nBits)));
-        // nTime
-        params.addString(writeHexBE(job.Block.header.nTime, sizeof(job.Block.header.nTime)));
-        // cleanup
-        params.addBoolean(resetPreviousWork);
-      }
-    }
-
-    job.NotifyMessage.write('\n');
-    {
-      // TODO: WARNING -> DEBUG
-      std::string msg(job.NotifyMessage.template data<char>(), job.NotifyMessage.sizeOf());
-      LOG_F(WARNING, "%s", msg.c_str());
-    }
-  }
-
   void onStratumSubscribe(Connection *connection, StratumMessage &msg) {
-    // Response format
-    // {"id": 1, "result": [ [ ["mining.set_difficulty", <setDifficultySession>:string(hex)], ["mining.notify", <notifySession>:string(hex)]], <uniqueExtraNonce>:string(hex), extraNonceSize:integer], "error": null}\n
-
     char buffer[4096];
     xmstream stream(buffer, sizeof(buffer));
     stream.reset();
-    {
-      JSON::Object object(stream);
-      addId(object, msg);
-      object.addField("result");
-      {
-        JSON::Array result(stream);
-        result.addField();
-        {
-          JSON::Array sessions(stream);
-          sessions.addField();
-          {
-            JSON::Array setDifficultySession(stream);
-            setDifficultySession.addString("mining.set_difficulty");
-            setDifficultySession.addString(connection->SetDifficultySession);
-          }
-          sessions.addField();
-          {
-            JSON::Array notifySession(stream);
-            notifySession.addString("mining.notify");
-            notifySession.addString(connection->NotifySession);
-          }
-        }
-
-        // Unique extra nonce
-        result.addString(writeHexBE(connection->ExtraNonceFixed, FixedExtraNonceSize_));
-        // Mutable part of extra nonce size
-        result.addInt(MutableExtraNonceSize_);
-      }
-      object.addNull("error");
-    }
-
-    stream.write('\n');
+    X::Stratum::onSubscribe(MiningCfg_, connection->WorkerConfig, msg, stream);
     aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
     {
       // TODO: WARNING -> DEBUG
@@ -374,94 +241,99 @@ private:
     }
   }
 
-  void onStratumSubmit(Connection *connection, StratumMessage &msg) {
+  bool shareCheck(Connection *connection, StratumMessage &msg) {
     ThreadData &data = Data_[GetLocalThreadId()];
 
     // Check worker name
-    bool result = false;
-    Worker *worker = nullptr;
-    {
-      auto It = connection->Workers.find(msg.submit.WorkerName);
-      if (It != connection->Workers.end()) {
-        worker = &It->second;
-        result = true;
-      }
-    }
+    auto It = connection->Workers.find(msg.submit.WorkerName);
+    if (It == connection->Workers.end())
+      return false;
+    Worker &worker = It->second;
 
     // Check job id
     size_t jobIndex;
-    if (result == true) {
-      result = false;
+    {
       size_t sharpPos = msg.submit.JobId.find('#');
-      if (sharpPos != msg.submit.JobId.npos) {
-        msg.submit.JobId[sharpPos] = 0;
-        uint64_t height = xatoi<uint64_t>(msg.submit.JobId.c_str());
-        jobIndex = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
-        if (height == data.Height && jobIndex < data.JobSet.size())
-          result = true;
-      }
+      if (sharpPos == msg.submit.JobId.npos)
+        return false;
+
+      msg.submit.JobId[sharpPos] = 0;
+      uint64_t height = xatoi<uint64_t>(msg.submit.JobId.c_str());
+      jobIndex = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
+      if (jobIndex >= data.WorkSet.size())
+        return false;
     }
 
     // Build header and check proof of work
-    Job &job = data.JobSet[jobIndex];
-    if (result == true && msg.submit.MutableExtraNonce.size() == MutableExtraNonceSize_) {
-      result = false;
-      // Write extra nonce into block
-      typename Proto::Block &block = job.Block;
-      typename Proto::BlockHeader &header = block.header;
-      typename Proto::TxIn &txIn = block.vtx[0].txIn[0];
+    std::string user = worker.User;
+    std::vector<int64_t> blocksReward;
+    typename X::Stratum::Work &work = data.WorkSet[jobIndex];
+    X::Stratum::prepareForSubmit(work, connection->WorkerConfig, MiningCfg_, msg, blocksReward);
 
-      uint8_t *scriptSig = txIn.scriptSig.data() + job.ScriptSigExtraNonceOffset;
-      writeBinBE(connection->ExtraNonceFixed, FixedExtraNonceSize_, scriptSig);
-      memcpy(scriptSig + FixedExtraNonceSize_, msg.submit.MutableExtraNonce.data(), msg.submit.MutableExtraNonce.size());
+    // Loop over all affected backends (usually 1 or 2 with enabled merged mining)
+    for (size_t i = 0, ie = blocksReward.size(); i != ie; ++i) {
+      PoolBackend *backend = work.backend(i);
+      if (!backend)
+        continue;
 
-      // Calculate merkle root and build header
-      block.vtx[0].Hash.SetNull();
-      typename Proto::ChainParams chainParams;
-      header.hashMerkleRoot = calculateMerkleRoot<Proto>(block.vtx);
-      header.nTime = msg.submit.Time;
-      header.nNonce = msg.submit.Nonce;
-      typename Proto::BlockHashTy blockHash = header.GetHash();
-
-      bool isBlock = Proto::checkConsensus(header, data.CheckConsensusCtx, chainParams);
+      uint64_t height = work.height(i);
+      double shareDiff = 0.0;
+      bool isBlock = work.checkConsensus(i, &shareDiff);
+      if (shareDiff < connection->ShareDifficulty)
+        return false;
       if (isBlock) {
-        LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.ToString().c_str(), block.vtx.size());
+        std::string blockHash = work.hash(i);
+        LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work.txNum(i));
+
         // Serialize block
-        data.Bin.reset();
-        BTC::serialize(data.Bin, block);
-        uint64_t height = data.Height;
-        std::string user = worker->User;
-        int64_t generatedCoins = block.vtx[0].txOut[0].value;
-        CNetworkClientDispatcher &dispatcher = data.Backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, data.Bin.data(), data.Bin.sizeOf(), [height, user, blockHash, generatedCoins, &data](bool result, const std::string &hostName, const std::string &error) {
+        data.BlockSerializeBuffer.reset();
+        work.serializeBlock(i, data.BlockSerializeBuffer);
+        int64_t generatedCoins = blocksReward[i];
+        CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
+        dispatcher.aioSubmitBlock(data.WorkerBase, data.BlockSerializeBuffer.data(), data.BlockSerializeBuffer.sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](bool result, const std::string &hostName, const std::string &error) {
           if (result) {
-            LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
+            LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
             if (data.KnownBlocks.insert(blockHash).second) {
               // Send share with block to backend
               CAccountingShare *backendShare = new CAccountingShare;
               backendShare->userId = user;
-              backendShare->height = data.Height;
+              backendShare->height = height;
+              // TODO: calculate this value
               backendShare->value = 1;
               backendShare->isBlock = true;
-              backendShare->hash = blockHash.ToString();
+              backendShare->hash = blockHash;
               backendShare->generatedCoins = generatedCoins;
-              data.Backend->sendShare(backendShare);
+              backend->sendShare(backendShare);
             }
           } else {
-            LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.ToString().c_str(), height, hostName.c_str(), error.c_str());
+            LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
           }
         });
       } else {
-        // Send share to backend
         CAccountingShare *backendShare = new CAccountingShare;
-        backendShare->userId = worker->User;
-        backendShare->height = data.Height;
+        backendShare->userId = worker.User;
+        backendShare->height = height;
+        // TODO: calculate this value
         backendShare->value = 1;
         backendShare->isBlock = false;
-        data.Backend->sendShare(backendShare);
+        backend->sendShare(backendShare);
       }
     }
+  }
 
+  void onStratumSubmit(Connection *connection, StratumMessage &msg) {
+    bool result = shareCheck(connection, msg);
+    xmstream stream;
+    {
+      // Response
+      JSON::Object object(stream);
+      addId(object, msg);
+      object.addBoolean("result", result);
+      object.addNull("error");
+    }
+
+    stream.write('\n');
+    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
   }
 
   void onStratumMultiVersion(Connection *connection, StratumMessage &message) {
@@ -492,7 +364,7 @@ private:
       object.addField("params");
       {
         JSON::Array params(stream);
-        params.addDouble(data.ShareDifficulty);
+        params.addDouble(connection->ShareDifficulty);
       }
     }
 
@@ -507,33 +379,17 @@ private:
 
   void stratumSendWork(Connection *connection) {
     ThreadData &data = Data_[GetLocalThreadId()];
-    Job &job = data.JobSet.back();
-    aioWrite(connection->Socket, job.NotifyMessage.data(), job.NotifyMessage.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    typename X::Stratum::Work &work = data.WorkSet.back();
+    aioWrite(connection->Socket, work.NotifyMessage.data(), work.NotifyMessage.sizeOf(), afWaitAll, 0, nullptr, nullptr);
   }
 
   void newFrontendConnection(socketTy fd, HostAddress address) {
     ThreadData &data = Data_[CurrentThreadId_];
-    CurrentThreadId_ = (CurrentThreadId_ + 1) % ThreadPool_.threadsNum();
-
     Connection *connection = new Connection(this, newSocketIo(data.WorkerBase, fd), CurrentThreadId_, address);
+    X::Stratum::initializeWorkerConfig(connection->WorkerConfig, data.ThreadCfg);
 
-    // Set fixed part of extra nonce
-    connection->ExtraNonceFixed = data.ExtraNonceCurrent;
-    data.ExtraNonceCurrent += ThreadPool_.threadsNum();
-
-    // Set session names
-    uint8_t sessionId[16];
-    char sessionIdHex[32];
-    {
-      RAND_bytes(sessionId, sizeof(sessionId));
-      connection->SetDifficultySession.resize(sizeof(sessionId)*2);
-      bin2hexLowerCase(sessionId, connection->SetDifficultySession.data(), sizeof(sessionId));
-    }
-    {
-      RAND_bytes(sessionId, sizeof(sessionId));
-      connection->NotifySession.resize(sizeof(sessionId)*2);
-      bin2hexLowerCase(sessionId, connection->NotifySession.data(), sizeof(sessionId));
-    }
+    // Initialize share difficulty
+    connection->ShareDifficulty = ConstantShareDiff_;
 
     aioRead(connection->Socket, connection->Buffer, sizeof(connection->Buffer), afNone, 3000000, reinterpret_cast<aioCb*>(readCb), connection);
     CurrentThreadId_ = (CurrentThreadId_ + 1) % ThreadPool_.threadsNum();
@@ -563,7 +419,7 @@ private:
             case StratumMethodTy::Authorize : {
               ThreadData &data = connection->Instance->Data_[connection->WorkerId];
               result = connection->Instance->onStratumAuthorize(connection, msg);
-              if (result && !data.JobSet.empty()) {
+              if (result && !data.WorkSet.empty()) {
                 connection->Instance->stratumSendTarget(connection);
                 connection->Instance->stratumSendWork(connection);
               }
@@ -627,13 +483,11 @@ private:
 
 private:
   std::unique_ptr<ThreadData[]> Data_;
-
   std::string Name_;
-  xmstream SerializeBuffer_;
   unsigned CurrentThreadId_;
+  typename X::Stratum::MiningConfig MiningCfg_;
+  double ConstantShareDiff_;
 
-  uint64_t SharesPerBlock_;
-  unsigned FixedExtraNonceSize_ = 4;
-  unsigned MutableExtraNonceSize_ = 4;
-  double MinShareDiff_ = 10000.0;
+  // Merged mining data
+  bool MergedMiningEnabled_ = false;
 };

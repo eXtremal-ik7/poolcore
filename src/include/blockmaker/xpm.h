@@ -7,6 +7,7 @@
 
 #include "blockmaker/btc.h"
 #include "poolcommon/bigNum.h"
+#include "poolinstances/protocol.pb.h"
 
 namespace XPM {
 class Proto {
@@ -87,6 +88,65 @@ public:
 
   static void checkConsensusInitialize(CheckConsensusCtx &ctx);
   static bool checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx &ctx, ChainParams &chainParams, uint64_t *shareSize);
+};
+
+struct Zmq {
+public:
+  class Work {
+  public:
+    Proto::Block Block;
+    uint64_t Height;
+    unsigned ScriptSigExtraNonceOffset;
+
+  public:
+    mutable std::atomic<uintptr_t> Refs_ = 0;
+    uintptr_t ref_fetch_add(uintptr_t count) const { return Refs_.fetch_add(count); }
+    uintptr_t ref_fetch_sub(uintptr_t count) const { return Refs_.fetch_sub(count); }
+    Work() {}
+    Work(const Work &work) : Block(work.Block), Height(work.Height), ScriptSigExtraNonceOffset(work.ScriptSigExtraNonceOffset), Refs_(0) {}
+    Work &operator=(const Work &work) {
+      Block = work.Block;
+      Height = work.Height;
+      ScriptSigExtraNonceOffset = work.ScriptSigExtraNonceOffset;
+      Refs_ = 0;
+      return *this;
+    }
+  };
+
+  struct MiningConfig {
+    unsigned FixedExtraNonceSize = 8;
+    unsigned MinShareLength = 7;
+    std::string CoinbaseMessage;
+    BTC::Proto::AddressTy Address;
+  };
+
+  struct ThreadConfig {
+    std::unordered_map<uint256, uint64_t> ExtraNonceMap;
+    uint64_t ExtraNonceCurrent;
+    unsigned ThreadsNum;
+  };
+
+  struct WorkerConfig {
+    uint64_t ExtraNonceFixed;
+  };
+
+public:
+  static void initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg);
+  static void initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum);
+  static void resetThreadConfig(ThreadConfig &cfg);
+  static bool buildFullMiningConfig(MiningConfig &cfg, const PoolBackendConfig &backendCfg, const CCoinInfo &coinInfo);
+
+  static void buildBlockProto(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Block &proto);
+  static void buildWorkProto(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Work &proto);
+
+  static intrusive_ptr<Work> loadFromTemplate(rapidjson::Value &blockTemplate, const MiningConfig &cfg, std::string &error);
+  static void generateNewWork(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg);
+  static bool prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Request &req, pool::proto::Reply &rep, int64_t *blockReward);
+};
+
+struct X {
+  using Proto = XPM::Proto;
+  using Zmq = XPM::Zmq;
 };
 }
 
