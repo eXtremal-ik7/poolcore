@@ -8,6 +8,8 @@
 
 #include <assert.h>
 #include <cstring>
+#include <float.h>
+#include <math.h>
 #include <stdexcept>
 #include <stdint.h>
 #include <string>
@@ -60,6 +62,23 @@ public:
         pn[1] = (unsigned int)(b >> 32);
         for (int i = 2; i < WIDTH; i++)
             pn[i] = 0;
+    }
+
+    base_uint(double d)
+    {
+      static double multiplier = pow(FLT_RADIX, DBL_MANT_DIG);
+
+      int exponent = 0;
+      uint64_t fractionalPart = frexp(d, &exponent) * multiplier;
+      exponent -= DBL_MANT_DIG;
+      pn[0] = (unsigned int)fractionalPart;
+      pn[1] = (unsigned int)(fractionalPart >> 32);
+      for (int i = 2; i < WIDTH; i++)
+          pn[i] = 0;
+      if (exponent < 0)
+        *this >>= -exponent;
+      else
+        *this <<= exponent;
     }
 
     explicit base_uint(const std::string& str);
@@ -266,6 +285,7 @@ public:
     arith_uint256() {}
     arith_uint256(const base_uint<256>& b) : base_uint<256>(b) {}
     arith_uint256(uint64_t b) : base_uint<256>(b) {}
+    arith_uint256(double d) : base_uint<256>(d) {}
     explicit arith_uint256(const std::string& str) : base_uint<256>(str) {}
 
     /**

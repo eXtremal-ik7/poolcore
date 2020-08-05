@@ -219,9 +219,9 @@ arith_uint256& arith_uint256::SetCompact(uint32_t nCompact, bool* pfNegative, bo
     uint32_t nWord = nCompact & 0x007fffff;
     if (nSize <= 3) {
         nWord >>= 8 * (3 - nSize);
-        *this = nWord;
+        *this = static_cast<uint64_t>(nWord);
     } else {
-        *this = nWord;
+        *this = static_cast<uint64_t>(nWord);
         *this <<= 8 * (nSize - 3);
     }
     if (pfNegative)

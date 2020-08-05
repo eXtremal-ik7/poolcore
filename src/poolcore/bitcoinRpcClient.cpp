@@ -453,7 +453,7 @@ void CBitcoinRpcClient::poll()
   aioObject *object = newSocketIo(WorkFetcherBase_, S);
   WorkFetcher_.Client = httpClientNew(WorkFetcherBase_, object);
   WorkFetcher_.LongPollId = HasLongPoll_ ? "0000000000000000000000000000000000000000000000000000000000000000" : "";
-  WorkFetcher_.PreviousBlock.clear();
+  WorkFetcher_.WorkId = 0;
   WorkFetcher_.LastTemplateTime = std::chrono::time_point<std::chrono::steady_clock>::min();
   httpParseDefaultInit(&WorkFetcher_.ParseCtx);
 
@@ -517,7 +517,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   rapidjson::Value &resultObject = blockTemplate->Document["result"];
   jsonParseString(resultObject, "previousblockhash", prevBlockHash, true, &validAcc);
   jsonParseInt(resultObject, "height", &height, &validAcc);
-  if (!validAcc) {
+  if (!validAcc || prevBlockHash.size() < 16) {
     LOG_F(WARNING, "%s %s:%u: getblocktemplate invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
@@ -532,10 +532,12 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     }
   }
 
+  // Get unique work id
+  uint64_t workId = blockTemplate->UniqueWorkId = readHexBE<uint64_t>(prevBlockHash.c_str(), 16);
+
   // Check new work available
   if (!WorkFetcher_.LongPollId.empty()) {
     // With long polling enabled now we check time since last response
-    blockTemplate->IsNewBlock = WorkFetcher_.PreviousBlock != prevBlockHash;
     uint64_t timeInterval = std::chrono::duration_cast<std::chrono::seconds>(now - WorkFetcher_.LastTemplateTime).count();
     if (timeInterval) {
       LOG_F(INFO, "%s: new work available; previous block: %s; height: %u", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height));
@@ -543,14 +545,14 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     }
   } else {
     // Without long polling we send new task to miner on new block found
-    if (WorkFetcher_.PreviousBlock != prevBlockHash) {
+    if (WorkFetcher_.WorkId != workId) {
       LOG_F(INFO, "%s: new work available; previous block: %s; height: %u", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height));
       Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
     }
   }
 
   WorkFetcher_.LastTemplateTime = now;
-  WorkFetcher_.PreviousBlock = prevBlockHash;
+  WorkFetcher_.WorkId = workId;
 
   // Send next request
   if (!WorkFetcher_.LongPollId.empty()) {

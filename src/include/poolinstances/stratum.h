@@ -81,13 +81,30 @@ public:
     }
 
     ThreadData &data = Data_[GetLocalThreadId()];
-    if (blockTemplate->IsNewBlock || data.WorkSet.empty())
-      data.WorkSet.emplace_back();
 
-    // Get mining address and coinbase message
-    typename X::Stratum::Work &work = data.WorkSet.back();
     auto &backendConfig = backend->getConfig();
     auto &coinInfo = backend->getCoinInfo();
+    bool isNewBlock = false;
+    if (!data.WorkSet.empty()) {
+      if (data.WorkSet.back()->isNewBlock(coinInfo.Name, blockTemplate->UniqueWorkId)) {
+        // Incoming block template contains new work
+        // Cleanup work set and push last known work (for reuse allocated memory or keep non changed work part)
+        isNewBlock = true;
+        typename X::Stratum::Work *lastWork = data.WorkSet.back().release();
+        data.WorkSet.clear();
+        data.WorkSet.emplace_back(lastWork);
+      } else {
+        // Deep copy last work (required for merged mining)
+        typename X::Stratum::Work *clone = new typename X::Stratum::Work(*data.WorkSet.back());
+        data.WorkSet.emplace_back(clone);
+      }
+    } else {
+      isNewBlock = true;
+      data.WorkSet.emplace_back(new typename X::Stratum::Work);
+    }
+
+    // Get mining address and coinbase message
+    typename X::Stratum::Work &work = *data.WorkSet.back();
     typename X::Proto::AddressTy miningAddress;
     if (!decodeHumanReadableAddress(backendConfig.MiningAddress, coinInfo.PubkeyAddressPrefix, miningAddress)) {
       LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), backendConfig.MiningAddress.c_str());
@@ -95,19 +112,24 @@ public:
     }
 
     std::string error;
-    if (!X::Stratum::loadFromTemplate(work, blockTemplate->Document, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg, error)) {
+    if (!X::Stratum::loadFromTemplate(work, blockTemplate->Document, blockTemplate->UniqueWorkId, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg, error)) {
       LOG_F(ERROR, "%s: can't process block template; error: %s", Name_.c_str(), error.c_str());
       return;
     }
 
-    if (blockTemplate->IsNewBlock) {
+    if (isNewBlock) {
       data.KnownShares.clear();
       data.KnownBlocks.clear();
+      // Update major job id
+      uint64_t newJobId = time(nullptr);
+      data.MajorWorkId_ = (data.MajorWorkId_ == newJobId) ? newJobId+1 : newJobId;
     }
 
-    X::Stratum::buildNotifyMessage(work, MiningCfg_, data.WorkSet.size()-1, blockTemplate->IsNewBlock, work.NotifyMessage);
-    for (auto &connection: data.Connections_) {
-      stratumSendWork(connection);
+    if (work.initialized()) {
+      X::Stratum::buildNotifyMessage(work, MiningCfg_, data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock, work.NotifyMessage);
+      for (auto &connection: data.Connections_) {
+        stratumSendWork(connection);
+      }
     }
   }
 
@@ -159,8 +181,9 @@ private:
     typename X::Stratum::ThreadConfig ThreadCfg;
     std::unordered_set<std::string> KnownShares;
     std::unordered_set<std::string> KnownBlocks;
-    std::vector<typename X::Stratum::Work> WorkSet;
+    std::vector<std::unique_ptr<typename X::Stratum::Work>> WorkSet;
     std::set<Connection*> Connections_;
+    uint64_t MajorWorkId_ = 0;
 
     // Merged mining data
     typename X::Stratum::Work WorkAcc_;
@@ -251,18 +274,19 @@ private:
         return false;
 
       msg.submit.JobId[sharpPos] = 0;
-      uint64_t height = xatoi<uint64_t>(msg.submit.JobId.c_str());
+      uint64_t majorJobId = xatoi<uint64_t>(msg.submit.JobId.c_str());
       jobIndex = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
-      if (jobIndex >= data.WorkSet.size())
+      if (majorJobId != data.MajorWorkId_ || jobIndex >= data.WorkSet.size())
         return false;
     }
 
     // Build header and check proof of work
     std::string user = worker.User;
-    typename X::Stratum::Work &work = data.WorkSet[jobIndex];
+    typename X::Stratum::Work &work = *data.WorkSet[jobIndex];
     X::Stratum::prepareForSubmit(work, connection->WorkerConfig, MiningCfg_, msg);
 
     // Loop over all affected backends (usually 1 or 2 with enabled merged mining)
+    bool shareAccepted = false;
     for (size_t i = 0, ie = work.backendsNum(); i != ie; ++i) {
       PoolBackend *backend = work.backend(i);
       if (!backend)
@@ -272,7 +296,9 @@ private:
       double shareDiff = 0.0;
       bool isBlock = work.checkConsensus(i, &shareDiff);
       if (shareDiff < connection->ShareDifficulty)
-        return false;
+        continue;
+
+      shareAccepted = true;
       if (isBlock) {
         std::string blockHash = work.hash(i);
         LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work.txNum(i));
@@ -309,6 +335,8 @@ private:
         backend->sendShare(backendShare);
       }
     }
+
+    return shareAccepted;
   }
 
   void onStratumSubmit(Connection *connection, StratumMessage &msg) {
@@ -362,19 +390,18 @@ private:
     aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
     {
       // TODO: WARNING -> DEBUG
-      stream.write('\0');
-      LOG_F(WARNING, "%s", stream.data<char>());
+      std::string text(stream.data<const char>(), stream.sizeOf());
+      LOG_F(WARNING, "%s", text.c_str());
     }
   }
 
   void stratumSendWork(Connection *connection) {
     ThreadData &data = Data_[GetLocalThreadId()];
-    typename X::Stratum::Work &work = data.WorkSet.back();
+    typename X::Stratum::Work &work = *data.WorkSet.back();
     {
       // TODO: WARNING -> DEBUG
-      xmstream stream(work.NotifyMessage);
-      stream.write('\0');
-      LOG_F(WARNING, "%s", work.NotifyMessage.template data<char>());
+      std::string text(static_cast<const char*>(work.NotifyMessage.data()), work.NotifyMessage.sizeOf());
+      LOG_F(WARNING, "%s", text.c_str());
     }
     aioWrite(connection->Socket, work.NotifyMessage.data(), work.NotifyMessage.sizeOf(), afWaitAll, 0, nullptr, nullptr);
   }

@@ -10,12 +10,6 @@ void uint256ToBN(mpz_ptr bignum, const uint256 &N)
   mpz_import(bignum, 32 / sizeof(unsigned long), -1, sizeof(unsigned long), -1, 0, N.begin());
 }
 
-
-void uint256ToBN(mpz_class &bigNum, const uint256 &N)
-{
-  uint256ToBN(bigNum.get_mpz_t(), N);
-}
-
 void uint256FromBN(uint256 &N, mpz_srcptr bigNum)
 {
   N.SetNull();

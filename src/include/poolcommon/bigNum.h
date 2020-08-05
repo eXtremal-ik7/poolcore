@@ -4,9 +4,9 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #pragma once
+#include "arith_uint256.h"
 #include "uint256.h"
 #include <mpirxx.h>
 
 void uint256ToBN(mpz_ptr bignum, const uint256 &N);
-void uint256ToBN(mpz_class &bigNum, const uint256 &N);
 void uint256FromBN(uint256 &N, mpz_srcptr bigNum);

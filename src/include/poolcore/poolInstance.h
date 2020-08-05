@@ -15,7 +15,7 @@ private:
   mutable std::atomic<uintptr_t> Refs_ = 0;
 public:
   rapidjson::Document Document;
-  bool IsNewBlock = true;
+  uint64_t UniqueWorkId;
   virtual ~CBlockTemplate() {}
   uintptr_t ref_fetch_add(uintptr_t count) const { return Refs_.fetch_add(count); }
   uintptr_t ref_fetch_sub(uintptr_t count) const { return Refs_.fetch_sub(count); }

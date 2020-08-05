@@ -295,7 +295,7 @@ void Stratum::initializeWorkerConfig(WorkerConfig &cfg, ThreadConfig &threadCfg)
   threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
 }
 
-void Stratum::buildNotifyMessage(Work &work, MiningConfig &cfg, unsigned jobId, bool resetPreviousWork, xmstream &out)
+void Stratum::buildNotifyMessage(Work &work, MiningConfig &cfg, uint64_t majorJobId, unsigned minorJobId, bool resetPreviousWork, xmstream &out)
 {
   {
     out.reset();
@@ -308,7 +308,7 @@ void Stratum::buildNotifyMessage(Work &work, MiningConfig &cfg, unsigned jobId, 
       {
         // Id
         char buffer[32];
-        snprintf(buffer, sizeof(buffer), "%" PRIu64 "#%u", work.Height, jobId);
+        snprintf(buffer, sizeof(buffer), "%" PRIu64 "#%u", majorJobId, minorJobId);
         params.addString(buffer);
       }
 
@@ -401,11 +401,20 @@ void Stratum::onSubscribe(MiningConfig &miningCfg, WorkerConfig &workerCfg, Stra
   out.write('\n');
 }
 
-bool Stratum::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningConfig &cfg, PoolBackend *backend, const std::string&, BTC::Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error)
+bool Stratum::loadFromTemplate(Work &work,
+                               rapidjson::Value &document,
+                               uint64_t uniqueWorkId,
+                               const MiningConfig &cfg,
+                               PoolBackend *backend,
+                               const std::string&,
+                               Proto::AddressTy &miningAddress,
+                               const std::string &coinbaseMsg,
+                               std::string &error)
 {
   char buffer[4096];
   xmstream stream(buffer, sizeof(buffer));
   work.Height = 0;
+  work.UniqueWorkId = uniqueWorkId;
   work.MerklePath.clear();
   work.FirstTxData.reset();
   work.BlockHexData.reset();
@@ -571,6 +580,8 @@ bool Stratum::loadFromTemplate(Work &work, rapidjson::Value &document, const Min
     txHashes.emplace_back();
     txHashes.back().SetHex(txSrc["txid"].GetString());
   }
+
+  work.TxNum = txHashes.size();
 
   // Build merkle path
   dumpMerkleTree(txHashes, work.MerklePath);

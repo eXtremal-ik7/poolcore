@@ -25,7 +25,7 @@ private:
     HTTPClient *Client;
     HTTPParseDefaultContext ParseCtx;
     std::string LongPollId;
-    std::string PreviousBlock;
+    uint64_t WorkId;
     std::chrono::time_point<std::chrono::steady_clock> LastTemplateTime;
     aioUserEvent *TimerEvent;
   };

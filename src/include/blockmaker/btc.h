@@ -244,14 +244,16 @@ class Stratum {
 public:
   class Work {
   public:
-    uint64_t Height;
-    PoolBackend *Backend;
+    uint64_t UniqueWorkId;
+    uint64_t Height = 0;
+    PoolBackend *Backend = nullptr;
     unsigned ScriptSigExtraNonceOffset;
     unsigned TxExtraNonceOffset;
     unsigned BlockHexExtraNonceOffset;
 
     Proto::BlockHeader Header;
     std::vector<uint256> MerklePath;
+    size_t TxNum;
     int64_t BlockReward;
     xmstream FirstTxData;
     xmstream BlockHexData;
@@ -262,9 +264,12 @@ public:
     PoolBackend *backend(size_t) { return Backend; }
     uint64_t height(size_t) { return Height; }
     std::string hash(size_t) { return Header.GetHash().ToString(); }
-    size_t txNum(size_t) { return -1; }
+    size_t txNum(size_t) { return TxNum; }
     int64_t blockReward(size_t) { return BlockReward; }
     const xmstream &blockHexData(size_t) { return BlockHexData; }
+    bool initialized() { return Backend != nullptr; }
+
+    bool isNewBlock(const std::string&, uint64_t workId) { return UniqueWorkId != workId; }
 
     bool checkConsensus(size_t, double *shareDiff) {
       Proto::CheckConsensusCtx ctx;
@@ -296,10 +301,19 @@ public:
   static void initializeWorkerConfig(WorkerConfig &cfg, ThreadConfig &threadCfg);
   static bool buildFullMiningConfig(MiningConfig &cfg, const PoolBackendConfig &backendCfg, const CCoinInfo &coinInfo);
 
-  static void buildNotifyMessage(Work &work, MiningConfig &cfg, unsigned jobId, bool resetPreviousWork, xmstream &out);
+  static void buildNotifyMessage(Work &work, MiningConfig &cfg, uint64_t majorJobId, unsigned minorJobId, bool resetPreviousWork, xmstream &out);
   static void onSubscribe(MiningConfig &miningCfg, WorkerConfig &workerCfg, StratumMessage &msg, xmstream &out);
 
-  static bool loadFromTemplate(Work &work, rapidjson::Value &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string&, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error);
+  static bool loadFromTemplate(Work &work,
+                               rapidjson::Value &document,
+                               uint64_t uniqueWorkId,
+                               const MiningConfig &cfg,
+                               PoolBackend *backend,
+                               const std::string &ticker,
+                               Proto::AddressTy &miningAddress,
+                               const std::string &coinbaseMsg,
+                               std::string &error);
+
   static bool prepareForSubmit(Work &work, const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
 };
 
