@@ -76,6 +76,9 @@ StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumM
       }
       out->submit.Time = readHexBE<uint32_t>(params[3].GetString(), 4);
       out->submit.Nonce = readHexBE<uint32_t>(params[4].GetString(), 4);
+
+      if (params.Size() >= 6 && params[5].IsString())
+        out->submit.VersionBits = readHexBE<uint32_t>(params[5].GetString(), 4);
     } else {
       return FormatError;
     }
@@ -83,6 +86,49 @@ StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumM
     out->method = MultiVersion;
     if (params[0].IsUint()) {
       out->multiVersion.Version = params[0].GetUint();
+    } else {
+      return FormatError;
+    }
+  } else if (method == "mining.configure" && params.Size() >= 2) {
+    out->method = MiningConfigure;
+    out->miningConfigure.ExtensionsField = 0;
+    // Example:
+    // {
+    //    "id":1,
+    //    "method":"mining.configure",
+    //    "params":[
+    //       [
+    //          "version-rolling"
+    //       ],
+    //       {
+    //          "version-rolling.min-bit-count":2,
+    //          "version-rolling.mask":"00c00000"
+    //       }
+    //    ]
+    // }
+    if (params[0].IsArray() &&
+        params[1].IsObject()) {
+      rapidjson::Value::Array extensions = params[0].GetArray();
+      rapidjson::Value &arguments = params[1];
+      for (rapidjson::SizeType i = 0, ie = extensions.Size(); i != ie; ++i) {
+        if (strcmp(extensions[i].GetString(), "version-rolling") == 0) {
+          out->miningConfigure.ExtensionsField |= StratumMiningConfigure::EVersionRolling;
+          if (arguments.HasMember("version-rolling.mask") && arguments["version-rolling.mask"].IsString())
+            out->miningConfigure.VersionRollingMask = readHexBE<uint32_t>(arguments["version-rolling.mask"].GetString(), 4);
+          if (arguments.HasMember("version-rolling.min-bit-count") && arguments["version-rolling.min-bit-count"].IsUint())
+            out->miningConfigure.VersionRollingMinBitCount = arguments["version-rolling.min-bit-count"].GetUint();
+        } else if (strcmp(extensions[i].GetString(), "minimum-difficulty") == 0) {
+          if (arguments.HasMember("minimum-difficulty.value")) {
+            if (arguments["minimum-difficulty.value"].IsUint64())
+              out->miningConfigure.MinimumDifficultyValue = arguments["minimum-difficulty.value"].GetUint64();
+            else if (arguments["minimum-difficulty.value"].IsFloat())
+              out->miningConfigure.MinimumDifficultyValue = arguments["minimum-difficulty.value"].GetFloat();
+          }
+          out->miningConfigure.ExtensionsField |= StratumMiningConfigure::EMinimumDifficulty;
+        } else if (strcmp(extensions[i].GetString(), "subscribe-extranonce") == 0) {
+          out->miningConfigure.ExtensionsField |= StratumMiningConfigure::ESubscribeExtraNonce;
+        }
+      }
     } else {
       return FormatError;
     }

@@ -295,6 +295,12 @@ void Stratum::initializeWorkerConfig(WorkerConfig &cfg, ThreadConfig &threadCfg)
   threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
 }
 
+void Stratum::setupVersionRolling(WorkerConfig &cfg, uint32_t versionMask)
+{
+  cfg.AsicBoostEnabled = true;
+  cfg.VersionMask = versionMask;
+}
+
 void Stratum::buildNotifyMessage(Work &work, MiningConfig &cfg, uint64_t majorJobId, unsigned minorJobId, bool resetPreviousWork, xmstream &out)
 {
   {
@@ -484,6 +490,7 @@ bool Stratum::loadFromTemplate(Work &work,
   header.nTime = curtime.GetUint();
   header.nBits = strtoul(bits.GetString(), nullptr, 16);
   header.nNonce = 0;
+  work.JobVersion = header.nVersion;
 
   // Serialize header and transactions count
   stream.reset();
@@ -592,6 +599,8 @@ bool Stratum::prepareForSubmit(Work &work, const WorkerConfig &workerCfg, const 
 {
   if (msg.submit.MutableExtraNonce.size() != miningCfg.MutableExtraNonceSize)
     return false;
+  if (workerCfg.AsicBoostEnabled && !msg.submit.VersionBits.has_value())
+    return false;
 
   Proto::BlockHeader &header = work.Header;
 
@@ -606,6 +615,8 @@ bool Stratum::prepareForSubmit(Work &work, const WorkerConfig &workerCfg, const 
   header.hashMerkleRoot = calculateMerkleRoot(work.FirstTxData.data(), work.FirstTxData.sizeOf(), work.MerklePath);
   header.nTime = msg.submit.Time;
   header.nNonce = msg.submit.Nonce;
+  if (workerCfg.AsicBoostEnabled)
+    header.nVersion = (work.JobVersion & ~workerCfg.VersionMask) | (msg.submit.VersionBits.value() & workerCfg.VersionMask);
 
   {
     // Update header in block hex dump

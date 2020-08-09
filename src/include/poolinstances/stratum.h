@@ -11,6 +11,14 @@
 #include <rapidjson/writer.h>
 #include <unordered_map>
 
+template<typename T>
+static inline unsigned popcount(T number)
+{
+  unsigned count = 0;
+  for(; number; count++)
+    number &= number-1;
+  return count;
+}
 
 static inline void addId(JSON::Object &object, StratumMessage &msg) {
   if (!msg.stringId.empty())
@@ -55,6 +63,10 @@ public:
       LOG_F(ERROR, "instance %s: no share difficulty config (expected 'shareDiff' for constant difficulty or 'varDiffTarget' and 'minShareDiff' for variable diff", Name_.c_str());
       exit(1);
     }
+
+    // BTC ASIC boost
+    if (config.HasMember("versionMask") && config["versionMask"].IsString())
+      VersionMask_ = readHexBE<uint32_t>(config["versionMask"].GetString(), 4);
 
     if (config.HasMember("mergedMiningEnabled")  && config["mergedMiningEnabled"].IsTrue())
       MergedMiningEnabled_ = true;
@@ -171,6 +183,9 @@ private:
     typename X::Stratum::WorkerConfig WorkerConfig;
     // Current share difficulty (one for all workers on connection)
     double ShareDifficulty;
+    // 'overt' ASIC boost last mask
+    bool AsicBoostEnabled = false;
+    uint32_t LastVersionMask = 0;
     // Workers
     std::unordered_map<std::string, Worker> Workers;
   };
@@ -196,11 +211,6 @@ private:
     stream.reset();
     X::Stratum::onSubscribe(MiningCfg_, connection->WorkerConfig, msg, stream);
     aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
-    {
-      // TODO: WARNING -> DEBUG
-      stream.write('\0');
-      LOG_F(WARNING, "%s", stream.data<char>());
-    }
   }
 
   bool onStratumAuthorize(Connection *connection, StratumMessage &msg) {
@@ -231,12 +241,65 @@ private:
     }
     stream.write('\n');
     aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
-    {
-      // TODO: WARNING -> DEBUG
-      stream.write('\0');
-      LOG_F(WARNING, "%s", stream.data<char>());
-    }
     return authSuccess;
+  }
+
+  bool onStratumMiningConfigure(Connection *connection, StratumMessage &msg) {
+    xmstream stream;
+    std::string error;
+    {
+      JSON::Object object(stream);
+      addId(object, msg);
+      object.addField("result");
+      {
+        JSON::Object result(stream);
+        if (msg.miningConfigure.ExtensionsField & StratumMiningConfigure::EVersionRolling) {
+          bool versionRolling = false;
+          if (msg.miningConfigure.VersionRollingMask.has_value() && msg.miningConfigure.VersionRollingMinBitCount.has_value()) {
+            // Calculate target bit mask
+            uint32_t targetBitMask = msg.miningConfigure.VersionRollingMask.value() & VersionMask_;
+            // Get target bit count
+            // TODO: use std::popcount since C++20
+            unsigned count = popcount(targetBitMask);
+            if (count >= msg.miningConfigure.VersionRollingMinBitCount.value()) {
+              result.addString("version-rolling.mask", writeHexBE(targetBitMask, 4));
+              X::Stratum::setupVersionRolling(connection->WorkerConfig, targetBitMask);
+              versionRolling = true;
+            }
+          }
+
+          if (!versionRolling) {
+            struct in_addr addr;
+            addr.s_addr = connection->Address.ipv4;
+            // TODO: change to DEBUG
+            LOG_F(WARNING,
+                  "%s: can't setup version rolling for %s (client mask: %X; minimal bit count: %X, server mask: %X)",
+                  connection->Instance->Name_.c_str(),
+                  inet_ntoa(addr),
+                  msg.miningConfigure.VersionRollingMask.value(),
+                  msg.miningConfigure.VersionRollingMinBitCount.value(),
+                  VersionMask_);
+          }
+          result.addBoolean("version-rolling", versionRolling);
+        }
+
+        if (msg.miningConfigure.ExtensionsField & StratumMiningConfigure::EMinimumDifficulty) {
+          bool minimumDifficulty = false;
+          result.addBoolean("minimum-difficulty", minimumDifficulty);
+        }
+
+        if (msg.miningConfigure.ExtensionsField & StratumMiningConfigure::ESubscribeExtraNonce) {
+          bool subscribeExtraNonce = false;
+          result.addBoolean("subscribe-extranonce", subscribeExtraNonce);
+        }
+      }
+
+      object.addNull("error");
+    }
+
+    stream.write('\n');
+    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    return true;
   }
 
   void onStratumExtraNonceSubscribe(Connection *connection, StratumMessage &message) {
@@ -250,11 +313,6 @@ private:
 
     stream.write('\n');
     aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
-    {
-      // TODO: WARNING -> DEBUG
-      stream.write('\0');
-      LOG_F(WARNING, "%s", stream.data<char>());
-    }
   }
 
   bool shareCheck(Connection *connection, StratumMessage &msg) {
@@ -365,11 +423,6 @@ private:
 
     stream.write('\n');
     aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
-    {
-      // TODO: WARNING -> DEBUG
-      stream.write('\0');
-      LOG_F(WARNING, "%s", stream.data<char>());
-    }
   }
 
   void stratumSendTarget(Connection *connection) {
@@ -388,21 +441,11 @@ private:
 
     stream.write('\n');
     aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
-    {
-      // TODO: WARNING -> DEBUG
-      std::string text(stream.data<const char>(), stream.sizeOf());
-      LOG_F(WARNING, "%s", text.c_str());
-    }
   }
 
   void stratumSendWork(Connection *connection) {
     ThreadData &data = Data_[GetLocalThreadId()];
     typename X::Stratum::Work &work = *data.WorkSet.back();
-    {
-      // TODO: WARNING -> DEBUG
-      std::string text(static_cast<const char*>(work.NotifyMessage.data()), work.NotifyMessage.sizeOf());
-      LOG_F(WARNING, "%s", text.c_str());
-    }
     aioWrite(connection->Socket, work.NotifyMessage.data(), work.NotifyMessage.sizeOf(), afWaitAll, 0, nullptr, nullptr);
   }
 
@@ -448,6 +491,9 @@ private:
               }
               break;
             }
+            case StratumMethodTy::MiningConfigure :
+              connection->Instance->onStratumMiningConfigure(connection, msg);
+              break;
             case StratumMethodTy::ExtraNonceSubscribe :
               connection->Instance->onStratumExtraNonceSubscribe(connection, msg);
               break;
@@ -513,4 +559,6 @@ private:
 
   // Merged mining data
   bool MergedMiningEnabled_ = false;
+  // ASIC boost 'overt' data
+  uint32_t VersionMask_ = 0x1FFFE000;
 };

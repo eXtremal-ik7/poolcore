@@ -253,6 +253,7 @@ public:
 
     Proto::BlockHeader Header;
     std::vector<uint256> MerklePath;
+    uint32_t JobVersion;
     size_t TxNum;
     int64_t BlockReward;
     xmstream FirstTxData;
@@ -282,12 +283,15 @@ public:
   struct MiningConfig {
     unsigned FixedExtraNonceSize = 4;
     unsigned MutableExtraNonceSize = 4;
+
   };
 
   struct WorkerConfig {
     std::string SetDifficultySession;
     std::string NotifySession;
     uint64_t ExtraNonceFixed;
+    bool AsicBoostEnabled = false;
+    uint32_t VersionMask = 0;
   };
 
   struct ThreadConfig {
@@ -299,7 +303,7 @@ public:
   static void initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg);
   static void initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum);
   static void initializeWorkerConfig(WorkerConfig &cfg, ThreadConfig &threadCfg);
-  static bool buildFullMiningConfig(MiningConfig &cfg, const PoolBackendConfig &backendCfg, const CCoinInfo &coinInfo);
+  static void setupVersionRolling(WorkerConfig &cfg, uint32_t versionMask);
 
   static void buildNotifyMessage(Work &work, MiningConfig &cfg, uint64_t majorJobId, unsigned minorJobId, bool resetPreviousWork, xmstream &out);
   static void onSubscribe(MiningConfig &miningCfg, WorkerConfig &workerCfg, StratumMessage &msg, xmstream &out);
