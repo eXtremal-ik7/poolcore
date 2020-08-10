@@ -6,7 +6,7 @@
 #include "p2putils/xmstream.h"
 
 StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumMessage *out)
-{
+{  
   rapidjson::Document document;
   document.Parse(in, size);
   if (document.HasParseError()) {

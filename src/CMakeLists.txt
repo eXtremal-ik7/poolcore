@@ -6,19 +6,18 @@ HunterGate(
 
 cmake_minimum_required(VERSION 3.11)
 project(poolcore)
-
 set (CMAKE_CXX_STANDARD 17)
+
 option(SANITIZER_ENABLED "Build with address sanitizer" OFF)
-option(GPROF_ENABLED "Build with GNU profiler (use gprof ./exename -p > out.txt)" OFF)
+# Debug options
+option(POOLCORE_DEBUG_INSTANCE_STRATUM_ENABLED "Debug log for stratum protocol" OFF)
+if (POOLCORE_DEBUG_INSTANCE_STRATUM_ENABLED)
+  set(POOLCORE_DEBUG_INSTANCE_STRATUM 1)
+endif()
 
 if (SANITIZER_ENABLED)
   set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
-endif()
-
-if (GPROF_ENABLED)
-  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pg")
-  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg")
 endif()
 
 set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
@@ -77,6 +76,11 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 endif()
 
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/poolCoreConfig.h.in
+  ${CMAKE_CURRENT_BINARY_DIR}/include/poolCoreConfig.h
+)
+
 include_directories(
   ${MPIR_INCLUDE_DIR}
   ${OPENSSL_INCLUDE_DIR}
@@ -84,6 +88,7 @@ include_directories(
   ${libp2p_BINARY_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_BINARY_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR}/include
 )
 
 # Logging library

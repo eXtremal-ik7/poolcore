@@ -1,0 +1,11 @@
+#pragma once
+
+#cmakedefine POOLCORE_DEBUG_INSTANCE_STRATUM
+
+static constexpr bool isDebugInstanceStratum() {
+#ifdef POOLCORE_DEBUG_INSTANCE_STRATUM
+  return 1;
+#else
+  return 0;
+#endif
+}

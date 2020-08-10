@@ -11,6 +11,8 @@
 #include <rapidjson/writer.h>
 #include <unordered_map>
 
+#include "poolCoreConfig.h"
+
 template<typename T>
 static inline unsigned popcount(T number)
 {
@@ -163,6 +165,14 @@ private:
 
   struct Connection {
     Connection(StratumInstance *instance, aioObject *socket, unsigned workerId, HostAddress address) : Instance(instance), Socket(socket), WorkerId(workerId), Address(address) {
+      {
+        struct in_addr addr;
+        addr.s_addr = Address.ipv4;
+        AddressHr = inet_ntoa(addr);
+        AddressHr.push_back(':');
+        AddressHr.append(std::to_string(htons(address.port)));
+      }
+
       Instance->Data_[WorkerId].Connections_.insert(this);
     }
 
@@ -176,6 +186,7 @@ private:
     aioObject *Socket;
     unsigned WorkerId;
     HostAddress Address;
+    std::string AddressHr;
     // Stratum protocol decoding
     char Buffer[40960];
     unsigned Offset = 0;
@@ -205,12 +216,20 @@ private:
   };
 
 private:
+  void send(Connection *connection, xmstream &stream) {
+    if (isDebugInstanceStratum()) {
+      std::string msg(stream.data<char>(), stream.sizeOf());
+      LOG_F(1, "%s(%s): outgoing message %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
+    }
+    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+  }
+
   void onStratumSubscribe(Connection *connection, StratumMessage &msg) {
     char buffer[4096];
     xmstream stream(buffer, sizeof(buffer));
     stream.reset();
     X::Stratum::onSubscribe(MiningCfg_, connection->WorkerConfig, msg, stream);
-    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    send(connection, stream);
   }
 
   bool onStratumAuthorize(Connection *connection, StratumMessage &msg) {
@@ -240,7 +259,7 @@ private:
         object.addString("error", error);
     }
     stream.write('\n');
-    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    send(connection, stream);
     return authSuccess;
   }
 
@@ -298,7 +317,7 @@ private:
     }
 
     stream.write('\n');
-    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    send(connection, stream);
     return true;
   }
 
@@ -312,7 +331,7 @@ private:
     }
 
     stream.write('\n');
-    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    send(connection, stream);
   }
 
   bool shareCheck(Connection *connection, StratumMessage &msg) {
@@ -409,7 +428,7 @@ private:
     }
 
     stream.write('\n');
-    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    send(connection, stream);
   }
 
   void onStratumMultiVersion(Connection *connection, StratumMessage &message) {
@@ -422,7 +441,7 @@ private:
     }
 
     stream.write('\n');
-    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    send(connection, stream);
   }
 
   void stratumSendTarget(Connection *connection) {
@@ -440,13 +459,13 @@ private:
     }
 
     stream.write('\n');
-    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    send(connection, stream);
   }
 
   void stratumSendWork(Connection *connection) {
     ThreadData &data = Data_[GetLocalThreadId()];
     typename X::Stratum::Work &work = *data.WorkSet.back();
-    aioWrite(connection->Socket, work.NotifyMessage.data(), work.NotifyMessage.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    send(connection, work.NotifyMessage);
   }
 
   void newFrontendConnection(socketTy fd, HostAddress address) {
@@ -475,6 +494,11 @@ private:
       StratumMessage msg;
       bool result = true;
       size_t stratumMsgSize = nextMsgPos - connection->Buffer;
+      if (isDebugInstanceStratum()) {
+        std::string msg(connection->Buffer, stratumMsgSize);
+        LOG_F(1, "%s(%s): incoming message %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
+      }
+
       switch (decodeStratumMessage(connection->Buffer, stratumMsgSize, &msg)) {
         case StratumDecodeStatusTy::Ok :
           // Process stratum messages here
