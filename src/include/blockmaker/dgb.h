@@ -1,16 +1,11 @@
-// Copyright (c) 2020 Ivan K.
-// Copyright (c) 2020 The BCNode developers
-// Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
-
 #pragma once
 
 #include "btc.h"
 
-namespace LTC {
+namespace DGB {
 class Proto {
 public:
-  static constexpr const char *TickerName = "LTC";
+  static constexpr const char *TickerName = "DGB";
 
   using BlockHashTy = BTC::Proto::BlockHashTy;
   using TxHashTy = BTC::Proto::TxHashTy;
@@ -26,8 +21,8 @@ public:
   using ChainParams = BTC::Proto::ChainParams;
 
   static void checkConsensusInitialize(CheckConsensusCtx &ctx) {}
-  static bool checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams &chainParams, double *shareDiff);
-  static bool checkConsensus(const LTC::Proto::Block &block, CheckConsensusCtx &ctx, LTC::Proto::ChainParams &chainParams, double *shareDiff) { return checkConsensus(block.header, ctx, chainParams, shareDiff); }
+  static bool checkConsensus(const DGB::Proto::BlockHeader &header, CheckConsensusCtx&, DGB::Proto::ChainParams &chainParams, double *shareDiff);
+  static bool checkConsensus(const DGB::Proto::Block &block, CheckConsensusCtx &ctx, DGB::Proto::ChainParams &chainParams, double *shareDiff) { return checkConsensus(block.header, ctx, chainParams, shareDiff); }
 };
 
 class Stratum {
@@ -40,17 +35,17 @@ public:
   class Work : public BTC::Stratum::Work {
   public:
     bool checkConsensus(size_t, double *shareDiff) {
-      LTC::Proto::CheckConsensusCtx ctx;
-      LTC::Proto::ChainParams params;
-      LTC::Proto::checkConsensusInitialize(ctx);
-      return LTC::Proto::checkConsensus(Header, ctx, params, shareDiff);
+      DGB::Proto::CheckConsensusCtx ctx;
+      DGB::Proto::ChainParams params;
+      DGB::Proto::checkConsensusInitialize(ctx);
+      return DGB::Proto::checkConsensus(Header, ctx, params, shareDiff);
     }
   };
 };
 
 struct X {
-  using Proto = LTC::Proto;
-  using Stratum = LTC::Stratum;
+  using Proto = DGB::Proto;
+  using Stratum = DGB::Stratum;
   template<typename T> static inline void serialize(xmstream &src, const T &data) { BTC::Io<T>::serialize(src, data); }
   template<typename T> static inline void unserialize(xmstream &dst, T &data) { BTC::Io<T>::unserialize(dst, data); }
 };

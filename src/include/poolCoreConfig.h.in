@@ -1,9 +1,18 @@
 #pragma once
 
-#cmakedefine POOLCORE_DEBUG_INSTANCE_STRATUM
+#cmakedefine POOLCORE_DEBUG_INSTANCE_STRATUM_PROTOCOL
+#cmakedefine POOLCORE_DEBUG_INSTANCE_STRATUM_REJECTS
 
-static constexpr bool isDebugInstanceStratum() {
-#ifdef POOLCORE_DEBUG_INSTANCE_STRATUM
+static constexpr bool isDebugInstanceStratumProtocol() {
+#ifdef POOLCORE_DEBUG_INSTANCE_STRATUM_PROTOCOL
+  return 1;
+#else
+  return 0;
+#endif
+}
+
+static constexpr bool isDebugInstanceStratumRejects() {
+#ifdef POOLCORE_DEBUG_INSTANCE_STRATUM_REJECTS
   return 1;
 #else
   return 0;

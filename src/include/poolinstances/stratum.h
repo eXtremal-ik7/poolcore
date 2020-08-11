@@ -36,7 +36,7 @@ public:
     Name_ = (std::string)X::Proto::TickerName + ".stratum";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
-      X::Stratum::initializeThreadConfig(Data_[i].ThreadCfg, i, threadPool.threadsNum());
+      Data_[i].ThreadCfg.initialize(i, threadPool.threadsNum());
       X::Proto::checkConsensusInitialize(Data_[i].CheckConsensusCtx);
       Data_[i].WorkerBase = threadPool.getBase(i);
     }
@@ -73,7 +73,7 @@ public:
     if (config.HasMember("mergedMiningEnabled")  && config["mergedMiningEnabled"].IsTrue())
       MergedMiningEnabled_ = true;
 
-    X::Stratum::initializeMiningConfig(MiningCfg_, config);
+    MiningCfg_.initialize(config);
 
     // Main listener
     createListener(monitorBase, port, [](socketTy socket, HostAddress address, void *arg) { static_cast<StratumInstance*>(arg)->newFrontendConnection(socket, address); }, this);
@@ -126,7 +126,7 @@ public:
     }
 
     std::string error;
-    if (!X::Stratum::loadFromTemplate(work, blockTemplate->Document, blockTemplate->UniqueWorkId, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg, error)) {
+    if (!work.loadFromTemplate(blockTemplate->Document, blockTemplate->UniqueWorkId, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg.data(), backendConfig.CoinBaseMsg.size(), error)) {
       LOG_F(ERROR, "%s: can't process block template; error: %s", Name_.c_str(), error.c_str());
       return;
     }
@@ -140,7 +140,7 @@ public:
     }
 
     if (work.initialized()) {
-      X::Stratum::buildNotifyMessage(work, MiningCfg_, data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock, work.NotifyMessage);
+      work.buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock);
       for (auto &connection: data.Connections_) {
         stratumSendWork(connection);
       }
@@ -210,14 +210,11 @@ private:
     std::vector<std::unique_ptr<typename X::Stratum::Work>> WorkSet;
     std::set<Connection*> Connections_;
     uint64_t MajorWorkId_ = 0;
-
-    // Merged mining data
-    typename X::Stratum::Work WorkAcc_;
   };
 
 private:
-  void send(Connection *connection, xmstream &stream) {
-    if (isDebugInstanceStratum()) {
+  void send(Connection *connection, const xmstream &stream) {
+    if (isDebugInstanceStratumProtocol()) {
       std::string msg(stream.data<char>(), stream.sizeOf());
       LOG_F(1, "%s(%s): outgoing message %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
     }
@@ -228,7 +225,7 @@ private:
     char buffer[4096];
     xmstream stream(buffer, sizeof(buffer));
     stream.reset();
-    X::Stratum::onSubscribe(MiningCfg_, connection->WorkerConfig, msg, stream);
+    connection->WorkerConfig.onSubscribe(MiningCfg_, msg, stream);
     send(connection, stream);
   }
 
@@ -282,7 +279,7 @@ private:
             unsigned count = popcount(targetBitMask);
             if (count >= msg.miningConfigure.VersionRollingMinBitCount.value()) {
               result.addString("version-rolling.mask", writeHexBE(targetBitMask, 4));
-              X::Stratum::setupVersionRolling(connection->WorkerConfig, targetBitMask);
+              connection->WorkerConfig.setupVersionRolling(targetBitMask);
               versionRolling = true;
             }
           }
@@ -339,41 +336,62 @@ private:
 
     // Check worker name
     auto It = connection->Workers.find(msg.submit.WorkerName);
-    if (It == connection->Workers.end())
+    if (It == connection->Workers.end()) {
+      if (isDebugInstanceStratumRejects())
+        LOG_F(1, "%s(%s) reject: unknown worker name: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.submit.WorkerName.c_str());
       return false;
+    }
     Worker &worker = It->second;
 
     // Check job id
     size_t jobIndex;
     {
       size_t sharpPos = msg.submit.JobId.find('#');
-      if (sharpPos == msg.submit.JobId.npos)
+      if (sharpPos == msg.submit.JobId.npos) {
+        if (isDebugInstanceStratumRejects())
+          LOG_F(1, "%s(%s) reject: invalid job id format: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.submit.JobId.c_str());
         return false;
+      }
 
       msg.submit.JobId[sharpPos] = 0;
       uint64_t majorJobId = xatoi<uint64_t>(msg.submit.JobId.c_str());
       jobIndex = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
-      if (majorJobId != data.MajorWorkId_ || jobIndex >= data.WorkSet.size())
+      if (majorJobId != data.MajorWorkId_ || jobIndex >= data.WorkSet.size()) {
+        if (isDebugInstanceStratumRejects())
+          LOG_F(1, "%s(%s) reject: unknown job id: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.submit.JobId.c_str());
         return false;
+      }
     }
 
     // Build header and check proof of work
     std::string user = worker.User;
     typename X::Stratum::Work &work = *data.WorkSet[jobIndex];
-    X::Stratum::prepareForSubmit(work, connection->WorkerConfig, MiningCfg_, msg);
+    work.prepareForSubmit(connection->WorkerConfig, MiningCfg_, msg);
 
     // Loop over all affected backends (usually 1 or 2 with enabled merged mining)
     bool shareAccepted = false;
     for (size_t i = 0, ie = work.backendsNum(); i != ie; ++i) {
       PoolBackend *backend = work.backend(i);
-      if (!backend)
+      if (!backend) {
+        if (isDebugInstanceStratumRejects())
+          LOG_F(1, "%s(%s) sub-reject: backend %zu not initialized", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), i);
         continue;
+      }
 
       uint64_t height = work.height(i);
       double shareDiff = 0.0;
       bool isBlock = work.checkConsensus(i, &shareDiff);
-      if (shareDiff < connection->ShareDifficulty)
+      if (shareDiff < connection->ShareDifficulty) {
+        if (isDebugInstanceStratumRejects())
+          LOG_F(1,
+                "%s(%s) sub-reject(%s): invalid share difficulty %lg (%lg required)",
+                connection->Instance->Name_.c_str(),
+                connection->AddressHr.c_str(),
+                backend->getCoinInfo().Name.c_str(),
+                shareDiff,
+                connection->ShareDifficulty);
         continue;
+      }
 
       shareAccepted = true;
       if (isBlock) {
@@ -386,6 +404,7 @@ private:
         dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](bool result, const std::string &hostName, const std::string &error) {
           if (result) {
             LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
+            // TODO: blockHash is not enough for key here, fix it
             if (data.KnownBlocks.insert(blockHash).second) {
               // Send share with block to backend
               CAccountingShare *backendShare = new CAccountingShare;
@@ -454,7 +473,7 @@ private:
       object.addField("params");
       {
         JSON::Array params(stream);
-        params.addDouble(connection->ShareDifficulty);
+        params.addDouble(connection->ShareDifficulty * X::Stratum::DifficultyFactor);
       }
     }
 
@@ -465,13 +484,13 @@ private:
   void stratumSendWork(Connection *connection) {
     ThreadData &data = Data_[GetLocalThreadId()];
     typename X::Stratum::Work &work = *data.WorkSet.back();
-    send(connection, work.NotifyMessage);
+    send(connection, work.notifyMessage());
   }
 
   void newFrontendConnection(socketTy fd, HostAddress address) {
     ThreadData &data = Data_[CurrentThreadId_];
     Connection *connection = new Connection(this, newSocketIo(data.WorkerBase, fd), CurrentThreadId_, address);
-    X::Stratum::initializeWorkerConfig(connection->WorkerConfig, data.ThreadCfg);
+    connection->WorkerConfig.initialize(data.ThreadCfg);
 
     // Initialize share difficulty
     connection->ShareDifficulty = ConstantShareDiff_;
@@ -494,7 +513,7 @@ private:
       StratumMessage msg;
       bool result = true;
       size_t stratumMsgSize = nextMsgPos - connection->Buffer;
-      if (isDebugInstanceStratum()) {
+      if (isDebugInstanceStratumProtocol()) {
         std::string msg(connection->Buffer, stratumMsgSize);
         LOG_F(1, "%s(%s): incoming message %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
       }

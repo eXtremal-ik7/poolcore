@@ -114,7 +114,7 @@ public:
     addField();
 
     char buffer[64];
-    snprintf(buffer, sizeof(buffer), "%.3lf", number);
+    snprintf(buffer, sizeof(buffer), "%.6lf", number);
     Stream_.write(static_cast<const char*>(buffer));
   }
 

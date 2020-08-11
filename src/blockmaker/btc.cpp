@@ -259,58 +259,58 @@ bool Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&,
   return true;
 }
 
-void Stratum::initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg)
+void Stratum::MiningConfig::initialize(rapidjson::Value &instanceCfg)
 {
   if (instanceCfg.HasMember("fixedExtraNonceSize") && instanceCfg["fixedExtraNonceSize"].IsUint())
-    cfg.FixedExtraNonceSize = instanceCfg["fixedExtraNonceSize"].GetUint();
+    FixedExtraNonceSize = instanceCfg["fixedExtraNonceSize"].GetUint();
   if (instanceCfg.HasMember("mutableExtraNonceSize") && instanceCfg["mutableExtraNonceSize"].IsUint())
-    cfg.MutableExtraNonceSize = instanceCfg["mutableExtraNonceSize"].GetUint();
+    MutableExtraNonceSize = instanceCfg["mutableExtraNonceSize"].GetUint();
 }
 
-void Stratum::initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum)
+void Stratum::ThreadConfig::initialize(unsigned int threadId, unsigned int threadsNum)
 {
-  cfg.ExtraNonceCurrent = threadId;
-  cfg.ThreadsNum = threadsNum;
+  ExtraNonceCurrent = threadId;
+  ThreadsNum = threadsNum;
 }
 
-void Stratum::initializeWorkerConfig(WorkerConfig &cfg, ThreadConfig &threadCfg)
+void Stratum::WorkerConfig::initialize(ThreadConfig &threadCfg)
 {
   // Set fixed part of extra nonce
-  cfg.ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
+  ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
 
   // Set session names
   uint8_t sessionId[16];
   {
     RAND_bytes(sessionId, sizeof(sessionId));
-    cfg.SetDifficultySession.resize(sizeof(sessionId)*2);
-    bin2hexLowerCase(sessionId, cfg.SetDifficultySession.data(), sizeof(sessionId));
+    SetDifficultySession.resize(sizeof(sessionId)*2);
+    bin2hexLowerCase(sessionId, SetDifficultySession.data(), sizeof(sessionId));
   }
   {
     RAND_bytes(sessionId, sizeof(sessionId));
-    cfg.NotifySession.resize(sizeof(sessionId)*2);
-    bin2hexLowerCase(sessionId, cfg.NotifySession.data(), sizeof(sessionId));
+    NotifySession.resize(sizeof(sessionId)*2);
+    bin2hexLowerCase(sessionId, NotifySession.data(), sizeof(sessionId));
   }
 
   // Update thread config
   threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
 }
 
-void Stratum::setupVersionRolling(WorkerConfig &cfg, uint32_t versionMask)
+void Stratum::WorkerConfig::setupVersionRolling(uint32_t versionMask)
 {
-  cfg.AsicBoostEnabled = true;
-  cfg.VersionMask = versionMask;
+  AsicBoostEnabled = true;
+  VersionMask = versionMask;
 }
 
-void Stratum::buildNotifyMessage(Work &work, MiningConfig &cfg, uint64_t majorJobId, unsigned minorJobId, bool resetPreviousWork, xmstream &out)
+void Stratum::Work::buildNotifyMessage(MiningConfig &cfg, uint64_t majorJobId, unsigned int minorJobId, bool resetPreviousWork)
 {
   {
-    out.reset();
-    JSON::Object root(out);
+    NotifyMessage.reset();
+    JSON::Object root(NotifyMessage);
     root.addNull("id");
     root.addString("method", "mining.notify");
     root.addField("params");
     {
-      JSON::Array params(out);
+      JSON::Array params(NotifyMessage);
       {
         // Id
         char buffer[32];
@@ -321,7 +321,7 @@ void Stratum::buildNotifyMessage(Work &work, MiningConfig &cfg, uint64_t majorJo
       // Previous block
       {
         std::string hash;
-        const uint32_t *data = reinterpret_cast<const uint32_t*>(work.Header.hashPrevBlock.begin());
+        const uint32_t *data = reinterpret_cast<const uint32_t*>(Header.hashPrevBlock.begin());
         for (unsigned i = 0; i < 8; i++) {
           hash.append(writeHexBE(data[i], 4));
         }
@@ -331,35 +331,35 @@ void Stratum::buildNotifyMessage(Work &work, MiningConfig &cfg, uint64_t majorJo
       {
         // Coinbase Tx parts
         // Part 1
-        params.addHex(work.FirstTxData.data(), work.TxExtraNonceOffset);
+        params.addHex(FirstTxData.data(), TxExtraNonceOffset);
 
         // Part 2
-        size_t part2Offset = work.TxExtraNonceOffset + cfg.FixedExtraNonceSize + cfg.MutableExtraNonceSize;
-        size_t part2Size = work.FirstTxData.sizeOf() - work.TxExtraNonceOffset - (cfg.FixedExtraNonceSize + cfg.MutableExtraNonceSize);
-        params.addHex(work.FirstTxData.data<uint8_t>() + part2Offset, part2Size);
+        size_t part2Offset = TxExtraNonceOffset + cfg.FixedExtraNonceSize + cfg.MutableExtraNonceSize;
+        size_t part2Size = FirstTxData.sizeOf() - TxExtraNonceOffset - (cfg.FixedExtraNonceSize + cfg.MutableExtraNonceSize);
+        params.addHex(FirstTxData.data<uint8_t>() + part2Offset, part2Size);
       }
 
       {
         // Merkle branches
         params.addField();
         {
-          JSON::Array branches(out);
-          for (const auto &hash: work.MerklePath)
+          JSON::Array branches(NotifyMessage);
+          for (const auto &hash: MerklePath)
             branches.addHex(hash.begin(), hash.size());
         }
       }
       // nVersion
-      params.addString(writeHexBE(work.Header.nVersion, sizeof(work.Header.nVersion)));
+      params.addString(writeHexBE(Header.nVersion, sizeof(Header.nVersion)));
       // nBits
-      params.addString(writeHexBE(work.Header.nBits, sizeof(work.Header.nBits)));
+      params.addString(writeHexBE(Header.nBits, sizeof(Header.nBits)));
       // nTime
-      params.addString(writeHexBE(work.Header.nTime, sizeof(work.Header.nTime)));
+      params.addString(writeHexBE(Header.nTime, sizeof(Header.nTime)));
       // cleanup
       params.addBoolean(resetPreviousWork);
     }
   }
 
-  out.write('\n');
+  NotifyMessage.write('\n');
 }
 
 static inline void addId(JSON::Object &object, StratumMessage &msg) {
@@ -369,7 +369,7 @@ static inline void addId(JSON::Object &object, StratumMessage &msg) {
     object.addInt("id", msg.integerId);
 }
 
-void Stratum::onSubscribe(MiningConfig &miningCfg, WorkerConfig &workerCfg, StratumMessage &msg, xmstream &out)
+void Stratum::WorkerConfig::onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out)
 {
   // Response format
   // {"id": 1, "result": [ [ ["mining.set_difficulty", <setDifficultySession>:string(hex)], ["mining.notify", <notifySession>:string(hex)]], <uniqueExtraNonce>:string(hex), extraNonceSize:integer], "error": null}\n
@@ -386,18 +386,18 @@ void Stratum::onSubscribe(MiningConfig &miningCfg, WorkerConfig &workerCfg, Stra
         {
           JSON::Array setDifficultySession(out);
           setDifficultySession.addString("mining.set_difficulty");
-          setDifficultySession.addString(workerCfg.SetDifficultySession);
+          setDifficultySession.addString(SetDifficultySession);
         }
         sessions.addField();
         {
           JSON::Array notifySession(out);
           notifySession.addString("mining.notify");
-          notifySession.addString(workerCfg.NotifySession);
+          notifySession.addString(NotifySession);
         }
       }
 
       // Unique extra nonce
-      result.addString(writeHexBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
+      result.addString(writeHexBE(ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
       // Mutable part of extra nonce size
       result.addInt(miningCfg.MutableExtraNonceSize);
     }
@@ -407,25 +407,24 @@ void Stratum::onSubscribe(MiningConfig &miningCfg, WorkerConfig &workerCfg, Stra
   out.write('\n');
 }
 
-bool Stratum::loadFromTemplate(Work &work,
-                               rapidjson::Value &document,
-                               uint64_t uniqueWorkId,
-                               const MiningConfig &cfg,
-                               PoolBackend *backend,
-                               const std::string&,
-                               Proto::AddressTy &miningAddress,
-                               const std::string &coinbaseMsg,
-                               std::string &error)
+bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
+                                     uint64_t uniqueWorkId,
+                                     const MiningConfig &cfg,
+                                     PoolBackend *backend,
+                                     const std::string&,
+                                     Proto::AddressTy &miningAddress,
+                                     const void *coinBaseExtraData,
+                                     size_t coinbaseExtraSize,
+                                     std::string &error)
 {
   char buffer[4096];
   xmstream stream(buffer, sizeof(buffer));
-  work.Height = 0;
-  work.UniqueWorkId = uniqueWorkId;
-  work.MerklePath.clear();
-  work.FirstTxData.reset();
-  work.BlockHexData.reset();
-  work.NotifyMessage.reset();
-  work.Backend = backend;
+  Height = 0;
+  UniqueWorkId = uniqueWorkId;
+  MerklePath.clear();
+  FirstTxData.reset();
+  BlockHexData.reset();
+  Backend = backend;
 
   if (!document.HasMember("result") || !document["result"].IsObject()) {
     error = "no result";
@@ -482,21 +481,21 @@ bool Stratum::loadFromTemplate(Work &work,
     return false;
   }
 
-  work.Height = height.GetUint64();
-  Proto::BlockHeader &header = work.Header;
+  Height = height.GetUint64();
+  Proto::BlockHeader &header = Header;
   header.nVersion = version.GetUint();
   header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
   header.hashMerkleRoot.SetNull();
   header.nTime = curtime.GetUint();
   header.nBits = strtoul(bits.GetString(), nullptr, 16);
   header.nNonce = 0;
-  work.JobVersion = header.nVersion;
+  JobVersion = header.nVersion;
 
   // Serialize header and transactions count
   stream.reset();
   BTC::X::serialize(stream, header);
   serializeVarSize(stream, transactions.Size() + 1);
-  bin2hexLowerCase(stream.data(), work.BlockHexData.reserve<char>(stream.sizeOf()*2), stream.sizeOf());
+  bin2hexLowerCase(stream.data(), BlockHexData.reserve<char>(stream.sizeOf()*2), stream.sizeOf());
 
   // Coinbase
   Proto::Transaction coinbaseTx;
@@ -512,12 +511,13 @@ bool Stratum::loadFromTemplate(Work &work,
     // scriptsig
     xmstream scriptsig;
     // Height
-    BTC::serializeForCoinbase(scriptsig, work.Height);
+    BTC::serializeForCoinbase(scriptsig, Height);
+    size_t extraDataOffset = scriptsig.offsetOf();
     // Coinbase message
-    scriptsig.write(coinbaseMsg.data(), coinbaseMsg.size());
+    scriptsig.write(coinBaseExtraData, coinbaseExtraSize);
     // Extra nonce
-    work.ScriptSigExtraNonceOffset = scriptsig.offsetOf();
-    work.TxExtraNonceOffset = work.ScriptSigExtraNonceOffset + coinbaseTx.getFirstScriptSigOffset();
+    TxExtraNonceOffset = scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset();
+    TxExtraDataOffset = extraDataOffset + coinbaseTx.getFirstScriptSigOffset();
     for (size_t i = 0, ie = cfg.FixedExtraNonceSize+cfg.MutableExtraNonceSize; i != ie; ++i)
       scriptsig.write('\0');
 
@@ -532,7 +532,7 @@ bool Stratum::loadFromTemplate(Work &work,
     {
       // First txout (funds)
       BTC::Proto::TxOut &txOut = coinbaseTx.txOut[0];
-      work.BlockReward = txOut.value = coinbaseValue.GetInt64();
+      BlockReward = txOut.value = coinbaseValue.GetInt64();
 
       // pkScript (use single P2PKH)
       txOut.pkScript.resize(sizeof(BTC::Proto::AddressTy) + 5);
@@ -563,9 +563,9 @@ bool Stratum::loadFromTemplate(Work &work,
   }
 
   coinbaseTx.lockTime = 0;
-  work.BlockHexExtraNonceOffset = work.BlockHexData.sizeOf() + work.TxExtraNonceOffset*2;
-  BTC::X::serialize(work.FirstTxData, coinbaseTx);
-  bin2hexLowerCase(work.FirstTxData.data(), work.BlockHexData.reserve<char>(work.FirstTxData.sizeOf()*2), work.FirstTxData.sizeOf());
+  BlockHexCoinbaseTxOffset = BlockHexData.sizeOf();
+  BTC::X::serialize(FirstTxData, coinbaseTx);
+  bin2hexLowerCase(FirstTxData.data(), BlockHexData.reserve<char>(FirstTxData.sizeOf()*2), FirstTxData.sizeOf());
 
   // Transactions
   std::vector<uint256> txHashes;
@@ -578,7 +578,7 @@ bool Stratum::loadFromTemplate(Work &work,
       return false;
     }
 
-    work.BlockHexData.write(txSrc["data"].GetString(), txSrc["data"].GetStringLength());
+    BlockHexData.write(txSrc["data"].GetString(), txSrc["data"].GetStringLength());
     if (!txSrc.HasMember("txid") || !txSrc["txid"].IsString()) {
       error = "no 'hash' for transaction";
       return false;
@@ -588,35 +588,35 @@ bool Stratum::loadFromTemplate(Work &work,
     txHashes.back().SetHex(txSrc["txid"].GetString());
   }
 
-  work.TxNum = txHashes.size();
+  TxNum = txHashes.size();
 
   // Build merkle path
-  dumpMerkleTree(txHashes, work.MerklePath);
+  dumpMerkleTree(txHashes, MerklePath);
   return true;
 }
 
-bool Stratum::prepareForSubmit(Work &work, const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg)
+bool Stratum::Work::prepareForSubmit(const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg)
 {
   if (msg.submit.MutableExtraNonce.size() != miningCfg.MutableExtraNonceSize)
     return false;
   if (workerCfg.AsicBoostEnabled && !msg.submit.VersionBits.has_value())
     return false;
 
-  Proto::BlockHeader &header = work.Header;
+  Proto::BlockHeader &header = Header;
 
   // Write target extra nonce to first txin
-  uint8_t *scriptSig = work.FirstTxData.data<uint8_t>() + work.TxExtraNonceOffset;
+  uint8_t *scriptSig = FirstTxData.data<uint8_t>() + TxExtraNonceOffset;
   writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
   memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.submit.MutableExtraNonce.data(), msg.submit.MutableExtraNonce.size());
-  // Update extra nonce in block hex dump
-  bin2hexLowerCase(scriptSig, work.BlockHexData.data<char>() + work.BlockHexExtraNonceOffset, miningCfg.FixedExtraNonceSize + miningCfg.MutableExtraNonceSize);
+  // Update coinbase tx in block hex dump
+  bin2hexLowerCase(FirstTxData.data(), BlockHexData.data<char>() + BlockHexCoinbaseTxOffset, FirstTxData.sizeOf());
 
   // Calculate merkle root and build header
-  header.hashMerkleRoot = calculateMerkleRoot(work.FirstTxData.data(), work.FirstTxData.sizeOf(), work.MerklePath);
+  header.hashMerkleRoot = calculateMerkleRoot(FirstTxData.data(), FirstTxData.sizeOf(), MerklePath);
   header.nTime = msg.submit.Time;
   header.nNonce = msg.submit.Nonce;
   if (workerCfg.AsicBoostEnabled)
-    header.nVersion = (work.JobVersion & ~workerCfg.VersionMask) | (msg.submit.VersionBits.value() & workerCfg.VersionMask);
+    header.nVersion = (JobVersion & ~workerCfg.VersionMask) | (msg.submit.VersionBits.value() & workerCfg.VersionMask);
 
   {
     // Update header in block hex dump
@@ -624,7 +624,7 @@ bool Stratum::prepareForSubmit(Work &work, const WorkerConfig &workerCfg, const 
     xmstream stream(buffer, sizeof(buffer));
     stream.reset();
     BTC::X::serialize(stream, header);
-    bin2hexLowerCase(buffer, work.BlockHexData.data<char>(), stream.sizeOf());
+    bin2hexLowerCase(buffer, BlockHexData.data<char>(), stream.sizeOf());
   }
 
   return true;

@@ -242,14 +242,39 @@ template<typename T> struct Io<Proto::BlockTy<T>> {
 
 class Stratum {
 public:
+  static constexpr double DifficultyFactor = 1.0;
+
+  struct MiningConfig {
+    unsigned FixedExtraNonceSize = 4;
+    unsigned MutableExtraNonceSize = 4;
+    void initialize(rapidjson::Value &instanceCfg);
+  };
+
+  struct ThreadConfig {
+    uint64_t ExtraNonceCurrent;
+    unsigned ThreadsNum;
+    void initialize(unsigned threadId, unsigned threadsNum);
+  };
+
+  struct WorkerConfig {
+    std::string SetDifficultySession;
+    std::string NotifySession;
+    uint64_t ExtraNonceFixed;
+    bool AsicBoostEnabled = false;
+    uint32_t VersionMask = 0;
+    void initialize(ThreadConfig &threadCfg);
+    void setupVersionRolling(uint32_t versionMask);
+    void onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out);
+  };
+
   class Work {
   public:
     uint64_t UniqueWorkId;
     uint64_t Height = 0;
     PoolBackend *Backend = nullptr;
-    unsigned ScriptSigExtraNonceOffset;
+    unsigned TxExtraDataOffset;
     unsigned TxExtraNonceOffset;
-    unsigned BlockHexExtraNonceOffset;
+    unsigned BlockHexCoinbaseTxOffset;
 
     Proto::BlockHeader Header;
     std::vector<uint256> MerklePath;
@@ -267,6 +292,7 @@ public:
     std::string hash(size_t) { return Header.GetHash().ToString(); }
     size_t txNum(size_t) { return TxNum; }
     int64_t blockReward(size_t) { return BlockReward; }
+    const xmstream &notifyMessage() { return NotifyMessage; }
     const xmstream &blockHexData(size_t) { return BlockHexData; }
     bool initialized() { return Backend != nullptr; }
 
@@ -278,47 +304,22 @@ public:
       Proto::checkConsensusInitialize(ctx);
       return Proto::checkConsensus(Header, ctx, params, shareDiff);
     }
+
+    void buildNotifyMessage(MiningConfig &cfg, uint64_t majorJobId, unsigned minorJobId, bool resetPreviousWork);
+
+    bool loadFromTemplate(rapidjson::Value &document,
+                          uint64_t uniqueWorkId,
+                          const MiningConfig &cfg,
+                          PoolBackend *backend,
+                          const std::string &ticker,
+                          Proto::AddressTy &miningAddress,
+                          const void *coinBaseExtraData,
+                          size_t coinbaseExtraSize,
+                          std::string &error);
+
+    bool prepareForSubmit(const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
+
   };
-
-  struct MiningConfig {
-    unsigned FixedExtraNonceSize = 4;
-    unsigned MutableExtraNonceSize = 4;
-
-  };
-
-  struct WorkerConfig {
-    std::string SetDifficultySession;
-    std::string NotifySession;
-    uint64_t ExtraNonceFixed;
-    bool AsicBoostEnabled = false;
-    uint32_t VersionMask = 0;
-  };
-
-  struct ThreadConfig {
-    uint64_t ExtraNonceCurrent;
-    unsigned ThreadsNum;
-  };
-
-public:
-  static void initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg);
-  static void initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum);
-  static void initializeWorkerConfig(WorkerConfig &cfg, ThreadConfig &threadCfg);
-  static void setupVersionRolling(WorkerConfig &cfg, uint32_t versionMask);
-
-  static void buildNotifyMessage(Work &work, MiningConfig &cfg, uint64_t majorJobId, unsigned minorJobId, bool resetPreviousWork, xmstream &out);
-  static void onSubscribe(MiningConfig &miningCfg, WorkerConfig &workerCfg, StratumMessage &msg, xmstream &out);
-
-  static bool loadFromTemplate(Work &work,
-                               rapidjson::Value &document,
-                               uint64_t uniqueWorkId,
-                               const MiningConfig &cfg,
-                               PoolBackend *backend,
-                               const std::string &ticker,
-                               Proto::AddressTy &miningAddress,
-                               const std::string &coinbaseMsg,
-                               std::string &error);
-
-  static bool prepareForSubmit(Work &work, const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
 };
 
 struct X {

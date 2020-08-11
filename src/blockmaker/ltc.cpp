@@ -4,22 +4,22 @@
 
 static inline double getDifficulty(uint32_t bits)
 {
-    int nShift = (bits >> 24) & 0xff;
-    double dDiff =
-        (double)0x0000ffff / (double)(bits & 0x00ffffff);
+  int nShift = (bits >> 24) & 0xff;
+  double dDiff =
+      (double)0x0000ffff / (double)(bits & 0x00ffffff);
 
-    while (nShift < 29)
-    {
-        dDiff *= 256.0;
-        nShift++;
-    }
-    while (nShift > 29)
-    {
-        dDiff /= 256.0;
-        nShift--;
-    }
+  while (nShift < 29)
+  {
+      dDiff *= 256.0;
+      nShift++;
+  }
+  while (nShift > 29)
+  {
+      dDiff /= 256.0;
+      nShift--;
+  }
 
-    return dDiff;
+  return dDiff;
 }
 
 bool LTC::Proto::checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams &chainParams, double *shareDiff)
@@ -35,7 +35,7 @@ bool LTC::Proto::checkConsensus(const LTC::Proto::BlockHeader &header, CheckCons
   bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
 
   // Check range
-  if (fNegative || bnTarget == 0 || fOverflow || bnTarget > UintToArith256(chainParams.powLimit))
+  if (fNegative || bnTarget == 0 || fOverflow)
       return false;
 
   // Check proof of work matches claimed amount
