@@ -490,7 +490,7 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
     scriptsig.write(coinbaseMsg.data(), coinbaseMsg.size());
     // Extra nonce
     work.ScriptSigExtraNonceOffset = scriptsig.offsetOf();
-    work.TxExtraNonceOffset = work.ScriptSigExtraNonceOffset + coinbaseTx.getFirstScriptSigOffset();
+    work.TxExtraNonceOffset = work.ScriptSigExtraNonceOffset + coinbaseTx.getFirstScriptSigOffset(false);
     for (size_t i = 0, ie = cfg.FixedExtraNonceSize; i != ie; ++i)
       scriptsig.write('\0');
 

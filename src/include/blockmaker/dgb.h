@@ -20,7 +20,7 @@ public:
   using CheckConsensusCtx = BTC::Proto::CheckConsensusCtx;
   using ChainParams = BTC::Proto::ChainParams;
 
-  static void checkConsensusInitialize(CheckConsensusCtx &ctx) {}
+  static void checkConsensusInitialize(CheckConsensusCtx&) {}
   static bool checkConsensus(const DGB::Proto::BlockHeader &header, CheckConsensusCtx&, DGB::Proto::ChainParams &chainParams, double *shareDiff);
   static bool checkConsensus(const DGB::Proto::Block &block, CheckConsensusCtx &ctx, DGB::Proto::ChainParams &chainParams, double *shareDiff) { return checkConsensus(block.header, ctx, chainParams, shareDiff); }
 };

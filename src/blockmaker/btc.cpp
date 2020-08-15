@@ -51,28 +51,6 @@ void Io<Proto::TxIn>::unserialize(xmstream &stream, BTC::Proto::TxIn &data)
   BTC::unserialize(stream, data.sequence);
 }
 
-void Io<Proto::TxIn>::unpack(xmstream &src, DynamicPtr<BTC::Proto::TxIn> dst)
-{
-  {
-    BTC::Proto::TxIn *ptr = dst.ptr();
-    BTC::unserialize(src, ptr->previousOutputHash);
-    BTC::unserialize(src, ptr->previousOutputIndex);
-  }
-
-  BTC::unpack(src, DynamicPtr<decltype (dst->scriptSig)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::TxIn, scriptSig)));
-  {
-    BTC::Proto::TxIn *ptr = dst.ptr();
-    new (&ptr->witnessStack) decltype(ptr->witnessStack)();
-    BTC::unserialize(src, ptr->sequence);
-  }
-}
-
-void Io<Proto::TxIn>::unpackFinalize(DynamicPtr<BTC::Proto::TxIn> dst)
-{
-  BTC::unpackFinalize(DynamicPtr<decltype (dst->scriptSig)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::TxIn, scriptSig)));
-  BTC::unpackFinalize(DynamicPtr<decltype (dst->witnessStack)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::TxIn, witnessStack)));
-}
-
 size_t Proto::TxIn::scriptSigOffset()
 {
   size_t result = 0;
@@ -94,22 +72,11 @@ void Io<Proto::TxOut>::unserialize(xmstream &dst, BTC::Proto::TxOut &data)
   BTC::unserialize(dst, data.pkScript);
 }
 
-void Io<Proto::TxOut>::unpack(xmstream &src, DynamicPtr<BTC::Proto::TxOut> dst)
-{
-  BTC::unserialize(src, dst->value);
-  BTC::unpack(src, DynamicPtr<decltype (dst->pkScript)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::TxOut, pkScript)));
-}
-
-void Io<Proto::TxOut>::unpackFinalize(DynamicPtr<BTC::Proto::TxOut> dst)
-{
-  BTC::unpackFinalize(DynamicPtr<decltype (dst->pkScript)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::TxOut, pkScript)));
-}
-
-void Io<Proto::Transaction>::serialize(xmstream &dst, const BTC::Proto::Transaction &data)
+void Io<Proto::Transaction>::serialize(xmstream &dst, const BTC::Proto::Transaction &data, bool serializeWitness)
 {
   uint8_t flags = 0;
   BTC::serialize(dst, data.version);
-  if (data.hasWitness()) {
+  if (data.hasWitness() && serializeWitness) {
     flags = 1;
     BTC::serializeVarSize(dst, 0);
     BTC::serialize(dst, flags);
@@ -161,52 +128,11 @@ void Io<Proto::Transaction>::unserialize(xmstream &src, BTC::Proto::Transaction 
   BTC::unserialize(src, data.lockTime);
 }
 
-void Io<Proto::Transaction>::unpack(xmstream &src, DynamicPtr<BTC::Proto::Transaction> dst)
-{
-  uint8_t flags = 0;
-
-  BTC::unserialize(src, dst->version);
-  BTC::unpack(src, DynamicPtr<decltype(dst->txIn)>(dst.stream(), dst.offset()+ offsetof(BTC::Proto::Transaction, txIn)));
-
-  if (dst->txIn.empty()) {
-    BTC::unserialize(src, flags);
-    if (flags) {
-      BTC::unpack(src, DynamicPtr<decltype(dst->txIn)>(dst.stream(), dst.offset()+ offsetof(BTC::Proto::Transaction, txIn)));
-      BTC::unpack(src, DynamicPtr<decltype(dst->txOut)>(dst.stream(), dst.offset()+ offsetof(BTC::Proto::Transaction, txOut)));
-    }
-  } else {
-    BTC::unpack(src, DynamicPtr<decltype(dst->txOut)>(dst.stream(), dst.offset()+ offsetof(BTC::Proto::Transaction, txOut)));
-  }
-
-  if (flags & 1) {
-    flags ^= 1;
-
-    bool hasWitness = false;
-    for (size_t i = 0, ie = dst->txIn.size(); i < ie; i++) {
-      size_t txInDataOffset = reinterpret_cast<size_t>(dst->txIn.data());
-      size_t txInOffset = txInDataOffset + sizeof(BTC::Proto::TxIn)*i;
-      hasWitness |= BTC::Proto::TxIn::unpackWitnessStack(src, DynamicPtr<Proto::TxIn>(dst.stream(), txInOffset));
-    }
-
-    if (!hasWitness) {
-      src.seekEnd(0, true);
-      return;
-    }
-  }
-
-  if (flags) {
-    src.seekEnd(0, true);
-    return;
-  }
-
-  BTC::unserialize(src, dst->lockTime);
-}
-
-size_t Proto::Transaction::getFirstScriptSigOffset()
+size_t Proto::Transaction::getFirstScriptSigOffset(bool serializeWitness)
 {
   size_t result = 0;
   result += 4; //version
-  if (hasWitness()) {
+  if (serializeWitness && hasWitness()) {
     result += serializedVarSizeLength(0);
     result += 1; // flags
   }
@@ -331,12 +257,12 @@ void Stratum::Work::buildNotifyMessage(MiningConfig &cfg, uint64_t majorJobId, u
       {
         // Coinbase Tx parts
         // Part 1
-        params.addHex(FirstTxData.data(), TxExtraNonceOffset);
+        params.addHex(CBTxLegacy.Data.data(), CBTxLegacy.ExtraNonceOffset);
 
         // Part 2
-        size_t part2Offset = TxExtraNonceOffset + cfg.FixedExtraNonceSize + cfg.MutableExtraNonceSize;
-        size_t part2Size = FirstTxData.sizeOf() - TxExtraNonceOffset - (cfg.FixedExtraNonceSize + cfg.MutableExtraNonceSize);
-        params.addHex(FirstTxData.data<uint8_t>() + part2Offset, part2Size);
+        size_t part2Offset = CBTxLegacy.ExtraNonceOffset + cfg.FixedExtraNonceSize + cfg.MutableExtraNonceSize;
+        size_t part2Size = CBTxLegacy.Data.sizeOf() - CBTxLegacy.ExtraNonceOffset - (cfg.FixedExtraNonceSize + cfg.MutableExtraNonceSize);
+        params.addHex(CBTxLegacy.Data.data<uint8_t>() + part2Offset, part2Size);
       }
 
       {
@@ -422,7 +348,8 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   Height = 0;
   UniqueWorkId = uniqueWorkId;
   MerklePath.clear();
-  FirstTxData.reset();
+  CBTxLegacy.Data.reset();
+  CBTxWitness.Data.reset();
   BlockHexData.reset();
   Backend = backend;
 
@@ -432,18 +359,6 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   }
 
   rapidjson::Value &blockTemplate = document["result"];
-
-  // Check segwit enabled (rules array)
-  bool segwitEnabled = false;
-  if (blockTemplate.HasMember("rules") && blockTemplate["rules"].IsArray()) {
-    rapidjson::Value::Array rules = blockTemplate["rules"].GetArray();
-    for (rapidjson::SizeType i = 0, ie = rules.Size(); i != ie; ++i) {
-      if (rules[i].IsString() && strcmp(rules[i].GetString(), "!segwit") == 0) {
-        segwitEnabled = true;
-        break;
-      }
-    }
-  }
 
   // Check fields:
   // height
@@ -481,6 +396,24 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     return false;
   }
 
+  // Check segwit enabled (compare txid and hash for all transactions)
+  bool segwitEnabled = false;
+  for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
+    rapidjson::Value &tx = transactions[i];
+    if (tx.IsObject() &&
+        tx.HasMember("txid") && tx["txid"].IsString() &&
+        tx.HasMember("hash") && tx["hash"].IsString()) {
+      rapidjson::Value &txid = tx["txid"];
+      rapidjson::Value &hash = tx["hash"];
+      if (txid.GetStringLength() == hash.GetStringLength()) {
+        if (memcmp(txid.GetString(), hash.GetString(), txid.GetStringLength()) != 0) {
+          segwitEnabled = true;
+          break;
+        }
+      }
+    }
+  }
+
   Height = height.GetUint64();
   Proto::BlockHeader &header = Header;
   header.nVersion = version.GetUint();
@@ -508,6 +441,14 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     txIn.previousOutputHash.SetNull();
     txIn.previousOutputIndex = std::numeric_limits<uint32_t>::max();
 
+    if (segwitEnabled) {
+      // Witness nonce
+      // Use default: 0
+      txIn.witnessStack.resize(1);
+      txIn.witnessStack[0].resize(32);
+      memset(txIn.witnessStack[0].data(), 0, 32);
+    }
+
     // scriptsig
     xmstream scriptsig;
     // Height
@@ -516,10 +457,11 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     // Coinbase message
     scriptsig.write(coinBaseExtraData, coinbaseExtraSize);
     // Extra nonce
-    TxExtraNonceOffset = scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset();
-    TxExtraDataOffset = extraDataOffset + coinbaseTx.getFirstScriptSigOffset();
-    for (size_t i = 0, ie = cfg.FixedExtraNonceSize+cfg.MutableExtraNonceSize; i != ie; ++i)
-      scriptsig.write('\0');
+    CBTxLegacy.ExtraNonceOffset = scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset(false);
+    CBTxLegacy.ExtraDataOffset = extraDataOffset + coinbaseTx.getFirstScriptSigOffset(false);
+    CBTxWitness.ExtraNonceOffset = scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset(true);
+    CBTxWitness.ExtraDataOffset = extraDataOffset + coinbaseTx.getFirstScriptSigOffset(true);
+    scriptsig.reserve(cfg.FixedExtraNonceSize+cfg.MutableExtraNonceSize);
 
     xvectorFromStream(std::move(scriptsig), txIn.scriptSig);
     txIn.sequence = std::numeric_limits<uint32_t>::max();
@@ -527,7 +469,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
 
   // TxOut
   {
-    coinbaseTx.txOut.resize(2);
+    coinbaseTx.txOut.resize(segwitEnabled ? 2 : 1);
 
     {
       // First txout (funds)
@@ -546,7 +488,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     }
 
     if (segwitEnabled) {
-      // Second txout (witness)
+      // Second txout (witness commitment)
       BTC::Proto::TxOut &txOut = coinbaseTx.txOut[1];
 
       if (!blockTemplate.HasMember("default_witness_commitment") || !blockTemplate["default_witness_commitment"].IsString()) {
@@ -564,8 +506,9 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
 
   coinbaseTx.lockTime = 0;
   BlockHexCoinbaseTxOffset = BlockHexData.sizeOf();
-  BTC::X::serialize(FirstTxData, coinbaseTx);
-  bin2hexLowerCase(FirstTxData.data(), BlockHexData.reserve<char>(FirstTxData.sizeOf()*2), FirstTxData.sizeOf());
+  BTC::Io<BTC::Proto::Transaction>::serialize(CBTxLegacy.Data, coinbaseTx, false);
+  BTC::Io<BTC::Proto::Transaction>::serialize(CBTxWitness.Data, coinbaseTx, true);
+  bin2hexLowerCase(CBTxWitness.Data.data(), BlockHexData.reserve<char>(CBTxWitness.Data.sizeOf()*2), CBTxWitness.Data.sizeOf());
 
   // Transactions
   std::vector<uint256> txHashes;
@@ -605,14 +548,22 @@ bool Stratum::Work::prepareForSubmit(const WorkerConfig &workerCfg, const Mining
   Proto::BlockHeader &header = Header;
 
   // Write target extra nonce to first txin
-  uint8_t *scriptSig = FirstTxData.data<uint8_t>() + TxExtraNonceOffset;
-  writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
-  memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.submit.MutableExtraNonce.data(), msg.submit.MutableExtraNonce.size());
+  {
+    uint8_t *scriptSig = CBTxLegacy.Data.data<uint8_t>() + CBTxLegacy.ExtraNonceOffset;
+    writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
+    memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.submit.MutableExtraNonce.data(), msg.submit.MutableExtraNonce.size());
+  }
+  {
+    uint8_t *scriptSig = CBTxWitness.Data.data<uint8_t>() + CBTxWitness.ExtraNonceOffset;
+    writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
+    memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.submit.MutableExtraNonce.data(), msg.submit.MutableExtraNonce.size());
+  }
+
   // Update coinbase tx in block hex dump
-  bin2hexLowerCase(FirstTxData.data(), BlockHexData.data<char>() + BlockHexCoinbaseTxOffset, FirstTxData.sizeOf());
+  bin2hexLowerCase(CBTxWitness.Data.data(), BlockHexData.data<char>() + BlockHexCoinbaseTxOffset, CBTxWitness.Data.sizeOf());
 
   // Calculate merkle root and build header
-  header.hashMerkleRoot = calculateMerkleRoot(FirstTxData.data(), FirstTxData.sizeOf(), MerklePath);
+  header.hashMerkleRoot = calculateMerkleRoot(CBTxLegacy.Data.data(), CBTxLegacy.Data.sizeOf(), MerklePath);
   header.nTime = msg.submit.Time;
   header.nNonce = msg.submit.Nonce;
   if (workerCfg.AsicBoostEnabled)

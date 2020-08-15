@@ -122,7 +122,7 @@ public:
     }
 
     // Suitable for mining
-    size_t getFirstScriptSigOffset();
+    size_t getFirstScriptSigOffset(bool serializeWitness);
   };
 
   struct TxWitness {
@@ -146,7 +146,7 @@ public:
     uint256 powLimit;
   };
 
-  static void checkConsensusInitialize(CheckConsensusCtx &ctx) {}
+  static void checkConsensusInitialize(CheckConsensusCtx&) {}
   static bool checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&, double *shareDiff);
   static bool checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, ChainParams &params, double *shareDiff) { return checkConsensus(block.header, ctx, params, shareDiff); }
 };
@@ -180,7 +180,7 @@ template<> struct Io<Proto::TxOut> {
 
 // Transaction
 template<> struct Io<Proto::Transaction> {
-  static void serialize(xmstream &dst, const BTC::Proto::Transaction &data);
+  static void serialize(xmstream &dst, const BTC::Proto::Transaction &data, bool serializeWitness=true);
   static void unserialize(xmstream &src, BTC::Proto::Transaction &data);
   static void unpack(xmstream &src, DynamicPtr<BTC::Proto::Transaction> dst);
   static void unpackFinalize(DynamicPtr<BTC::Proto::Transaction> dst);
@@ -272,8 +272,19 @@ public:
     uint64_t UniqueWorkId;
     uint64_t Height = 0;
     PoolBackend *Backend = nullptr;
-    unsigned TxExtraDataOffset;
-    unsigned TxExtraNonceOffset;
+
+    struct {
+      xmstream Data;
+      unsigned ExtraDataOffset;
+      unsigned ExtraNonceOffset;
+    } CBTxLegacy;
+
+    struct {
+      xmstream Data;
+      unsigned ExtraDataOffset;
+      unsigned ExtraNonceOffset;
+    } CBTxWitness;
+
     unsigned BlockHexCoinbaseTxOffset;
 
     Proto::BlockHeader Header;
@@ -281,7 +292,6 @@ public:
     uint32_t JobVersion;
     size_t TxNum;
     int64_t BlockReward;
-    xmstream FirstTxData;
     xmstream BlockHexData;
     xmstream NotifyMessage;
 
