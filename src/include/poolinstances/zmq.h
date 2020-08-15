@@ -113,13 +113,9 @@ private:
     typename X::Proto::CheckConsensusCtx CheckConsensusCtx;
     typename X::Zmq::Work Work;
     typename X::Zmq::ThreadConfig ThreadConfig;
-//    PoolBackend *Backend;
     bool HasWork;
-//    uint64_t Height;
     std::set<Connection*> SignalSockets;
     std::unordered_set<uint256> KnownShares;
-    std::unordered_set<uint256> KnownBlocks;
-//    xmstream Bin;
   };
 
 private:
@@ -223,10 +219,10 @@ private:
       std::string user = share.addr();
       int64_t generatedCoins = work.blockReward();
       CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData().data(), work.blockHexData().sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](bool result, const std::string &hostName, const std::string &error) {
-        if (result) {
+      dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData().data(), work.blockHexData().sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](uint32_t successNum, const std::string &hostName, const std::string &error) {
+        if (successNum) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
-          if (data.KnownBlocks.insert(blockHash).second) {
+          if (successNum == 1) {
             // Send share with block to backend
             CAccountingShare *backendShare = new CAccountingShare;
             backendShare->userId = user;
@@ -355,7 +351,6 @@ private:
 
     X::Zmq::resetThreadConfig(data.ThreadConfig);
     data.KnownShares.clear();
-    data.KnownBlocks.clear();
 
     // Send signals
     for (const auto &connection: data.SignalSockets) {

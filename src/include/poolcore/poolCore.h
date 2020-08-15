@@ -6,6 +6,7 @@
 #include "rapidjson/document.h"
 #include "p2putils/xmstream.h"
 #include "poolcore/thread.h"
+#include <atomic>
 #include <functional>
 #include <stack>
 
@@ -36,7 +37,7 @@ struct CCoinInfo {
 
 class CNetworkClient {
 public:
-  using SumbitBlockCb = std::function<void(bool, const std::string&, const std::string&)>;
+  using SumbitBlockCb = std::function<void(uint32_t, const std::string&, const std::string&)>;
 
   struct GetBlockConfirmationsQuery {
     std::string Hash;
@@ -71,6 +72,16 @@ public:
     std::string Error;
   };
 
+  class CSubmitBlockOperation {
+  public:
+    CSubmitBlockOperation(CNetworkClient::SumbitBlockCb callback, uint32_t clientsNum) : Callback_(callback), ClientsNum_(clientsNum) {}
+    void accept(bool result, const std::string &hostName, const std::string &error);
+  private:
+    CNetworkClient::SumbitBlockCb Callback_;
+    uint32_t ClientsNum_;
+    std::atomic<uint32_t> State_ = 0;
+  };
+
 public:
   CNetworkClient(unsigned threadsNum) {
     ThreadData_.reset(new ThreadData[threadsNum]);
@@ -82,7 +93,7 @@ public:
   virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) = 0;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
   virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, SendMoneyResult &result) = 0;
-  virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, SumbitBlockCb callback) = 0;
+  virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, CSubmitBlockOperation *operation) = 0;
 
   virtual void poll() = 0;
 

@@ -133,7 +133,6 @@ public:
 
     if (isNewBlock) {
       data.KnownShares.clear();
-      data.KnownBlocks.clear();
       // Update major job id
       uint64_t newJobId = time(nullptr);
       data.MajorWorkId_ = (data.MajorWorkId_ == newJobId) ? newJobId+1 : newJobId;
@@ -206,7 +205,6 @@ private:
     typename X::Proto::CheckConsensusCtx CheckConsensusCtx;
     typename X::Stratum::ThreadConfig ThreadCfg;
     std::unordered_set<std::string> KnownShares;
-    std::unordered_set<std::string> KnownBlocks;
     std::vector<std::unique_ptr<typename X::Stratum::Work>> WorkSet;
     std::set<Connection*> Connections_;
     uint64_t MajorWorkId_ = 0;
@@ -401,11 +399,10 @@ private:
         // Serialize block
         int64_t generatedCoins = work.blockReward(i);
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](bool result, const std::string &hostName, const std::string &error) {
-          if (result) {
+        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](uint32_t successNum, const std::string &hostName, const std::string &error) {
+          if (successNum) {
             LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
-            // TODO: blockHash is not enough for key here, fix it
-            if (data.KnownBlocks.insert(blockHash).second) {
+            if (successNum == 1) {
               // Send share with block to backend
               CAccountingShare *backendShare = new CAccountingShare;
               backendShare->userId = user;

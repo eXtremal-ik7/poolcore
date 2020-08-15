@@ -49,8 +49,9 @@ bool CNetworkClientDispatcher::ioSendMoney(asyncBase *base, const char *address,
 
 void CNetworkClientDispatcher::aioSubmitBlock(asyncBase *base, const void *data, size_t size, CNetworkClient::SumbitBlockCb callback)
 {
+  CNetworkClient::CSubmitBlockOperation *submitOperation = new CNetworkClient::CSubmitBlockOperation(callback, Clients_.size());
   for (size_t i = 0, ie = Clients_.size(); i != ie; ++i)
-    Clients_[i]->aioSubmitBlock(base, Clients_[i]->prepareBlock(data, size), callback);
+    Clients_[i]->aioSubmitBlock(base, Clients_[i]->prepareBlock(data, size), submitOperation);
 }
 
 // ZEC specific

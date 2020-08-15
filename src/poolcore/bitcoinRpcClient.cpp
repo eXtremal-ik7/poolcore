@@ -418,15 +418,15 @@ bool CBitcoinRpcClient::ioSendMoney(asyncBase *base, const char *address, int64_
   return true;
 }
 
-void CBitcoinRpcClient::aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, SumbitBlockCb callback)
+void CBitcoinRpcClient::aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation)
 {
   CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(queryPtr);
   query->Connection.reset(getConnection(base));
   if (!query->Connection) {
-    callback(false, HostName_, "Socket creation error");
+    operation->accept(false, HostName_, "Socket creation error");
     return;
   }
-  query->Callback = callback;
+  query->Operation = operation;
   query->Base = base;
   aioHttpConnect(query->Connection->Client, &Address_, nullptr, 10000000, [](AsyncOpStatus status, HTTPClient *httpClient, void *arg) {
     CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(arg);

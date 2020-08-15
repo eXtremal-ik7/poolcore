@@ -46,3 +46,14 @@ bool CCoinInfo::checkAddress(const std::string &address, EAddressType type)
 
   return false;
 }
+
+
+void CNetworkClient::CSubmitBlockOperation::accept(bool result, const std::string &hostName, const std::string &error)
+{
+  uint32_t st = 1u + ((result ? 1u : 0) << 16);
+  uint32_t currentState = State_.fetch_add(st) + st;
+  uint32_t successSubmits = currentState >> 16;
+  Callback_(successSubmits, hostName, error);
+  if ((st & 0xFFFF) == ClientsNum_)
+    delete this;
+}

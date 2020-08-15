@@ -17,7 +17,7 @@ public:
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
   virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) override;
   virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result) override;
-  virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, SumbitBlockCb callback) override;
+  virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation) override;
   virtual void poll() override;
 
 private:
@@ -53,7 +53,7 @@ private:
   struct CPreparedSubmitBlock : public CPreparedQuery {
     CPreparedSubmitBlock(CBitcoinRpcClient *client) : CPreparedQuery(client) {}
     asyncBase *Base;
-    SumbitBlockCb Callback;
+    CSubmitBlockOperation *Operation;
     std::unique_ptr<CConnection> Connection;
   };
 
@@ -74,7 +74,7 @@ private:
       }
     }
 
-    query->Callback(result, HostName_, query->Connection->LastError);
+    query->Operation->accept(result, HostName_, query->Connection->LastError);
   }
 
   template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>
