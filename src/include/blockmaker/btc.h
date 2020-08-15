@@ -11,6 +11,7 @@
 #include "loguru.hpp"
 #include "poolcommon/intrusive_ptr.h"
 #include "poolcore/poolCore.h"
+#include <unordered_set>
 
 struct CCoinInfo;
 struct PoolBackendConfig;
@@ -294,6 +295,7 @@ public:
     int64_t BlockReward;
     xmstream BlockHexData;
     xmstream NotifyMessage;
+    std::unordered_set<uint256> KnownShares;
 
   public:
     size_t backendsNum() { return 1; }
@@ -328,7 +330,7 @@ public:
                           std::string &error);
 
     bool prepareForSubmit(const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
-
+    bool checkForDuplicate() { return KnownShares.insert(Header.GetHash()).second; }
   };
 };
 

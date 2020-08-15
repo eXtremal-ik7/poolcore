@@ -132,7 +132,6 @@ public:
     }
 
     if (isNewBlock) {
-      data.KnownShares.clear();
       // Update major job id
       uint64_t newJobId = time(nullptr);
       data.MajorWorkId_ = (data.MajorWorkId_ == newJobId) ? newJobId+1 : newJobId;
@@ -204,7 +203,6 @@ private:
     asyncBase *WorkerBase;
     typename X::Proto::CheckConsensusCtx CheckConsensusCtx;
     typename X::Stratum::ThreadConfig ThreadCfg;
-    std::unordered_set<std::string> KnownShares;
     std::vector<std::unique_ptr<typename X::Stratum::Work>> WorkSet;
     std::set<Connection*> Connections_;
     uint64_t MajorWorkId_ = 0;
@@ -364,7 +362,17 @@ private:
     // Build header and check proof of work
     std::string user = worker.User;
     typename X::Stratum::Work &work = *data.WorkSet[jobIndex];
-    work.prepareForSubmit(connection->WorkerConfig, MiningCfg_, msg);
+    if (!work.prepareForSubmit(connection->WorkerConfig, MiningCfg_, msg)) {
+      if (isDebugInstanceStratumRejects())
+        LOG_F(1, "%s(%s) reject: invalid share format", connection->Instance->Name_.c_str(), connection->AddressHr.c_str());
+      return false;
+    }
+
+    if (!work.checkForDuplicate()) {
+      if (isDebugInstanceStratumRejects())
+        LOG_F(1, "%s(%s) reject: duplicate share", connection->Instance->Name_.c_str(), connection->AddressHr.c_str());
+      return false;
+    }
 
     // Loop over all affected backends (usually 1 or 2 with enabled merged mining)
     bool shareAccepted = false;
