@@ -192,9 +192,6 @@ private:
     typename X::Stratum::WorkerConfig WorkerConfig;
     // Current share difficulty (one for all workers on connection)
     double ShareDifficulty;
-    // 'overt' ASIC boost last mask
-    bool AsicBoostEnabled = false;
-    uint32_t LastVersionMask = 0;
     // Workers
     std::unordered_map<std::string, Worker> Workers;
   };

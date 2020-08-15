@@ -274,8 +274,8 @@ void Stratum::Work::buildNotifyMessage(MiningConfig &cfg, uint64_t majorJobId, u
             branches.addHex(hash.begin(), hash.size());
         }
       }
-      // nVersion
-      params.addString(writeHexBE(Header.nVersion, sizeof(Header.nVersion)));
+      // nVersion from block template (Header.nVersion is mutable, can't use it)
+      params.addString(writeHexBE(JobVersion, sizeof(JobVersion)));
       // nBits
       params.addString(writeHexBE(Header.nBits, sizeof(Header.nBits)));
       // nTime
@@ -568,6 +568,8 @@ bool Stratum::Work::prepareForSubmit(const WorkerConfig &workerCfg, const Mining
   header.nNonce = msg.submit.Nonce;
   if (workerCfg.AsicBoostEnabled)
     header.nVersion = (JobVersion & ~workerCfg.VersionMask) | (msg.submit.VersionBits.value() & workerCfg.VersionMask);
+  else
+    header.nVersion = JobVersion;
 
   {
     // Update header in block hex dump
