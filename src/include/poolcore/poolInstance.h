@@ -16,7 +16,6 @@ private:
 public:
   rapidjson::Document Document;
   uint64_t UniqueWorkId;
-  virtual ~CBlockTemplate() {}
   uintptr_t ref_fetch_add(uintptr_t count) const { return Refs_.fetch_add(count); }
   uintptr_t ref_fetch_sub(uintptr_t count) const { return Refs_.fetch_sub(count); }
 };

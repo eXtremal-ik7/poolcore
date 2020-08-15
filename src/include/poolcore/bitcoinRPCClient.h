@@ -31,7 +31,16 @@ private:
   };
 
   struct CConnection {
-    CConnection() : Client(nullptr) {}
+    CConnection() : Client(nullptr) {
+      httpParseDefaultInit(&ParseCtx);
+    }
+
+    ~CConnection() {
+      dynamicBufferFree(&ParseCtx.buffer);
+      if (Client)
+        httpClientDelete(Client);
+    }
+
     CConnection(const CConnection&) = delete;
     CConnection(CConnection&&) = default;
 
@@ -39,11 +48,6 @@ private:
     HTTPClient *Client = nullptr;
     HTTPParseDefaultContext ParseCtx;
     std::string LastError;
-
-    ~CConnection() {
-      if (Client)
-        httpClientDelete(Client);
-    }
   };
 
   struct CPreparedSubmitBlock : public CPreparedQuery {
