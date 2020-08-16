@@ -21,24 +21,28 @@ template<typename T> static inline void unserialize(xmstream &dst, T &data) { Io
 template<typename T> static inline void unpack(xmstream &src, DynamicPtr<T> dst) { Io<T>::unpack(src, dst); }
 template<typename T> static inline void unpackFinalize(DynamicPtr<T> dst) { Io<T>::unpackFinalize(dst); }
 
-static inline void serializeForCoinbase(xmstream &stream, uint64_t value)
+static inline void serializeForCoinbase(xmstream &stream, int64_t value)
 {
-  uint8_t size = 0;
+  size_t offset = stream.offsetOf();
+  stream.write<uint8_t>(0);
+  if (value == 0)
+    return;
 
-  {
-    uint64_t v = value;
-    do {
-      v >>= 8;
-      size++;
-    } while (v);
+  bool isNegative = value < 0;
+  uint64_t absValue = isNegative ? -value : value;
+  while (absValue >= 0x100)  {
+    stream.write<uint8_t>(absValue & 0xFF);
+    absValue >>= 8;
   }
 
-  stream.write<uint8_t>(size);
-  uint64_t v = value;
-  do {
-    stream.write<uint8_t>(v & 0xFF);
-    v >>= 8;
-  } while (v);
+  if (absValue & 0x80) {
+    stream.write<uint8_t>(absValue);
+    stream.write<uint8_t>(isNegative ? 0x80 : 0);
+  } else {
+    stream.write<uint8_t>(absValue | (isNegative ? 0x80 : 0));
+  }
+
+  stream.data<uint8_t>()[offset] = stream.offsetOf() - offset - 1;
 }
 
 // variable size
