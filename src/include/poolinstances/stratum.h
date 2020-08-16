@@ -80,6 +80,7 @@ public:
   }
 
   virtual void checkNewBlockTemplate(CBlockTemplate *blockTemplate, PoolBackend *backend) override {
+    intrusive_ptr<CBlockTemplate> holder(blockTemplate);
     for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
       ThreadPool_.startAsyncTask(i, new AcceptWork(*this, blockTemplate, backend));
   }
