@@ -472,7 +472,6 @@ private:
     xmstream stream;
     {
       JSON::Object object(stream);
-      object.addNull("id");
       object.addString("method", "mining.set_difficulty");
       object.addField("params");
       {
