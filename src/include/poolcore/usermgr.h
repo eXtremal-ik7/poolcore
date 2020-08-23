@@ -193,8 +193,8 @@ private:
 
   void sessionRemove(const UserSessionRecord &sessionRecord) {
     LoginSessionMap_.erase(sessionRecord.Login);
-    SessionsCache_.erase(sessionRecord.Id);
     UserSessionsDb_.deleteRow(sessionRecord);
+    SessionsCache_.erase(sessionRecord.Id);
   }
 
   void actionAdd(const UserActionRecord &actionRecord) {
@@ -205,8 +205,8 @@ private:
 
   void actionRemove(const UserActionRecord &actionRecord) {
     LoginActionMap_.erase(actionRecord.Login);
-    ActionsCache_.erase(actionRecord.Id);
     UserActionsDb_.deleteRow(actionRecord);
+    ActionsCache_.erase(actionRecord.Id);
   }
 
   void userManagerMain();
