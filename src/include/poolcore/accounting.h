@@ -1,6 +1,7 @@
 #ifndef __ACCOUNTING_H_
 #define __ACCOUNTING_H_
 
+#include "poolcommon/serialize.h"
 #include "backendData.h"
 #include "usermgr.h"
 #include "poolcommon/file.h"
@@ -16,15 +17,6 @@
 class p2pNode;
 class p2pPeer;
 class StatisticDb;
-
-struct CAccountingShare {
-  std::string userId;
-  int64_t height;
-  int64_t value;
-  bool isBlock;
-  std::string hash;
-  int64_t generatedCoins;
-};
 
 struct RoundElement {
   std::string userId;
@@ -70,9 +62,14 @@ private:
   kvdb<rocksdbBase> _poolBalanceDb;
   kvdb<rocksdbBase> _payoutDb;
   
+  uint64_t LastKnownShareId_ = 0;
+  uint64_t LastAggregatedShareId_ = 0;
   
 public:
   AccountingDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher);
+
+  uint64_t lastAggregatedShareId() { return LastAggregatedShareId_; }
+  uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
   void updatePayoutFile();
   void cleanupRounds();
@@ -80,7 +77,7 @@ public:
   void requestPayout(const std::string &address, int64_t value, bool force = false);
   void payoutSuccess(const std::string &address, int64_t value, int64_t fee, const std::string &transactionId);
   
-  void addShare(const CAccountingShare *share, const StatisticDb *statistic);
+  void addShare(const CShare &share);
   void mergeRound(const Round *round);
   void checkBlockConfirmations();
   void makePayout();

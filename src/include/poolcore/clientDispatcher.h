@@ -31,8 +31,11 @@ public:
   bool ioZGetBalance(asyncBase *base, int64_t *result);
   bool ioZSendMoney(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, CNetworkClient::ZSendMoneyResult &result);
 
+  void connectWith(CPoolInstance *instance) {
+    LinkedInstances_.push_back(instance);
+  }
+
   // Work polling
-  void connectWith(CPoolInstance *instance) { LinkedInstances_.push_back(instance); }
   void poll();
 
   void onWorkFetchReconnectTimer();

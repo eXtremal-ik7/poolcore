@@ -9,15 +9,57 @@
 #include <thread>
 #include <tbb/concurrent_queue.h>
 
+template<typename T>
+struct MultiCall {
+  std::unique_ptr<T[]> Data;
+  std::atomic<uint32_t> FinishedCallsNum = 0;
+  uint32_t TotalCallsNum;
+  std::function<void(const T*, size_t)> MainCallback;
+
+  MultiCall(uint32_t totalCallsNum, std::function<void(const T*, size_t)> mainCallback) : TotalCallsNum(totalCallsNum), MainCallback(mainCallback) {
+    Data.reset(new T[totalCallsNum]);
+  }
+
+  std::function<void(const T&)> generateCallback(uint32_t callNum) {
+    return [this, callNum](const T &data) {
+      Data[callNum] = data;
+      if (++FinishedCallsNum == TotalCallsNum) {
+        MainCallback(Data.get(), TotalCallsNum);
+        delete this;
+      }
+    };
+  }
+};
+
+template<typename T>
+struct ShareLogIo {
+  static void serialize(xmstream &out, const T &data);
+  static void unserialize(xmstream &in, T &data);
+};
+
+template<>
+struct ShareLogIo<CShare> {
+  static void serialize(xmstream &out, const CShare &data);
+  static void unserialize(xmstream &in, CShare &data);
+};
+
 class PoolBackend {
 public:
   using ManualPayoutCallback = std::function<void(bool)>;
   using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
   using QueryBalanceCallback = std::function<void(const UserBalanceRecord&)>;
-  using QueryPoolStatsCallback = std::function<void(const SiteStatsRecord&)>;
-  using QueryUserStatsCallback = std::function<void(const SiteStatsRecord&, const std::vector<ClientStatsRecord>&)>;
+  using QueryPoolStatsCallback = std::function<void(const StatisticDb::CStats&)>;
+  using QueryUserStatsCallback = std::function<void(const StatisticDb::CStats&, const std::vector<StatisticDb::CStats>&)>;
+  using QueryStatsHistoryCallback = std::function<void(const std::vector<StatisticDb::CStats>&)>;
 
 private:
+  struct CShareLogFile {
+    std::filesystem::path Path;
+    uint64_t FirstId;
+    uint64_t LastId;
+    FileDescriptor Fd;
+  };
+
   class Task {
   public:
     virtual ~Task() {}
@@ -26,18 +68,10 @@ private:
 
   class TaskShare : public Task {
   public:
-    TaskShare(CAccountingShare *share) : Share_(share) {}
+    TaskShare(CShare *share) : Share_(share) {}
     void run(PoolBackend *backend) final { backend->onShare(Share_.get()); }
   private:
-    std::unique_ptr<CAccountingShare> Share_;
-  };
-
-  class TaskStats : public Task {
-  public:
-    TaskStats(CUserStats *stats) : Stats_(stats) {}
-    void run(PoolBackend *backend) final { backend->onStats(Stats_.get()); }
-  private:
-    std::unique_ptr<CUserStats> Stats_;
+    std::unique_ptr<CShare> Share_;
   };
 
   class TaskManualPayout : public Task {
@@ -86,6 +120,20 @@ private:
     QueryUserStatsCallback Callback_;
   };
 
+  class TaskQueryStatsHistory : public Task {
+  public:
+    TaskQueryStatsHistory(const std::string &user, const std::string &workerId, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInterval, QueryStatsHistoryCallback callback) :
+      User_(user), WorkerId_(workerId), TimeFrom_(timeFrom), TimeTo_(timeTo), GroupByInterval_(groupByInterval), Callback_(callback) {}
+    void run(PoolBackend *backend) final { backend->queryStatsHistoryImpl(User_, WorkerId_, TimeFrom_, TimeTo_, GroupByInterval_, Callback_); }
+  private:
+    std::string User_;
+    std::string WorkerId_;
+    uint64_t TimeFrom_;
+    uint64_t TimeTo_;
+    uint64_t GroupByInterval_;
+    QueryStatsHistoryCallback Callback_;
+  };
+
 private:
   asyncBase *_base;
   uint64_t _timeout;
@@ -100,37 +148,41 @@ private:
   std::unique_ptr<StatisticDb> _statistics;
   tbb::concurrent_queue<Task*> TaskQueue_;
 
+  xmstream ShareLogInMemory_;
+  std::deque<CShareLogFile> ShareLog_;
+  uint64_t CurrentShareId_ = 0;
+  bool ShareLoggingEnabled_ = true;
+
   void startAsyncTask(Task *task) {
     TaskQueue_.push(task);
     userEventActivate(TaskQueueEvent_);
   }
-
-  static void checkConfirmationsProc(void *arg) { ((PoolBackend*)arg)->checkConfirmationsHandler(); }
-  static void payoutProc(void *arg) { ((PoolBackend*)arg)->payoutHandler(); }
-  static void checkBalanceProc(void *arg) { ((PoolBackend*)arg)->checkBalanceHandler(); }
-  static void updateStatisticProc(void *arg) { ((PoolBackend*)arg)->updateStatisticHandler(); }
   
   void backendMain();
+  void shareLogFlush();
+  void shareLogFlushHandler();
   void taskHandler();
   void *msgHandler();
   void *checkConfirmationsHandler();  
   void *payoutHandler();    
   void *checkBalanceHandler();
-  void *updateStatisticHandler();  
   
-  void onShare(const CAccountingShare *share);
-  void onStats(const CUserStats *stats);
+  void onShare(CShare *share);
   void manualPayoutImpl(const std::string &user, ManualPayoutCallback callback);
   void queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
   void queryBalanceImpl(const std::string &user, QueryBalanceCallback callback);
   void queryPoolStatsImpl(QueryPoolStatsCallback callback);
   void queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback);
+  void queryStatsHistoryImpl(const std::string &user, const std::string &worker, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInteval, QueryStatsHistoryCallback callback);
   
 
 public:
   PoolBackend(const PoolBackend&) = delete;
   PoolBackend(PoolBackend&&) = default;
   PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher);
+  void startNewShareLogFile();
+  void replayShares(CShareLogFile &file);
+
   const PoolBackendConfig &getConfig() { return _cfg; }
   const CCoinInfo &getCoinInfo() { return CoinInfo_; }
   CNetworkClientDispatcher &getClientDispatcher() { return ClientDispatcher_; }
@@ -142,13 +194,34 @@ public:
   void queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts);
 
   // Asynchronous api
-  void sendShare(CAccountingShare *share) { startAsyncTask(new TaskShare(share)); }
-  void sendStats(CUserStats *stats) { startAsyncTask(new TaskStats(stats)); }
+  void sendShare(CShare *share) { startAsyncTask(new TaskShare(share)); }
   void manualPayout(const std::string &user, ManualPayoutCallback callback) { startAsyncTask(new TaskManualPayout(user, callback)); }
   void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { startAsyncTask(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { startAsyncTask(new TaskQueryBalance(user, callback)); }
   void queryPoolStats(QueryPoolStatsCallback callback) { startAsyncTask(new TaskQueryPoolStats(callback)); }
   void queryUserStats(const std::string &user, QueryUserStatsCallback callback) { startAsyncTask(new TaskQueryUserStats(user, callback)); }
+
+  void queryStatsHistory(const std::string &user,
+                         const std::string &worker,
+                         uint64_t timeFrom,
+                         uint64_t timeTo,
+                         uint64_t groupByInterval,
+                         QueryStatsHistoryCallback callback) {
+    startAsyncTask(new TaskQueryStatsHistory(user, worker, timeFrom, timeTo, groupByInterval, callback));
+  }
+
+  // Asynchronous multi calls
+  static void queryUserBalanceMulti(PoolBackend **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceRecord*, size_t)> callback) {
+    MultiCall<UserBalanceRecord> *context = new MultiCall<UserBalanceRecord>(backendsNum, callback);
+    for (size_t i = 0; i < backendsNum; i++)
+      backends[i]->queryUserBalance(user, context->generateCallback(i));
+  }
+
+  static void queryPoolStatsMulti(PoolBackend **backends, size_t backendsNum, std::function<void(const StatisticDb::CStats*, size_t)> callback) {
+    MultiCall<StatisticDb::CStats> *context = new MultiCall<StatisticDb::CStats>(backendsNum, callback);
+    for (size_t i = 0; i < backendsNum; i++)
+      backends[i]->queryPoolStats(context->generateCallback(i));
+  }
 
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }

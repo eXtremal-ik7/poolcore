@@ -8,18 +8,6 @@ cmake_minimum_required(VERSION 3.11)
 project(poolcore)
 set (CMAKE_CXX_STANDARD 17)
 
-option(SANITIZER_ENABLED "Build with address sanitizer" OFF)
-# Debug options
-option(POOLCORE_DEBUG_INSTANCE_STRATUM_PROTOCOL_ENABLED "Debug log for stratum protocol" OFF)
-if (POOLCORE_DEBUG_INSTANCE_STRATUM_PROTOCOL_ENABLED)
-  set(POOLCORE_DEBUG_INSTANCE_STRATUM_PROTOCOL 1)
-endif()
-
-option(POOLCORE_DEBUG_INSTANCE_STRATUM_REJECTS_ENABLED "Debug log for stratum rejects" OFF)
-if (POOLCORE_DEBUG_INSTANCE_STRATUM_REJECTS_ENABLED)
-  set(POOLCORE_DEBUG_INSTANCE_STRATUM_REJECTS 1)
-endif()
-
 if (SANITIZER_ENABLED)
   set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
@@ -80,11 +68,6 @@ endif ()
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 endif()
-
-configure_file(
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/poolCoreConfig.h.in
-  ${CMAKE_CURRENT_BINARY_DIR}/include/poolCoreConfig.h
-)
 
 include_directories(
   ${MPIR_INCLUDE_DIR}

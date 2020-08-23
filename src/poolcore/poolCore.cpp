@@ -3,6 +3,7 @@
 #include "openssl/sha.h"
 #include <string.h>
 #include "loguru.hpp"
+#include <math.h>
 
 static bool checkBase58Address(const std::vector<uint8_t> &decodedAddress, const std::vector<uint8_t> &prefix)
 {
@@ -28,7 +29,7 @@ static bool checkBase58Address(const std::vector<uint8_t> &decodedAddress, const
   return reinterpret_cast<uint32_t*>(sha256)[0] == addrHash;
 }
 
-bool CCoinInfo::checkAddress(const std::string &address, EAddressType type)
+bool CCoinInfo::checkAddress(const std::string &address, EAddressType type) const
 {
   if (type & (EP2PKH | EPS2H | EBech32)) {
     std::vector<uint8_t> decoded;
@@ -45,6 +46,28 @@ bool CCoinInfo::checkAddress(const std::string &address, EAddressType type)
   }
 
   return false;
+}
+
+const char *CCoinInfo::getPowerUnitName() const
+{
+  switch (PowerUnitType) {
+    case EHash : return "hash";
+    case ECPD : return "cpd";
+  }
+}
+
+uint64_t CCoinInfo::calculateAveragePower(double work, uint64_t timeInterval) const
+{
+  switch (PowerUnitType) {
+    case EHash : {
+      static double workMultiplier = 4294967296.0;
+      return work / timeInterval * (workMultiplier / pow(10.0, PowerMultLog10));
+    }
+
+    case ECPD :
+      // TODO: implement
+      return 0;
+  }
 }
 
 

@@ -224,7 +224,7 @@ private:
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
           if (successNum == 1) {
             // Send share with block to backend
-            CAccountingShare *backendShare = new CAccountingShare;
+            CShare *backendShare = new CShare;
             backendShare->userId = user;
             backendShare->height = height;
             backendShare->value = 1;
@@ -239,7 +239,7 @@ private:
       });
     } else {
       // Send share to backend
-      CAccountingShare *backendShare = new CAccountingShare;
+      CShare *backendShare = new CShare;
       backendShare->userId = share.addr();
       backendShare->height = height;
       backendShare->value = 1;
@@ -268,18 +268,6 @@ private:
       rep.set_error(pool::proto::Reply::INVALID);
       return;
     }
-
-    CUserStats *stats = new CUserStats;
-    stats->userId = src.addr();
-    stats->workerId = src.name();
-    stats->power = (int64_t)(src.cpd()*1000.0);
-    stats->latency = src.latency();
-    // TODO: fill with IP
-    stats->address = "<unknown>";
-    stats->type = EUnitTypeGPU;
-    stats->units = src.ngpus();
-    stats->temp = src.temp();
-    backend->sendStats(stats);
   }
 
   void newFrontendConnection(socketTy fd) {

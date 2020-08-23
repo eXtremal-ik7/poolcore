@@ -3,6 +3,7 @@
 #include "common.h"
 #include "stratumMsg.h"
 #include "poolcommon/arith_uint256.h"
+#include "poolcommon/debug.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcore/backend.h"
 #include "poolcore/poolCore.h"
@@ -10,8 +11,6 @@
 #include <openssl/rand.h>
 #include <rapidjson/writer.h>
 #include <unordered_map>
-
-#include "poolCoreConfig.h"
 
 template<typename T>
 static inline unsigned popcount(T number)
@@ -69,9 +68,6 @@ public:
     // BTC ASIC boost
     if (config.HasMember("versionMask") && config["versionMask"].IsString())
       VersionMask_ = readHexBE<uint32_t>(config["versionMask"].GetString(), 4);
-
-    if (config.HasMember("mergedMiningEnabled")  && config["mergedMiningEnabled"].IsTrue())
-      MergedMiningEnabled_ = true;
 
     MiningCfg_.initialize(config);
 
@@ -404,17 +400,20 @@ private:
 
         // Serialize block
         int64_t generatedCoins = work.blockReward(i);
+        double shareDifficulty = connection->ShareDifficulty;
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](uint32_t successNum, const std::string &hostName, const std::string &error) {
+        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, blockHash, generatedCoins, backend, shareDifficulty, &worker, &data](uint32_t successNum, const std::string &hostName, const std::string &error) {
           if (successNum) {
             LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
             if (successNum == 1) {
               // Send share with block to backend
-              CAccountingShare *backendShare = new CAccountingShare;
-              backendShare->userId = user;
+              CShare *backendShare = new CShare;
+              backendShare->userId = worker.User;
+              backendShare->workerId = worker.WorkerName;
               backendShare->height = height;
               // TODO: calculate this value
               backendShare->value = 1;
+              backendShare->WorkValue = shareDifficulty;
               backendShare->isBlock = true;
               backendShare->hash = blockHash;
               backendShare->generatedCoins = generatedCoins;
@@ -425,11 +424,13 @@ private:
           }
         });
       } else {
-        CAccountingShare *backendShare = new CAccountingShare;
+        CShare *backendShare = new CShare;
         backendShare->userId = worker.User;
+        backendShare->workerId = worker.WorkerName;
         backendShare->height = height;
         // TODO: calculate this value
         backendShare->value = 1;
+        backendShare->WorkValue = connection->ShareDifficulty;
         backendShare->isBlock = false;
         backend->sendShare(backendShare);
       }
@@ -578,7 +579,7 @@ private:
       // move tail to begin of buffer
       ssize_t nextMsgOffset = nextMsgPos + 1 - connection->Buffer;
       if (nextMsgOffset < connection->Offset) {
-        memcpy(connection->Buffer, connection->Buffer+nextMsgOffset, connection->Offset-nextMsgOffset);
+        memmove(connection->Buffer, connection->Buffer+nextMsgOffset, connection->Offset-nextMsgOffset);
         connection->Offset = connection->Offset - nextMsgOffset;
       } else {
         connection->Offset = 0;
@@ -603,8 +604,6 @@ private:
   typename X::Stratum::MiningConfig MiningCfg_;
   double ConstantShareDiff_;
 
-  // Merged mining data
-  bool MergedMiningEnabled_ = false;
   // ASIC boost 'overt' data
   uint32_t VersionMask_ = 0x1FFFE000;
 };

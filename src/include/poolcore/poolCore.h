@@ -22,17 +22,26 @@ struct CCoinInfo {
     EZAddr = 8
   };
 
+  enum EPowerUnitType {
+    EHash = 0,
+    ECPD
+  };
+
   std::string Name;
   int64_t RationalPartSize;
   EAddressType PayoutAddressType;
   bool SegwitEnabled;
+  EPowerUnitType PowerUnitType;
+  int32_t PowerMultLog10;
 
   std::vector<uint8_t> PubkeyAddressPrefix;
   std::vector<uint8_t> ScriptAddressPrefix;
 
   uint16_t DefaultRpcPort;
 
-  bool checkAddress(const std::string &address, EAddressType type);
+  bool checkAddress(const std::string &address, EAddressType type) const;
+  const char *getPowerUnitName() const;
+  uint64_t calculateAveragePower(double work, uint64_t timeInterval) const;
 };
 
 class CNetworkClient {

@@ -13,6 +13,18 @@ std::string partByTime(time_t time);
 
 typedef bool CheckAddressProcTy(const char*);
 
+struct CShare {
+  uint64_t UniqueShareId = 0;
+  std::string userId;
+  std::string workerId;
+  int64_t height;
+  int64_t value;
+  double WorkValue;
+  bool isBlock;
+  std::string hash;
+  int64_t generatedCoins;
+};
+
 struct PoolFeeEntry {
   std::string User;
   float Percentage;
@@ -21,6 +33,9 @@ struct PoolFeeEntry {
 struct PoolBackendConfig {
   bool isMaster;
   std::filesystem::path dbPath;
+  std::chrono::seconds ShareLogFlushInterval = std::chrono::seconds(3);
+  uint64_t ShareLogFileSizeLimit = 134217728;
+
   std::vector<PoolFeeEntry> PoolFee;
   unsigned RequiredConfirmations;
   int64_t DefaultPayoutThreshold;
@@ -30,7 +45,13 @@ struct PoolBackendConfig {
   unsigned ConfirmationsCheckInterval;
   unsigned PayoutInterval;
   unsigned BalanceCheckInterval;
-  unsigned StatisticCheckInterval;
+//  unsigned StatisticCheckInterval;
+  std::chrono::minutes StatisticKeepTime = std::chrono::minutes(30);
+  std::chrono::minutes StatisticWorkersPowerCalculateInterval = std::chrono::minutes(11);
+  std::chrono::minutes StatisticPoolPowerCalculateInterval = std::chrono::minutes(5);
+  std::chrono::minutes StatisticWorkersAggregateTime = std::chrono::minutes(5);
+  std::chrono::minutes StatisticPoolAggregateTime = std::chrono::minutes(1);
+
   bool CheckAddressEnabled;
 
   std::string MiningAddress;
@@ -198,7 +219,7 @@ struct FoundBlockRecord {
   
   uint64_t Height;
   std::string Hash;
-  time_t Time;
+  int64_t Time;
   int64_t AvailableCoins;
   std::string FoundBy;
   
@@ -211,7 +232,7 @@ struct FoundBlockRecord {
 struct PoolBalanceRecord {
   enum { CurrentRecordVersion = 1 };
   
-  time_t Time;
+  int64_t Time;
   int64_t Balance;
   int64_t Immature;
   int64_t Users;
@@ -224,49 +245,17 @@ struct PoolBalanceRecord {
   void serializeValue(xmstream &stream) const;
 };
 
-struct SiteStatsRecord {
-  enum { CurrentRecordVersion = 1 };
-  
-  std::string Login;
-  time_t Time;
-  unsigned Clients;
-  unsigned Workers;
-  unsigned CPUNum;
-  unsigned GPUNum;
-  unsigned ASICNum;
-  unsigned OtherNum;
-  unsigned Latency;
-  uint64_t Power;
-  
-  unsigned LCount;
-  
-  SiteStatsRecord(const std::string &userIdArg="", time_t timeArg=0) :
-    Login(userIdArg), Time(timeArg),
-    Clients(0), Workers(0), CPUNum(0), GPUNum(0), ASICNum(0), OtherNum(0),
-    Latency(0), Power(0),
-    LCount(0) {}
-  
-  std::string getPartitionId() const { return partByTime(Time); }
-  bool deserializeValue(const void *data, size_t size);
-  void serializeKey(xmstream &stream) const;
-  void serializeValue(xmstream &stream) const;    
-};
-
-struct ClientStatsRecord {
+struct StatsRecord {
   enum { CurrentRecordVersion = 1 };
   
   std::string Login;
   std::string WorkerId;
-  time_t Time;
-  uint64_t Power;
-  int32_t Latency;
-  
-  std::string Address;
-  uint32_t UnitType;
-  uint32_t Units;
-  uint32_t Temp;
+  int64_t Time;
+  uint64_t ShareCount;
+  double ShareWork;
   
   std::string getPartitionId() const { return partByTime(Time); }
+  bool deserializeValue(xmstream &stream);
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;    
@@ -275,7 +264,7 @@ struct ClientStatsRecord {
 struct ShareStatsRecord {
   enum { CurrentRecordVersion = 1 };
 
-  time_t Time;
+  int64_t Time;
   int64_t Total;
   std::vector<shareInfo> Info;
   
@@ -289,7 +278,7 @@ struct PayoutDbRecord {
   enum { CurrentRecordVersion = 1 };
   
   std::string userId;
-  time_t time;
+  int64_t time;
   int64_t value;
   std::string transactionId;
   friend bool operator<(const PayoutDbRecord &r1, const PayoutDbRecord &r2) { return r1.userId < r2.userId; }

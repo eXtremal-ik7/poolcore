@@ -15,17 +15,17 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
   CoinInfo_(coinInfo),
   UserManager_(userMgr),
   ClientDispatcher_(clientDispatcher),
-  _roundsDb(config.dbPath / coinInfo.Name / "rounds"),
-  _balanceDb(config.dbPath / coinInfo.Name / "balance"),
-  _foundBlocksDb(config.dbPath / coinInfo.Name / "foundBlocks"),
-  _poolBalanceDb(config.dbPath / coinInfo.Name / "poolBalance"),
-  _payoutDb(config.dbPath / coinInfo.Name / "payouts")
+  _roundsDb(config.dbPath / "rounds"),
+  _balanceDb(config.dbPath / "balance"),
+  _foundBlocksDb(config.dbPath / "foundBlocks"),
+  _poolBalanceDb(config.dbPath / "poolBalance"),
+  _payoutDb(config.dbPath / "payouts")
 {
   {
     unsigned counter = 0;
-    _sharesFd.open(_cfg.dbPath / coinInfo.Name / "shares.raw");
+    _sharesFd.open(_cfg.dbPath / "shares.raw");
     if (!_sharesFd.isOpened())
-      LOG_F(ERROR, "can't open shares file %s (%s)", (_cfg.dbPath / coinInfo.Name / "shares.raw").u8string().c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open shares file %s (%s)", (_cfg.dbPath / "shares.raw").u8string().c_str(), strerror(errno));
 
     auto fileSize = _sharesFd.size();
     if (fileSize > 0) {
@@ -55,9 +55,9 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
 
   {
     FileDescriptor payoutsFdOld;
-    payoutsFdOld.open(_cfg.dbPath / coinInfo.Name / "payouts.raw.old");
+    payoutsFdOld.open(_cfg.dbPath / "payouts.raw.old");
     if (!payoutsFdOld.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / coinInfo.Name / "payouts.raw.old").u8string().c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / "payouts.raw.old").u8string().c_str(), strerror(errno));
 
     auto fileSize = payoutsFdOld.size();
 
@@ -84,9 +84,9 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
 
   {
     unsigned payoutsNum = 0;
-    _payoutsFd.open(_cfg.dbPath / coinInfo.Name / "payouts.raw");
+    _payoutsFd.open(_cfg.dbPath / "payouts.raw");
     if (!_payoutsFd.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / coinInfo.Name / "payouts.raw").u8string().c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / "payouts.raw").u8string().c_str(), strerror(errno));
 
     auto fileSize = _payoutsFd.size();
     if (fileSize > 0) {
@@ -172,34 +172,34 @@ void AccountingDb::cleanupRounds()
   }
 }
 
-void AccountingDb::addShare(const CAccountingShare *share, const StatisticDb *statistic)
+void AccountingDb::addShare(const CShare &share)
 {
   // store share in shares.raw file
   {
     xmstream stream;
-    stream.write<uint32_t>(static_cast<uint32_t>(share->userId.size()));
-    stream.write(share->userId.c_str(), share->userId.size());
-    stream.write<int64_t>(share->value);
+    stream.write<uint32_t>(static_cast<uint32_t>(share.userId.size()));
+    stream.write(share.userId.c_str(), share.userId.size());
+    stream.write<int64_t>(share.value);
     if (_sharesFd.write(stream.data(), stream.sizeOf() != stream.sizeOf()))
       LOG_F(ERROR, "can't save share to file (%s fd=%i), it can be lost", strerror(errno), _sharesFd.fd());
   }
 
   // increment score
-  _currentScores[share->userId.c_str()] += share->value;
+  _currentScores[share.userId.c_str()] += share.value;
 
-  if (share->isBlock) {
+  if (share.isBlock) {
     {
       // save to database
       FoundBlockRecord blk;
-      blk.Height = share->height;
-      blk.Hash = share->hash.c_str();
+      blk.Height = share.height;
+      blk.Hash = share.hash.c_str();
       blk.Time = time(0);
-      blk.AvailableCoins = share->generatedCoins;
-      blk.FoundBy = share->userId.c_str();
+      blk.AvailableCoins = share.generatedCoins;
+      blk.FoundBy = share.userId.c_str();
       _foundBlocksDb.put(blk);
     }
 
-    int64_t generatedCoins = share->generatedCoins;
+    int64_t generatedCoins = share.generatedCoins;
     if (!_cfg.poolZAddr.empty()) {
       // calculate miners fee for Z-Addr moving
       generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE);
@@ -214,11 +214,11 @@ void AccountingDb::addShare(const CAccountingShare *share, const StatisticDb *st
     }
 
     int64_t available = generatedCoins - feeValuesSum;
-    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share->height, share->hash.c_str(), generatedCoins, feeValuesSum, available);
+    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share.height, share.hash.c_str(), generatedCoins, feeValuesSum, available);
 
     miningRound *R = new miningRound;
-    R->height = share->height;
-    R->blockHash = share->hash.c_str();
+    R->height = share.height;
+    R->blockHash = share.hash.c_str();
     R->time = time(0);
     R->availableCoins = available;
     R->totalShareValue = 0;
@@ -284,17 +284,7 @@ void AccountingDb::addShare(const CAccountingShare *share, const StatisticDb *st
       for (auto I = agg.begin(), IE = agg.end(); I != IE; ++I) {
         I->payoutValue += static_cast<int64_t>((static_cast<double>(I->shareValue) / static_cast<double>(totalValue)) * R->availableCoins);
         totalPayout += I->payoutValue;
-
-        // check correlation of share percent with power percent
-        uint64_t power = statistic->getClientPower(I->userId);
-        uint64_t poolPower = statistic->getPoolPower();
-        if (power && poolPower) {
-          double sharePercent = ((double)I->shareValue / (double)totalValue) * 100.0;
-          double powerPercent = (double)power / (double)poolPower * 100.0;
-          LOG_F(INFO, "   * addr: %s, payout: %" PRId64 " shares=%.3lf%% power=%.3lf%%", I->userId.c_str(), I->payoutValue, sharePercent, powerPercent);
-        } else {
-          LOG_F(INFO, "   * addr: %s, payout: %" PRId64 "", I->userId.c_str(), I->payoutValue);
-        }
+        LOG_F(INFO, "   * addr: %s, payout: %" PRId64 "", I->userId.c_str(), I->payoutValue);
       }
 
       LOG_F(INFO, " * total payout: %" PRId64 "", totalPayout);
