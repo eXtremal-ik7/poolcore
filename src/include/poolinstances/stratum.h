@@ -345,7 +345,7 @@ private:
       size_t sharpPos = msg.submit.JobId.find('#');
       if (sharpPos == msg.submit.JobId.npos) {
         if (isDebugInstanceStratumRejects())
-          LOG_F(1, "%s(%s) reject: invalid job id format: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.submit.JobId.c_str());
+          LOG_F(1, "%s(%s) %s/%s reject: invalid job id format: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), msg.submit.JobId.c_str());
         errorCode = 20;
         errorMessage = "Invalid job";
         return false;
@@ -356,7 +356,7 @@ private:
       jobIndex = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
       if (majorJobId != data.MajorWorkId_ || jobIndex >= data.WorkSet.size()) {
         if (isDebugInstanceStratumRejects())
-          LOG_F(1, "%s(%s) reject: unknown job id: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.submit.JobId.c_str());
+          LOG_F(1, "%s(%s) %s/%s reject: unknown job id: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), msg.submit.JobId.c_str());
         errorCode = 21;
         errorMessage = "Job not found";
         return false;
@@ -368,7 +368,7 @@ private:
     typename X::Stratum::Work &work = *data.WorkSet[jobIndex];
     if (!work.prepareForSubmit(connection->WorkerConfig, MiningCfg_, msg)) {
       if (isDebugInstanceStratumRejects())
-        LOG_F(1, "%s(%s) reject: invalid share format", connection->Instance->Name_.c_str(), connection->AddressHr.c_str());
+        LOG_F(1, "%s(%s) %s/%s reject: invalid share format", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
       errorCode = 20;
       errorMessage = "Invalid share";
       return false;
@@ -376,7 +376,7 @@ private:
 
     if (!work.checkForDuplicate()) {
       if (isDebugInstanceStratumRejects())
-        LOG_F(1, "%s(%s) reject: duplicate share", connection->Instance->Name_.c_str(), connection->AddressHr.c_str());
+        LOG_F(1, "%s(%s) %s/%s reject: duplicate share", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
       errorCode = 22;
       errorMessage = "Duplicate share";
       return false;
@@ -388,7 +388,7 @@ private:
       PoolBackend *backend = work.backend(i);
       if (!backend) {
         if (isDebugInstanceStratumRejects())
-          LOG_F(1, "%s(%s) sub-reject: backend %zu not initialized", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), i);
+          LOG_F(1, "%s(%s) %s/%s sub-reject: backend %zu not initialized", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), i);
         continue;
       }
 
@@ -398,9 +398,11 @@ private:
       if (shareDiff < connection->ShareDifficulty) {
         if (isDebugInstanceStratumRejects())
           LOG_F(1,
-                "%s(%s) sub-reject(%s): invalid share difficulty %lg (%lg required)",
+                "%s(%s) %s/%s sub-reject(%s): invalid share difficulty %lg (%lg required)",
                 connection->Instance->Name_.c_str(),
                 connection->AddressHr.c_str(),
+                worker.User.c_str(),
+                worker.WorkerName.c_str(),
                 backend->getCoinInfo().Name.c_str(),
                 shareDiff,
                 connection->ShareDifficulty);
