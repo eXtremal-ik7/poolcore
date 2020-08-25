@@ -30,6 +30,27 @@ struct PoolFeeEntry {
   float Percentage;
 };
 
+template<typename T>
+class SelectorByWeight {
+public:
+  void add(const T &value, uint32_t weight) {
+    Values.push_back(value);
+    ValueIndexes.insert(ValueIndexes.end(), weight, Values.size()-1);
+  }
+
+  const T &get() const { return Values[ValueIndexes[rand() % ValueIndexes.size()]]; }
+
+private:
+  struct Entry {
+    T Value;
+    uint32_t Weight;
+  };
+
+private:
+  std::vector<T> Values;
+  std::vector<size_t> ValueIndexes;
+};
+
 struct PoolBackendConfig {
   bool isMaster;
   std::filesystem::path dbPath;
@@ -45,16 +66,13 @@ struct PoolBackendConfig {
   unsigned ConfirmationsCheckInterval;
   unsigned PayoutInterval;
   unsigned BalanceCheckInterval;
-//  unsigned StatisticCheckInterval;
   std::chrono::minutes StatisticKeepTime = std::chrono::minutes(30);
   std::chrono::minutes StatisticWorkersPowerCalculateInterval = std::chrono::minutes(11);
   std::chrono::minutes StatisticPoolPowerCalculateInterval = std::chrono::minutes(5);
   std::chrono::minutes StatisticWorkersAggregateTime = std::chrono::minutes(5);
   std::chrono::minutes StatisticPoolAggregateTime = std::chrono::minutes(1);
 
-  bool CheckAddressEnabled;
-
-  std::string MiningAddress;
+  SelectorByWeight<std::string> MiningAddresses;
   std::string CoinBaseMsg;
 
   // ZEC specify

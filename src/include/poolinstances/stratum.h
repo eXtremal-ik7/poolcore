@@ -117,8 +117,10 @@ public:
     // Get mining address and coinbase message
     typename X::Stratum::Work &work = *data.WorkSet.back();
     typename X::Proto::AddressTy miningAddress;
-    if (!decodeHumanReadableAddress(backendConfig.MiningAddress, coinInfo.PubkeyAddressPrefix, miningAddress)) {
-      LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), backendConfig.MiningAddress.c_str());
+    const std::string &addr = backendConfig.MiningAddresses.get();
+    LOG_F(WARNING, "selected mining address: %s", addr.c_str());
+    if (!decodeHumanReadableAddress(addr, coinInfo.PubkeyAddressPrefix, miningAddress)) {
+      LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), addr.c_str());
       return;
     }
 
