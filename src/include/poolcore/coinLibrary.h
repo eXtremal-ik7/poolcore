@@ -27,6 +27,46 @@ public:
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
       info.DefaultRpcPort = 18332;
+    } else if (strcmp(coinName, "BCH") == 0) {
+      info.Name = "BCH";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {0};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 8332;
+    } else if (strcmp(coinName, "BCH.testnet") == 0) {
+      info.Name = "BCH.testnet";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {111};
+      info.ScriptAddressPrefix = {196};
+      info.DefaultRpcPort = 18332;
+    } else if (strcmp(coinName, "BSV") == 0) {
+      info.Name = "BSV";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {0};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 8332;
+    } else if (strcmp(coinName, "BSV.testnet") == 0) {
+      info.Name = "BSV.testnet";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {111};
+      info.ScriptAddressPrefix = {196};
+      info.DefaultRpcPort = 18332;
     } else if (strcmp(coinName, "DGB.sha256") == 0) {
       info.Name = "DGB";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
