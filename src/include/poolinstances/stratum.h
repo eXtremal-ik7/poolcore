@@ -471,15 +471,17 @@ private:
       addId(object, msg);
       if (result) {
         object.addBoolean("result", true);
+        object.addNull("error");
         connection->ErrorSequence = 0;
       } else {
         connection->ErrorSequence++;
         object.addNull("result");
         object.addField("error");
         {
-          JSON::Object error(stream);
-          error.addInt("code", errorCode);
-          error.addString("message", errorMsg);
+          JSON::Array error(stream);
+          error.addInt(errorCode);
+          error.addString(errorMsg);
+          error.addNull();
         }
       }
     }
