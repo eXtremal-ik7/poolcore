@@ -374,6 +374,7 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
     calcAverageMetrics(acc, _cfg.StatisticWorkersPowerCalculateInterval, _cfg.StatisticWorkersAggregateTime, result);
 
     userStats.SharesPerSecond += result.SharesPerSecond;
+    userStats.SharesWork += result.SharesWork;
     userStats.AveragePower += result.AveragePower;
     workerStatsIndex++;
   }

@@ -118,7 +118,6 @@ public:
     typename X::Stratum::Work &work = *data.WorkSet.back();
     typename X::Proto::AddressTy miningAddress;
     const std::string &addr = backendConfig.MiningAddresses.get();
-    LOG_F(WARNING, "selected mining address: %s", addr.c_str());
     if (!decodeHumanReadableAddress(addr, coinInfo.PubkeyAddressPrefix, miningAddress)) {
       LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), addr.c_str());
       return;

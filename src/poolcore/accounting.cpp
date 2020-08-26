@@ -251,8 +251,8 @@ void AccountingDb::addShare(const CShare &share)
       int64_t totalValue = 0;
       std::list<payoutAggregate> agg;
       for (size_t i = 0, ie = _cfg.PoolFee.size(); i != ie; ++i) {
-        agg.push_back(payoutAggregate(_cfg.PoolFee[0].User, 0));
-        agg.front().payoutValue = feeValues[i];
+        agg.emplace_back(_cfg.PoolFee[i].User, 0);
+        agg.back().payoutValue = feeValues[i];
       }
 
       while (roundIt != _allRounds.rend() && ((R->time - previousRoundTime) < 3600)) {
