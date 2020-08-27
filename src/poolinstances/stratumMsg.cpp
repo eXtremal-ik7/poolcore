@@ -37,6 +37,8 @@ StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumM
     if (params.Size() >= 2) {
       if (params[1].IsString())
         out->subscribe.sessionId = params[1].GetString();
+      else if (params[1].IsNull())
+        out->subscribe.sessionId.clear();
       else
         return FormatError;
     } else if (params.Size() >= 3) {

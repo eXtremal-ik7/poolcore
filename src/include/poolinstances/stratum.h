@@ -266,6 +266,8 @@ private:
         JSON::Object result(stream);
         if (msg.miningConfigure.ExtensionsField & StratumMiningConfigure::EVersionRolling) {
           bool versionRolling = false;
+          if (msg.miningConfigure.VersionRollingMask.has_value() && msg.miningConfigure.VersionRollingMask == 0xFFFFFFFF)
+            msg.miningConfigure.VersionRollingMinBitCount = 2;
           if (msg.miningConfigure.VersionRollingMask.has_value() && msg.miningConfigure.VersionRollingMinBitCount.has_value()) {
             // Calculate target bit mask
             uint32_t targetBitMask = msg.miningConfigure.VersionRollingMask.value() & VersionMask_;
@@ -287,8 +289,8 @@ private:
                   "%s: can't setup version rolling for %s (client mask: %X; minimal bit count: %X, server mask: %X)",
                   connection->Instance->Name_.c_str(),
                   inet_ntoa(addr),
-                  msg.miningConfigure.VersionRollingMask.value(),
-                  msg.miningConfigure.VersionRollingMinBitCount.value(),
+                  msg.miningConfigure.VersionRollingMask.has_value() ? msg.miningConfigure.VersionRollingMask.value() : 0,
+                  msg.miningConfigure.VersionRollingMinBitCount.has_value() ? msg.miningConfigure.VersionRollingMinBitCount.value() : 0,
                   VersionMask_);
           }
           result.addBoolean("version-rolling", versionRolling);
