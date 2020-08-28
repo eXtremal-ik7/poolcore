@@ -24,6 +24,7 @@ inline void StatisticDb::parseStatsCacheFile(CStatsFile &file, std::function<CSt
   stream.seekSet(0);
   file.LastShareId = stream.readle<uint64_t>();
   while (stream.remaining()) {
+    // TODO: use separate format for statistic cache record
     StatsRecord record;
     if (!record.deserializeValue(stream)) {
       LOG_F(ERROR, "StatisticDb: corrupted file %s", file.Path.u8string().c_str());
@@ -31,16 +32,17 @@ inline void StatisticDb::parseStatsCacheFile(CStatsFile &file, std::function<CSt
     }
 
     CStatsAccumulator &acc = searchAcc(record);
-    if (!acc.Recent.empty() && acc.Recent.back().TimeLabel >= record.Time) {
+    if (!acc.Recent.empty() && acc.Recent.back().TimeLabel >= file.TimeLabel) {
       LOG_F(ERROR, "StatisticDb: duplicate data in %s", file.Path.u8string().c_str());
       return;
     }
 
     acc.Recent.emplace_back();
     CStatsElement &stats = acc.Recent.back();
+    acc.LastShareTime = record.Time;
     stats.SharesNum = record.ShareCount;
     stats.SharesWork = record.ShareWork;
-    stats.TimeLabel = record.Time;
+    stats.TimeLabel = file.TimeLabel;
     if (isDebugStatistic()) {
       LOG_F(1, "Loaded data from statistic cache: %s/%s shares: %" PRIu64 " work: %.3lf",
             !record.Login.empty() ? record.Login.c_str() : "<empty>",
@@ -103,10 +105,10 @@ void StatisticDb::enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::
   std::sort(cache.begin(), cache.end(), [](const CStatsFile &l, const CStatsFile &r){ return l.TimeLabel < r.TimeLabel; });
 }
 
-void StatisticDb::updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, time_t currentTime, xmstream *statsFileData)
+void StatisticDb::updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, time_t currentTime, xmstream &statsFileData)
 {
   // Push current accumulated data to ring buffer
-  if (acc.Current.SharesNum) {
+  if ((currentTime - acc.LastShareTime) < std::chrono::seconds(_cfg.StatisticKeepWorkerNamesTime).count()) {
     if (isDebugStatistic())
       LOG_F(1, "Update statistics for %s/%s (shares=%u, work=%.3lf)", !login.empty() ? login.c_str() : "<none>", !workerId.empty() ? workerId.c_str() : "<none>", acc.Current.SharesNum, acc.Current.SharesWork);
 
@@ -116,7 +118,9 @@ void StatisticDb::updateAcc(const std::string &login, const std::string &workerI
 
     // Update on-disk data
     // Update [user,worker,time] -> state database
-    writeStats(login, workerId, acc.Current, currentTime, statsFileData);
+    if (acc.Current.SharesNum)
+      writeStatsToDb(login, workerId, acc.Current);
+    writeStatsToCache(login, workerId, acc.Current, acc.LastShareTime, statsFileData);
   }
 
   // Reset current worker state
@@ -130,79 +134,89 @@ void StatisticDb::updateAcc(const std::string &login, const std::string &workerI
 
 void StatisticDb::calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, std::chrono::seconds calculateInterval, std::chrono::seconds aggregateTime, CStats &result)
 {
-  if (!acc.Recent.empty()) {
-    // Calculate sum of shares number and work for last N minutes (interval usually defined in config)
-    uint32_t workerSharesNum = acc.Current.SharesNum;
-    double workerSharesWork = acc.Current.SharesWork;
+  // Calculate sum of shares number and work for last N minutes (interval usually defined in config)
+  uint32_t workerSharesNum = acc.Current.SharesNum;
+  double workerSharesWork = acc.Current.SharesWork;
 
-    int64_t startTimePoint = time(nullptr);
-    int64_t stopTimePoint = startTimePoint - calculateInterval.count();
-    int64_t lastTimePoint = startTimePoint - aggregateTime.count();
-    unsigned counter = 0;
-    for (auto statsIt = acc.Recent.rbegin(), statsItEnd = acc.Recent.rend(); statsIt != statsItEnd; ++statsIt) {
-      if (statsIt->TimeLabel < stopTimePoint)
-        break;
+  int64_t startTimePoint = time(nullptr);
+  int64_t stopTimePoint = startTimePoint - calculateInterval.count();
+  int64_t lastTimePoint = startTimePoint - aggregateTime.count();
+  unsigned counter = 0;
+  for (auto statsIt = acc.Recent.rbegin(), statsItEnd = acc.Recent.rend(); statsIt != statsItEnd; ++statsIt) {
+    if (statsIt->TimeLabel < stopTimePoint)
+      break;
 
-      lastTimePoint = statsIt->TimeLabel - aggregateTime.count();
-      workerSharesNum += statsIt->SharesNum;
-      workerSharesWork += statsIt->SharesWork;
-      counter++;
-    }
-
-    uint64_t timeInterval = startTimePoint - lastTimePoint;
-    if (isDebugStatistic())
-      LOG_F(1, "  * use %u statistic rounds; interval: %" PRIi64 "; shares num: %u; shares work: %.3lf", counter, timeInterval, workerSharesNum, workerSharesWork);
-
-    result.SharesPerSecond = (double)workerSharesNum / timeInterval;
-    result.AveragePower = CoinInfo_.calculateAveragePower(workerSharesWork, timeInterval);
-    result.SharesWork = workerSharesWork;
-  } else {
-    result.SharesPerSecond = 0;
-    result.AveragePower = 0;
-    result.SharesWork = 0.0;
+    lastTimePoint = statsIt->TimeLabel - aggregateTime.count();
+    workerSharesNum += statsIt->SharesNum;
+    workerSharesWork += statsIt->SharesWork;
+    counter++;
   }
+
+  uint64_t timeInterval = startTimePoint - lastTimePoint;
+  if (isDebugStatistic())
+    LOG_F(1, "  * use %u statistic rounds; interval: %" PRIi64 "; shares num: %u; shares work: %.3lf", counter, timeInterval, workerSharesNum, workerSharesWork);
+
+  result.SharesPerSecond = (double)workerSharesNum / timeInterval;
+  result.AveragePower = CoinInfo_.calculateAveragePower(workerSharesWork, timeInterval);
+  result.SharesWork = workerSharesWork;
 }
 
-void StatisticDb::writeStats(const std::string &loginId, const std::string &workerId, const CStatsElement &data, time_t timeLabel, xmstream *statsFileData)
+void StatisticDb::writeStatsToDb(const std::string &loginId, const std::string &workerId, const CStatsElement &element)
 {
   StatsRecord record;
   record.Login = loginId;
   record.WorkerId = workerId;
-  record.Time = timeLabel;
-  record.ShareCount = data.SharesNum;
-  record.ShareWork = data.SharesWork;
+  // record.Time is a record creation time
+  record.Time = element.TimeLabel;
+  record.ShareCount = element.SharesNum;
+  record.ShareWork = element.SharesWork;
   if (!loginId.empty())
     WorkerStatsDb_.put(record);
   else
     PoolStatsDb_.put(record);
+}
 
-  if (statsFileData)
-    record.serializeValue(*statsFileData);
+void StatisticDb::writeStatsToCache(const std::string &loginId, const std::string &workerId, const CStatsElement &element, int64_t lastShareTime, xmstream &statsFileData)
+{
+  // TODO: use separate format for statistic cache record
+  StatsRecord record;
+  record.Login = loginId;
+  record.WorkerId = workerId;
+  // record.Time is a last share time
+  // record creation time already have in statistic cache file
+  record.Time = lastShareTime;
+  record.ShareCount = element.SharesNum;
+  record.ShareWork = element.SharesWork;
+  record.serializeValue(statsFileData);
 }
 
 void StatisticDb::addShare(const CShare &share)
 {
   // Update worker stats
-  auto &acc = LastWorkerStats_[share.userId][share.workerId].Current;
-  acc.SharesNum++;
-  acc.SharesWork += share.WorkValue;
+  auto &acc = LastWorkerStats_[share.userId][share.workerId];
+  acc.Current.SharesNum++;
+  acc.Current.SharesWork += share.WorkValue;
+  acc.LastShareTime = share.Time;
   // Update pool stats
   PoolStatsAcc_.Current.SharesNum++;
   PoolStatsAcc_.Current.SharesWork += share.WorkValue;
+  PoolStatsCached_.LastShareTime = PoolStatsAcc_.LastShareTime = share.Time;
   LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
 }
 
 void StatisticDb::replayShare(const CShare &share)
 {
   if (share.UniqueShareId > WorkersFlushInfo_.ShareId) {
-    auto &acc = LastWorkerStats_[share.userId][share.workerId].Current;
-    acc.SharesNum++;
-    acc.SharesWork += share.WorkValue;
+    auto &acc = LastWorkerStats_[share.userId][share.workerId];
+    acc.Current.SharesNum++;
+    acc.Current.SharesWork += share.WorkValue;
+    acc.LastShareTime = share.Time;
   }
 
   if (share.UniqueShareId > PoolFlushInfo_.ShareId) {
     PoolStatsAcc_.Current.SharesNum++;
     PoolStatsAcc_.Current.SharesWork += share.WorkValue;
+    PoolStatsCached_.LastShareTime = PoolStatsAcc_.LastShareTime = share.Time;
   }
 
   LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
@@ -257,13 +271,14 @@ void StatisticDb::start()
   }, this, 0x20000));
 }
 
-void StatisticDb::updateWorkersStats(uint64_t timeLabel)
+void StatisticDb::updateWorkersStats(int64_t timeLabel)
 {
   xmstream statsFileData;
   std::vector<std::string> userDeleteList;
   for (auto &userIt: LastWorkerStats_) {
     std::vector<std::string> workerDeleteList;
     CStatsElement userStats;
+    userStats.TimeLabel = timeLabel;
 
     for (auto &workerIt: userIt.second) {
       CStatsAccumulator &acc = workerIt.second;
@@ -272,13 +287,14 @@ void StatisticDb::updateWorkersStats(uint64_t timeLabel)
       userStats.SharesNum += acc.Current.SharesNum;
       userStats.SharesWork += acc.Current.SharesWork;
 
-      updateAcc(userIt.first, workerIt.first, acc, timeLabel, &statsFileData);
+      updateAcc(userIt.first, workerIt.first, acc, timeLabel, statsFileData);
       if (acc.Recent.empty())
         workerDeleteList.push_back(workerIt.first);
     }
 
     // Write cumulative user stats to database
-    writeStats(userIt.first, "", userStats, timeLabel, nullptr);
+    if (userStats.SharesNum)
+      writeStatsToDb(userIt.first, "", userStats);
 
     // Cleanup workers table
     std::for_each(workerDeleteList.begin(), workerDeleteList.end(), [&userIt](const std::string &name) { userIt.second.erase(name);});
@@ -292,13 +308,23 @@ void StatisticDb::updateWorkersStats(uint64_t timeLabel)
   std::for_each(userDeleteList.begin(), userDeleteList.end(), [this](const std::string &name) { LastWorkerStats_.erase(name);});
 }
 
-void StatisticDb::updatePoolStats(uint64_t timeLabel)
+void StatisticDb::updatePoolStats(int64_t timeLabel)
 {
-  PoolStatsCached_.ClientsNum = LastWorkerStats_.size();
+  PoolStatsCached_.ClientsNum = 0;
   PoolStatsCached_.WorkersNum = 0;
 
-  for (auto &userIt: LastWorkerStats_)
-    PoolStatsCached_.WorkersNum += userIt.second.size();
+  for (auto &userIt: LastWorkerStats_) {
+    bool isActiveUser = false;
+    for (auto &workerIt: userIt.second) {
+      if ((timeLabel - workerIt.second.LastShareTime) < std::chrono::seconds(_cfg.StatisticWorkersPowerCalculateInterval).count()) {
+        PoolStatsCached_.WorkersNum++;
+        isActiveUser = true;
+      }
+    }
+
+    if (isActiveUser)
+      PoolStatsCached_.ClientsNum++;
+  }
 
   // Update pool accumulated data
   // Calculate pool power and share rate
@@ -307,7 +333,7 @@ void StatisticDb::updatePoolStats(uint64_t timeLabel)
   calcAverageMetrics(PoolStatsAcc_, _cfg.StatisticPoolPowerCalculateInterval, _cfg.StatisticPoolAggregateTime, PoolStatsCached_);
 
   xmstream statsFileData;
-  updateAcc("", "", PoolStatsAcc_, timeLabel, &statsFileData);
+  updateAcc("", "", PoolStatsAcc_, timeLabel, statsFileData);
   updatePoolStatsDiskCache(timeLabel, LastKnownShareId_, statsFileData.data(), statsFileData.sizeOf());
 
   LOG_F(INFO,
@@ -360,11 +386,12 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
     return;
 
   userStats.ClientsNum = 1;
-  userStats.WorkersNum = workerStats.size();
+  userStats.WorkersNum = 0;
 
   // Iterate over all workers
   workerStats.resize(userIt->second.size());
   size_t workerStatsIndex = 0;
+  int64_t lastShareTime = 0;
   for (const auto &workerIt: userIt->second) {
     const CStatsAccumulator &acc = workerIt.second;
     CStats &result = workerStats[workerStatsIndex];
@@ -376,8 +403,15 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
     userStats.SharesPerSecond += result.SharesPerSecond;
     userStats.SharesWork += result.SharesWork;
     userStats.AveragePower += result.AveragePower;
+
+    if (result.AveragePower)
+      userStats.WorkersNum++;
+    result.LastShareTime = acc.LastShareTime;
+    lastShareTime = std::max(lastShareTime, acc.LastShareTime);
     workerStatsIndex++;
   }
+
+  userStats.LastShareTime = lastShareTime;
 }
 
 void StatisticDb::getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history)

@@ -427,6 +427,7 @@ private:
             if (successNum == 1) {
               // Send share with block to backend
               CShare *backendShare = new CShare;
+              backendShare->Time = time(nullptr);
               backendShare->userId = worker.User;
               backendShare->workerId = worker.WorkerName;
               backendShare->height = height;
@@ -444,6 +445,7 @@ private:
         });
       } else {
         CShare *backendShare = new CShare;
+        backendShare->Time = time(nullptr);
         backendShare->userId = worker.User;
         backendShare->workerId = worker.WorkerName;
         backendShare->height = height;

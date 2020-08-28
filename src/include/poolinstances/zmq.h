@@ -225,6 +225,7 @@ private:
           if (successNum == 1) {
             // Send share with block to backend
             CShare *backendShare = new CShare;
+            backendShare->Time = time(nullptr);
             backendShare->userId = user;
             backendShare->height = height;
             backendShare->value = 1;
@@ -240,6 +241,7 @@ private:
     } else {
       // Send share to backend
       CShare *backendShare = new CShare;
+      backendShare->Time = time(nullptr);
       backendShare->userId = share.addr();
       backendShare->height = height;
       backendShare->value = 1;

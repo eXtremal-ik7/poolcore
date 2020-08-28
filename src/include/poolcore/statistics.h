@@ -18,10 +18,10 @@ public:
     uint64_t AveragePower = 0;
     double SharesPerSecond = 0.0;
     double SharesWork = 0.0;
-    time_t Time = 0;
+    int64_t LastShareTime = 0;
+    int64_t Time = 0;
   };
 
-private:
   struct CStatsElement {
     uint32_t SharesNum = 0;
     double SharesWork = 0.0;
@@ -35,8 +35,10 @@ private:
   struct CStatsAccumulator {
     std::deque<CStatsElement> Recent;
     CStatsElement Current;
+    int64_t LastShareTime = 0;
   };
 
+private:
   struct CStatsFile {
     int64_t TimeLabel;
     uint64_t LastShareId;
@@ -77,9 +79,10 @@ private:
   static inline void parseStatsCacheFile(CStatsFile &file, std::function<CStatsAccumulator&(const StatsRecord&)> searchAcc);
 
   void enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::filesystem::path &directory);
-  void updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, time_t currentTime, xmstream *statsFileData);
+  void updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, time_t currentTime, xmstream &statsFileData);
   void calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, std::chrono::seconds calculateInterval, std::chrono::seconds aggregateTime, CStats &result);
-  void writeStats(const std::string &loginId, const std::string &workerId, const CStatsElement &data, time_t timeLabel, xmstream *statsFileData);
+  void writeStatsToDb(const std::string &loginId, const std::string &workerId, const CStatsElement &element);
+  void writeStatsToCache(const std::string &loginId, const std::string &workerId, const CStatsElement &element, int64_t lastShareTime, xmstream &statsFileData);
 
   void updateStatsDiskCache(const char *name, std::deque<CStatsFile> &cache, uint64_t timeLabel, uint64_t lastShareId, const void *data, size_t size);
   void updateWorkersStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) { updateStatsDiskCache("stats.workers.cache", WorkersStatsCache_, timeLabel, shareId, data, size); }
@@ -102,8 +105,8 @@ public:
 
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
-  void updateWorkersStats(uint64_t timeLabel);
-  void updatePoolStats(uint64_t timeLabel);
+  void updateWorkersStats(int64_t timeLabel);
+  void updatePoolStats(int64_t timeLabel);
   
   const CStats &getPoolStats() { return PoolStatsCached_; }
   void getUserStats(const std::string &user, CStats &aggregate, std::vector<CStats> &workerStats);

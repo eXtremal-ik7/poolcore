@@ -13,6 +13,7 @@ void ShareLogIo<CShare>::serialize(xmstream &out, const CShare &data)
   DbIo<std::string>::serialize(out, data.userId);
   DbIo<std::string>::serialize(out, data.workerId);
   out.write<double>(data.WorkValue);
+  DbIo<int64_t>::serialize(out, data.Time);
 }
 
 void ShareLogIo<CShare>::unserialize(xmstream &out, CShare &data)
@@ -21,6 +22,7 @@ void ShareLogIo<CShare>::unserialize(xmstream &out, CShare &data)
   DbIo<std::string>::unserialize(out, data.userId);
   DbIo<std::string>::unserialize(out, data.workerId);
   data.WorkValue = out.read<double>();
+  DbIo<int64_t>::unserialize(out, data.Time);
 }
 
 static void checkConsistency(AccountingDb *accounting)
@@ -156,7 +158,7 @@ void PoolBackend::replayShares(CShareLogFile &file)
     CShare share;
     ShareLogIo<CShare>::unserialize(stream, share);
     if (stream.eof()) {
-      LOG_F(ERROR, "StatisticDb: corrupted file %s", file.Path.u8string().c_str());
+      LOG_F(ERROR, "Corrupted file %s", file.Path.u8string().c_str());
       break;
     }
 

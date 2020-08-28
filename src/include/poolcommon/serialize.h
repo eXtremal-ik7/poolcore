@@ -78,6 +78,9 @@ template<> struct DbIo<std::string> {
   static inline void unserialize(xmstream &src, std::string &data) {
     VarSize length;
     DbIo<VarSize>::unserialize(src, length);
-    data.assign(src.seek<const char>(length.Size), length.Size);
+    if (length.Size <= 32*1048576)
+      data.assign(src.seek<const char>(length.Size), length.Size);
+    else
+      src.seekEnd(0, true);
   }
 };

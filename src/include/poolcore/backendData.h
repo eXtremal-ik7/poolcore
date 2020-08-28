@@ -23,6 +23,7 @@ struct CShare {
   bool isBlock;
   std::string hash;
   int64_t generatedCoins;
+  int64_t Time;
 };
 
 struct PoolFeeEntry {
@@ -71,6 +72,7 @@ struct PoolBackendConfig {
   std::chrono::minutes StatisticPoolPowerCalculateInterval = std::chrono::minutes(5);
   std::chrono::minutes StatisticWorkersAggregateTime = std::chrono::minutes(5);
   std::chrono::minutes StatisticPoolAggregateTime = std::chrono::minutes(1);
+  std::chrono::hours StatisticKeepWorkerNamesTime = std::chrono::hours(24);
 
   SelectorByWeight<std::string> MiningAddresses;
   std::string CoinBaseMsg;
