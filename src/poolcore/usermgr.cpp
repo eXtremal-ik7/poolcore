@@ -580,6 +580,20 @@ void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, Task::D
   callback("ok");
 }
 
+void UserManager::enumerateUsersImpl(EnumerateUsersTask::Cb callback)
+{
+  std::vector<Credentials> result;
+  for (const auto &record: UsersCache_) {
+    Credentials &credentials = result.emplace_back();
+    credentials.Login = record.second.Login;
+    credentials.Name = record.second.Name;
+    credentials.EMail = record.second.EMail;
+    credentials.RegistrationDate = record.second.RegistrationDate;
+  }
+
+  callback(result);
+}
+
 bool UserManager::checkPassword(const std::string &login, const std::string &password)
 {
   decltype (UsersCache_)::const_accessor accessor;

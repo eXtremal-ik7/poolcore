@@ -120,6 +120,15 @@ public:
     DefaultCb Callback_;
   };
 
+  class EnumerateUsersTask: public Task {
+  public:
+    using Cb = std::function<void(std::vector<Credentials>&)>;
+    EnumerateUsersTask(UserManager *userMgr, Cb callback) : Task(userMgr), Callback_(callback) {}
+    void run() final { UserMgr_->enumerateUsersImpl(Callback_); }
+  private:
+    Cb Callback_;
+  };
+
 public:
   UserManager(const std::filesystem::path &dbPath);
   UserManager(const UserManager&) = delete;
@@ -179,6 +188,7 @@ public:
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
   void updateSettings(UserSettingsRecord &&settings, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), callback)); }
+  void enumerateUsers(EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, callback)); }
 
   // Synchronous api
   bool checkPassword(const std::string &login, const std::string &password);
@@ -195,6 +205,7 @@ private:
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
   void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);
   void updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback);
+  void enumerateUsersImpl(EnumerateUsersTask::Cb callback);
 
   void sessionAdd(const UserSessionRecord &sessionRecord) {
     LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
