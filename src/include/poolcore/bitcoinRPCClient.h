@@ -5,6 +5,7 @@
 #include "asyncio/asyncio.h"
 #include "asyncio/http.h"
 #include "asyncio/socket.h"
+#include <rapidjson/document.h>
 #include <chrono>
 #include <vector>
 #include "loguru.hpp"

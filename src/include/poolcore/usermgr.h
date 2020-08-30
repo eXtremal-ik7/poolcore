@@ -127,6 +127,8 @@ public:
   void start();
   void stop();
 
+  static uint256 generateHash(const std::string &login, const std::string &password);
+
   void configAddCoin(const CCoinInfo &info, int64_t defaultMinimalPayout) {
     BackendParameters backendParameters;
     backendParameters.DefaultMinimalPayout = defaultMinimalPayout;
@@ -141,6 +143,15 @@ public:
     BaseCfg.PoolName = poolName;
     BaseCfg.PoolHostAddress = poolHostAddress;
     BaseCfg.ActivateLinkPrefix = userActivateLinkPrefix;
+  }
+
+  void setAdminPassword(const std::string &hash) {
+    UsersRecord adminRecord;
+    adminRecord.Login = "admin";
+    adminRecord.PasswordHash = uint256S(hash);
+    adminRecord.Name = "admin";
+    adminRecord.IsActive = true;
+    UsersCache_.insert(std::make_pair("admin", adminRecord));
   }
 
   void enableSMTP(HostAddress serverAddress,
@@ -171,7 +182,7 @@ public:
 
   // Synchronous api
   bool checkPassword(const std::string &login, const std::string &password);
-  bool validateSession(const std::string &id, std::string &login);
+  bool validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin);
   bool getUserCredentials(const std::string &login, Credentials &out);
   bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);
 

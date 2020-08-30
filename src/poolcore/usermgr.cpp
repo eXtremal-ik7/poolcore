@@ -11,7 +11,7 @@ static bool validEmail(const std::string &email)
   return std::regex_match(email, pattern);
 }
 
-static uint256 generateHash(const std::string &login, const std::string &password)
+uint256 UserManager::generateHash(const std::string &login, const std::string &password)
 {
   uint256 result;
 
@@ -592,16 +592,28 @@ bool UserManager::checkPassword(const std::string &login, const std::string &pas
   return record.PasswordHash == generateHash(login, password);
 }
 
-bool UserManager::validateSession(const std::string &id, std::string &login)
+bool UserManager::validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin)
 {
   time_t currentTime = time(nullptr);
-  decltype (SessionsCache_)::accessor accessor;
-  if (SessionsCache_.find(accessor, uint512S(id))) {
-    login = accessor->second.Login;
-    accessor->second.updateLastAccessTime(currentTime);
-    return true;
+  {
+    decltype (SessionsCache_)::accessor accessor;
+    if (SessionsCache_.find(accessor, uint512S(id))) {
+      resultLogin = accessor->second.Login;
+      accessor->second.updateLastAccessTime(currentTime);
+    } else {
+      return false;
+    }
+  }
+
+  if (resultLogin == "admin") {
+    if (!targetLogin.empty()) {
+      resultLogin = targetLogin;
+      return UsersCache_.count(targetLogin);
+    } else {
+      return true;
+    }
   } else {
-    return false;
+    return targetLogin.empty();
   }
 }
 

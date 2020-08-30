@@ -3,7 +3,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "rapidjson/document.h"
 #include "p2putils/xmstream.h"
 #include "poolcore/thread.h"
 #include <atomic>

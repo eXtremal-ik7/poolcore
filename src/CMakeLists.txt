@@ -86,4 +86,4 @@ add_subdirectory(blockmaker)
 add_subdirectory(poolcommon)
 add_subdirectory(poolcore)
 add_subdirectory(poolinstances)
-add_subdirectory(poolrpccmd)
+
