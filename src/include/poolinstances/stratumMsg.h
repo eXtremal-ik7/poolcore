@@ -13,6 +13,7 @@ enum StratumMethodTy {
   Submit,
   MultiVersion,
   MiningConfigure,
+  MiningSuggestDifficulty,
   Last
 };
 
@@ -60,6 +61,10 @@ struct StratumMiningConfigure {
   std::optional<double> MinimumDifficultyValue;
 };
 
+struct StratumMiningSuggestDifficulty {
+  double Difficulty;
+};
+
 struct StratumMessage {
   int64_t integerId;
   std::string stringId;
@@ -70,6 +75,7 @@ struct StratumMessage {
   StratumSubmit submit;
   StratumMultiVersion multiVersion;
   StratumMiningConfigure miningConfigure;
+  StratumMiningSuggestDifficulty miningSuggestDifficulty;
 
   std::string error;
 };

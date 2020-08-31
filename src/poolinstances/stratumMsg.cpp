@@ -134,6 +134,13 @@ StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumM
     } else {
       return FormatError;
     }
+  } else if (method == "mining.suggest_difficulty" && params.Size() >= 1) {
+    out->method = MiningSuggestDifficulty;
+    if (params[0].IsFloat()) {
+      out->miningSuggestDifficulty.Difficulty = params[0].GetFloat();
+    } else {
+      return FormatError;
+    }
   } else {
     return FormatError;
   }

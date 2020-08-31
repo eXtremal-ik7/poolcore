@@ -315,12 +315,31 @@ private:
     return true;
   }
 
-  void onStratumExtraNonceSubscribe(Connection *connection, StratumMessage &message) {
+  void onStratumMiningSuggestDifficulty(Connection *connection, StratumMessage &message) {
     xmstream stream;
     {
       JSON::Object object(stream);
       addId(object, message);
       object.addBoolean("result", false);
+      object.addField("error");
+      {
+        JSON::Array error(stream);
+        error.addInt(-1);
+        error.addString("not supported");
+        error.addNull();
+      }
+    }
+
+    stream.write('\n');
+    send(connection, stream);
+  }
+
+  void onStratumExtraNonceSubscribe(Connection *connection, StratumMessage &message) {
+    xmstream stream;
+    {
+      JSON::Object object(stream);
+      addId(object, message);
+      object.addBoolean("result", true);
       object.addNull("error");
     }
 
@@ -587,6 +606,9 @@ private:
             }
             case StratumMethodTy::MiningConfigure :
               connection->Instance->onStratumMiningConfigure(connection, msg);
+              break;
+            case StratumMethodTy::MiningSuggestDifficulty :
+              connection->Instance->onStratumMiningSuggestDifficulty(connection, msg);
               break;
             case StratumMethodTy::ExtraNonceSubscribe :
               connection->Instance->onStratumExtraNonceSubscribe(connection, msg);
