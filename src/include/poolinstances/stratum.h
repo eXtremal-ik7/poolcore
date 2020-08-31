@@ -316,22 +316,7 @@ private:
   }
 
   void onStratumMiningSuggestDifficulty(Connection *connection, StratumMessage &message) {
-    xmstream stream;
-    {
-      JSON::Object object(stream);
-      addId(object, message);
-      object.addBoolean("result", false);
-      object.addField("error");
-      {
-        JSON::Array error(stream);
-        error.addInt(-1);
-        error.addString("not supported");
-        error.addNull();
-      }
-    }
-
-    stream.write('\n');
-    send(connection, stream);
+    // Nothing to do
   }
 
   void onStratumExtraNonceSubscribe(Connection *connection, StratumMessage &message) {
@@ -630,12 +615,18 @@ private:
           }
 
           break;
-        case StratumDecodeStatusTy::JsonError :
+        case StratumDecodeStatusTy::JsonError : {
+          std::string msg(connection->Buffer, stratumMsgSize);
+          LOG_F(ERROR, "%s(%s): JsonError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
           result = false;
           return;
-        case StratumDecodeStatusTy::FormatError :
+        }
+        case StratumDecodeStatusTy::FormatError : {
+          std::string msg(connection->Buffer, stratumMsgSize);
+          LOG_F(ERROR, "%s(%s): FormatError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
           result = false;
           return;
+        }
         default :
           break;
       }

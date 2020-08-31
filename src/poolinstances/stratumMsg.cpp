@@ -15,6 +15,11 @@ StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumM
 
   if (!(document.HasMember("id") && document.HasMember("method") && document.HasMember("params")))
     return FormatError;
+
+  // Some clients put null to 'params' field
+  if (document["params"].IsNull())
+    document["params"].SetArray();
+
   if (!(document["method"].IsString() && document["params"].IsArray()))
     return FormatError;
 
