@@ -385,7 +385,7 @@ private:
       return false;
     }
 
-    if (!work.checkForDuplicate()) {
+    if (!work.checkForDuplicate(worker.User + "." + worker.WorkerName, connection->WorkerConfig)) {
       if (isDebugInstanceStratumRejects())
         LOG_F(1, "%s(%s) %s/%s reject: duplicate share", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
       errorCode = 22;
