@@ -254,7 +254,7 @@ public:
   struct ThreadConfig {
     uint64_t ExtraNonceCurrent;
     unsigned ThreadsNum;
-    void initialize(unsigned threadId, unsigned threadsNum);
+    void initialize(unsigned instanceId, unsigned instancesNum);
   };
 
   struct WorkerConfig {

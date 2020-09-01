@@ -33,10 +33,16 @@ static bool checkRequest(pool::proto::Request &req,
 template<typename X>
 class ZmqInstance : public CPoolInstance {
 public:
-  ZmqInstance(asyncBase *monitorBase, UserManager &userMgr, CThreadPool &threadPool, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool) {
+  ZmqInstance(asyncBase *monitorBase, UserManager &userMgr, CThreadPool &threadPool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool) {
     Name_ = (std::string)X::Proto::TickerName + ".zmq";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
+
+    unsigned totalInstancesNum = instancesNum * threadPool.threadsNum();
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
+      // initialInstanceId used for fixed extra nonce part calculation
+      unsigned initialInstanceId = instanceId*threadPool.threadsNum() + i;
+      X::Zmq::initializeThreadConfig(Data_[i].ThreadCfg, initialInstanceId, totalInstancesNum);
+
       Data_[i].WorkerBase = threadPool.getBase(i);
       Data_[i].HasWork = false;
       X::Proto::checkConsensusInitialize(Data_[i].CheckConsensusCtx);
@@ -111,6 +117,7 @@ private:
   struct ThreadData {
     asyncBase *WorkerBase;
     typename X::Proto::CheckConsensusCtx CheckConsensusCtx;
+    typename X::Zmq::ThreadConfig ThreadCfg;
     typename X::Zmq::Work Work;
     typename X::Zmq::ThreadConfig ThreadConfig;
     bool HasWork;

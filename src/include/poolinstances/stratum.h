@@ -31,11 +31,15 @@ static inline void addId(JSON::Object &object, StratumMessage &msg) {
 template<typename X>
 class StratumInstance : public CPoolInstance {
 public:
-  StratumInstance(asyncBase *monitorBase, UserManager &userMgr, CThreadPool &threadPool, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0) {
+  StratumInstance(asyncBase *monitorBase, UserManager &userMgr, CThreadPool &threadPool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0) {
     Name_ = (std::string)X::Proto::TickerName + ".stratum";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
+
+    unsigned totalInstancesNum = instancesNum * threadPool.threadsNum();
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
-      Data_[i].ThreadCfg.initialize(i, threadPool.threadsNum());
+      // initialInstanceId used for fixed extra nonce part calculation
+      unsigned initialInstanceId = instanceId*threadPool.threadsNum() + i;
+      Data_[i].ThreadCfg.initialize(initialInstanceId, totalInstancesNum);
       X::Proto::checkConsensusInitialize(Data_[i].CheckConsensusCtx);
       Data_[i].WorkerBase = threadPool.getBase(i);
     }

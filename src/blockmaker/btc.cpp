@@ -193,10 +193,10 @@ void Stratum::MiningConfig::initialize(rapidjson::Value &instanceCfg)
     MutableExtraNonceSize = instanceCfg["mutableExtraNonceSize"].GetUint();
 }
 
-void Stratum::ThreadConfig::initialize(unsigned int threadId, unsigned int threadsNum)
+void Stratum::ThreadConfig::initialize(unsigned int instanceId, unsigned int instancesNum)
 {
-  ExtraNonceCurrent = threadId;
-  ThreadsNum = threadsNum;
+  ExtraNonceCurrent = instanceId;
+  ThreadsNum = instancesNum;
 }
 
 void Stratum::WorkerConfig::initialize(ThreadConfig &threadCfg)
