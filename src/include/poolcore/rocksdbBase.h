@@ -37,6 +37,7 @@ public:
     ~IteratorType();
     bool valid();
     void prev();
+    void prev(std::function<bool(const void *data, size_t)> endPredicate, const void *resumeKey, size_t resumeKeySize);
     void next();
     void seekFirst();
     void seekLast();
@@ -78,6 +79,42 @@ public:
         iterator->SeekToFirst();
       }
     }
+
+    template<typename D> void seekForPrev(const D &data) {
+      std::string partId = data.getPartitionId();
+      if (id != partId) {
+        cleanup();
+        auto p = base->lessOrEqualPartition(partId);
+        if (!p.db) {
+          end = true;
+          return;
+        }
+
+        rocksdb::ReadOptions options;
+        id = p.id;
+        iterator = p.db->NewIterator(options);
+      }
+
+      char buffer[128];
+      xmstream S(buffer, sizeof(buffer));
+      S.reset();
+      data.serializeKey(S);
+      rocksdb::Slice slice(S.data<const char>(), S.sizeOf());
+      iterator->SeekForPrev(slice);
+      while (!iterator->Valid()) {
+        cleanup();
+        auto np = base->lessPartition(id);
+        if (!np.db) {
+          end = true;
+          return;
+        }
+
+        rocksdb::ReadOptions options;
+        id = np.id;
+        iterator = np.db->NewIterator(options);
+        iterator->SeekToLast();
+      }
+    }
   };
   
 private:
@@ -96,6 +133,7 @@ private:
   partition getFirstPartition();
   partition getLastPartition();
   partition lessPartition(const std::string &id);  
+  partition lessOrEqualPartition(const std::string &id);
   partition greaterPartition(const std::string &id);
   partition greaterOrEqualPartition(const std::string &id);  
   

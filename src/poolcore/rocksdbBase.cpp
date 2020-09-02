@@ -44,6 +44,38 @@ void rocksdbBase::IteratorType::prev()
   end = false;
 }
 
+void rocksdbBase::IteratorType::prev(std::function<bool(const void *data, size_t)> endPredicate, const void *resumeKey, size_t resumeKeySize)
+{
+  if (end) {
+    rocksdb::ReadOptions options;
+    auto lastp = base->getLastPartition();
+    if (!lastp.db)
+      return;
+    id = lastp.id;
+    iterator = lastp.db->NewIterator(options);
+    iterator->SeekToLast();
+  } else if (iterator) {
+    iterator->Prev();
+  }
+
+  while (!iterator->Valid() || endPredicate(iterator->value().data(), iterator->value().size())) {
+    if (id.empty())
+      return;
+
+    cleanup();
+    auto p = base->lessPartition(id);
+    if (!p.db)
+      return;
+
+    rocksdb::ReadOptions options;
+    id = p.id;
+    iterator = p.db->NewIterator(options);
+    iterator->SeekForPrev(rocksdb::Slice(static_cast<const char*>(resumeKey), resumeKeySize));
+  }
+
+  end = false;
+}
+
 
 void rocksdbBase::IteratorType::next()
 {
@@ -181,10 +213,7 @@ rocksdbBase::partition rocksdbBase::getLastPartition()
 
 rocksdb::DB *rocksdbBase::getPartition(const std::string &id)
 {
-  auto It = std::lower_bound(_partitions.begin(),
-                             _partitions.end(),
-                             id,
-                             [](const partition &l, const std::string &r) -> bool { return l.id < r; });
+  auto It = std::lower_bound(_partitions.begin(), _partitions.end(), id);
   if (It == _partitions.end() || It->id != id)
     return 0;
   return open(*It);
@@ -192,13 +221,21 @@ rocksdb::DB *rocksdbBase::getPartition(const std::string &id)
 
 rocksdbBase::partition rocksdbBase::lessPartition(const std::string &id)
 {
-  auto It = std::lower_bound(_partitions.begin(),
-                             _partitions.end(),
-                             id,
-                             [](const partition &l, const std::string &r) -> bool { return l.id < r; });
-  if (It == _partitions.begin() || --It == _partitions.end())
+  auto It = std::upper_bound(_partitions.rbegin(), _partitions.rend(), id, [](const partition &l, const partition &r) { return l.id > r.id; });
+  if (It == _partitions.rend())
     return partition();
-  
+
+  auto &p = *It;
+  open(p);
+  return p;
+}
+
+rocksdbBase::partition rocksdbBase::lessOrEqualPartition(const std::string &id)
+{
+  auto It = std::lower_bound(_partitions.rbegin(), _partitions.rend(), id, [](const partition &l, const partition &r) { return l.id > r.id; });
+  if (It == _partitions.rend())
+    return partition();
+
   auto &p = *It;
   open(p);
   return p;
@@ -207,13 +244,10 @@ rocksdbBase::partition rocksdbBase::lessPartition(const std::string &id)
 
 rocksdbBase::partition rocksdbBase::greaterPartition(const std::string &id)
 {
-  auto It = std::lower_bound(_partitions.begin(),
-                             _partitions.end(),
-                             id,
-                             [](const partition &l, const std::string &r) -> bool { return l.id < r; });
-  if (It == _partitions.end() || ++It == _partitions.end())
+  auto It = std::upper_bound(_partitions.begin(), _partitions.end(), id);
+  if (It == _partitions.end())
     return partition();
-  
+
   auto &p = *It;
   open(p);
   return p;
@@ -222,17 +256,13 @@ rocksdbBase::partition rocksdbBase::greaterPartition(const std::string &id)
 
 rocksdbBase::partition rocksdbBase::greaterOrEqualPartition(const std::string &id)
 {
-  auto It = std::lower_bound(_partitions.begin(),
-                             _partitions.end(),
-                             id,
-                             [](const partition &l, const std::string &r) -> bool { return l.id < r; });
-  if (It != _partitions.end()) {
-    auto &p = *It;
-    open(p);
-    return p;
-  } else {
+  auto It = std::lower_bound(_partitions.begin(), _partitions.end(), id);
+  if (It == _partitions.end())
     return partition();
-  }
+
+  auto &p = *It;
+  open(p);
+  return p;
 }
 
 rocksdb::DB *rocksdbBase::getOrCreatePartition(const std::string &id)

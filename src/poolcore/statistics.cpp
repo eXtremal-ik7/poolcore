@@ -423,28 +423,34 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     LOG_F(1, "getHistory for %s/%s from %" PRIi64 " to % " PRIi64 " group interval %" PRIi64 "", login.c_str(), workerId.c_str(), timeFrom, timeTo, groupByInterval);
   auto &db = !login.empty() ? WorkerStatsDb_ : PoolStatsDb_;
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
+
+  xmstream resumeKey;
+  {
+    StatsRecord record;
+    record.Login = login;
+    record.WorkerId = workerId;
+    record.Time = std::numeric_limits<int64_t>::max();
+    record.serializeKey(resumeKey);
+  }
+
   {
     StatsRecord record;
     record.Login = login;
     record.WorkerId = workerId;
     record.Time = timeTo;
-    It->seek(record);
-
-    // Move iterator to first user/worker row
-    if (It->valid()) {
-      StatsRecord record;
-      RawData data = It->value();
-      if (!record.deserializeValue(data.data, data.size)) {
-        LOG_F(ERROR, "Statistic database corrupt!");
-        return;
-      }
-
-      if (!(record.Login == login && record.WorkerId == workerId && record.Time == timeTo))
-        It->prev();
-    } else {
-      It->prev();
-    }
+    It->seekForPrev(record);
   }
+
+  auto endPredicate = [&login, &workerId](const void *key, size_t size) -> bool {
+    StatsRecord record;
+    xmstream stream(const_cast<void*>(key), size);
+    if (!record.deserializeValue(stream)) {
+      LOG_F(ERROR, "Statistic database corrupt!");
+      return true;
+    }
+
+    return record.Login != login || record.WorkerId != workerId;
+  };
 
   std::vector<CStatsElement> stats;
   while (It->valid()) {
@@ -455,7 +461,12 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
       break;
     }
 
-    if (record.Login != login || record.WorkerId != workerId || record.Time <= timeFrom)
+    if (record.Login != login || record.WorkerId != workerId) {
+      It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
+      continue;
+    }
+
+    if (record.Time <= timeFrom)
       break;
 
     if (isDebugStatistic())
@@ -473,7 +484,7 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
       current.SharesWork += record.ShareWork;
     }
 
-    It->prev();
+    It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
   }
 
   history.resize(stats.size());
