@@ -213,7 +213,7 @@ private:
     int64_t LastUpdateTime = std::numeric_limits<int64_t>::max();
     // Stratum protocol decoding
     char Buffer[40960];
-    unsigned Offset = 0;
+    unsigned MsgTailSize = 0;
     // Mining info
     typename X::Stratum::WorkerConfig WorkerConfig;
     // Current share difficulty (one for all workers on connection)
@@ -589,18 +589,18 @@ private:
     if (status != aosSuccess) {
       delete connection;
       return;
-    }
+    } 
 
-    connection->Offset += size;
-
-    char *nextMsgPos = static_cast<char*>(memchr(connection->Buffer, '\n', connection->Offset));
-    if (nextMsgPos) {
+    const char *nextMsgPos;
+    const char *p = connection->Buffer;
+    const char *e = connection->Buffer + connection->MsgTailSize + size;
+    while (p != e && (nextMsgPos = static_cast<const char*>(memchr(p, '\n', e - p)))) {
       // parse stratum message
-      StratumMessage msg;
       bool result = true;
-      size_t stratumMsgSize = nextMsgPos - connection->Buffer;
+      StratumMessage msg;
+      size_t stratumMsgSize = nextMsgPos - p;
       if (isDebugInstanceStratumMessages()) {
-        std::string msg(connection->Buffer, stratumMsgSize);
+        std::string msg(p, stratumMsgSize);
         LOG_F(1, "%s(%s): incoming message %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
       }
 
@@ -650,13 +650,13 @@ private:
           std::string msg(connection->Buffer, stratumMsgSize);
           LOG_F(ERROR, "%s(%s): JsonError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
           result = false;
-          return;
+          break;
         }
         case StratumDecodeStatusTy::FormatError : {
           std::string msg(connection->Buffer, stratumMsgSize);
           LOG_F(ERROR, "%s(%s): FormatError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
           result = false;
-          return;
+          break;
         }
         default :
           break;
@@ -667,26 +667,27 @@ private:
         return;
       }
 
-      // move tail to begin of buffer
-      ssize_t nextMsgOffset = nextMsgPos + 1 - connection->Buffer;
-      if (nextMsgOffset < connection->Offset) {
-        memmove(connection->Buffer, connection->Buffer+nextMsgOffset, connection->Offset-nextMsgOffset);
-        connection->Offset = connection->Offset - nextMsgOffset;
-      } else {
-        connection->Offset = 0;
-      }
+      p = nextMsgPos + 1;
     }
 
-    if (connection->Offset == sizeof(connection->Buffer)) {
-      struct in_addr addr;
-      addr.s_addr = connection->Address.ipv4;
-      LOG_F(ERROR, "%s: too long stratum message from %s", connection->Instance->Name_.c_str(), inet_ntoa(addr));
-      delete connection;
-      return;
+    // move tail to begin of buffer
+    if (p != e) {
+      connection->MsgTailSize = e-p;
+      if (connection->MsgTailSize >= sizeof(connection->Buffer)) {
+        struct in_addr addr;
+        addr.s_addr = connection->Address.ipv4;
+        LOG_F(ERROR, "%s: too long stratum message from %s", connection->Instance->Name_.c_str(), inet_ntoa(addr));
+        delete connection;
+        return;
+      }
+
+      memmove(connection->Buffer, p, e-p);
+    } else {
+      connection->MsgTailSize = 0;
     }
 
     if (connection->Active)
-      aioRead(connection->Socket, connection->Buffer + connection->Offset, sizeof(connection->Buffer) - connection->Offset, afNone, 0, reinterpret_cast<aioCb*>(readCb), connection);
+      aioRead(connection->Socket, connection->Buffer + connection->MsgTailSize, sizeof(connection->Buffer) - connection->MsgTailSize, afNone, 0, reinterpret_cast<aioCb*>(readCb), connection);
     else
       delete connection;
   }
