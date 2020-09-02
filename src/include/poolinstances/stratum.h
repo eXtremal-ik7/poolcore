@@ -604,7 +604,7 @@ private:
         LOG_F(1, "%s(%s): incoming message %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
       }
 
-      switch (decodeStratumMessage(connection->Buffer, stratumMsgSize, &msg)) {
+      switch (decodeStratumMessage(p, stratumMsgSize, &msg)) {
         case StratumDecodeStatusTy::Ok :
           // Process stratum messages here
           switch (msg.method) {
@@ -639,21 +639,22 @@ private:
               // unknown method
               struct in_addr addr;
               addr.s_addr = connection->Address.ipv4;
+              std::string msg(p, stratumMsgSize);
               LOG_F(ERROR, "%s: unknown stratum method received from %s" , connection->Instance->Name_.c_str(), inet_ntoa(addr));
-              LOG_F(ERROR, " * message text: %s", connection->Buffer);
+              LOG_F(ERROR, " * message text: %s", msg.c_str());
               break;
             }
           }
 
           break;
         case StratumDecodeStatusTy::JsonError : {
-          std::string msg(connection->Buffer, stratumMsgSize);
+          std::string msg(p, stratumMsgSize);
           LOG_F(ERROR, "%s(%s): JsonError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
           result = false;
           break;
         }
         case StratumDecodeStatusTy::FormatError : {
-          std::string msg(connection->Buffer, stratumMsgSize);
+          std::string msg(p, stratumMsgSize);
           LOG_F(ERROR, "%s(%s): FormatError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
           result = false;
           break;

@@ -32,7 +32,7 @@ StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumM
 
   std::string method = document["method"].GetString();
   const rapidjson::Value::Array &params = document["params"].GetArray();
-  if (method == "mining.subscribe" && params.Size() >= 1) {
+  if (method == "mining.subscribe") {
     out->method = Subscribe;
     if (params.Size() >= 1) {
       if (params[0].IsString())
