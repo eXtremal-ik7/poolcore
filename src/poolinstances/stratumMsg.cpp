@@ -34,28 +34,24 @@ StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumM
   const rapidjson::Value::Array &params = document["params"].GetArray();
   if (method == "mining.subscribe" && params.Size() >= 1) {
     out->method = Subscribe;
-    if (params[0].IsString())
-      out->subscribe.minerUserAgent = params[0].GetString();
-    else
-      return FormatError;
+    if (params.Size() >= 1) {
+      if (params[0].IsString())
+        out->subscribe.minerUserAgent = params[0].GetString();
+    }
 
     if (params.Size() >= 2) {
       if (params[1].IsString())
         out->subscribe.sessionId = params[1].GetString();
-      else if (params[1].IsNull())
-        out->subscribe.sessionId.clear();
-      else
-        return FormatError;
-    } else if (params.Size() >= 3) {
+    }
+
+    if (params.Size() >= 3) {
       if (params[2].IsString())
         out->subscribe.connectHost = params[2].GetString();
-      else
-        return FormatError;
-    } else if (params.Size() >= 4) {
+    }
+
+    if (params.Size() >= 4) {
       if (params[3].IsUint())
         out->subscribe.connectPort = params[3].GetUint();
-      else
-        return FormatError;
     }
   } else if (method == "mining.authorize" && params.Size() >= 2) {
     out->method = Authorize;

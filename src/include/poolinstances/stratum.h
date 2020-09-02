@@ -12,6 +12,24 @@
 #include <rapidjson/writer.h>
 #include <unordered_map>
 
+enum StratumErrorTy {
+  StratumErrorInvalidShare = 20,
+  StratumErrorJobNotFound = 21,
+  StratumErrorDuplicateShare = 22,
+  StratumErrorUnauthorizedWorker = 24
+};
+
+static inline const char *stratumErrorText(StratumErrorTy error)
+{
+  switch (error) {
+    case StratumErrorInvalidShare : return "invalid_share";
+    case StratumErrorJobNotFound : return "stale_share";
+    case StratumErrorDuplicateShare : return "duplicate_share";
+    case StratumErrorUnauthorizedWorker : return "unauthorized_worker";
+    default : return "error";
+  }
+}
+
 template<typename T>
 static inline unsigned popcount(T number)
 {
@@ -141,8 +159,9 @@ public:
 
     if (work.initialized()) {
       work.buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock);
+      int64_t currentTime = time(nullptr);
       for (auto &connection: data.Connections_) {
-        stratumSendWork(connection);
+        stratumSendWork(connection, currentTime);
       }
     }
   }
@@ -189,8 +208,9 @@ private:
     unsigned WorkerId;
     HostAddress Address;
     std::string AddressHr;
-    unsigned ErrorSequence = 0;
     bool Active = true;
+    bool IsCgMiner = false;
+    int64_t LastUpdateTime = std::numeric_limits<int64_t>::max();
     // Stratum protocol decoding
     char Buffer[40960];
     unsigned Offset = 0;
@@ -221,6 +241,9 @@ private:
   }
 
   void onStratumSubscribe(Connection *connection, StratumMessage &msg) {
+    if (msg.subscribe.minerUserAgent.find("cgminer") != std::string::npos)
+      connection->IsCgMiner = true;
+
     char buffer[4096];
     xmstream stream(buffer, sizeof(buffer));
     stream.reset();
@@ -316,6 +339,10 @@ private:
 
     stream.write('\n');
     send(connection, stream);
+
+    ThreadData &data = Data_[GetLocalThreadId()];
+    if (connection->IsCgMiner && !data.WorkSet.empty())
+      stratumSendWork(connection, time(nullptr));
     return true;
   }
 
@@ -336,7 +363,7 @@ private:
     send(connection, stream);
   }
 
-  bool shareCheck(Connection *connection, StratumMessage &msg, uint32_t &errorCode, std::string &errorMessage) {
+  bool shareCheck(Connection *connection, StratumMessage &msg, StratumErrorTy &errorCode) {
     ThreadData &data = Data_[GetLocalThreadId()];
 
     // Check worker name
@@ -344,8 +371,7 @@ private:
     if (It == connection->Workers.end()) {
       if (isDebugInstanceStratumRejects())
         LOG_F(1, "%s(%s) reject: unknown worker name: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.submit.WorkerName.c_str());
-      errorCode = 24;
-      errorMessage = "Unauthorized worker";
+      errorCode = StratumErrorUnauthorizedWorker;
       return false;
     }
     Worker &worker = It->second;
@@ -357,8 +383,7 @@ private:
       if (sharpPos == msg.submit.JobId.npos) {
         if (isDebugInstanceStratumRejects())
           LOG_F(1, "%s(%s) %s/%s reject: invalid job id format: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), msg.submit.JobId.c_str());
-        errorCode = 20;
-        errorMessage = "Invalid job";
+        errorCode = StratumErrorJobNotFound;
         return false;
       }
 
@@ -368,8 +393,7 @@ private:
       if (majorJobId != data.MajorWorkId_ || jobIndex >= data.WorkSet.size()) {
         if (isDebugInstanceStratumRejects())
           LOG_F(1, "%s(%s) %s/%s reject: unknown job id: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), msg.submit.JobId.c_str());
-        errorCode = 21;
-        errorMessage = "Job not found";
+        errorCode = StratumErrorJobNotFound;
         return false;
       }
     }
@@ -380,16 +404,14 @@ private:
     if (!work.prepareForSubmit(connection->WorkerConfig, MiningCfg_, msg)) {
       if (isDebugInstanceStratumRejects())
         LOG_F(1, "%s(%s) %s/%s reject: invalid share format", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
-      errorCode = 20;
-      errorMessage = "Invalid share";
+      errorCode = StratumErrorInvalidShare;
       return false;
     }
 
     if (!work.checkForDuplicate(worker.User + "." + worker.WorkerName, connection->WorkerConfig)) {
       if (isDebugInstanceStratumRejects())
         LOG_F(1, "%s(%s) %s/%s reject: duplicate share", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
-      errorCode = 22;
-      errorMessage = "Duplicate share";
+      errorCode = StratumErrorDuplicateShare;
       return false;
     }
 
@@ -429,7 +451,7 @@ private:
         int64_t generatedCoins = work.blockReward(i);
         double shareDifficulty = connection->ShareDifficulty;
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, blockHash, generatedCoins, backend, shareDifficulty, &worker, &data](uint32_t successNum, const std::string &hostName, const std::string &error) {
+        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, blockHash, generatedCoins, backend, shareDifficulty, worker](uint32_t successNum, const std::string &hostName, const std::string &error) {
           if (successNum) {
             LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
             if (successNum == 1) {
@@ -465,18 +487,14 @@ private:
       }
     }
 
-    if (!shareAccepted) {
-      errorCode = 20;
-      errorMessage = "Invalid share";
-    }
-
+    if (!shareAccepted)
+      errorCode = StratumErrorInvalidShare;
     return shareAccepted;
   }
 
   void onStratumSubmit(Connection *connection, StratumMessage &msg) {
-    uint32_t errorCode;
-    std::string errorMsg;
-    bool result = shareCheck(connection, msg, errorCode, errorMsg);
+    StratumErrorTy errorCode;
+    bool result = shareCheck(connection, msg, errorCode);
     xmstream stream;
     {
       // Response
@@ -485,15 +503,13 @@ private:
       if (result) {
         object.addBoolean("result", true);
         object.addNull("error");
-        connection->ErrorSequence = 0;
       } else {
-        connection->ErrorSequence++;
         object.addNull("result");
         object.addField("error");
         {
           JSON::Array error(stream);
-          error.addInt(errorCode);
-          error.addString(errorMsg);
+          error.addInt(static_cast<int>(errorCode));
+          error.addString(stratumErrorText(errorCode));
           error.addNull();
         }
       }
@@ -501,10 +517,20 @@ private:
 
     stream.write('\n');
     send(connection, stream);
-    if (connection->ErrorSequence >= 3) {
-      if (isDebugInstanceStratumConnections())
-        LOG_F(1, "%s: connection %s too much errors, disconnecting...", Name_.c_str(), connection->AddressHr.c_str());
-      connection->Active = false;
+
+    if (!result) {
+      if (errorCode == StratumErrorJobNotFound) {
+        int64_t timeDiff = time(nullptr) - connection->LastUpdateTime;
+        if (timeDiff >= 4) {
+          if (isDebugInstanceStratumConnections())
+            LOG_F(1, "%s: connection %s too late stale share, disconnecting", Name_.c_str(), connection->AddressHr.c_str());
+          connection->Active = false;
+        }
+      } else {
+        if (isDebugInstanceStratumConnections())
+          LOG_F(1, "%s: connection %s fatal error, disconnecting", Name_.c_str(), connection->AddressHr.c_str());
+        connection->Active = false;
+      }
     }
   }
 
@@ -538,9 +564,10 @@ private:
     send(connection, stream);
   }
 
-  void stratumSendWork(Connection *connection) {
+  void stratumSendWork(Connection *connection, int64_t currentTime) {
     ThreadData &data = Data_[GetLocalThreadId()];
     typename X::Stratum::Work &work = *data.WorkSet.back();
+    connection->LastUpdateTime = currentTime;
     send(connection, work.notifyMessage());
   }
 
@@ -589,7 +616,7 @@ private:
               result = connection->Instance->onStratumAuthorize(connection, msg);
               if (result && !data.WorkSet.empty()) {
                 connection->Instance->stratumSendTarget(connection);
-                connection->Instance->stratumSendWork(connection);
+                connection->Instance->stratumSendWork(connection, time(nullptr));
               }
               break;
             }
