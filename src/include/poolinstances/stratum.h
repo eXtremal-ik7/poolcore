@@ -158,12 +158,17 @@ public:
     }
 
     if (work.initialized()) {
-      LOG_F(INFO, "%s: Broadcasting work %" PRIu64 "#%zu reset=%s", Name_.c_str(), data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock ? "yes" : "no");
       work.buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock);
       int64_t currentTime = time(nullptr);
+      auto beginPt = std::chrono::steady_clock::now();
+      unsigned counter = 0;
       for (auto &connection: data.Connections_) {
         stratumSendWork(connection, currentTime);
+        counter++;
       }
+      auto endPt = std::chrono::steady_clock::now();
+      auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(endPt - beginPt).count();
+      LOG_F(INFO, "%s: Broadcasting work %" PRIu64 "#%zu (reset=%s) to %u clients in %.3lf seconds", Name_.c_str(), data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
     }
   }
 
