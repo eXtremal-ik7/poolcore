@@ -158,6 +158,7 @@ public:
     }
 
     if (work.initialized()) {
+      LOG_F(INFO, "%s: Broadcasting work %" PRIu64 "#%zu reset=%s", Name_.c_str(), data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock ? "yes" : "no");
       work.buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock);
       int64_t currentTime = time(nullptr);
       for (auto &connection: data.Connections_) {
