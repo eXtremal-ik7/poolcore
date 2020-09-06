@@ -139,6 +139,8 @@ StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumM
     out->method = MiningSuggestDifficulty;
     if (params[0].IsFloat()) {
       out->miningSuggestDifficulty.Difficulty = params[0].GetFloat();
+    } else if (params[0].IsUint64()) {
+      out->miningSuggestDifficulty.Difficulty = params[0].GetUint64();
     } else {
       return FormatError;
     }

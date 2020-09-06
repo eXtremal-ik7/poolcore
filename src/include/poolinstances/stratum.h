@@ -190,15 +190,11 @@ private:
 
   struct Connection {
     Connection(StratumInstance *instance, aioObject *socket, unsigned workerId, HostAddress address) : Instance(instance), Socket(socket), WorkerId(workerId), Address(address) {
-      {
-        struct in_addr addr;
-        addr.s_addr = Address.ipv4;
-        AddressHr = inet_ntoa(addr);
-        AddressHr.push_back(':');
-        AddressHr.append(std::to_string(htons(address.port)));
-      }
-
-      Instance->Data_[WorkerId].Connections_.insert(this);
+      struct in_addr addr;
+      addr.s_addr = Address.ipv4;
+      AddressHr = inet_ntoa(addr);
+      AddressHr.push_back(':');
+      AddressHr.append(std::to_string(htons(address.port)));
     }
 
     ~Connection() {
@@ -208,6 +204,7 @@ private:
       deleteAioObject(Socket);
     }
 
+    bool Initialized = false;
     StratumInstance *Instance;
     // Network
     aioObject *Socket;
@@ -595,7 +592,13 @@ private:
     if (status != aosSuccess) {
       delete connection;
       return;
-    } 
+    }
+
+    ThreadData &data = connection->Instance->Data_[connection->WorkerId];
+    if (!connection->Initialized) {
+      data.Connections_.insert(connection);
+      connection->Initialized = true;
+    }
 
     const char *nextMsgPos;
     const char *p = connection->Buffer;
@@ -618,7 +621,6 @@ private:
               connection->Instance->onStratumSubscribe(connection, msg);
               break;
             case StratumMethodTy::Authorize : {
-              ThreadData &data = connection->Instance->Data_[connection->WorkerId];
               result = connection->Instance->onStratumAuthorize(connection, msg);
               if (result && !data.WorkSet.empty()) {
                 connection->Instance->stratumSendTarget(connection);
