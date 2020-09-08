@@ -487,13 +487,22 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
   }
 
-  history.resize(stats.size());
-  size_t index = 0;
+  int64_t lastTimeLabel = 0;
   for (auto It = stats.rbegin(), ItE = stats.rend(); It != ItE; ++It) {
-    CStats &stats = history[index++];
+    int64_t expectedTime = lastTimeLabel + groupByInterval;
+    if (lastTimeLabel != 0) {
+      while (expectedTime < It->TimeLabel) {
+        CStats &stats = history.emplace_back();
+        stats.Time = expectedTime;
+        expectedTime += groupByInterval;
+      }
+    }
+
+    CStats &stats = history.emplace_back();
     stats.Time = It->TimeLabel;
     stats.SharesPerSecond = (double)It->SharesNum / groupByInterval;
     stats.AveragePower = CoinInfo_.calculateAveragePower(It->SharesWork, groupByInterval);
     stats.SharesWork = It->SharesWork;
+    lastTimeLabel = It->TimeLabel;
   }
 }
