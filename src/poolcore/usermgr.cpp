@@ -594,6 +594,11 @@ void UserManager::enumerateUsersImpl(EnumerateUsersTask::Cb callback)
   callback(result);
 }
 
+bool UserManager::checkUser(const std::string &login)
+{
+  return UsersCache_.count(login);
+}
+
 bool UserManager::checkPassword(const std::string &login, const std::string &password)
 {
   decltype (UsersCache_)::const_accessor accessor;

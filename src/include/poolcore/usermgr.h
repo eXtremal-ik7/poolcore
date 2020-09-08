@@ -191,6 +191,7 @@ public:
   void enumerateUsers(EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, callback)); }
 
   // Synchronous api
+  bool checkUser(const std::string &login);
   bool checkPassword(const std::string &login, const std::string &password);
   bool validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin);
   bool getUserCredentials(const std::string &login, Credentials &out);

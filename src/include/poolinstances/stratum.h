@@ -263,7 +263,7 @@ private:
       worker.User.assign(msg.authorize.login.begin(), msg.authorize.login.begin() + dotPos);
       worker.WorkerName.assign(msg.authorize.login.begin() + dotPos + 1, msg.authorize.login.end());
       connection->Workers.insert(std::make_pair(msg.authorize.login, worker));
-      authSuccess = UserMgr_.checkPassword(worker.User, msg.authorize.password);
+      authSuccess = UserMgr_.checkUser(worker.User);
     } else {
       error = "Invalid user name format (username.workername required)";
     }
