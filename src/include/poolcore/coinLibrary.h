@@ -87,6 +87,26 @@ public:
       info.PubkeyAddressPrefix = {126};
       info.ScriptAddressPrefix = {140};
       info.DefaultRpcPort = 14023;
+    } else if (strcmp(coinName, "DGB.scrypt") == 0) {
+      info.Name = "DGB";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {30};
+      info.ScriptAddressPrefix = {63};
+      info.DefaultRpcPort = 14022;
+    } else if (strcmp(coinName, "DGB.scrypt.testnet") == 0) {
+      info.Name = "DGB.testnet";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {126};
+      info.ScriptAddressPrefix = {140};
+      info.DefaultRpcPort = 14023;
     } else if (strcmp(coinName, "DOGE") == 0) {
       info.Name = "DOGE";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);

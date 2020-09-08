@@ -10,7 +10,8 @@ CThreadPool::CThreadPool(unsigned threadsNum) : ThreadsNum_(threadsNum)
     ThreadData &threadData = Threads_[i];
     threadData.Id = i;
     threadData.Base = createAsyncBase(amOSDefault);
-    threadData.NewTaskEvent = newUserEvent(threadData.Base, 0, [](aioUserEvent*, void *arg) {
+    // Temporary use "semaphore" event
+    threadData.NewTaskEvent = newUserEvent(threadData.Base, 1, [](aioUserEvent*, void *arg) {
       runTaskQueue(*static_cast<ThreadData*>(arg));
     }, &threadData);
   }
