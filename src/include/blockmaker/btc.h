@@ -11,7 +11,6 @@
 #include "loguru.hpp"
 #include "poolcommon/intrusive_ptr.h"
 #include "poolcore/poolCore.h"
-#include <unordered_set>
 
 struct CCoinInfo;
 struct PoolBackendConfig;
@@ -295,13 +294,12 @@ public:
     int64_t BlockReward;
     xmstream BlockHexData;
     xmstream NotifyMessage;
-    std::unordered_map<uint256, std::string> KnownShares;
 
   public:
     size_t backendsNum() { return 1; }
+    uint256 hash() { return Header.GetHash(); }
     PoolBackend *backend(size_t) { return Backend; }
     uint64_t height(size_t) { return Height; }
-    std::string hash(size_t) { return Header.GetHash().ToString(); }
     size_t txNum(size_t) { return TxNum; }
     int64_t blockReward(size_t) { return BlockReward; }
     const xmstream &notifyMessage() { return NotifyMessage; }
@@ -330,16 +328,6 @@ public:
                           std::string &error);
 
     bool prepareForSubmit(const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
-    bool checkForDuplicate(const std::string &workerName, const WorkerConfig &workerCfg) {
-      std::string value = workerName + "/" + std::to_string(workerCfg.ExtraNonceFixed);
-      auto result = KnownShares.insert(std::make_pair(Header.GetHash(), value));
-      if (result.second) {
-        return true;
-      } else {
-        LOG_F(ERROR, "duplicate share from %s; previous sent from %s", value.c_str(), result.first->second.c_str());
-        return false;
-      }
-    }
   };
 };
 

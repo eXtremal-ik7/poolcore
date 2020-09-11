@@ -98,7 +98,6 @@ public:
   }
 
   virtual void checkNewBlockTemplate(CBlockTemplate *blockTemplate, PoolBackend *backend) override {
-    intrusive_ptr<CBlockTemplate> holder(blockTemplate);
     for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
       ThreadPool_.startAsyncTask(i, new AcceptWork(*this, blockTemplate, backend));
   }
@@ -157,6 +156,8 @@ public:
     }
 
     if (isNewBlock) {
+      // Clear known shares set
+      data.KnownShares.clear();
       // Update major job id
       uint64_t newJobId = time(nullptr);
       data.MajorWorkId_ = (data.MajorWorkId_ == newJobId) ? newJobId+1 : newJobId;
@@ -238,6 +239,7 @@ private:
     typename X::Stratum::ThreadConfig ThreadCfg;
     std::deque<std::unique_ptr<typename X::Stratum::Work>> WorkSet;
     std::set<Connection*> Connections_;
+    std::unordered_set<typename X::Proto::BlockHashTy> KnownShares;
     uint64_t MajorWorkId_ = 0;
     uint64_t MinorLastWorkId_ = 0;
   };
@@ -422,7 +424,9 @@ private:
       return false;
     }
 
-    if (!work.checkForDuplicate(worker.User + "." + worker.WorkerName, connection->WorkerConfig)) {
+    typename X::Proto::BlockHashTy hash = work.hash();
+    // Check for duplicate
+    if (!data.KnownShares.insert(hash).second) {
       if (isDebugInstanceStratumRejects())
         LOG_F(1, "%s(%s) %s/%s reject: duplicate share", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
       errorCode = StratumErrorDuplicateShare;
@@ -458,14 +462,14 @@ private:
 
       shareAccepted = true;
       if (isBlock) {
-        std::string blockHash = work.hash(i);
-        LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work.txNum(i));
+        LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), hash.ToString().c_str(), work.txNum(i));
 
         // Serialize block
         int64_t generatedCoins = work.blockReward(i);
         double shareDifficulty = connection->ShareDifficulty;
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, blockHash, generatedCoins, backend, shareDifficulty, worker](uint32_t successNum, const std::string &hostName, const std::string &error) {
+        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, hash, generatedCoins, backend, shareDifficulty, worker](uint32_t successNum, const std::string &hostName, const std::string &error) {
+          std::string blockHash = hash.ToString();
           if (successNum) {
             LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
             if (successNum == 1) {

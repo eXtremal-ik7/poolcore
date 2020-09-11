@@ -118,6 +118,7 @@ void CNetworkClientDispatcher::onWorkFetcherConnectionLost()
 void CNetworkClientDispatcher::onWorkFetcherNewWork(CBlockTemplate *blockTemplate)
 {
   WorkState_ = EWorkOk;
+  intrusive_ptr<CBlockTemplate> holder(blockTemplate);
   for (auto &instance : LinkedInstances_)
     instance->checkNewBlockTemplate(blockTemplate, Backend_);
 }
