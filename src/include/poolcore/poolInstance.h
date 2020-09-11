@@ -66,6 +66,7 @@ private:
 class CPoolInstance {
 public:
   CPoolInstance(asyncBase *base, UserManager &userMgr, CThreadPool &threadPool) : MonitorBase_(base), UserMgr_(userMgr), ThreadPool_(threadPool) {}
+  virtual ~CPoolInstance() {}
 
   // Functions running in listener thread
   /// Send all miners stopping work signal

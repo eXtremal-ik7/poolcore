@@ -109,6 +109,8 @@ public:
   }
 
   void acceptWork(unsigned, CBlockTemplate *blockTemplate, PoolBackend *backend) {
+    auto beginPt = std::chrono::steady_clock::now();
+    unsigned counter = 0;
     if (!blockTemplate) {
       return;
     }
@@ -126,14 +128,17 @@ public:
         typename X::Stratum::Work *lastWork = data.WorkSet.back().release();
         data.WorkSet.clear();
         data.WorkSet.emplace_back(lastWork);
+        data.MinorLastWorkId_ = 0;
       } else {
         // Deep copy last work (required for merged mining)
         typename X::Stratum::Work *clone = new typename X::Stratum::Work(*data.WorkSet.back());
         data.WorkSet.emplace_back(clone);
+        data.MinorLastWorkId_++;
       }
     } else {
       isNewBlock = true;
       data.WorkSet.emplace_back(new typename X::Stratum::Work);
+      data.MinorLastWorkId_ = 0;
     }
 
     // Get mining address and coinbase message
@@ -158,18 +163,20 @@ public:
     }
 
     if (work.initialized()) {
-      work.buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock);
+      work.buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.MinorLastWorkId_, isNewBlock);
       int64_t currentTime = time(nullptr);
-      auto beginPt = std::chrono::steady_clock::now();
-      unsigned counter = 0;
       for (auto &connection: data.Connections_) {
         stratumSendWork(connection, currentTime);
         counter++;
       }
-      auto endPt = std::chrono::steady_clock::now();
-      auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(endPt - beginPt).count();
-      LOG_F(INFO, "%s: Broadcasting work %" PRIu64 "#%zu (reset=%s) to %u clients in %.3lf seconds", Name_.c_str(), data.MajorWorkId_, data.WorkSet.size() - 1, isNewBlock ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
     }
+
+    while (data.WorkSet.size() > WorksetSizeLimit)
+      data.WorkSet.pop_front();
+
+    auto endPt = std::chrono::steady_clock::now();
+    auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(endPt - beginPt).count();
+    LOG_F(INFO, "%s: Accepting work %" PRIu64 "#%zu (reset=%s) & send to %u clients in %.3lf seconds", Name_.c_str(), data.MajorWorkId_, data.MinorLastWorkId_, isNewBlock ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
   }
 
 private:
@@ -229,9 +236,10 @@ private:
     asyncBase *WorkerBase;
     typename X::Proto::CheckConsensusCtx CheckConsensusCtx;
     typename X::Stratum::ThreadConfig ThreadCfg;
-    std::vector<std::unique_ptr<typename X::Stratum::Work>> WorkSet;
+    std::deque<std::unique_ptr<typename X::Stratum::Work>> WorkSet;
     std::set<Connection*> Connections_;
     uint64_t MajorWorkId_ = 0;
+    uint64_t MinorLastWorkId_ = 0;
   };
 
 private:
@@ -380,7 +388,7 @@ private:
     Worker &worker = It->second;
 
     // Check job id
-    size_t jobIndex;
+    size_t localJobIndex;
     {
       size_t sharpPos = msg.submit.JobId.find('#');
       if (sharpPos == msg.submit.JobId.npos) {
@@ -392,8 +400,11 @@ private:
 
       msg.submit.JobId[sharpPos] = 0;
       uint64_t majorJobId = xatoi<uint64_t>(msg.submit.JobId.c_str());
-      jobIndex = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
-      if (majorJobId != data.MajorWorkId_ || jobIndex >= data.WorkSet.size()) {
+      size_t jobIndex = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
+      size_t jobIdOffset = data.MinorLastWorkId_ - data.WorkSet.size() + 1;
+      localJobIndex = jobIndex - jobIdOffset;
+      bool hasJob = jobIndex >= jobIdOffset && localJobIndex < data.WorkSet.size();
+      if (majorJobId != data.MajorWorkId_ || !hasJob) {
         if (isDebugInstanceStratumRejects())
           LOG_F(1, "%s(%s) %s/%s reject: unknown job id: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), msg.submit.JobId.c_str());
         errorCode = StratumErrorJobNotFound;
@@ -403,7 +414,7 @@ private:
 
     // Build header and check proof of work
     std::string user = worker.User;
-    typename X::Stratum::Work &work = *data.WorkSet[jobIndex];
+    typename X::Stratum::Work &work = *data.WorkSet[localJobIndex];
     if (!work.prepareForSubmit(connection->WorkerConfig, MiningCfg_, msg)) {
       if (isDebugInstanceStratumRejects())
         LOG_F(1, "%s(%s) %s/%s reject: invalid share format", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
@@ -702,6 +713,7 @@ private:
   }
 
 private:
+  static constexpr size_t WorksetSizeLimit = 5;
   std::unique_ptr<ThreadData[]> Data_;
   std::string Name_;
   unsigned CurrentThreadId_;

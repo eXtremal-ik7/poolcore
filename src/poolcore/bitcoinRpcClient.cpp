@@ -160,6 +160,7 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
   WorkFetcherBase_(base), ThreadsNum_(threadsNum), CoinInfo_(coinInfo), HasLongPoll_(longPollEnabled)
 {
   WorkFetcher_.Client = nullptr;
+  httpParseDefaultInit(&WorkFetcher_.ParseCtx);
   WorkFetcher_.TimerEvent = newUserEvent(base, 0, [](aioUserEvent*, void *arg) {
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetchTimeout();
   }, this);
@@ -455,7 +456,7 @@ void CBitcoinRpcClient::poll()
   WorkFetcher_.LongPollId = HasLongPoll_ ? "0000000000000000000000000000000000000000000000000000000000000000" : "";
   WorkFetcher_.WorkId = 0;
   WorkFetcher_.LastTemplateTime = std::chrono::time_point<std::chrono::steady_clock>::min();
-  httpParseDefaultInit(&WorkFetcher_.ParseCtx);
+  dynamicBufferClear(&WorkFetcher_.ParseCtx.buffer);
 
   aioHttpConnect(WorkFetcher_.Client, &Address_, nullptr, 3000000, [](AsyncOpStatus status, HTTPClient*, void *arg){
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherConnect(status);
