@@ -717,7 +717,7 @@ private:
   }
 
 private:
-  static constexpr size_t WorksetSizeLimit = 5;
+  static constexpr size_t WorksetSizeLimit = 30;
   std::unique_ptr<ThreadData[]> Data_;
   std::string Name_;
   unsigned CurrentThreadId_;
