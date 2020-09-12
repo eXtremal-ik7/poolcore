@@ -11,6 +11,13 @@ struct CShare;
 
 class StatisticDb {
 public:
+  enum EStatsColumn {
+    EStatsColumnName = 0,
+    EStatsColumnAveragePower,
+    EStatsColumnSharesPerSecond,
+    EStatsColumnLastShareTime
+  };
+
   struct CStats {
     std::string WorkerId;
     uint32_t ClientsNum = 0;
@@ -109,7 +116,7 @@ public:
   void updatePoolStats(int64_t timeLabel);
   
   const CStats &getPoolStats() { return PoolStatsCached_; }
-  void getUserStats(const std::string &user, CStats &aggregate, std::vector<CStats> &workerStats);
+  void getUserStats(const std::string &user, CStats &aggregate, std::vector<CStats> &workerStats, size_t offset, size_t size, EStatsColumn sortBy, bool sortDescending);
   void getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history);
 };
 

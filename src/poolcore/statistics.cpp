@@ -345,7 +345,7 @@ void StatisticDb::updatePoolStats(int64_t timeLabel)
 }
 
 void StatisticDb::updateStatsDiskCache(const char *name, std::deque<CStatsFile> &cache, uint64_t timeLabel, uint64_t lastShareId, const void *data, size_t size)
-{ 
+{
   // Don't write empty files to disk
   if (!size)
     return;
@@ -379,7 +379,7 @@ void StatisticDb::updateStatsDiskCache(const char *name, std::deque<CStatsFile> 
   }
 }
 
-void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::vector<CStats> &workerStats)
+void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::vector<CStats> &workerStats, size_t offset, size_t size, EStatsColumn sortBy, bool sortDescending)
 {
   auto userIt = LastWorkerStats_.find(user);
   if (userIt == LastWorkerStats_.end())
@@ -389,12 +389,13 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
   userStats.WorkersNum = 0;
 
   // Iterate over all workers
-  workerStats.resize(userIt->second.size());
+  std::vector<CStats> allStats;
+  allStats.resize(userIt->second.size());
   size_t workerStatsIndex = 0;
   int64_t lastShareTime = 0;
   for (const auto &workerIt: userIt->second) {
     const CStatsAccumulator &acc = workerIt.second;
-    CStats &result = workerStats[workerStatsIndex];
+    CStats &result = allStats[workerStatsIndex];
     result.WorkerId = workerIt.first;
     if (isDebugStatistic())
       LOG_F(1, "Retrieve statistic for %s/%s", user.c_str(), workerIt.first.c_str());
@@ -412,6 +413,41 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
   }
 
   userStats.LastShareTime = lastShareTime;
+
+  // Build response
+  // Sorting results
+  switch (sortBy) {
+    case EStatsColumnName :
+      if (!sortDescending)
+        std::sort(allStats.begin(), allStats.end(), [](const CStats &l, const CStats &r){ return l.WorkerId < r.WorkerId; });
+      else
+        std::sort(allStats.rbegin(), allStats.rend(), [](const CStats &l, const CStats &r){ return l.WorkerId < r.WorkerId; });
+      break;
+    case EStatsColumnAveragePower:
+      if (!sortDescending)
+        std::sort(allStats.begin(), allStats.end(), [](const CStats &l, const CStats &r){ return l.AveragePower < r.AveragePower; });
+      else
+        std::sort(allStats.rbegin(), allStats.rend(), [](const CStats &l, const CStats &r){ return l.AveragePower < r.AveragePower; });
+      break;
+    case EStatsColumnSharesPerSecond:
+      if (!sortDescending)
+        std::sort(allStats.begin(), allStats.end(), [](const CStats &l, const CStats &r){ return l.SharesPerSecond < r.SharesPerSecond; });
+      else
+        std::sort(allStats.rbegin(), allStats.rend(), [](const CStats &l, const CStats &r){ return l.SharesPerSecond < r.SharesPerSecond; });
+      break;
+    case EStatsColumnLastShareTime:
+      if (!sortDescending)
+        std::sort(allStats.begin(), allStats.end(), [](const CStats &l, const CStats &r){ return l.LastShareTime < r.LastShareTime; });
+      else
+        std::sort(allStats.rbegin(), allStats.rend(), [](const CStats &l, const CStats &r){ return l.LastShareTime < r.LastShareTime; });
+      break;
+  }
+
+  // Make page
+  if (offset < allStats.size()) {
+    size_t endIdx = std::min(offset + size, allStats.size());
+    workerStats.insert(workerStats.end(), std::make_move_iterator(allStats.begin() + offset), std::make_move_iterator(allStats.begin() + endIdx));
+  }
 }
 
 void StatisticDb::getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history)

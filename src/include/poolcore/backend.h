@@ -113,11 +113,16 @@ private:
 
   class TaskQueryUserStats : public Task {
   public:
-    TaskQueryUserStats(const std::string &user, QueryUserStatsCallback callback) : User_(user), Callback_(callback) {}
-    void run(PoolBackend *backend) final { backend->queryUserStatsImpl(User_, Callback_); }
+    TaskQueryUserStats(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending) :
+      User_(user), Callback_(callback), Offset_(offset), Size_(size), SortBy_(sortBy), SortDescending_(sortDescending) {}
+    void run(PoolBackend *backend) final { backend->queryUserStatsImpl(User_, Callback_, Offset_, Size_, SortBy_, SortDescending_); }
   private:
     std::string User_;
     QueryUserStatsCallback Callback_;
+    size_t Offset_;
+    size_t Size_;
+    StatisticDb::EStatsColumn SortBy_;
+    bool SortDescending_;
   };
 
   class TaskQueryStatsHistory : public Task {
@@ -172,7 +177,7 @@ private:
   void queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
   void queryBalanceImpl(const std::string &user, QueryBalanceCallback callback);
   void queryPoolStatsImpl(QueryPoolStatsCallback callback);
-  void queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback);
+  void queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending);
   void queryStatsHistoryImpl(const std::string &user, const std::string &worker, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInteval, QueryStatsHistoryCallback callback);
   
 
@@ -199,7 +204,9 @@ public:
   void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { startAsyncTask(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { startAsyncTask(new TaskQueryBalance(user, callback)); }
   void queryPoolStats(QueryPoolStatsCallback callback) { startAsyncTask(new TaskQueryPoolStats(callback)); }
-  void queryUserStats(const std::string &user, QueryUserStatsCallback callback) { startAsyncTask(new TaskQueryUserStats(user, callback)); }
+  void queryUserStats(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending) {
+    startAsyncTask(new TaskQueryUserStats(user, callback, offset, size, sortBy, sortDescending));
+  }
 
   void queryStatsHistory(const std::string &user,
                          const std::string &worker,

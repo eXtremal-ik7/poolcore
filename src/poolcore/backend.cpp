@@ -392,11 +392,11 @@ void PoolBackend::queryPoolStatsImpl(QueryPoolStatsCallback callback)
   callback(statisticDb()->getPoolStats());
 }
 
-void PoolBackend::queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback)
+void PoolBackend::queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending)
 {
   StatisticDb::CStats aggregate;
   std::vector<StatisticDb::CStats> workers;
-  statisticDb()->getUserStats(user, aggregate, workers);
+  statisticDb()->getUserStats(user, aggregate, workers, offset, size, sortBy, sortDescending);
   callback(aggregate, workers);
 }
 
