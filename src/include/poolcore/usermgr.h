@@ -13,6 +13,11 @@
 
 class UserManager {
 public:
+  enum ESpecialUser {
+    ESpecialUserAdmin,
+    ESpecialUserObserver
+  };
+
   struct BackendParameters {
     int64_t DefaultMinimalPayout;
   };
@@ -154,13 +159,25 @@ public:
     BaseCfg.ActivateLinkPrefix = userActivateLinkPrefix;
   }
 
-  void setAdminPassword(const std::string &hash) {
-    UsersRecord adminRecord;
-    adminRecord.Login = "admin";
-    adminRecord.PasswordHash = uint256S(hash);
-    adminRecord.Name = "admin";
-    adminRecord.IsActive = true;
-    UsersCache_.insert(std::make_pair("admin", adminRecord));
+  void addSpecialUser(ESpecialUser type, const std::string &hash) {
+    const char *name = nullptr;
+    switch (type) {
+      case ESpecialUserAdmin :
+        name = "admin";
+        break;
+      case ESpecialUserObserver :
+        name = "observer";
+        break;
+    }
+
+    if (name) {
+      UsersRecord adminRecord;
+      adminRecord.Login = name;
+      adminRecord.PasswordHash = uint256S(hash);
+      adminRecord.Name = name;
+      adminRecord.IsActive = true;
+      UsersCache_.insert(std::make_pair(name, adminRecord));
+    }
   }
 
   void enableSMTP(HostAddress serverAddress,
@@ -193,7 +210,7 @@ public:
   // Synchronous api
   bool checkUser(const std::string &login);
   bool checkPassword(const std::string &login, const std::string &password);
-  bool validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin);
+  bool validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin, bool needWriteAccess);
   bool getUserCredentials(const std::string &login, Credentials &out);
   bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);
 

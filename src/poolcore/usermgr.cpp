@@ -611,7 +611,7 @@ bool UserManager::checkPassword(const std::string &login, const std::string &pas
   return record.PasswordHash == generateHash(login, password);
 }
 
-bool UserManager::validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin)
+bool UserManager::validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin, bool needWriteAccess)
 {
   time_t currentTime = time(nullptr);
   {
@@ -624,7 +624,8 @@ bool UserManager::validateSession(const std::string &id, const std::string &targ
     }
   }
 
-  if (resultLogin == "admin") {
+  bool isSuperUser = (resultLogin == "admin") || (resultLogin == "observer" && !needWriteAccess);
+  if (isSuperUser) {
     if (!targetLogin.empty()) {
       resultLogin = targetLogin;
       return UsersCache_.count(targetLogin);
