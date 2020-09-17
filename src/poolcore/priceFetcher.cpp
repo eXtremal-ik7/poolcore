@@ -81,7 +81,6 @@ void CPriceFetcher::onConnect(AsyncOpStatus status)
 {
   if (status != aosSuccess) {
     LOG_F(ERROR, "PriceFetcher(%s) connect error %i", CoinInfo_.Name.c_str(), status);
-    CurrentPrice_.store(0.0);
     httpClientDelete(Client_);
     userEventStartTimer(TimerEvent_, 60*1000000, 1);
     return;
@@ -100,9 +99,6 @@ void CPriceFetcher::onRequest(AsyncOpStatus status)
   } else {
     LOG_F(ERROR, "PriceFetcher(%s) request error %i; http code: %i", CoinInfo_.Name.c_str(), status, ParseCtx_.resultCode);
   }
-
-  if (!success)
-    CurrentPrice_.store(0.0);
 
   httpClientDelete(Client_);
   userEventStartTimer(TimerEvent_, 60*1000000, 1);
