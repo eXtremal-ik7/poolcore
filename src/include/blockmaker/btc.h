@@ -306,7 +306,12 @@ public:
     const xmstream &blockHexData(size_t) { return BlockHexData; }
     bool initialized() { return Backend != nullptr; }
 
-    bool isNewBlock(const std::string&, uint64_t workId) { return UniqueWorkId != workId; }
+    bool isNewBlock(const PoolBackend *backend, const std::string&, uint64_t workId) {
+      // Profit switcher: don't reset previous work
+      if (backend != Backend)
+        return false;
+      return UniqueWorkId != workId;
+    }
 
     bool checkConsensus(size_t, double *shareDiff) {
       Proto::CheckConsensusCtx ctx;
@@ -329,6 +334,9 @@ public:
 
     bool prepareForSubmit(const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
   };
+
+  static bool suitableForProfitSwitcher(const std::string&) { return true; }
+  static double getIncomingProfitValue(rapidjson::Value &document, double price, double coeff);
 };
 
 struct X {

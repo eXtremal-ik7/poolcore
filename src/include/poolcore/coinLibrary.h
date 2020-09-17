@@ -17,6 +17,8 @@ public:
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
       info.DefaultRpcPort = 8332;
+      info.CoinGeckoName = "bitcoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
     } else if (strcmp(coinName, "BTC.testnet") == 0) {
       info.Name = "BTC.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
@@ -37,6 +39,7 @@ public:
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
       info.DefaultRpcPort = 8332;
+      info.CoinGeckoName = "bitcoin-cash";
     } else if (strcmp(coinName, "BCH.testnet") == 0) {
       info.Name = "BCH.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
@@ -47,6 +50,7 @@ public:
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
       info.DefaultRpcPort = 18332;
+      info.ProfitSwitchDefaultCoeff = 0.93;
     } else if (strcmp(coinName, "BSV") == 0) {
       info.Name = "BSV";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
@@ -57,6 +61,8 @@ public:
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
       info.DefaultRpcPort = 8332;
+      info.CoinGeckoName = "bitcoin-cash-sv";
+      info.ProfitSwitchDefaultCoeff = 0.87;
     } else if (strcmp(coinName, "BSV.testnet") == 0) {
       info.Name = "BSV.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
@@ -77,6 +83,8 @@ public:
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {63};
       info.DefaultRpcPort = 14022;
+      info.CoinGeckoName = "digibyte";
+      info.ProfitSwitchDefaultCoeff = 0.7;
     } else if (strcmp(coinName, "DGB.sha256.testnet") == 0) {
       info.Name = "DGB.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
@@ -97,6 +105,8 @@ public:
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {63};
       info.DefaultRpcPort = 14022;
+      info.CoinGeckoName = "digibyte";
+      info.ProfitSwitchDefaultCoeff = 0.7;
     } else if (strcmp(coinName, "DGB.scrypt.testnet") == 0) {
       info.Name = "DGB.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
@@ -117,6 +127,8 @@ public:
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {22};
       info.DefaultRpcPort = 22555;
+      info.CoinGeckoName = "dogecoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
     } else if (strcmp(coinName, "DOGE.testnet") == 0) {
       info.Name = "DOGE.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
@@ -137,6 +149,8 @@ public:
       info.PubkeyAddressPrefix = {48};
       info.ScriptAddressPrefix = {50};
       info.DefaultRpcPort = 9332;
+      info.CoinGeckoName = "litecoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
     } else if (strcmp(coinName, "LTC.testnet") == 0) {
       info.Name = "LTC.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
@@ -156,6 +170,8 @@ public:
       info.PowerMultLog10 = -3;
       info.PubkeyAddressPrefix = {23};
       info.DefaultRpcPort = 9912;
+      info.CoinGeckoName = "primecoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
     } else if (strcmp(coinName, "XPM.testnet") == 0) {
       info.Name = "XPM.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);

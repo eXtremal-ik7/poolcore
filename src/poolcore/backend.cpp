@@ -57,8 +57,8 @@ static void checkConsistency(AccountingDb *accounting)
 }
 
 
-PoolBackend::PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher) :
-  _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher)
+PoolBackend::PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher) :
+  _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher), PriceFetcher_(priceFetcher)
 {
   clientDispatcher.setBackend(this);
   _base = createAsyncBase(amOSDefault);
@@ -113,6 +113,8 @@ PoolBackend::PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserMan
   } else {
     startNewShareLogFile();
   }
+
+  ProfitSwitchCoeff_ = CoinInfo_.ProfitSwitchDefaultCoeff;
 }
 
 void PoolBackend::startNewShareLogFile()

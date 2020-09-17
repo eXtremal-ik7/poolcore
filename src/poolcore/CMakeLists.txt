@@ -9,6 +9,7 @@ add_library(poolcore STATIC
   kvdb.cpp
   poolCore.cpp
   poolInstance.cpp
+  priceFetcher.cpp
   rocksdbBase.cpp
   statistics.cpp
   thread.cpp

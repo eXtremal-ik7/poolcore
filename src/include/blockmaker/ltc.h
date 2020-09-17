@@ -46,6 +46,9 @@ public:
       return LTC::Proto::checkConsensus(Header, ctx, params, shareDiff);
     }
   };
+
+  static inline bool suitableForProfitSwitcher(const std::string&) { return true; }
+  static inline double getIncomingProfitValue(rapidjson::Value &document, double price, double coeff) { return BTC::Stratum::getIncomingProfitValue(document, price, coeff); }
 };
 
 struct X {

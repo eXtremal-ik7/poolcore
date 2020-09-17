@@ -583,6 +583,38 @@ bool Stratum::Work::prepareForSubmit(const WorkerConfig &workerCfg, const Mining
   return true;
 }
 
+double Stratum::getIncomingProfitValue(rapidjson::Value &document, double price, double coeff)
+{
+  if (!document.HasMember("result") || !document["result"].IsObject()) {
+    return 0.0;
+  }
+
+  rapidjson::Value &blockTemplate = document["result"];
+
+  // Check fields:
+  // height
+  // header:
+  //   version
+  //   previousblockhash
+  //   curtime
+  //   bits
+  // transactions
+  if (!blockTemplate.HasMember("bits") ||
+      !blockTemplate.HasMember("coinbasevalue")) {
+    return 0.0;
+  }
+
+  rapidjson::Value &bits = blockTemplate["bits"];
+  rapidjson::Value &coinbaseValue = blockTemplate["coinbasevalue"];
+  if (!bits.IsString() ||
+      !coinbaseValue.IsInt64()) {
+    return 0.0;
+  }
+
+  uint32_t bitsInt = strtoul(bits.GetString(), nullptr, 16);
+  return price * coinbaseValue.GetInt64() / getDifficulty(bitsInt) * coeff;
+}
+
 }
 
 void serializeJsonInside(xmstream &stream, const BTC::Proto::BlockHeader &header)

@@ -50,7 +50,6 @@ template<typename X>
 class StratumInstance : public CPoolInstance {
 public:
   StratumInstance(asyncBase *monitorBase, UserManager &userMgr, CThreadPool &threadPool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0) {
-    Name_ = (std::string)X::Proto::TickerName + ".stratum";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
 
     unsigned totalInstancesNum = instancesNum * threadPool.threadsNum();
@@ -68,6 +67,8 @@ public:
     }
 
     uint16_t port = config["port"].GetInt();
+    Name_ += ".";
+    Name_ += std::to_string(port);
 
     // Share diff
     if (config.HasMember("shareDiff")) {
@@ -90,6 +91,10 @@ public:
     // BTC ASIC boost
     if (config.HasMember("versionMask") && config["versionMask"].IsString())
       VersionMask_ = readHexBE<uint32_t>(config["versionMask"].GetString(), 4);
+
+    // Profit switcher
+    if (config.HasMember("profitSwitcherEnabled") && config["profitSwitcherEnabled"].IsBool())
+      ProfitSwitcherEnabled_ = config["profitSwitcherEnabled"].GetBool();
 
     MiningCfg_.initialize(config);
 
@@ -115,12 +120,39 @@ public:
     }
 
     ThreadData &data = Data_[GetLocalThreadId()];
-
     auto &backendConfig = backend->getConfig();
     auto &coinInfo = backend->getCoinInfo();
+
+    // Profit switcher checks
+    if (ProfitSwitcherEnabled_ && X::Stratum::suitableForProfitSwitcher(coinInfo.Name)) {
+      double currentPrice = backend->getPriceFetcher().getPrice();
+      if (currentPrice == 0.0) {
+        // Can't accept work with unknown coin price
+        LOG_F(INFO, "Can't accept work from %s: unknown price", coinInfo.Name.c_str());
+        return;
+      }
+
+      if (CurrentBackend_ && (CurrentBackend_ != backend)) {
+        double incomingProfitValue = X::Stratum::getIncomingProfitValue(blockTemplate->Document, currentPrice, backend->getProfitSwitchCoeff());
+        if (incomingProfitValue <= CurrentProfitValue_) {
+          LOG_F(INFO, "Stay at %s (profit %.8lf from %s less than current profit %.8lf)", CurrentBackend_->getCoinInfo().Name.c_str(), incomingProfitValue, coinInfo.Name.c_str(), CurrentProfitValue_);
+          return;
+        }
+
+        LOG_F(INFO, "Switch from %s to %s (profit %.8lf more than current profit %.8lf)", CurrentBackend_->getCoinInfo().Name.c_str(), coinInfo.Name.c_str(), incomingProfitValue, CurrentProfitValue_);
+        CurrentProfitValue_ = incomingProfitValue;
+        CurrentBackend_ = backend;
+      } else {
+        if (!CurrentBackend_)
+          CurrentBackend_ = backend;
+        if (CurrentBackend_ == backend)
+          CurrentProfitValue_ = X::Stratum::getIncomingProfitValue(blockTemplate->Document, currentPrice, backend->getProfitSwitchCoeff());
+      }
+    }
+
     bool isNewBlock = false;
     if (!data.WorkSet.empty()) {
-      if (data.WorkSet.back()->isNewBlock(coinInfo.Name, blockTemplate->UniqueWorkId)) {
+      if (data.WorkSet.back()->isNewBlock(backend, coinInfo.Name, blockTemplate->UniqueWorkId)) {
         // Incoming block template contains new work
         // Cleanup work set and push last known work (for reuse allocated memory or keep non changed work part)
         isNewBlock = true;
@@ -719,10 +751,14 @@ private:
 private:
   static constexpr size_t WorksetSizeLimit = 30;
   std::unique_ptr<ThreadData[]> Data_;
-  std::string Name_;
+  std::string Name_ = "stratum";
   unsigned CurrentThreadId_;
   typename X::Stratum::MiningConfig MiningCfg_;
   double ConstantShareDiff_;
+  // Profit switcher section
+  bool ProfitSwitcherEnabled_ = false;
+  PoolBackend *CurrentBackend_ = nullptr;
+  double CurrentProfitValue_ = 0.0;
 
   // ASIC boost 'overt' data
   uint32_t VersionMask_ = 0x1FFFE000;

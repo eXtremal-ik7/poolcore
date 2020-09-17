@@ -2,6 +2,7 @@
 #define __BACKEND_H_
 
 #include "accounting.h"
+#include "priceFetcher.h"
 #include "statistics.h"
 #include "usermgr.h"
 #include "asyncio/asyncio.h"
@@ -149,6 +150,7 @@ private:
   CCoinInfo CoinInfo_;
   UserManager &UserMgr_;
   CNetworkClientDispatcher &ClientDispatcher_;
+  CPriceFetcher &PriceFetcher_;
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
   tbb::concurrent_queue<Task*> TaskQueue_;
@@ -157,6 +159,8 @@ private:
   std::deque<CShareLogFile> ShareLog_;
   uint64_t CurrentShareId_ = 0;
   bool ShareLoggingEnabled_ = true;
+
+  double ProfitSwitchCoeff_ = 0.0;
 
   void startAsyncTask(Task *task) {
     TaskQueue_.push(task);
@@ -184,13 +188,16 @@ private:
 public:
   PoolBackend(const PoolBackend&) = delete;
   PoolBackend(PoolBackend&&) = default;
-  PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher);
+  PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher);
   void startNewShareLogFile();
   void replayShares(CShareLogFile &file);
 
-  const PoolBackendConfig &getConfig() { return _cfg; }
-  const CCoinInfo &getCoinInfo() { return CoinInfo_; }
-  CNetworkClientDispatcher &getClientDispatcher() { return ClientDispatcher_; }
+  const PoolBackendConfig &getConfig() const { return _cfg; }
+  const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
+  CNetworkClientDispatcher &getClientDispatcher() const { return ClientDispatcher_; }
+  CPriceFetcher &getPriceFetcher() const { return PriceFetcher_; }
+  double getProfitSwitchCoeff() const { return ProfitSwitchCoeff_; }
+  void setProfitSwitchCoeff(double profitSwithCoeff) { ProfitSwitchCoeff_ = profitSwithCoeff; }
 
   void start();
   void stop();

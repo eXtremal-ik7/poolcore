@@ -38,6 +38,9 @@ struct CCoinInfo {
 
   uint16_t DefaultRpcPort;
 
+  std::string CoinGeckoName;
+  double ProfitSwitchDefaultCoeff;
+
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;
   uint64_t calculateAveragePower(double work, uint64_t timeInterval) const;
