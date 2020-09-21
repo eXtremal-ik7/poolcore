@@ -341,7 +341,8 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
                                      Proto::AddressTy &miningAddress,
                                      const void *coinBaseExtraData,
                                      size_t coinbaseExtraSize,
-                                     std::string &error)
+                                     std::string &error,
+                                     size_t txNumLimit)
 {
   char buffer[4096];
   xmstream stream(buffer, sizeof(buffer));
@@ -396,21 +397,85 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     return false;
   }
 
+  int64_t blockReward = coinbaseValue.GetInt64();
+
   // Check segwit enabled (compare txid and hash for all transactions)
   bool segwitEnabled = false;
+  bool txFilter = txNumLimit && transactions.Size() > txNumLimit;
+  rapidjson::SizeType txNum = txFilter ? txNumLimit : transactions.Size();
+  std::vector<uint256> witnessHashes;
+  xmstream witnessCommitment;
+
+  witnessHashes.emplace_back();
+  witnessHashes.back().SetNull();
   for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
     rapidjson::Value &tx = transactions[i];
-    if (tx.IsObject() &&
+    if (!tx.IsObject()) {
+      error = "transaction is not JSON object";
+      return false;
+    }
+
+    if (i >= txNum) {
+      if (!tx.HasMember("fee") || !tx["fee"].IsInt64()) {
+        error = "no 'fee' in transaction";
+        return false;
+      }
+
+      blockReward -= tx["fee"].GetInt64();
+    }
+
+    if (i < txNum &&
         tx.HasMember("txid") && tx["txid"].IsString() &&
         tx.HasMember("hash") && tx["hash"].IsString()) {
       rapidjson::Value &txid = tx["txid"];
       rapidjson::Value &hash = tx["hash"];
       if (txid.GetStringLength() == hash.GetStringLength()) {
-        if (memcmp(txid.GetString(), hash.GetString(), txid.GetStringLength()) != 0) {
+        if (memcmp(txid.GetString(), hash.GetString(), txid.GetStringLength()) != 0)
           segwitEnabled = true;
-          break;
-        }
       }
+
+      if (txFilter) {
+        witnessHashes.emplace_back();
+        witnessHashes.back().SetHex(hash.GetString());
+      }
+    }
+  }
+
+  if (txFilter)
+    LOG_F(INFO, " * [txfilter] transactions num %i -> %i; coinbase value %" PRIi64 " -> %" PRIi64 "", static_cast<int>(transactions.Size()), static_cast<int>(txNum), coinbaseValue.GetInt64(), blockReward);
+
+  if (segwitEnabled) {
+    if (!blockTemplate.HasMember("default_witness_commitment") || !blockTemplate["default_witness_commitment"].IsString()) {
+      error = "default_witness_commitment missing";
+      return false;
+    }
+
+    const char *originalWitnessCommitment = blockTemplate["default_witness_commitment"].GetString();
+    rapidjson::SizeType originalWitnessCommitmentSize = blockTemplate["default_witness_commitment"].GetStringLength();
+
+    if (!txFilter) {
+      hex2bin(originalWitnessCommitment, originalWitnessCommitmentSize, witnessCommitment.reserve(originalWitnessCommitmentSize/2));
+    } else {
+      // Calculate witness merkle root
+      uint256 witnessMerkleRoot = calculateMerkleRoot(&witnessHashes[0], witnessHashes.size());
+      // Calculate witness commitment
+      uint256 commitment;
+      {
+        uint8_t defaultWitnessNonce[32];
+        memset(defaultWitnessNonce, 0, sizeof(defaultWitnessNonce));
+        SHA256_CTX ctx;
+        SHA256_Init(&ctx);
+        SHA256_Update(&ctx, witnessMerkleRoot.begin(), witnessMerkleRoot.size());
+        SHA256_Update(&ctx, defaultWitnessNonce, 32);
+        SHA256_Final(commitment.begin(), &ctx);
+        SHA256_Init(&ctx);
+        SHA256_Update(&ctx, commitment.begin(), commitment.size());
+        SHA256_Final(commitment.begin(), &ctx);
+      }
+
+      uint8_t prefix[6] = {0x6A, 0x24, 0xAA, 0x21, 0xA9, 0xED};
+      witnessCommitment.write(prefix, sizeof(prefix));
+      witnessCommitment.write(commitment.begin(), commitment.size());
     }
   }
 
@@ -427,7 +492,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   // Serialize header and transactions count
   stream.reset();
   BTC::X::serialize(stream, header);
-  serializeVarSize(stream, transactions.Size() + 1);
+  serializeVarSize(stream, txNum + 1);
   bin2hexLowerCase(stream.data(), BlockHexData.reserve<char>(stream.sizeOf()*2), stream.sizeOf());
 
   // Coinbase
@@ -474,7 +539,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     {
       // First txout (funds)
       BTC::Proto::TxOut &txOut = coinbaseTx.txOut[0];
-      BlockReward = txOut.value = coinbaseValue.GetInt64();
+      BlockReward = txOut.value = blockReward;
 
       // pkScript (use single P2PKH)
       txOut.pkScript.resize(sizeof(BTC::Proto::AddressTy) + 5);
@@ -490,17 +555,9 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     if (segwitEnabled) {
       // Second txout (witness commitment)
       BTC::Proto::TxOut &txOut = coinbaseTx.txOut[1];
-
-      if (!blockTemplate.HasMember("default_witness_commitment") || !blockTemplate["default_witness_commitment"].IsString()) {
-        error = "default_witness_commitment missing";
-        return false;
-      }
-
-      const char *witnessCommitmentData = blockTemplate["default_witness_commitment"].GetString();
-      size_t witnessCommitmentDataSize = blockTemplate["default_witness_commitment"].GetStringLength();
       txOut.value = 0;
-      txOut.pkScript.resize(witnessCommitmentDataSize/2);
-      hex2bin(witnessCommitmentData, witnessCommitmentDataSize, txOut.pkScript.data());
+      txOut.pkScript.resize(witnessCommitment.sizeOf());
+      memcpy(txOut.pkScript.data(), witnessCommitment.data(), witnessCommitment.sizeOf());
     }
   }
 
@@ -514,7 +571,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   std::vector<uint256> txHashes;
   txHashes.emplace_back();
   txHashes.back().SetNull();
-  for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
+  for (rapidjson::SizeType i = 0; i < txNum; i++) {
     rapidjson::Value &txSrc = transactions[i];
     if (!txSrc.HasMember("data") || !txSrc["data"].IsString()) {
       error = "no 'data' for transaction";
@@ -523,7 +580,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
 
     BlockHexData.write(txSrc["data"].GetString(), txSrc["data"].GetStringLength());
     if (!txSrc.HasMember("txid") || !txSrc["txid"].IsString()) {
-      error = "no 'hash' for transaction";
+      error = "no 'txid' for transaction";
       return false;
     }
 
@@ -531,7 +588,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     txHashes.back().SetHex(txSrc["txid"].GetString());
   }
 
-  TxNum = txHashes.size();
+  TxNum = txNum;
 
   // Build merkle path
   dumpMerkleTree(txHashes, MerklePath);

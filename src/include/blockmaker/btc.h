@@ -330,7 +330,8 @@ public:
                           Proto::AddressTy &miningAddress,
                           const void *coinBaseExtraData,
                           size_t coinbaseExtraSize,
-                          std::string &error);
+                          std::string &error,
+                          size_t txNumLimit=0);
 
     bool prepareForSubmit(const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
   };
