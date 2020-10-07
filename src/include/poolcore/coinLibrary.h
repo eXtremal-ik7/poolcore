@@ -29,6 +29,16 @@ public:
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
       info.DefaultRpcPort = 18332;
+    } else if (strcmp(coinName, "BTC.regtest") == 0) {
+      info.Name = "BTC.regtest";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {111};
+      info.ScriptAddressPrefix = {196};
+      info.DefaultRpcPort = 18443;
     } else if (strcmp(coinName, "BCH") == 0) {
       info.Name = "BCH";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);

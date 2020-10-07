@@ -1,4 +1,5 @@
 #include "poolcore/backendData.h"
+#include "poolcommon/serialize.h"
 #include <inttypes.h>
 #include <time.h>
 
@@ -89,67 +90,29 @@ void miningRound::serializeKey(xmstream &stream) const
 
 void miningRound::serializeValue(xmstream &stream) const
 {
-  stream.write<uint32_t>(CurrentRecordVersion);
-  stream.write<uint64_t>(height);
-  serializeString(stream, blockHash);
-  stream.write<uint64_t>(time);
-  stream.write<int64_t>(totalShareValue);
-  stream.write<int64_t>(availableCoins);
-  
-  stream.write<uint32_t>(static_cast<uint32_t>(rounds.size()));
-  for (auto r: rounds) {
-    serializeString(stream, r.userId);
-    stream.write<int64_t>(r.shareValue);
-  }
-  
-  stream.write<uint32_t>(static_cast<uint32_t>(payouts.size()));
-  for (auto p: payouts) {
-    serializeString(stream, p.Login);
-    stream.write<int64_t>(p.payoutValue);
-    stream.write<int64_t>(p.queued);    
-  }
+  uint32_t version = CurrentRecordVersion;
+  DbIo<decltype (version)>::serialize(stream, version);
+  DbIo<decltype (blockHash)>::serialize(stream, blockHash);
+  DbIo<decltype (time)>::serialize(stream, time);
+  DbIo<decltype (totalShareValue)>::serialize(stream, totalShareValue);
+  DbIo<decltype (availableCoins)>::serialize(stream, availableCoins);
+  DbIo<decltype (rounds)>::serialize(stream, rounds);
+  DbIo<decltype (payouts)>::serialize(stream, payouts);
 }
 
 bool miningRound::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
-  
-  uint32_t version = stream.read<uint32_t>();
+
+  uint32_t version;
+  DbIo<decltype (version)>::unserialize(stream, version);
   if (version >= 1) {
-    height = stream.read<uint64_t>();
-    deserializeString(stream, blockHash);
-    time = stream.read<uint64_t>();
-    totalShareValue = stream.read<int64_t>();
-    availableCoins = stream.read<int64_t>();
-  
-    {
-      size_t roundsNum = stream.read<uint32_t>();
-      if (stream.eof())
-        return false;
-      rounds.clear();
-    
-      for (size_t i = 0; i < roundsNum; i++) {
-        roundElement element;
-        deserializeString(stream, element.userId);
-        element.shareValue = stream.read<int64_t>();      
-        rounds.push_back(element);
-      }
-    }
-  
-    {
-      size_t payoutsNum = stream.read<uint32_t>();
-      if (stream.eof())
-        return false;
-      payouts.clear();
-    
-      for (size_t i = 0; i < payoutsNum; i++) {
-        payoutElement element;
-        deserializeString(stream, element.Login);
-        element.payoutValue = stream.read<int64_t>();
-        element.queued = stream.read<int64_t>();
-        payouts.push_back(element);
-      }
-    }
+    DbIo<decltype (blockHash)>::unserialize(stream, blockHash);
+    DbIo<decltype (time)>::unserialize(stream, time);
+    DbIo<decltype (totalShareValue)>::unserialize(stream, totalShareValue);
+    DbIo<decltype (availableCoins)>::unserialize(stream, availableCoins);
+    DbIo<decltype (rounds)>::unserialize(stream, rounds);
+    DbIo<decltype (payouts)>::unserialize(stream, payouts);
   }
   
   return !stream.eof();
@@ -160,12 +123,12 @@ void miningRound::dump()
   fprintf(stderr, "height=%u\n", (unsigned)height);
   fprintf(stderr, "blockhash=%s\n", blockHash.c_str());
   fprintf(stderr, "time=%u\n", (unsigned)time);
-  fprintf(stderr, "totalShareValue=%" PRId64 "\n", totalShareValue);
+  fprintf(stderr, "totalShareValue=%.3lf\n", totalShareValue);
   fprintf(stderr, "availableCoins=%" PRId64 "\n", availableCoins);
   for (auto r: rounds) {
     fprintf(stderr, " *** round element ***\n");
     fprintf(stderr, " * userId: %s\n", r.userId.c_str());
-    fprintf(stderr, " * shareValue: %" PRId64 "\n", r.shareValue);
+    fprintf(stderr, " * shareValue: %.3lf\n", r.shareValue);
   }
   for (auto p: payouts) {
     fprintf(stderr, " *** payout element ***\n");

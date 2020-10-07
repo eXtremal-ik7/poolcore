@@ -5,81 +5,153 @@
 #include "loguru.hpp"
 #include <stdarg.h>
 #include <poolcommon/file.h>
+#include "poolcommon/debug.h"
 
 #define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
 
+void AccountingDb::printRecentStatistic()
+{
+  if (RecentStats_.empty()) {
+    LOG_F(INFO, "[%s] Recent statistic: empty", CoinInfo_.Name.c_str());
+    return;
+  }
 
-AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher) :
+  LOG_F(INFO, "[%s] Recent statistic:", CoinInfo_.Name.c_str());
+  for (const auto &user: RecentStats_) {
+    std::string line = user.UserId;
+    line.append(": ");
+    bool firstIter = true;
+    for (const auto &stat: user.Recent) {
+      if (!firstIter)
+        line.append(", ");
+      line.append(std::to_string(stat.SharesWork));
+      firstIter = false;
+    }
+
+    LOG_F(INFO, " * %s", line.c_str());
+  }
+}
+
+bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
+{
+  FileDescriptor fd;
+  if (!fd.open(file.Path.u8string().c_str())) {
+    LOG_F(ERROR, "AccountingDb: can't open file %s", file.Path.u8string().c_str());
+    return false;
+  }
+
+  size_t fileSize = fd.size();
+  xmstream stream(fileSize);
+  size_t bytesRead = fd.read(stream.reserve(fileSize), 0, fileSize);
+  fd.close();
+  if (bytesRead != fileSize) {
+    LOG_F(ERROR, "AccountingDb: can't read file %s", file.Path.u8string().c_str());
+    return false;
+  }
+
+  stream.seekSet(0);
+  file.LastShareId = stream.readle<uint64_t>();
+  LastBlockTime_ = stream.readle<uint64_t>();
+
+  // Load statistics
+  RecentStats_.clear();
+  DbIo<decltype(RecentStats_)>::unserialize(stream, RecentStats_);
+
+  // Load current round aggregated data
+  CurrentScores_.clear();
+  size_t scoresCount = stream.readle<uint64_t>();
+  for (size_t i = 0; i < scoresCount; i++) {
+    std::string userId;
+    double score = 0.0;
+    DbIo<std::string>::unserialize(stream, userId);
+    DbIo<double>::unserialize(stream, score);
+    if (stream.eof())
+      break;
+    CurrentScores_[userId] = score;
+  }
+
+  if (!stream.remaining() && !stream.eof()) {
+    LastKnownShareId_ = file.LastShareId;
+    return true;
+  } else {
+    LastKnownShareId_ = 0;
+    LastBlockTime_ = 0;
+    RecentStats_.clear();
+    CurrentScores_.clear();
+    LOG_F(ERROR, "AccountingDb: file %s is corrupted", file.Path.generic_string().c_str());
+    return false;
+  }
+}
+
+void AccountingDb::flushAccountingStorageFile(int64_t timeLabel)
+{
+  CAccountingFile &file = AccountingDiskStorage_.emplace_back();
+  file.Path = _cfg.dbPath / "accounting.storage" / (std::to_string(timeLabel) + ".dat");
+  file.LastShareId = LastKnownShareId_;
+  file.TimeLabel = timeLabel;
+
+  FileDescriptor fd;
+  if (!fd.open(file.Path)) {
+    LOG_F(ERROR, "AccountingDb: can't write file %s", file.Path.generic_string().c_str());
+    return;
+  }
+
+  xmstream stream;
+  // Last share id and last block time
+  stream.writele(LastKnownShareId_);
+  stream.writele(LastBlockTime_);
+
+  // Statistics
+  DbIo<decltype (RecentStats_)>::serialize(stream, RecentStats_);
+
+  // Current round aggregated data
+  stream.writele<uint64_t>(CurrentScores_.size());
+  for (const auto &score: CurrentScores_) {
+    DbIo<std::string>::serialize(stream, score.first);
+    DbIo<double>::serialize(stream, score.second);
+  }
+
+  fd.write(stream.data(), stream.sizeOf());
+  fd.close();
+
+  // Cleanup old files
+  auto removeTimePoint = timeLabel - std::chrono::seconds(300).count();
+  while (!AccountingDiskStorage_.empty() && AccountingDiskStorage_.front().TimeLabel < removeTimePoint) {
+    if (isDebugAccounting())
+      LOG_F(1, "Removing old accounting file %s", AccountingDiskStorage_.front().Path.u8string().c_str());
+    std::filesystem::remove(AccountingDiskStorage_.front().Path);
+    AccountingDiskStorage_.pop_front();
+  }
+}
+
+AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, StatisticDb &statisticDb) :
   Base_(base),
   _cfg(config),
   CoinInfo_(coinInfo),
   UserManager_(userMgr),
   ClientDispatcher_(clientDispatcher),
-  _roundsDb(config.dbPath / "rounds"),
+  StatisticDb_(statisticDb),
+  _roundsDb(config.dbPath / "rounds.v2"),
   _balanceDb(config.dbPath / "balance"),
   _foundBlocksDb(config.dbPath / "foundBlocks"),
   _poolBalanceDb(config.dbPath / "poolBalance"),
   _payoutDb(config.dbPath / "payouts")
 {
-  {
-    unsigned counter = 0;
-    _sharesFd.open(_cfg.dbPath / "shares.raw");
-    if (!_sharesFd.isOpened())
-      LOG_F(ERROR, "can't open shares file %s (%s)", (_cfg.dbPath / "shares.raw").u8string().c_str(), strerror(errno));
-
-    auto fileSize = _sharesFd.size();
-    if (fileSize > 0) {
-      xmstream stream;
-      _sharesFd.read(stream.reserve(fileSize), 0, fileSize);
-
-      stream.seekSet(0);
-      while (stream.remaining()) {
-        uint32_t userIdSize = stream.read<uint32_t>();
-        const char *userIdData = stream.seek<const char>(userIdSize);
-        if (!userIdData)
-          break;
-        int64_t value = stream.read<int64_t>();
-        if (stream.eof())
-          break;
-        _currentScores[std::string(userIdData, userIdSize)] += value;
-        counter++;
-      }
+  int64_t currentTime = time(nullptr);
+  FlushInfo_.Time = currentTime;
+  FlushInfo_.ShareId = 0;
+  enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / "accounting.storage");
+  while (!AccountingDiskStorage_.empty()) {
+    auto &file = AccountingDiskStorage_.back();
+    if (parseAccoutingStorageFile(file)) {
+      FlushInfo_.Time = file.TimeLabel;
+      FlushInfo_.ShareId = file.LastShareId;
+      break;
+    } else {
+      // Remove corrupted file
+      std::filesystem::remove(file.Path);
+      AccountingDiskStorage_.pop_back();
     }
-
-    LOG_F(INFO, "loaded %u shares from shares.raw file", counter);
-    for (auto s: _currentScores)
-      LOG_F(INFO, "   * %s: %" PRId64 "", s.first.c_str(), s.second);
-
-    _sharesFd.seekSet(fileSize);
-  }
-
-  {
-    FileDescriptor payoutsFdOld;
-    payoutsFdOld.open(_cfg.dbPath / "payouts.raw.old");
-    if (!payoutsFdOld.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / "payouts.raw.old").u8string().c_str(), strerror(errno));
-
-    auto fileSize = payoutsFdOld.size();
-
-    if (fileSize > 0) {
-      xmstream stream;
-      payoutsFdOld.read(stream.reserve(fileSize), 0, fileSize);
-
-      stream.seekSet(0);
-      while (stream.remaining()) {
-        uint32_t userIdSize = stream.read<uint32_t>();
-        const char *userIdData = stream.seek<const char>(userIdSize);
-        if (!userIdData)
-          break;
-        int64_t value = stream.read<int64_t>();
-        if (stream.eof())
-          break;
-        _payoutQueue.push_back(payoutElement(std::string(userIdData, userIdSize), value, 0));
-      }
-    }
-
-    payoutsFdOld.truncate(0);
-    LOG_F(INFO, "loaded %u payouts from payouts.raw.old file", (unsigned)_payoutQueue.size());
   }
 
   {
@@ -145,6 +217,40 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
   }
 }
 
+void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory)
+{
+  std::error_code errc;
+  std::filesystem::create_directories(directory, errc);
+  for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
+    std::string fileName = I->path().filename().u8string();
+    auto dotDatPos = fileName.find(".dat");
+    if (dotDatPos == fileName.npos) {
+      LOG_F(ERROR, "AccountingDb: invalid statitic cache file name format: %s", fileName.c_str());
+      continue;
+    }
+
+    fileName.resize(dotDatPos);
+
+    cache.emplace_back();
+    cache.back().Path = *I;
+    cache.back().TimeLabel = xatoi<uint64_t>(fileName.c_str());
+  }
+
+  std::sort(cache.begin(), cache.end(), [](const CAccountingFile &l, const CAccountingFile &r){ return l.TimeLabel < r.TimeLabel; });
+}
+
+void AccountingDb::start()
+{
+  coroutineCall(coroutineNew([](void *arg) {
+    AccountingDb *db = static_cast<AccountingDb*>(arg);
+    aioUserEvent *timerEvent = newUserEvent(db->Base_, 0, nullptr, nullptr);
+    for (;;) {
+      ioSleep(timerEvent, std::chrono::microseconds(std::chrono::minutes(1)).count());
+      db->flushAccountingStorageFile(time(nullptr));
+    }
+  }, this, 0x20000));
+}
+
 void AccountingDb::updatePayoutFile()
 {
   xmstream stream;
@@ -174,18 +280,9 @@ void AccountingDb::cleanupRounds()
 
 void AccountingDb::addShare(const CShare &share)
 {
-  // store share in shares.raw file
-  {
-    xmstream stream;
-    stream.write<uint32_t>(static_cast<uint32_t>(share.userId.size()));
-    stream.write(share.userId.c_str(), share.userId.size());
-    stream.write<int64_t>(share.value);
-    if (_sharesFd.write(stream.data(), stream.sizeOf() != stream.sizeOf()))
-      LOG_F(ERROR, "can't save share to file (%s fd=%i), it can be lost", strerror(errno), _sharesFd.fd());
-  }
-
   // increment score
-  _currentScores[share.userId.c_str()] += share.value;
+  CurrentScores_[share.userId] += share.WorkValue;
+  LastKnownShareId_ = share.UniqueShareId;
 
   if (share.isBlock) {
     {
@@ -219,122 +316,166 @@ void AccountingDb::addShare(const CShare &share)
     miningRound *R = new miningRound;
     R->height = share.height;
     R->blockHash = share.hash.c_str();
-    R->time = time(0);
+    R->time = share.Time;
     R->availableCoins = available;
     R->totalShareValue = 0;
 
-    {
-      for (auto It: _currentScores) {
-        roundElement element;
-        element.userId = It.first;
-        element.shareValue = It.second;
-        R->rounds.push_back(element);
-        R->totalShareValue += element.shareValue;
+    int64_t AcceptSharesTime = share.Time - 1800;
+    auto statsIt = RecentStats_.begin();
+    auto scoresIt = CurrentScores_.begin();
+    while (statsIt != RecentStats_.end() || scoresIt != CurrentScores_.end()) {
+      auto &element = R->rounds.emplace_back();
+      bool haveScores = scoresIt != CurrentScores_.end();
+      bool haveStats = statsIt != RecentStats_.end();
+
+      if (haveScores && (!haveStats || scoresIt->first < statsIt->UserId)) {
+        // User joined recently, no extra shares in statistic
+        element.userId = scoresIt->first;
+        element.shareValue = scoresIt->second;
+        ++scoresIt;
+      } else {
+        bool needMerge = haveScores && scoresIt->first == statsIt->UserId;
+        element.userId = statsIt->UserId;
+        element.shareValue = needMerge ? scoresIt->second : 0.0;
+
+        // Extract recent share work value if need
+        for (auto &statsElement: statsIt->Recent) {
+          if (statsElement.TimeLabel > AcceptSharesTime)
+            element.shareValue += statsElement.SharesWork;
+          else
+            break;
+        }
+
+        ++statsIt;
+        if (needMerge)
+          ++scoresIt;
       }
 
-      _currentScores.clear();
+      if (element.shareValue != 0.0)
+        R->totalShareValue += element.shareValue;
+      else
+        R->rounds.pop_back();
     }
+
+    CurrentScores_.clear();
 
     // *** calculate payments ***
     {
-      // insert round into accounting base, keep sorting by height
-      auto position = std::lower_bound(
-        _allRounds.begin(),
-        _allRounds.end(),
-        R->height,
-        [](const miningRound *roundArg, uint64_t heightArg) -> bool { return roundArg->height < heightArg; });
-      auto insertIt = _allRounds.insert(position, R);
-      std::deque<miningRound*>::reverse_iterator roundIt(++insertIt);
+      int64_t totalPayout = 0;
+      auto poolFeeIt = _cfg.PoolFee.begin();
+      auto userIt = R->rounds.begin();
+      while (userIt != R->rounds.end() || poolFeeIt != _cfg.PoolFee.end()) {
+        payoutElement &payout = R->payouts.emplace_back();
 
-      // calculate shares for each client using last N rounds
-      time_t previousRoundTime = R->time;
-      int64_t totalValue = 0;
-      std::list<payoutAggregate> agg;
-      for (size_t i = 0, ie = _cfg.PoolFee.size(); i != ie; ++i) {
-        agg.emplace_back(_cfg.PoolFee[i].User, 0);
-        agg.back().payoutValue = feeValues[i];
-      }
+        bool haveUser = userIt != R->rounds.end();
+        bool havePoolFee = poolFeeIt != _cfg.PoolFee.end();
+        double shareValue = 0.0;
+        if (haveUser && (!havePoolFee || userIt->userId < poolFeeIt->User)) {
+          shareValue = userIt->shareValue;
+          payout.Login = userIt->userId;
+          payout.payoutValue = R->availableCoins * (shareValue / R->totalShareValue);
+          ++userIt;
+        } else {
+          bool needMerge = haveUser && userIt->userId == poolFeeIt->User;
+          shareValue = needMerge ? userIt->shareValue : 0.0;
+          payout.Login = poolFeeIt->User;
+          payout.payoutValue = feeValues[poolFeeIt - _cfg.PoolFee.begin()];
+          if (needMerge)
+            payout.payoutValue += R->availableCoins * (shareValue / R->totalShareValue);
 
-      while (roundIt != _allRounds.rend() && ((R->time - previousRoundTime) < 3600)) {
-        // merge sorted by userId lists
-        auto currentRound = *roundIt;
-        auto aggIt = agg.begin();
-        auto shareIt = currentRound->rounds.begin();
-        while (shareIt != currentRound->rounds.end()) {
-          if (aggIt == agg.end() || shareIt->userId < aggIt->userId) {
-            agg.insert(aggIt, payoutAggregate(shareIt->userId, shareIt->shareValue));
-            ++shareIt;
-          } else if (shareIt->userId == aggIt->userId) {
-            aggIt->shareValue += shareIt->shareValue;
-            ++shareIt;
-            ++aggIt;
-          } else {
-            ++aggIt;
-          }
+          ++poolFeeIt;
+          if (needMerge)
+            ++userIt;
         }
 
-        previousRoundTime = (*roundIt)->time;
-        totalValue += currentRound->totalShareValue;
-        ++roundIt;
-      }
+        payout.queued = payout.payoutValue;
 
-      // calculate payout values for each client
-      int64_t totalPayout = 0;
-      LOG_F(INFO, " * total share value: %" PRId64 "", totalValue);
-      for (auto I = agg.begin(), IE = agg.end(); I != IE; ++I) {
-        I->payoutValue += static_cast<int64_t>((static_cast<double>(I->shareValue) / static_cast<double>(totalValue)) * R->availableCoins);
-        totalPayout += I->payoutValue;
-        LOG_F(INFO, "   * addr: %s, payout: %" PRId64 "", I->userId.c_str(), I->payoutValue);
+        if (payout.payoutValue != 0.0) {
+          totalPayout += payout.payoutValue;
+          LOG_F(INFO, "   * %s: share value: %.3lf; payout: %" PRId64 "", payout.Login.c_str(), shareValue, payout.payoutValue);
+        } else {
+          R->rounds.pop_back();
+        }
       }
 
       LOG_F(INFO, " * total payout: %" PRId64 "", totalPayout);
 
       // correct payouts for use all available coins
-      if (!agg.empty()) {
+      if (!R->payouts.empty()) {
         int64_t diff = totalPayout - generatedCoins;
-        int64_t div = diff / (int64_t)agg.size();
+        int64_t div = diff / (int64_t)R->payouts.size();
         int64_t mv = diff >= 0 ? 1 : -1;
-        int64_t mod = (diff > 0 ? diff : -diff) % agg.size();
+        int64_t mod = (diff > 0 ? diff : -diff) % R->payouts.size();
 
         totalPayout = 0;
         int64_t i = 0;
-        for (auto I = agg.begin(), IE = agg.end(); I != IE; ++I, ++i) {
+        for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I, ++i) {
           I->payoutValue -= div;
           if (i < mod)
             I->payoutValue -= mv;
+          I->queued = I->payoutValue;
           totalPayout += I->payoutValue;
+          LOG_F(INFO, "   * %s: payout: %" PRId64"", I->Login.c_str(), I->payoutValue);
         }
 
         LOG_F(INFO, " * total payout (after correct): %" PRId64 "", totalPayout);
       }
-
-      // calculate payout delta for each user and send to queue
-      // merge sorted by userId lists
-      auto aggIt = agg.begin();
-      auto payIt = R->payouts.begin();
-      while (aggIt != agg.end()) {
-        if (payIt == R->payouts.end() || aggIt->userId < payIt->Login) {
-          R->payouts.insert(payIt, payoutElement(aggIt->userId, aggIt->payoutValue, aggIt->payoutValue));
-          _roundsWithPayouts.insert(R);
-          ++aggIt;
-        } else if (aggIt->userId == payIt->Login) {
-          int64_t delta = aggIt->payoutValue - payIt->payoutValue;
-          if (delta) {
-            payIt->queued += delta;
-            _roundsWithPayouts.insert(R);
-          }
-          payIt->payoutValue = aggIt->payoutValue;
-          ++aggIt;
-          ++payIt;
-        } else {
-          ++payIt;
-        }
-      }
     }
 
     // store round to DB and clear shares map
+    _allRounds.push_back(R);
     _roundsDb.put(*R);
-    _sharesFd.truncate(0);
+    _roundsWithPayouts.insert(R);
+
+    // Query statistics
+    StatisticDb_.exportRecentStats(RecentStats_);
+    printRecentStatistic();
+
+    // Reset aggregated data
+    CurrentScores_.clear();
+
+    // Remove old data
+    for (const auto &file: AccountingDiskStorage_)
+      std::filesystem::remove(file.Path);
+    AccountingDiskStorage_.clear();
+
+    // Save recent statistics
+    flushAccountingStorageFile(share.Time);
+  }
+}
+
+void AccountingDb::replayShare(const CShare &share)
+{
+  if (share.UniqueShareId > FlushInfo_.ShareId) {
+    // increment score
+    CurrentScores_[share.userId] += share.WorkValue;
+  }
+
+  LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
+  if (isDebugAccounting()) {
+    Dbg_.MinShareId = std::min(Dbg_.MinShareId, share.UniqueShareId);
+    Dbg_.MaxShareId = std::max(Dbg_.MaxShareId, share.UniqueShareId);
+    if (share.UniqueShareId > FlushInfo_.ShareId)
+      Dbg_.Count++;
+  }
+}
+
+void AccountingDb::initializationFinish(int64_t timeLabel)
+{
+  printRecentStatistic();
+
+  if (!CurrentScores_.empty()) {
+    LOG_F(INFO, "[%s] current scores:", CoinInfo_.Name.c_str());
+    for (const auto &It: CurrentScores_) {
+      LOG_F(INFO, " * %s: %.3lf", It.first.c_str(), It.second);
+    }
+  } else {
+    LOG_F(INFO, "[%s] current scores is empty", CoinInfo_.Name.c_str());
+  }
+
+  if (isDebugStatistic()) {
+    LOG_F(1, "initializationFinish: timeLabel: %" PRIu64 "", timeLabel);
+    LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", CoinInfo_.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
   }
 }
 
@@ -347,7 +488,7 @@ void AccountingDb::checkBlockConfirmations()
   if (_roundsWithPayouts.empty())
     return;
 
-  LOG_F(INFO, "Checking %u blocks for confirmations...", (unsigned)_roundsWithPayouts.size());
+  LOG_F(INFO, "Checking %zu blocks for confirmations...", _roundsWithPayouts.size());
   std::vector<miningRound*> rounds(_roundsWithPayouts.begin(), _roundsWithPayouts.end());
 
   std::vector<CNetworkClient::GetBlockConfirmationsQuery> confirmationsQuery(rounds.size());

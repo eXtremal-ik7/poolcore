@@ -1,6 +1,7 @@
 #include "poolcore/statistics.h"
 #include "poolcore/accounting.h"
 #include "poolcommon/debug.h"
+#include "poolcommon/serialize.h"
 #include "loguru.hpp"
 #include <algorithm>
 
@@ -59,12 +60,16 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   WorkerStatsDb_(_cfg.dbPath / "workerStats"),
   PoolStatsDb_(_cfg.dbPath / "poolstats")
 {
-  uint64_t currentTime = time(nullptr);
+  int64_t currentTime = time(nullptr);
   WorkersFlushInfo_.Time = currentTime;
   WorkersFlushInfo_.ShareId = 0;
   enumerateStatsFiles(WorkersStatsCache_, config.dbPath / "stats.workers.cache");
   for (auto &file: WorkersStatsCache_) {
-    parseStatsCacheFile(file, [this](const StatsRecord &record) -> CStatsAccumulator& { return LastWorkerStats_[record.Login][record.WorkerId]; });
+    parseStatsCacheFile(file, [this](const StatsRecord &record) -> CStatsAccumulator& {
+      return !record.WorkerId.empty() ?
+        LastWorkerStats_[record.Login][record.WorkerId] :
+        LastUserStats_[record.Login];
+    });
     WorkersFlushInfo_.Time = file.TimeLabel;
     WorkersFlushInfo_.ShareId = file.LastShareId;
   }
@@ -197,6 +202,11 @@ void StatisticDb::addShare(const CShare &share)
   acc.Current.SharesNum++;
   acc.Current.SharesWork += share.WorkValue;
   acc.LastShareTime = share.Time;
+  // Update user stats
+  auto &userAcc = LastUserStats_[share.userId];
+  userAcc.Current.SharesNum++;
+  userAcc.Current.SharesWork += share.WorkValue;
+  userAcc.LastShareTime = share.Time;
   // Update pool stats
   PoolStatsAcc_.Current.SharesNum++;
   PoolStatsAcc_.Current.SharesWork += share.WorkValue;
@@ -211,6 +221,11 @@ void StatisticDb::replayShare(const CShare &share)
     acc.Current.SharesNum++;
     acc.Current.SharesWork += share.WorkValue;
     acc.LastShareTime = share.Time;
+
+    auto &userAcc = LastUserStats_[share.userId];
+    userAcc.Current.SharesNum++;
+    userAcc.Current.SharesWork += share.WorkValue;
+    userAcc.LastShareTime = share.Time;
   }
 
   if (share.UniqueShareId > PoolFlushInfo_.ShareId) {
@@ -277,28 +292,21 @@ void StatisticDb::updateWorkersStats(int64_t timeLabel)
   std::vector<std::string> userDeleteList;
   for (auto &userIt: LastWorkerStats_) {
     std::vector<std::string> workerDeleteList;
-    CStatsElement userStats;
-    userStats.TimeLabel = timeLabel;
-
     for (auto &workerIt: userIt.second) {
       CStatsAccumulator &acc = workerIt.second;
-
-      // Accumulate user stats
-      userStats.SharesNum += acc.Current.SharesNum;
-      userStats.SharesWork += acc.Current.SharesWork;
-
       updateAcc(userIt.first, workerIt.first, acc, timeLabel, statsFileData);
       if (acc.Recent.empty())
         workerDeleteList.push_back(workerIt.first);
     }
 
-    // Write cumulative user stats to database
-    if (userStats.SharesNum)
-      writeStatsToDb(userIt.first, "", userStats);
-
     // Cleanup workers table
     std::for_each(workerDeleteList.begin(), workerDeleteList.end(), [&userIt](const std::string &name) { userIt.second.erase(name);});
-    if (userIt.second.empty())
+  }
+
+  for (auto &userIt: LastUserStats_) {
+    CStatsAccumulator &acc = userIt.second;
+    updateAcc(userIt.first, "", acc, timeLabel, statsFileData);
+    if (!acc.Recent.empty())
       userDeleteList.push_back(userIt.first);
   }
 
@@ -350,8 +358,7 @@ void StatisticDb::updateStatsDiskCache(const char *name, std::deque<CStatsFile> 
   if (!size)
     return;
 
-  cache.emplace(cache.end());
-  CStatsFile &statsFile = cache.back();
+  CStatsFile &statsFile = cache.emplace_back();
   statsFile.Path = _cfg.dbPath / name / (std::to_string(timeLabel)+".dat");
   statsFile.LastShareId = lastShareId;
   statsFile.TimeLabel = timeLabel;
@@ -541,4 +548,29 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     stats.SharesWork = It->SharesWork;
     lastTimeLabel = It->TimeLabel;
   }
+}
+
+void StatisticDb::exportRecentStats(std::vector<CStatsExportData> &result)
+{
+  result.clear();
+  int64_t timeLabel = time(0);
+  for (const auto &userIt: LastUserStats_) {
+    auto &userRecord = result.emplace_back();
+    userRecord.UserId = userIt.first;
+    // Current share work
+    {
+      auto &current = userRecord.Recent.emplace_back(userIt.second.Current);
+      current.TimeLabel = timeLabel;
+    }
+
+    // Recent share work (up to N minutes)
+    int64_t lastAcceptTime = timeLabel - 30*60;
+    for (auto It = userIt.second.Recent.rbegin(), ItE = userIt.second.Recent.rend(); It != ItE; ++It) {
+      if (It->TimeLabel < lastAcceptTime)
+        break;
+      userRecord.Recent.emplace_back(*It);
+    }
+  }
+
+  std::sort(result.begin(), result.end(), [](const CStatsExportData &l, const CStatsExportData &r) { return l.UserId < r.UserId; });
 }

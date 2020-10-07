@@ -1,6 +1,7 @@
 #pragma once
 
 #include "p2putils/xmstream.h"
+#include <list>
 #include <string>
 
 template<class T, typename Enable=void>
@@ -37,6 +38,12 @@ template<typename T>
 struct DbIo<T, typename std::enable_if<is_simple_numeric<T>::value, void>::type> {
   static inline void serialize(xmstream &stream, const T &data) { stream.writele<T>(data); }
   static inline void unserialize(xmstream &stream, T &data) { data = stream.readle<T>(); }
+};
+
+template<>
+struct DbIo<double> {
+  static inline void serialize(xmstream &stream, const double data) { stream.write<double>(data); }
+  static inline void unserialize(xmstream &stream, double &data) { data = stream.read<double>(); }
 };
 
 // variable size
@@ -82,5 +89,50 @@ template<> struct DbIo<std::string> {
       data.assign(src.seek<const char>(length.Size), length.Size);
     else
       src.seekEnd(0, true);
+  }
+};
+
+// std::vector
+template<typename T> struct DbIo<std::vector<T>> {
+  static inline void serialize(xmstream &dst, const std::vector<T> &data) {
+    DbIo<VarSize>::serialize(dst, data.size());
+    for (const auto &v: data)
+      DbIo<T>::serialize(dst, v);
+  }
+
+  static inline void unserialize(xmstream &src, std::vector<T> &data) {
+    VarSize size = 0;
+    DbIo<VarSize>::unserialize(src, size);
+    if (size.Size > src.remaining()) {
+      src.seekEnd(0, true);
+      return;
+    }
+
+    data.resize(size.Size);
+    for (uint64_t i = 0; i < size.Size; i++)
+      DbIo<T>::unserialize(src, data[i]);
+  }
+};
+
+// std::list
+template<typename T> struct DbIo<std::list<T>> {
+  static inline void serialize(xmstream &dst, const std::list<T> &data) {
+    DbIo<VarSize>::serialize(dst, data.size());
+    for (const auto &v: data)
+      DbIo<T>::serialize(dst, v);
+  }
+
+  static inline void unserialize(xmstream &src, std::list<T> &data) {
+    VarSize size = 0;
+    DbIo<VarSize>::unserialize(src, size);
+    if (size.Size > src.remaining()) {
+      src.seekEnd(0, true);
+      return;
+    }
+
+    for (uint64_t i = 0; i < size.Size; i++) {
+      T &element = data.emplace_back();
+      DbIo<T>::unserialize(src, element);
+    }
   }
 };

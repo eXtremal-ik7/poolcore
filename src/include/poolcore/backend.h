@@ -33,6 +33,12 @@ struct MultiCall {
 };
 
 template<typename T>
+struct DefaultIo {
+  static void serialize(xmstream &out, const T &data);
+  static void unserialize(xmstream &in, T &data);
+};
+
+template<typename T>
 struct ShareLogIo {
   static void serialize(xmstream &out, const T &data);
   static void unserialize(xmstream &in, T &data);

@@ -1,6 +1,7 @@
 #ifndef __BACKEND_DATA_H_
 #define __BACKEND_DATA_H_
 
+#include "poolcommon/serialize.h"
 #include "poolcommon/uint256.h"
 #include <list>
 #include <string>
@@ -18,7 +19,6 @@ struct CShare {
   std::string userId;
   std::string workerId;
   int64_t height;
-  int64_t value;
   double WorkValue;
   bool isBlock;
   std::string hash;
@@ -84,7 +84,7 @@ struct PoolBackendConfig {
 
 struct roundElement {
   std::string userId;
-  int64_t shareValue;
+  double shareValue;
 };
 
 struct payoutElement {
@@ -110,14 +110,14 @@ struct shareInfo {
 };
 
 struct miningRound {
-  enum { CurrentRecordVersion = 1 };
+  static constexpr uint32_t CurrentRecordVersion = 1;
   
   uint64_t height;
   std::string blockHash;
   time_t time;    
     
   // aggregated share and payment value
-  int64_t totalShareValue;
+  double totalShareValue;
   int64_t availableCoins;
     
   std::list<roundElement> rounds;
@@ -307,6 +307,36 @@ struct PayoutDbRecord {
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;      
+};
+
+template<>
+struct DbIo<roundElement> {
+  static inline void serialize(xmstream &stream, const roundElement &data) {
+    DbIo<decltype (data.userId)>::serialize(stream, data.userId);
+    DbIo<decltype (data.shareValue)>::serialize(stream, data.shareValue);
+  }
+
+  static inline void unserialize(xmstream &stream, roundElement &data) {
+    DbIo<decltype (data.userId)>::unserialize(stream, data.userId);
+    DbIo<decltype (data.shareValue)>::unserialize(stream, data.shareValue);
+  }
+};
+
+template<>
+struct DbIo<payoutElement> {
+  static inline void serialize(xmstream &stream, const payoutElement &data) {
+    DbIo<decltype (data.Login)>::serialize(stream, data.Login);
+    DbIo<decltype (data.payoutValue)>::serialize(stream, data.payoutValue);
+    DbIo<decltype (data.queued)>::serialize(stream, data.queued);
+    DbIo<decltype (data.asyncOpId)>::serialize(stream, data.asyncOpId);
+  }
+
+  static inline void unserialize(xmstream &stream, payoutElement &data) {
+    DbIo<decltype (data.Login)>::unserialize(stream, data.Login);
+    DbIo<decltype (data.payoutValue)>::unserialize(stream, data.payoutValue);
+    DbIo<decltype (data.queued)>::unserialize(stream, data.queued);
+    DbIo<decltype (data.asyncOpId)>::unserialize(stream, data.asyncOpId);
+  }
 };
 
 #endif //__BACKEND_DATA_H_

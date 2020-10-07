@@ -235,7 +235,7 @@ private:
             backendShare->Time = time(nullptr);
             backendShare->userId = user;
             backendShare->height = height;
-            backendShare->value = 1;
+            backendShare->WorkValue = 1.0;
             backendShare->isBlock = true;
             backendShare->hash = blockHash.ToString();
             backendShare->generatedCoins = generatedCoins;
@@ -251,7 +251,7 @@ private:
       backendShare->Time = time(nullptr);
       backendShare->userId = share.addr();
       backendShare->height = height;
-      backendShare->value = 1;
+      backendShare->WorkValue = 1.0;
       backendShare->isBlock = false;
       backend->sendShare(backendShare);
     }

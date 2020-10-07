@@ -3,6 +3,7 @@
 
 #include "poolcommon/serialize.h"
 #include "backendData.h"
+#include "statistics.h"
 #include "usermgr.h"
 #include "poolcommon/file.h"
 #include "poolcore/clientDispatcher.h"
@@ -35,10 +36,19 @@ class AccountingDb {
 private:
   struct payoutAggregate {
     std::string userId;
-    int64_t shareValue;
+    double shareValue;
     int64_t payoutValue;
-    payoutAggregate(const std::string& userIdArg, int64_t shareValueArg) :
-      userId(userIdArg), shareValue(shareValueArg), payoutValue(0) {}
+  };
+
+  struct CAccountingFile {
+    int64_t TimeLabel = 0;
+    uint64_t LastShareId = 0;
+    std::filesystem::path Path;
+  };
+
+  struct CFlushInfo {
+    uint64_t ShareId;
+    int64_t Time;
   };
 
 private:
@@ -47,14 +57,26 @@ private:
   CCoinInfo CoinInfo_;
   UserManager &UserManager_;
   CNetworkClientDispatcher &ClientDispatcher_;
+  StatisticDb &StatisticDb_;
   
   std::map<std::string, UserBalanceRecord> _balanceMap;
-  std::map<std::string, int64_t> _currentScores;
   std::deque<miningRound*> _allRounds;
   std::set<miningRound*> _roundsWithPayouts;
   std::list<payoutElement> _payoutQueue;  
-  
-  FileDescriptor _sharesFd;
+
+  int64_t LastBlockTime_ = 0;
+  std::deque<CAccountingFile> AccountingDiskStorage_;
+  std::map<std::string, double> CurrentScores_;
+  std::vector<StatisticDb::CStatsExportData> RecentStats_;
+  CFlushInfo FlushInfo_;
+
+  // Debugging only
+  struct {
+    uint64_t MinShareId = std::numeric_limits<uint64_t>::max();
+    uint64_t MaxShareId = 0;
+    uint64_t Count = 0;
+  } Dbg_;
+
   FileDescriptor _payoutsFd;
   kvdb<rocksdbBase> _roundsDb;
   kvdb<rocksdbBase> _balanceDb;
@@ -63,21 +85,28 @@ private:
   kvdb<rocksdbBase> _payoutDb;
   
   uint64_t LastKnownShareId_ = 0;
-  uint64_t LastAggregatedShareId_ = 0;
   
-public:
-  AccountingDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher);
+  void printRecentStatistic();
+  bool parseAccoutingStorageFile(CAccountingFile &file);
+  void flushAccountingStorageFile(int64_t timeLabel);
 
-  uint64_t lastAggregatedShareId() { return LastAggregatedShareId_; }
+public:
+  AccountingDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, StatisticDb &statisticDb);
+
+  uint64_t lastAggregatedShareId() { return !AccountingDiskStorage_.empty() ? AccountingDiskStorage_.back().LastShareId : 0; }
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
+  void enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory);
+  void start();
   void updatePayoutFile();
   void cleanupRounds();
   
   void requestPayout(const std::string &address, int64_t value, bool force = false);
   void payoutSuccess(const std::string &address, int64_t value, int64_t fee, const std::string &transactionId);
-  
+
   void addShare(const CShare &share);
+  void replayShare(const CShare &share);
+  void initializationFinish(int64_t timeLabel);
   void mergeRound(const Round *round);
   void checkBlockConfirmations();
   void makePayout();

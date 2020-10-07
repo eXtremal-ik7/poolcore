@@ -511,8 +511,6 @@ private:
               backendShare->userId = worker.User;
               backendShare->workerId = worker.WorkerName;
               backendShare->height = height;
-              // TODO: calculate this value
-              backendShare->value = 1;
               backendShare->WorkValue = shareDifficulty;
               backendShare->isBlock = true;
               backendShare->hash = blockHash;
@@ -529,8 +527,6 @@ private:
         backendShare->userId = worker.User;
         backendShare->workerId = worker.WorkerName;
         backendShare->height = height;
-        // TODO: calculate this value
-        backendShare->value = 1;
         backendShare->WorkValue = connection->ShareDifficulty;
         backendShare->isBlock = false;
         backend->sendShare(backendShare);

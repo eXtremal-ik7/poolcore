@@ -5,6 +5,7 @@
 #include "backendData.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/rocksdbBase.h"
+#include "poolcommon/serialize.h"
 #include <chrono>
 
 struct CShare;
@@ -45,6 +46,11 @@ public:
     int64_t LastShareTime = 0;
   };
 
+  struct CStatsExportData {
+    std::string UserId;
+    std::vector<CStatsElement> Recent;
+  };
+
 private:
   struct CStatsFile {
     int64_t TimeLabel;
@@ -69,6 +75,7 @@ private:
   CFlushInfo PoolFlushInfo_;
   // Worker stats
   std::unordered_map<std::string, std::unordered_map<std::string, CStatsAccumulator>> LastWorkerStats_;
+  std::unordered_map<std::string, CStatsAccumulator> LastUserStats_;
   CFlushInfo WorkersFlushInfo_;
   
   kvdb<rocksdbBase> WorkerStatsDb_;
@@ -118,7 +125,38 @@ public:
   const CStats &getPoolStats() { return PoolStatsCached_; }
   void getUserStats(const std::string &user, CStats &aggregate, std::vector<CStats> &workerStats, size_t offset, size_t size, EStatsColumn sortBy, bool sortDescending);
   void getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history);
+
+  /// Return recent statistic for users
+  /// result - sorted by UserId
+  void exportRecentStats(std::vector<CStatsExportData> &result);
 };
 
+template<>
+struct DbIo<StatisticDb::CStatsElement> {
+  static inline void serialize(xmstream &out, const StatisticDb::CStatsElement &data) {
+    DbIo<decltype(data.SharesNum)>::serialize(out, data.SharesNum);
+    DbIo<decltype(data.SharesWork)>::serialize(out, data.SharesWork);
+    DbIo<decltype(data.TimeLabel)>::serialize(out, data.TimeLabel);
+  }
+
+  static inline void unserialize(xmstream &in, StatisticDb::CStatsElement &data) {
+    DbIo<decltype(data.SharesNum)>::unserialize(in, data.SharesNum);
+    DbIo<decltype(data.SharesWork)>::unserialize(in, data.SharesWork);
+    DbIo<decltype(data.TimeLabel)>::unserialize(in, data.TimeLabel);
+  }
+};
+
+template<>
+struct DbIo<StatisticDb::CStatsExportData> {
+  static inline void serialize(xmstream &out, const StatisticDb::CStatsExportData &data) {
+    DbIo<decltype(data.UserId)>::serialize(out, data.UserId);
+    DbIo<decltype(data.Recent)>::serialize(out, data.Recent);
+  }
+
+  static inline void unserialize(xmstream &in, StatisticDb::CStatsExportData &data) {
+    DbIo<decltype(data.UserId)>::unserialize(in, data.UserId);
+    DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
+  }
+};
 
 #endif //__STATISTICS_H_

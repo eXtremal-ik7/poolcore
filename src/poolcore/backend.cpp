@@ -65,8 +65,9 @@ PoolBackend::PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserMan
   _timeout = 8*1000000;
   TaskQueueEvent_ = newUserEvent(_base, 0, nullptr, nullptr);
 
-  _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_));
   _statistics.reset(new StatisticDb(_base, _cfg, CoinInfo_));
+  _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, *_statistics.get()));
+
 
   // Enumerate share log files
   std::error_code errc;
@@ -95,6 +96,7 @@ PoolBackend::PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserMan
   for (auto &file: ShareLog_)
     replayShares(file);
 
+  _accounting->initializationFinish(currentTime);
   _statistics->initializationFinish(currentTime);
 
   CurrentShareId_ = std::max({
@@ -171,6 +173,7 @@ void PoolBackend::replayShares(CShareLogFile &file)
     }
 
     // replay for accounting
+    _accounting->replayShare(share);
     // replay for statistic
     _statistics->replayShare(share);
     // keep last known id
@@ -207,6 +210,7 @@ void PoolBackend::backendMain()
   coroutineCall(coroutineNew([](void *arg) { static_cast<PoolBackend*>(arg)->checkBalanceHandler(); }, this, 0x100000));
   coroutineCall(coroutineNew([](void *arg) { static_cast<PoolBackend*>(arg)->payoutHandler(); }, this, 0x100000));
 
+  _accounting->start();
   _statistics->start();
 
   LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
@@ -306,8 +310,8 @@ void PoolBackend::onShare(CShare *share)
   // Serialize share to stream
   ShareLogIo<CShare>::serialize(ShareLogInMemory_, *share);
   // Processing share
-  _accounting->addShare(*share);
   _statistics->addShare(*share);
+  _accounting->addShare(*share);
 }
 
 void PoolBackend::manualPayoutImpl(const std::string &user, ManualPayoutCallback callback)
