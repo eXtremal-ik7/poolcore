@@ -394,7 +394,7 @@ void AccountingDb::addShare(const CShare &share)
           totalPayout += payout.payoutValue;
           LOG_F(INFO, "   * %s: share value: %.3lf; payout: %" PRId64 "", payout.Login.c_str(), shareValue, payout.payoutValue);
         } else {
-          R->rounds.pop_back();
+          R->payouts.pop_back();
         }
       }
 
