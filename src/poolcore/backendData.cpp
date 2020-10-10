@@ -92,6 +92,7 @@ void miningRound::serializeValue(xmstream &stream) const
 {
   uint32_t version = CurrentRecordVersion;
   DbIo<decltype (version)>::serialize(stream, version);
+  DbIo<decltype (height)>::serialize(stream, height);
   DbIo<decltype (blockHash)>::serialize(stream, blockHash);
   DbIo<decltype (time)>::serialize(stream, time);
   DbIo<decltype (totalShareValue)>::serialize(stream, totalShareValue);
@@ -107,6 +108,7 @@ bool miningRound::deserializeValue(const void *data, size_t size)
   uint32_t version;
   DbIo<decltype (version)>::unserialize(stream, version);
   if (version >= 1) {
+    DbIo<decltype (height)>::unserialize(stream, height);
     DbIo<decltype (blockHash)>::unserialize(stream, blockHash);
     DbIo<decltype (time)>::unserialize(stream, time);
     DbIo<decltype (totalShareValue)>::unserialize(stream, totalShareValue);
