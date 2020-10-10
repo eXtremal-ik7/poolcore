@@ -27,6 +27,7 @@ struct CCoinInfo {
   };
 
   std::string Name;
+  std::string FullName;
   int64_t RationalPartSize;
   EAddressType PayoutAddressType;
   bool SegwitEnabled;
@@ -39,7 +40,7 @@ struct CCoinInfo {
   uint16_t DefaultRpcPort;
 
   std::string CoinGeckoName;
-  double ProfitSwitchDefaultCoeff;
+  double ProfitSwitchDefaultCoeff = 0.0;
 
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;

@@ -9,6 +9,7 @@ public:
     CCoinInfo info;
     if (strcmp(coinName, "BTC") == 0) {
       info.Name = "BTC";
+      info.FullName = "Bitcoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -21,6 +22,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
     } else if (strcmp(coinName, "BTC.testnet") == 0) {
       info.Name = "BTC.testnet";
+      info.FullName = "Bitcoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -31,6 +33,7 @@ public:
       info.DefaultRpcPort = 18332;
     } else if (strcmp(coinName, "BTC.regtest") == 0) {
       info.Name = "BTC.regtest";
+      info.FullName = "Bitcoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -41,6 +44,7 @@ public:
       info.DefaultRpcPort = 18443;
     } else if (strcmp(coinName, "BCH") == 0) {
       info.Name = "BCH";
+      info.FullName = "Bitcoin Cash";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
@@ -51,6 +55,7 @@ public:
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "bitcoin-cash";
     } else if (strcmp(coinName, "BCH.testnet") == 0) {
+      info.FullName = "Bitcoin Cash";
       info.Name = "BCH.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
       info.RationalPartSize = 100000000;
@@ -63,6 +68,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 0.93;
     } else if (strcmp(coinName, "BSV") == 0) {
       info.Name = "BSV";
+      info.FullName = "Bitcoin SV";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
@@ -75,6 +81,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 0.87;
     } else if (strcmp(coinName, "BSV.testnet") == 0) {
       info.Name = "BSV.testnet";
+      info.FullName = "Bitcoin SV";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
@@ -84,7 +91,8 @@ public:
       info.ScriptAddressPrefix = {196};
       info.DefaultRpcPort = 18332;
     } else if (strcmp(coinName, "DGB.sha256") == 0) {
-      info.Name = "DGB";
+      info.Name = "DGB.sha256";
+      info.FullName = "Digibyte(sha256)";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -96,7 +104,8 @@ public:
       info.CoinGeckoName = "digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
     } else if (strcmp(coinName, "DGB.sha256.testnet") == 0) {
-      info.Name = "DGB.testnet";
+      info.Name = "DGB.sha256.testnet";
+      info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -106,7 +115,8 @@ public:
       info.ScriptAddressPrefix = {140};
       info.DefaultRpcPort = 14023;
     } else if (strcmp(coinName, "DGB.scrypt") == 0) {
-      info.Name = "DGB";
+      info.Name = "DGB.scrypt";
+      info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -118,7 +128,8 @@ public:
       info.CoinGeckoName = "digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
     } else if (strcmp(coinName, "DGB.scrypt.testnet") == 0) {
-      info.Name = "DGB.testnet";
+      info.Name = "DGB.scrypt.testnet";
+      info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -129,6 +140,7 @@ public:
       info.DefaultRpcPort = 14023;
     } else if (strcmp(coinName, "DOGE") == 0) {
       info.Name = "DOGE";
+      info.FullName = "Dogecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -141,6 +153,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
     } else if (strcmp(coinName, "DOGE.testnet") == 0) {
       info.Name = "DOGE.testnet";
+      info.FullName = "Dogecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -151,6 +164,7 @@ public:
       info.DefaultRpcPort = 44555;
     } else if (strcmp(coinName, "LTC") == 0) {
       info.Name = "LTC";
+      info.FullName = "Litecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -163,6 +177,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
     } else if (strcmp(coinName, "LTC.testnet") == 0) {
       info.Name = "LTC.testnet";
+      info.FullName = "Litecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
@@ -173,6 +188,7 @@ public:
       info.DefaultRpcPort = 19332;
     } else if (strcmp(coinName, "XPM") == 0) {
       info.Name = "XPM";
+      info.FullName = "Primecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
@@ -184,6 +200,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
     } else if (strcmp(coinName, "XPM.testnet") == 0) {
       info.Name = "XPM.testnet";
+      info.FullName = "Primecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
