@@ -65,7 +65,6 @@ public:
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
       info.DefaultRpcPort = 18332;
-      info.ProfitSwitchDefaultCoeff = 0.93;
     } else if (strcmp(coinName, "BSV") == 0) {
       info.Name = "BSV";
       info.FullName = "Bitcoin SV";
@@ -78,7 +77,6 @@ public:
       info.ScriptAddressPrefix = {5};
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "bitcoin-cash-sv";
-      info.ProfitSwitchDefaultCoeff = 0.87;
     } else if (strcmp(coinName, "BSV.testnet") == 0) {
       info.Name = "BSV.testnet";
       info.FullName = "Bitcoin SV";
@@ -103,6 +101,7 @@ public:
       info.DefaultRpcPort = 14022;
       info.CoinGeckoName = "digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
+      info.MinimalConfirmationsNumber = 32;
     } else if (strcmp(coinName, "DGB.sha256.testnet") == 0) {
       info.Name = "DGB.sha256.testnet";
       info.FullName = "Digibyte";
@@ -114,6 +113,7 @@ public:
       info.PubkeyAddressPrefix = {126};
       info.ScriptAddressPrefix = {140};
       info.DefaultRpcPort = 14023;
+      info.MinimalConfirmationsNumber = 32;
     } else if (strcmp(coinName, "DGB.scrypt") == 0) {
       info.Name = "DGB.scrypt";
       info.FullName = "Digibyte";
@@ -127,6 +127,7 @@ public:
       info.DefaultRpcPort = 14022;
       info.CoinGeckoName = "digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
+      info.MinimalConfirmationsNumber = 32;
     } else if (strcmp(coinName, "DGB.scrypt.testnet") == 0) {
       info.Name = "DGB.scrypt.testnet";
       info.FullName = "Digibyte";
@@ -138,6 +139,7 @@ public:
       info.PubkeyAddressPrefix = {126};
       info.ScriptAddressPrefix = {140};
       info.DefaultRpcPort = 14023;
+      info.MinimalConfirmationsNumber = 32;
     } else if (strcmp(coinName, "DOGE") == 0) {
       info.Name = "DOGE";
       info.FullName = "Dogecoin";
@@ -151,6 +153,7 @@ public:
       info.DefaultRpcPort = 22555;
       info.CoinGeckoName = "dogecoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 12;
     } else if (strcmp(coinName, "DOGE.testnet") == 0) {
       info.Name = "DOGE.testnet";
       info.FullName = "Dogecoin";
@@ -162,6 +165,7 @@ public:
       info.PubkeyAddressPrefix = {113};
       info.ScriptAddressPrefix = {196};
       info.DefaultRpcPort = 44555;
+      info.MinimalConfirmationsNumber = 12;
     } else if (strcmp(coinName, "LTC") == 0) {
       info.Name = "LTC";
       info.FullName = "Litecoin";
@@ -175,6 +179,7 @@ public:
       info.DefaultRpcPort = 9332;
       info.CoinGeckoName = "litecoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 12;
     } else if (strcmp(coinName, "LTC.testnet") == 0) {
       info.Name = "LTC.testnet";
       info.FullName = "Litecoin";
@@ -186,6 +191,7 @@ public:
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {58};
       info.DefaultRpcPort = 19332;
+      info.MinimalConfirmationsNumber = 12;
     } else if (strcmp(coinName, "XPM") == 0) {
       info.Name = "XPM";
       info.FullName = "Primecoin";
@@ -198,6 +204,7 @@ public:
       info.DefaultRpcPort = 9912;
       info.CoinGeckoName = "primecoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 12;
     } else if (strcmp(coinName, "XPM.testnet") == 0) {
       info.Name = "XPM.testnet";
       info.FullName = "Primecoin";
@@ -208,6 +215,7 @@ public:
       info.PowerMultLog10 = -3;
       info.PubkeyAddressPrefix = {111};
       info.DefaultRpcPort = 9914;
+      info.MinimalConfirmationsNumber = 12;
     } else {
       info.Name.clear();
     }

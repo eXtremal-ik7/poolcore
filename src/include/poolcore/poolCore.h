@@ -41,6 +41,7 @@ struct CCoinInfo {
 
   std::string CoinGeckoName;
   double ProfitSwitchDefaultCoeff = 0.0;
+  unsigned MinimalConfirmationsNumber = 6;
 
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;
