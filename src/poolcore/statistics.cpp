@@ -306,7 +306,7 @@ void StatisticDb::updateWorkersStats(int64_t timeLabel)
   for (auto &userIt: LastUserStats_) {
     CStatsAccumulator &acc = userIt.second;
     updateAcc(userIt.first, "", acc, timeLabel, statsFileData);
-    if (!acc.Recent.empty())
+    if (acc.Recent.empty())
       userDeleteList.push_back(userIt.first);
   }
 
