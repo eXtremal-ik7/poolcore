@@ -449,7 +449,7 @@ bool PayoutDbRecord::deserializeValue(const void *data, size_t size)
   uint32_t version = stream.read<uint32_t>();
   if (version >= 1) {
     deserializeString(stream, userId); 
-    time = stream.read<uint64_t>();
+    time = stream.read<int64_t>();
     value = stream.read<int64_t>();
     deserializeString(stream, transactionId);
   }
@@ -461,13 +461,14 @@ void PayoutDbRecord::serializeKey(xmstream &stream) const
 {
   serializeStringForKey(stream, userId);
   stream.writebe<uint64_t>(time);
+  serializeStringForKey(stream, transactionId);
 }
 
 void PayoutDbRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);
   serializeString(stream, userId);
-  stream.write<uint64_t>(time);
+  stream.write<int64_t>(time);
   stream.write<int64_t>(value);
   serializeString(stream, transactionId);
 }

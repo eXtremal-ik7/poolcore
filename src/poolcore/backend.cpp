@@ -373,23 +373,42 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
   auto &db = accountingDb()->getPayoutDb();
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
 
+
+  xmstream resumeKey;
   {
-    PayoutDbRecord pr;
-    pr.userId = user;
-    pr.time = timeFrom == 0 ? std::numeric_limits<uint64_t>::max() : timeFrom;
-    It->seek(pr);
-    It->prev();
+    PayoutDbRecord record;
+    record.userId = user;
+    record.time = std::numeric_limits<int64_t>::max();
+    record.serializeKey(resumeKey);
   }
+
+  {
+    PayoutDbRecord record;
+    record.userId = user;
+    record.time = timeFrom == 0 ? std::numeric_limits<int64_t>::max() : timeFrom;
+    It->seekForPrev(record);
+  }
+
+  auto endPredicate = [&user](const void *key, size_t size) -> bool {
+    PayoutDbRecord record;
+    if (!record.deserializeValue(key, size)) {
+      LOG_F(ERROR, "Statistic database corrupt!");
+      return true;
+    }
+
+    return record.userId != user;
+  };
 
   for (unsigned i = 0; i < count; i++) {
     if (!It->valid())
       break;
 
-    payouts.push_back(PayoutDbRecord());
+    PayoutDbRecord &record = payouts.emplace_back();
     RawData data = It->value();
     if (!payouts.back().deserializeValue(data.data, data.size) || payouts.back().userId != user)
       break;
-    It->prev();
+
+    It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
   }
 }
 
