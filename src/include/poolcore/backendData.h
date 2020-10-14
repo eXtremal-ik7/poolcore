@@ -215,11 +215,29 @@ struct UserSettingsRecord {
   void serializeValue(xmstream &stream) const;
 };
 
+struct FixedPointInteger {
+public:
+  FixedPointInteger() {}
+  FixedPointInteger(int64_t value) : Value_(value) {}
+  int64_t get() const { return Value_; }
+  int64_t getRational(int64_t multiplier) const { return Value_ / multiplier; }
+
+  void set(int64_t value) { Value_ = value; }
+
+  void add(int64_t value) { Value_ += value; }
+  void addRational(int64_t value, int64_t multiplier) { Value_ += value*multiplier; }
+  void sub(int64_t value) { Value_ -= value; }
+  void subRational(int64_t value, int64_t multiplier) { Value_ -= value*multiplier; }
+
+private:
+  int64_t Value_;
+};
+
 struct UserBalanceRecord {
   enum { CurrentRecordVersion = 1 };
   
   std::string Login;
-  int64_t Balance;
+  FixedPointInteger Balance;
   int64_t Requested;
   int64_t Paid;
 

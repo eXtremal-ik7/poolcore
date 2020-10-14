@@ -296,7 +296,7 @@ void AccountingDb::addShare(const CShare &share)
       _foundBlocksDb.put(blk);
     }
 
-    int64_t generatedCoins = share.generatedCoins;
+    int64_t generatedCoins = share.generatedCoins * CoinInfo_.ExtraMultiplier;
     if (!_cfg.poolZAddr.empty()) {
       // calculate miners fee for Z-Addr moving
       generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE);
@@ -710,7 +710,7 @@ void AccountingDb::checkBalance()
   immature = getBalanceResult.Immatured;
 
   for (auto &userIt: _balanceMap) {
-    userBalance += userIt.second.Balance+userIt.second.Requested;
+    userBalance += userIt.second.Balance.getRational(CoinInfo_.ExtraMultiplier)+userIt.second.Requested;
     requestedInBalance += userIt.second.Requested;
   }
 
@@ -721,6 +721,7 @@ void AccountingDb::checkBalance()
     for (auto &pIt: roundIt->payouts)
       queued += pIt.queued;
   }
+  queued /= CoinInfo_.ExtraMultiplier;
 
   net = balance + immature - userBalance - queued;
 
@@ -753,14 +754,15 @@ void AccountingDb::requestPayout(const std::string &address, int64_t value, bool
     It = _balanceMap.insert(It, std::make_pair(address, UserBalanceRecord(address, _cfg.DefaultPayoutThreshold)));
 
   UserBalanceRecord &balance = It->second;
-  balance.Balance += value;
+  balance.Balance.add(value);
 
   UserSettingsRecord settings;
   bool hasSettings = UserManager_.getUserCoinSettings(balance.Login, CoinInfo_.Name, settings);
-  if (force || (hasSettings && settings.AutoPayout && balance.Balance >= settings.MinimalPayout)) {
-    _payoutQueue.push_back(payoutElement(address, balance.Balance, 0));
-    balance.Requested += balance.Balance;
-    balance.Balance = 0;
+  int64_t rationalBalance = balance.Balance.getRational(CoinInfo_.ExtraMultiplier);
+  if (force || (hasSettings && settings.AutoPayout && rationalBalance >= settings.MinimalPayout)) {
+    _payoutQueue.push_back(payoutElement(address, rationalBalance, 0));
+    balance.Requested += rationalBalance;
+    balance.Balance.subRational(rationalBalance, CoinInfo_.ExtraMultiplier);
   }
 
   _balanceDb.put(balance);
@@ -786,7 +788,7 @@ void AccountingDb::payoutSuccess(const std::string &address, int64_t value, int6
   UserBalanceRecord &balance = It->second;
   balance.Requested -= (value+fee);
   if (balance.Requested < 0) {
-    balance.Balance += balance.Requested;
+    balance.Balance.addRational(balance.Requested, CoinInfo_.ExtraMultiplier);
     balance.Requested = 0;
   }
 
@@ -799,7 +801,7 @@ bool AccountingDb::manualPayout(const std::string &user)
   auto It = _balanceMap.find(user);
   if (It != _balanceMap.end()) {
     auto &B = It->second;
-    if (B.Balance >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance >= _cfg.MinimalAllowedPayout) {
+    if (B.Balance.getRational(CoinInfo_.ExtraMultiplier) >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance.getRational(CoinInfo_.ExtraMultiplier) >= _cfg.MinimalAllowedPayout) {
       requestPayout(user, 0, true);
       return true;
     }

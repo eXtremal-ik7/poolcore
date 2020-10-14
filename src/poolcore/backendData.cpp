@@ -286,7 +286,7 @@ void UserBalanceRecord::serializeValue(xmstream &stream) const
 {
   stream.write<uint32_t>(CurrentRecordVersion);  
   serializeString(stream, Login);
-  stream.writele<int64_t>(Balance);
+  stream.writele<int64_t>(Balance.get());
   stream.writele<int64_t>(Requested);
   stream.writele<int64_t>(Paid);
 }

@@ -29,6 +29,7 @@ struct CCoinInfo {
   std::string Name;
   std::string FullName;
   int64_t RationalPartSize;
+  int64_t ExtraMultiplier = 100;
   EAddressType PayoutAddressType;
   bool SegwitEnabled;
   EPowerUnitType PowerUnitType;
