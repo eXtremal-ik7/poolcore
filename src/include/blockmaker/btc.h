@@ -14,7 +14,7 @@
 
 struct CCoinInfo;
 struct PoolBackendConfig;
-struct PoolBackend;
+class PoolBackend;
 
 namespace BTC {
 namespace Script {

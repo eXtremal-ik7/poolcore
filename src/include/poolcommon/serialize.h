@@ -3,6 +3,7 @@
 #include "p2putils/xmstream.h"
 #include <list>
 #include <string>
+#include <vector>
 
 template<class T, typename Enable=void>
 struct is_simple_numeric : std::integral_constant<bool,
