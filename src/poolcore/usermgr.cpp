@@ -402,6 +402,12 @@ void UserManager::userChangePasswordImpl(const uint512 &id, const std::string &n
     userRecord = accessor->second;
   }
 
+  // Check password format
+  if (newPassword.size() < 8 || newPassword.size() > 64) {
+    callback("password_format_invalid");
+    return;
+  }
+
   userRecord.PasswordHash = generateHash(actionRecord.Login, newPassword);
   {
     decltype(UsersCache_)::accessor accessor;
