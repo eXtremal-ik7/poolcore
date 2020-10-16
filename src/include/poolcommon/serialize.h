@@ -1,5 +1,6 @@
 #pragma once
 
+#include "poolcommon/uint256.h"
 #include "p2putils/xmstream.h"
 #include <list>
 #include <string>
@@ -25,7 +26,6 @@ struct VarSize {
 template<typename T, typename Enable=void>
 struct DbKeyIo {
   static void serialize(xmstream &out, const T &data);
-  static void unserialize(xmstream &in, T &data);
 };
 
 template<typename T, typename Enable=void>
@@ -36,9 +36,20 @@ struct DbIo {
 
 // Serialization for simple integer types
 template<typename T>
+struct DbKeyIo<T, typename std::enable_if<is_simple_numeric<T>::value, void>::type> {
+  static inline void serialize(xmstream &stream, const T &data) { stream.writebe<T>(data); }
+};
+
+template<typename T>
 struct DbIo<T, typename std::enable_if<is_simple_numeric<T>::value, void>::type> {
   static inline void serialize(xmstream &stream, const T &data) { stream.writele<T>(data); }
   static inline void unserialize(xmstream &stream, T &data) { data = stream.readle<T>(); }
+};
+
+template<>
+struct DbIo<bool> {
+  static inline void serialize(xmstream &stream, const bool &data) { stream.write<uint8_t>(data); }
+  static inline void unserialize(xmstream &stream, bool &data) { data = stream.read<uint8_t>(); }
 };
 
 template<>
@@ -78,6 +89,13 @@ template<> struct DbIo<VarSize> {
 
 // string
 // Serialization for std::string
+template<> struct DbKeyIo<std::string> {
+  static inline void serialize(xmstream &dst, const std::string &data) {
+    DbKeyIo<uint32_t>::serialize(dst, static_cast<uint32_t>(data.size()));
+    dst.write(data.data(), data.size());
+  }
+};
+
 template<> struct DbIo<std::string> {
   static inline void serialize(xmstream &dst, const std::string &data) {
     DbIo<VarSize>::serialize(dst, data.size());
@@ -90,6 +108,33 @@ template<> struct DbIo<std::string> {
       data.assign(src.seek<const char>(length.Size), length.Size);
     else
       src.seekEnd(0, true);
+  }
+};
+
+template<> struct DbIo<uint256> {
+  static inline void serialize(xmstream &dst, const uint256 &data) {
+    dst.write(data.begin(), data.size());
+  }
+
+  static inline void unserialize(xmstream &src, uint256 &data) {
+    src.read(data.begin(), data.size());
+  }
+};
+
+template<> struct DbIo<uint512> {
+  static inline void serialize(xmstream &dst, const uint512 &data) {
+    dst.write(data.begin(), data.size());
+  }
+
+  static inline void unserialize(xmstream &src, uint512 &data) {
+    src.read(data.begin(), data.size());
+  }
+};
+
+template<> struct DbKeyIo<uint512> {
+  // TODO: check it
+  static inline void serialize(xmstream &dst, const uint512 &data) {
+    dst.write(data.begin(), data.size());
   }
 };
 

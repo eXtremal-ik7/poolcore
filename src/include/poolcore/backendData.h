@@ -148,8 +148,9 @@ struct UsersRecord {
   std::string Name;
   std::string TwoFactorAuthData;
   uint256 PasswordHash;
-  uint64_t RegistrationDate;
+  int64_t RegistrationDate;
   bool IsActive;
+  uint32_t Type = 0;
 
   UsersRecord() {}
   std::string getPartitionId() const { return "default"; }
