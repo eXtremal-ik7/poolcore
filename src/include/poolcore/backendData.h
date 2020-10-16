@@ -162,7 +162,7 @@ struct UsersRecord {
 struct UserActionRecord {
   enum { CurrentRecordVersion = 1 };
 
-  enum Type {
+  enum EType {
     UserActivate = 0,
     UserChangePassword,
     UserChangeEmail

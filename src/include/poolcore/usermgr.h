@@ -64,6 +64,33 @@ public:
     DefaultCb Callback_;
   };
 
+  class UserInitiateActionTask : public Task {
+  public:
+    UserInitiateActionTask(UserManager *userMgr, const std::string &login, UserActionRecord::EType type, DefaultCb callback) : Task(userMgr), Login_(login), Type_(type), Callback_(callback) {}
+    void run() final {
+      coroutineTy *coroutine = coroutineNew([](void *arg) {
+        auto task = static_cast<UserInitiateActionTask*>(arg);
+        task->UserMgr_->actionInitiateImpl(task->Login_, task->Type_, task->Callback_);
+      }, this, 0x10000);
+
+      coroutineCall(coroutine);
+    }
+  private:
+    std::string Login_;
+    UserActionRecord::EType Type_;
+    DefaultCb Callback_;
+  };
+
+  class UserChangePasswordTask : public Task {
+  public:
+    UserChangePasswordTask(UserManager *userMgr, const uint512 &actionId, std::string newPassword, DefaultCb callback) : Task(userMgr), ActionId_(actionId), NewPassword_(newPassword), Callback_(callback) {}
+    void run() final { UserMgr_->userChangePasswordImpl(ActionId_, NewPassword_, Callback_); }
+  private:
+    uint512 ActionId_;
+    std::string NewPassword_;
+    DefaultCb Callback_;
+  };
+
   class UserCreateTask : public Task {
   public:
     UserCreateTask(UserManager *userMgr, Credentials &&credentials, DefaultCb callback) : Task(userMgr), Credentials_(credentials), Callback_(callback) {}
@@ -153,10 +180,12 @@ public:
 
   void setBaseCfg(const std::string &poolName,
                   const std::string &poolHostAddress,
-                  const std::string &userActivateLinkPrefix) {
+                  const std::string &userActivateLinkPrefix,
+                  const std::string &userChangePasswordLinkPrefix) {
     BaseCfg.PoolName = poolName;
     BaseCfg.PoolHostAddress = poolHostAddress;
     BaseCfg.ActivateLinkPrefix = userActivateLinkPrefix;
+    BaseCfg.ChangePasswordLinkPrefix = userChangePasswordLinkPrefix;
   }
 
   void addSpecialUser(ESpecialUser type, const std::string &hash) {
@@ -200,6 +229,8 @@ public:
 
   // Asynchronous api
   void userAction(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserActionTask(this, uint512S(id), callback)); }
+  void userActionInitiate(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback) { startAsyncTask(new UserInitiateActionTask(this, login, type, callback)); }
+  void userChangePassword(const std::string &id, const std::string &newPassword, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordTask(this, uint512S(id), newPassword, callback)); }
   void userCreate(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserCreateTask(this, std::move(credentials), callback)); }
   void userResendEmail(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserResendEmailTask(this, std::move(credentials), callback)); }
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
@@ -218,6 +249,8 @@ private:
   // Asynchronous api implementation
   void startAsyncTask(Task *task);
   void actionImpl(const uint512 &id, Task::DefaultCb callback);
+  void actionInitiateImpl(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback);
+  void userChangePasswordImpl(const uint512 &id, const std::string &newPassword, Task::DefaultCb callback);
   void userCreateImpl(Credentials &credentials, Task::DefaultCb callback);
   void resendEmailImpl(Credentials &credentials, Task::DefaultCb callback);
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
@@ -284,6 +317,7 @@ private:
     std::string PoolName;
     std::string PoolHostAddress;
     std::string ActivateLinkPrefix;
+    std::string ChangePasswordLinkPrefix;
   } BaseCfg;
 
   // SMTP

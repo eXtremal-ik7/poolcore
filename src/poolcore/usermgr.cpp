@@ -284,6 +284,136 @@ void UserManager::actionImpl(const uint512 &id, Task::DefaultCb callback)
   callback(status);
 }
 
+void UserManager::actionInitiateImpl(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback)
+{
+  // Don't allow special users
+  if (login == "admin" || login == "observer") {
+    callback("unknown_login");
+    return;
+  }
+
+  std::string email;
+  decltype (UsersCache_)::const_accessor accessor;
+  if (UsersCache_.find(accessor, login)) {
+    email = accessor->second.EMail;
+  } else {
+    callback("unknown_login");
+    return;
+  }
+
+  UserActionRecord actionRecord;
+  makeRandom(actionRecord.Id);
+  actionRecord.Login = login;
+  actionRecord.Type = UserActionRecord::UserChangePassword;
+  actionRecord.CreationDate = time(nullptr);
+
+  if (SMTP.Enabled) {
+    HostAddress localAddress;
+    localAddress.ipv4 = INADDR_ANY;
+    localAddress.family = AF_INET;
+    localAddress.port = 0;
+    SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
+    if (!client) {
+      LOG_F(ERROR, "Can't create smtp client");
+      callback("smtp_client_create_error");
+      return;
+    }
+
+    const char *emailTitlePrefix = "";
+    const char *linkPrefix = "";
+    if (type == UserActionRecord::UserChangePassword) {
+      emailTitlePrefix = "Change password at ";
+      linkPrefix = BaseCfg.ChangePasswordLinkPrefix.c_str();
+    }
+
+    std::string EMailText;
+    std::string activationLink = "http://";
+      activationLink.append(BaseCfg.PoolHostAddress);
+      activationLink.append(linkPrefix);
+      activationLink.append(actionRecord.Id.ToString());
+
+    EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
+    EMailText.append("This email generated automatically, please don't reply.\r\n");
+    EMailText.append("For change your password visit <a href=\"");
+    EMailText.append(activationLink);
+    EMailText.append("\">");
+    EMailText.append(activationLink);
+    EMailText.append("</a>\r\n");
+
+    int result = ioSmtpSendMail(client,
+                                SMTP.ServerAddress,
+                                SMTP.UseStartTls,
+                                BaseCfg.PoolHostAddress.c_str(),
+                                SMTP.Login.c_str(),
+                                SMTP.Password.c_str(),
+                                SMTP.SenderAddress.c_str(),
+                                email.c_str(),
+                                (emailTitlePrefix + BaseCfg.PoolName).c_str(),
+                                EMailText.c_str(),
+                                afNone,
+                                16000000);
+    if (result != 0) {
+      if (result == -smtpError)
+        LOG_F(ERROR, "SMTP error; code: %u; text: %s", smtpClientGetResultCode(client), smtpClientGetResponse(client));
+      else
+        LOG_F(ERROR, "SMTP client error %u", -result);
+      smtpClientDelete(client);
+      callback("email_send_error");
+      return;
+    }
+
+    smtpClientDelete(client);
+  }
+
+  actionAdd(actionRecord);
+  callback("ok");
+}
+
+void UserManager::userChangePasswordImpl(const uint512 &id, const std::string &newPassword, Task::DefaultCb callback)
+{
+  auto It = ActionsCache_.find(id);
+  if (It == ActionsCache_.end()) {
+    callback("unknown_id");
+    return;
+  }
+
+  UserActionRecord &actionRecord = It->second;
+  if (actionRecord.Type != UserActionRecord::UserChangePassword) {
+    callback("unknown_id");
+    return;
+  }
+
+  // Don't allow special users
+  if (actionRecord.Login == "admin" || actionRecord.Login == "observer") {
+    callback("unknown_login");
+    return;
+  }
+
+  UsersRecord userRecord;
+
+  {
+    decltype(UsersCache_)::const_accessor accessor;
+    if (!UsersCache_.find(accessor, actionRecord.Login)) {
+      callback("unknown_login");
+      actionRemove(actionRecord);
+      return;
+    }
+
+    userRecord = accessor->second;
+  }
+
+  userRecord.PasswordHash = generateHash(actionRecord.Login, newPassword);
+  {
+    decltype(UsersCache_)::accessor accessor;
+    if (UsersCache_.find(accessor, actionRecord.Login))
+      accessor->second = userRecord;
+  }
+
+  UsersDb_.put(userRecord);
+  actionRemove(actionRecord);
+  callback("ok");
+}
+
 void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callback)
 {
   // NOTE: function is coroutine!
