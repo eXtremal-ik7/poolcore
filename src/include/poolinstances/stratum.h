@@ -263,6 +263,9 @@ private:
     double ShareDifficulty;
     // Workers
     std::unordered_map<std::string, Worker> Workers;
+    // Share statistic
+    uint64_t TotalShares = 0;
+    uint64_t InvalidShares = 0;
   };
 
   struct ThreadData {
@@ -274,6 +277,13 @@ private:
     std::unordered_set<typename X::Proto::BlockHashTy> KnownShares;
     uint64_t MajorWorkId_ = 0;
     uint64_t MinorLastWorkId_ = 0;
+  };
+
+  struct JobInfo {
+    bool HasJob;
+    size_t MajorJobId;
+    size_t MinorJobId;
+    size_t LocalJobIndex;
   };
 
 private:
@@ -408,8 +418,9 @@ private:
     send(connection, stream);
   }
 
-  bool shareCheck(Connection *connection, StratumMessage &msg, StratumErrorTy &errorCode) {
+  bool shareCheck(Connection *connection, StratumMessage &msg, StratumErrorTy &errorCode, JobInfo *info) {
     ThreadData &data = Data_[GetLocalThreadId()];
+    info->HasJob = false;
 
     // Check worker name
     auto It = connection->Workers.find(msg.submit.WorkerName);
@@ -422,7 +433,6 @@ private:
     Worker &worker = It->second;
 
     // Check job id
-    size_t localJobIndex;
     {
       size_t sharpPos = msg.submit.JobId.find('#');
       if (sharpPos == msg.submit.JobId.npos) {
@@ -433,12 +443,12 @@ private:
       }
 
       msg.submit.JobId[sharpPos] = 0;
-      uint64_t majorJobId = xatoi<uint64_t>(msg.submit.JobId.c_str());
-      size_t jobIndex = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
+      info->MajorJobId = xatoi<uint64_t>(msg.submit.JobId.c_str());
+      info->MinorJobId = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
       size_t jobIdOffset = data.MinorLastWorkId_ - data.WorkSet.size() + 1;
-      localJobIndex = jobIndex - jobIdOffset;
-      bool hasJob = jobIndex >= jobIdOffset && localJobIndex < data.WorkSet.size();
-      if (majorJobId != data.MajorWorkId_ || !hasJob) {
+      info->LocalJobIndex = info->MinorJobId - jobIdOffset;
+      info->HasJob = info->MinorJobId >= jobIdOffset && info->LocalJobIndex < data.WorkSet.size();
+      if (info->MajorJobId != data.MajorWorkId_ || !info->HasJob) {
         if (isDebugInstanceStratumRejects())
           LOG_F(1, "%s(%s) %s/%s reject: unknown job id: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), msg.submit.JobId.c_str());
         errorCode = StratumErrorJobNotFound;
@@ -448,7 +458,7 @@ private:
 
     // Build header and check proof of work
     std::string user = worker.User;
-    typename X::Stratum::Work &work = *data.WorkSet[localJobIndex];
+    typename X::Stratum::Work &work = *data.WorkSet[info->LocalJobIndex];
     if (!work.prepareForSubmit(connection->WorkerConfig, MiningCfg_, msg)) {
       if (isDebugInstanceStratumRejects())
         LOG_F(1, "%s(%s) %s/%s reject: invalid share format", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
@@ -540,7 +550,10 @@ private:
 
   void onStratumSubmit(Connection *connection, StratumMessage &msg) {
     StratumErrorTy errorCode;
-    bool result = shareCheck(connection, msg, errorCode);
+    JobInfo info;
+    bool result = shareCheck(connection, msg, errorCode, &info);
+    connection->TotalShares++;
+    connection->InvalidShares += result ? 0 : 1;
     xmstream stream;
     {
       // Response
@@ -565,17 +578,28 @@ private:
     send(connection, stream);
 
     if (!result) {
-      if (errorCode == StratumErrorJobNotFound) {
-        int64_t timeDiff = time(nullptr) - connection->LastUpdateTime;
-        if (timeDiff >= 4) {
-          if (isDebugInstanceStratumConnections())
-            LOG_F(1, "%s: connection %s too late stale share, disconnecting", Name_.c_str(), connection->AddressHr.c_str());
-          connection->Active = false;
-        }
-      } else {
+      uint64_t invalidSharedPercent = (connection->TotalShares >= 100) ? connection->InvalidShares*100 / connection->TotalShares : 0;
+      if (invalidSharedPercent >= 10) {
         if (isDebugInstanceStratumConnections())
-          LOG_F(1, "%s: connection %s fatal error, disconnecting", Name_.c_str(), connection->AddressHr.c_str());
+          LOG_F(1, "%s: connection %s: too much errors, disconnecting...", Name_.c_str(), connection->AddressHr.c_str());
         connection->Active = false;
+        return;
+      }
+
+      // Change job for duplicate/invalid share (handle unstable clients)
+      if ((errorCode == StratumErrorDuplicateShare || errorCode == StratumErrorInvalidShare) && info.HasJob) {
+        ThreadData &data = Data_[GetLocalThreadId()];
+        if (info.LocalJobIndex == data.WorkSet.size() - 1) {
+          // Create new job for unstable clients
+          // Deep copy last work
+          typename X::Stratum::Work *clone = new typename X::Stratum::Work(*data.WorkSet.back());
+          clone->mutate();
+          data.WorkSet.emplace_back(clone);
+          data.MinorLastWorkId_++;
+          clone->buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.MinorLastWorkId_, true);
+        }
+
+        stratumSendWork(connection, time(nullptr));
       }
     }
   }

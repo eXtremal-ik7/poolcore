@@ -313,6 +313,8 @@ public:
       return UniqueWorkId != workId;
     }
 
+    void mutate() { Header.nTime = time(nullptr); }
+
     bool checkConsensus(size_t, double *shareDiff) {
       Proto::CheckConsensusCtx ctx;
       Proto::ChainParams params;
