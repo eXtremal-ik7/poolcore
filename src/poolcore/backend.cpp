@@ -144,60 +144,6 @@ void PoolBackend::onShare(CShare *share)
   _accounting->addShare(*share);
 }
 
-void PoolBackend::manualPayoutImpl(const std::string &user, ManualPayoutCallback callback)
-{
-  callback(_accounting->manualPayout(user));
-}
-
-void PoolBackend::queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback)
-{
-  auto &db = accountingDb()->getFoundBlocksDb();
-  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
-  if (heightFrom != -1) {
-    FoundBlockRecord blk;
-    blk.Height = heightFrom;
-    blk.Hash = hashFrom;
-    It->seek(blk);
-    It->prev();
-  } else {
-    It->seekLast();
-  }
-
-  std::vector<CNetworkClient::GetBlockConfirmationsQuery> confirmationsQuery;
-  std::vector<FoundBlockRecord> foundBlocks;
-  for (unsigned i = 0; i < count && It->valid(); i++) {
-    FoundBlockRecord dbBlock;
-    RawData data = It->value();
-    if (!dbBlock.deserializeValue(data.data, data.size))
-      break;
-    foundBlocks.push_back(dbBlock);
-    confirmationsQuery.emplace_back(dbBlock.Hash, dbBlock.Height);
-    It->prev();
-  }
-
-  // query confirmations
-  if (count)
-    ClientDispatcher_.ioGetBlockConfirmations(_base, confirmationsQuery);
-
-  callback(foundBlocks, confirmationsQuery);
-}
-
-void PoolBackend::queryBalanceImpl(const std::string &user, QueryBalanceCallback callback)
-{
-  auto &balanceMap = accountingDb()->getUserBalanceMap();
-  auto It = balanceMap.find(user);
-  if (It != balanceMap.end()) {
-    callback(It->second);
-  } else {
-    UserBalanceRecord record;
-    record.Login = user;
-    record.Balance = 0;
-    record.Requested = 0;
-    record.Paid = 0;
-    callback(record);
-  }
-}
-
 void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts)
 {
   auto &db = accountingDb()->getPayoutDb();
@@ -239,24 +185,4 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
 
     It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
   }
-}
-
-void PoolBackend::queryPoolStatsImpl(QueryPoolStatsCallback callback)
-{
-  callback(statisticDb()->getPoolStats());
-}
-
-void PoolBackend::queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending)
-{
-  StatisticDb::CStats aggregate;
-  std::vector<StatisticDb::CStats> workers;
-  statisticDb()->getUserStats(user, aggregate, workers, offset, size, sortBy, sortDescending);
-  callback(aggregate, workers);
-}
-
-void PoolBackend::queryStatsHistoryImpl(const std::string &user, const std::string &worker, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInteval, QueryStatsHistoryCallback callback)
-{
-  std::vector<StatisticDb::CStats> history;
-  statisticDb()->getHistory(user, worker, timeFrom, timeTo, groupByInteval, history);
-  callback(history);
 }

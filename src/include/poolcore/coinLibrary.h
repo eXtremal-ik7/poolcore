@@ -8,15 +8,15 @@ public:
   static CCoinInfo get(const char *coinName) {
     CCoinInfo info;
     // PoW algorithms
-    if (strcmp(coinName, "sha256")) {
+    if (strcmp(coinName, "sha256") == 0) {
       info.Name = "sha256";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
-    } else if (strcmp(coinName, "scrypt")) {
+    } else if (strcmp(coinName, "scrypt") == 0) {
       info.Name = "scrypt";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
-    } else if (strcmp(coinName, "primecoin")) {
+    } else if (strcmp(coinName, "primecoin") == 0) {
       info.Name = "primecoin";
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = 1;

@@ -11,27 +11,6 @@
 #include <thread>
 #include <tbb/concurrent_queue.h>
 
-template<typename T>
-struct MultiCall {
-  std::unique_ptr<T[]> Data;
-  std::atomic<uint32_t> FinishedCallsNum = 0;
-  uint32_t TotalCallsNum;
-  std::function<void(const T*, size_t)> MainCallback;
-
-  MultiCall(uint32_t totalCallsNum, std::function<void(const T*, size_t)> mainCallback) : TotalCallsNum(totalCallsNum), MainCallback(mainCallback) {
-    Data.reset(new T[totalCallsNum]);
-  }
-
-  std::function<void(const T&)> generateCallback(uint32_t callNum) {
-    return [this, callNum](const T &data) {
-      Data[callNum] = data;
-      if (++FinishedCallsNum == TotalCallsNum) {
-        MainCallback(Data.get(), TotalCallsNum);
-        delete this;
-      }
-    };
-  }
-};
 
 class ShareLogConfig {
 public:
@@ -84,71 +63,6 @@ private:
     std::unique_ptr<CShare> Share_;
   };
 
-  class TaskManualPayout : public Task {
-  public:
-    TaskManualPayout(const std::string &user, ManualPayoutCallback callback) : User_(user), Callback_(callback) {}
-    void run(PoolBackend *backend) final { backend->manualPayoutImpl(User_, Callback_); }
-  private:
-    std::string User_;
-    ManualPayoutCallback Callback_;
-  };
-
-  class TaskQueryFoundBlocks : public Task {
-  public:
-    TaskQueryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) : HeightFrom_(heightFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
-    void run(PoolBackend *backend) final { backend->queryFoundBlocksImpl(HeightFrom_, HashFrom_, Count_, Callback_); }
-  private:
-    int64_t HeightFrom_;
-    std::string HashFrom_;
-    uint32_t Count_;
-    QueryFoundBlocksCallback Callback_;
-  };
-
-  class TaskQueryBalance : public Task {
-  public:
-    TaskQueryBalance(const std::string &user, QueryBalanceCallback callback) : User_(user), Callback_(callback) {}
-    void run(PoolBackend *backend) final { backend->queryBalanceImpl(User_, Callback_); }
-  private:
-    std::string User_;
-    QueryBalanceCallback Callback_;
-  };
-
-  class TaskQueryPoolStats : public Task {
-  public:
-    TaskQueryPoolStats(QueryPoolStatsCallback callback) : Callback_(callback) {}
-    void run(PoolBackend *backend) final { backend->queryPoolStatsImpl(Callback_); }
-  private:
-    QueryPoolStatsCallback Callback_;
-  };
-
-  class TaskQueryUserStats : public Task {
-  public:
-    TaskQueryUserStats(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending) :
-      User_(user), Callback_(callback), Offset_(offset), Size_(size), SortBy_(sortBy), SortDescending_(sortDescending) {}
-    void run(PoolBackend *backend) final { backend->queryUserStatsImpl(User_, Callback_, Offset_, Size_, SortBy_, SortDescending_); }
-  private:
-    std::string User_;
-    QueryUserStatsCallback Callback_;
-    size_t Offset_;
-    size_t Size_;
-    StatisticDb::EStatsColumn SortBy_;
-    bool SortDescending_;
-  };
-
-  class TaskQueryStatsHistory : public Task {
-  public:
-    TaskQueryStatsHistory(const std::string &user, const std::string &workerId, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInterval, QueryStatsHistoryCallback callback) :
-      User_(user), WorkerId_(workerId), TimeFrom_(timeFrom), TimeTo_(timeTo), GroupByInterval_(groupByInterval), Callback_(callback) {}
-    void run(PoolBackend *backend) final { backend->queryStatsHistoryImpl(User_, WorkerId_, TimeFrom_, TimeTo_, GroupByInterval_, Callback_); }
-  private:
-    std::string User_;
-    std::string WorkerId_;
-    uint64_t TimeFrom_;
-    uint64_t TimeTo_;
-    uint64_t GroupByInterval_;
-    QueryStatsHistoryCallback Callback_;
-  };
-
 private:
   asyncBase *_base;
   uint64_t _timeout;
@@ -181,14 +95,7 @@ private:
   void *payoutHandler();    
   void *checkBalanceHandler();
   
-  void onShare(CShare *share);
-  void manualPayoutImpl(const std::string &user, ManualPayoutCallback callback);
-  void queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
-  void queryBalanceImpl(const std::string &user, QueryBalanceCallback callback);
-  void queryPoolStatsImpl(QueryPoolStatsCallback callback);
-  void queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending);
-  void queryStatsHistoryImpl(const std::string &user, const std::string &worker, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInteval, QueryStatsHistoryCallback callback);
-  
+  void onShare(CShare *share); 
 
 public:
   PoolBackend(const PoolBackend&) = delete;
@@ -210,36 +117,6 @@ public:
 
   // Asynchronous api
   void sendShare(CShare *share) { startAsyncTask(new TaskShare(share)); }
-  void manualPayout(const std::string &user, ManualPayoutCallback callback) { startAsyncTask(new TaskManualPayout(user, callback)); }
-
-  void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { startAsyncTask(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
-  void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { startAsyncTask(new TaskQueryBalance(user, callback)); }
-  void queryPoolStats(QueryPoolStatsCallback callback) { startAsyncTask(new TaskQueryPoolStats(callback)); }
-  void queryUserStats(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending) {
-    startAsyncTask(new TaskQueryUserStats(user, callback, offset, size, sortBy, sortDescending));
-  }
-
-  void queryStatsHistory(const std::string &user,
-                         const std::string &worker,
-                         uint64_t timeFrom,
-                         uint64_t timeTo,
-                         uint64_t groupByInterval,
-                         QueryStatsHistoryCallback callback) {
-    startAsyncTask(new TaskQueryStatsHistory(user, worker, timeFrom, timeTo, groupByInterval, callback));
-  }
-
-  // Asynchronous multi calls
-  static void queryUserBalanceMulti(PoolBackend **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceRecord*, size_t)> callback) {
-    MultiCall<UserBalanceRecord> *context = new MultiCall<UserBalanceRecord>(backendsNum, callback);
-    for (size_t i = 0; i < backendsNum; i++)
-      backends[i]->queryUserBalance(user, context->generateCallback(i));
-  }
-
-  static void queryPoolStatsMulti(PoolBackend **backends, size_t backendsNum, std::function<void(const StatisticDb::CStats*, size_t)> callback) {
-    MultiCall<StatisticDb::CStats> *context = new MultiCall<StatisticDb::CStats>(backendsNum, callback);
-    for (size_t i = 0; i < backendsNum; i++)
-      backends[i]->queryPoolStats(context->generateCallback(i));
-  }
 
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }

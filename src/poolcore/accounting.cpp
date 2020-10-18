@@ -137,6 +137,8 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
   _poolBalanceDb(config.dbPath / "poolBalance"),
   _payoutDb(config.dbPath / "payouts")
 {
+  TaskQueueEvent_ = newUserEvent(base, 0, nullptr, nullptr);
+
   int64_t currentTime = time(nullptr);
   FlushInfo_.Time = currentTime;
   FlushInfo_.ShareId = 0;
@@ -217,6 +219,19 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
   }
 }
 
+void AccountingDb::taskHandler()
+{
+  Task *task;
+  for (;;) {
+    while (TaskQueue_.try_pop(task)) {
+      std::unique_ptr<Task> taskHolder(task);
+      task->run(this);
+    }
+
+    ioWaitUserEvent(TaskQueueEvent_);
+  }
+}
+
 void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory)
 {
   std::error_code errc;
@@ -241,6 +256,7 @@ void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const
 
 void AccountingDb::start()
 {
+  coroutineCall(coroutineNew([](void *arg) { static_cast<AccountingDb*>(arg)->taskHandler(); }, this, 0x100000));
   coroutineCall(coroutineNew([](void *arg) {
     AccountingDb *db = static_cast<AccountingDb*>(arg);
     aioUserEvent *timerEvent = newUserEvent(db->Base_, 0, nullptr, nullptr);
@@ -796,16 +812,66 @@ void AccountingDb::payoutSuccess(const std::string &address, int64_t value, int6
   _balanceDb.put(balance);
 }
 
-bool AccountingDb::manualPayout(const std::string &user)
+void AccountingDb::manualPayoutImpl(const std::string &user, ManualPayoutCallback callback)
 {
   auto It = _balanceMap.find(user);
   if (It != _balanceMap.end()) {
     auto &B = It->second;
     if (B.Balance.getRational(CoinInfo_.ExtraMultiplier) >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance.getRational(CoinInfo_.ExtraMultiplier) >= _cfg.MinimalAllowedPayout) {
       requestPayout(user, 0, true);
-      return true;
+      callback(true);
+      return;
     }
   }
 
-  return false;
+  callback(false);
+}
+
+void AccountingDb::queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback)
+{
+  auto &db = getFoundBlocksDb();
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
+  if (heightFrom != -1) {
+    FoundBlockRecord blk;
+    blk.Height = heightFrom;
+    blk.Hash = hashFrom;
+    It->seek(blk);
+    It->prev();
+  } else {
+    It->seekLast();
+  }
+
+  std::vector<CNetworkClient::GetBlockConfirmationsQuery> confirmationsQuery;
+  std::vector<FoundBlockRecord> foundBlocks;
+  for (unsigned i = 0; i < count && It->valid(); i++) {
+    FoundBlockRecord dbBlock;
+    RawData data = It->value();
+    if (!dbBlock.deserializeValue(data.data, data.size))
+      break;
+    foundBlocks.push_back(dbBlock);
+    confirmationsQuery.emplace_back(dbBlock.Hash, dbBlock.Height);
+    It->prev();
+  }
+
+  // query confirmations
+  if (count)
+    ClientDispatcher_.ioGetBlockConfirmations(Base_, confirmationsQuery);
+
+  callback(foundBlocks, confirmationsQuery);
+}
+
+void AccountingDb::queryBalanceImpl(const std::string &user, QueryBalanceCallback callback)
+{
+  auto &balanceMap = getUserBalanceMap();
+  auto It = balanceMap.find(user);
+  if (It != balanceMap.end()) {
+    callback(It->second);
+  } else {
+    UserBalanceRecord record;
+    record.Login = user;
+    record.Balance = 0;
+    record.Requested = 0;
+    record.Paid = 0;
+    callback(record);
+  }
 }

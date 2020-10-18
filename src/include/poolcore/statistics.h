@@ -5,7 +5,10 @@
 #include "backendData.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/rocksdbBase.h"
+#include "poolcommon/multiCall.h"
 #include "poolcommon/serialize.h"
+#include "asyncio/asyncio.h"
+#include <tbb/concurrent_queue.h>
 #include <chrono>
 
 struct CShare;
@@ -52,6 +55,10 @@ public:
   };
 
 private:
+  using QueryPoolStatsCallback = std::function<void(const StatisticDb::CStats&)>;
+  using QueryUserStatsCallback = std::function<void(const StatisticDb::CStats&, const std::vector<StatisticDb::CStats>&)>;
+  using QueryStatsHistoryCallback = std::function<void(const std::vector<StatisticDb::CStats>&)>;
+
   struct CStatsFile {
     int64_t TimeLabel;
     uint64_t LastShareId;
@@ -63,6 +70,47 @@ private:
     int64_t Time;
   };
 
+  class Task {
+  public:
+    virtual ~Task() {}
+    virtual void run(StatisticDb *accounting) = 0;
+  };
+
+  class TaskQueryPoolStats : public Task {
+  public:
+    TaskQueryPoolStats(QueryPoolStatsCallback callback) : Callback_(callback) {}
+    void run(StatisticDb *statistic) final { statistic->queryPoolStatsImpl(Callback_); }
+  private:
+    QueryPoolStatsCallback Callback_;
+  };
+
+  class TaskQueryUserStats : public Task {
+  public:
+    TaskQueryUserStats(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending) :
+      User_(user), Callback_(callback), Offset_(offset), Size_(size), SortBy_(sortBy), SortDescending_(sortDescending) {}
+    void run(StatisticDb *statistic) final { statistic->queryUserStatsImpl(User_, Callback_, Offset_, Size_, SortBy_, SortDescending_); }
+  private:
+    std::string User_;
+    QueryUserStatsCallback Callback_;
+    size_t Offset_;
+    size_t Size_;
+    StatisticDb::EStatsColumn SortBy_;
+    bool SortDescending_;
+  };
+
+  class TaskQueryStatsHistory : public Task {
+  public:
+    TaskQueryStatsHistory(const std::string &user, const std::string &workerId, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInterval, QueryStatsHistoryCallback callback) :
+      User_(user), WorkerId_(workerId), TimeFrom_(timeFrom), TimeTo_(timeTo), GroupByInterval_(groupByInterval), Callback_(callback) {}
+    void run(StatisticDb *statistic) final { statistic->queryStatsHistoryImpl(User_, WorkerId_, TimeFrom_, TimeTo_, GroupByInterval_, Callback_); }
+  private:
+    std::string User_;
+    std::string WorkerId_;
+    uint64_t TimeFrom_;
+    uint64_t TimeTo_;
+    uint64_t GroupByInterval_;
+    QueryStatsHistoryCallback Callback_;
+  };
 
 private:
   asyncBase *Base_;
@@ -83,6 +131,9 @@ private:
   std::deque<CStatsFile> PoolStatsCache_;
   std::deque<CStatsFile> WorkersStatsCache_;
 
+  tbb::concurrent_queue<Task*> TaskQueue_;
+  aioUserEvent *TaskQueueEvent_;
+
   // Debugging only
   struct {
     uint64_t MinShareId = std::numeric_limits<uint64_t>::max();
@@ -90,6 +141,11 @@ private:
     uint64_t Count = 0;
   } Dbg_;
   
+  void startAsyncTask(Task *task) {
+    TaskQueue_.push(task);
+    userEventActivate(TaskQueueEvent_);
+  }
+
   static inline void parseStatsCacheFile(CStatsFile &file, std::function<CStatsAccumulator&(const StatsRecord&)> searchAcc);
 
   void enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::filesystem::path &directory);
@@ -105,7 +161,7 @@ private:
 public:
   // Initialization
   StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo);
-//  const CCoinInfo &coinInfo() { return CoinInfo_; }
+  void taskHandler();
   void replayShare(const CShare &share);
   void initializationFinish(int64_t timeLabel);
   void start();
@@ -130,6 +186,32 @@ public:
   /// Return recent statistic for users
   /// result - sorted by UserId
   void exportRecentStats(std::vector<CStatsExportData> &result);
+
+  // Asynchronous api
+  void queryPoolStats(QueryPoolStatsCallback callback) { startAsyncTask(new TaskQueryPoolStats(callback)); }
+  void queryUserStats(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending) {
+    startAsyncTask(new TaskQueryUserStats(user, callback, offset, size, sortBy, sortDescending));
+  }
+
+  void queryStatsHistory(const std::string &user,
+                         const std::string &worker,
+                         uint64_t timeFrom,
+                         uint64_t timeTo,
+                         uint64_t groupByInterval,
+                         QueryStatsHistoryCallback callback) {
+    startAsyncTask(new TaskQueryStatsHistory(user, worker, timeFrom, timeTo, groupByInterval, callback));
+  }
+
+  static void queryPoolStatsMulti(StatisticDb **backends, size_t backendsNum, std::function<void(const StatisticDb::CStats*, size_t)> callback) {
+    MultiCall<StatisticDb::CStats> *context = new MultiCall<StatisticDb::CStats>(backendsNum, callback);
+    for (size_t i = 0; i < backendsNum; i++)
+      backends[i]->queryPoolStats(context->generateCallback(i));
+  }
+
+private:
+  void queryPoolStatsImpl(QueryPoolStatsCallback callback);
+  void queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending);
+  void queryStatsHistoryImpl(const std::string &user, const std::string &worker, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInteval, QueryStatsHistoryCallback callback);
 };
 
 template<>

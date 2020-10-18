@@ -60,6 +60,8 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   WorkerStatsDb_(_cfg.dbPath / "workerStats"),
   PoolStatsDb_(_cfg.dbPath / "poolstats")
 {
+  TaskQueueEvent_ = newUserEvent(base, 0, nullptr, nullptr);
+
   int64_t currentTime = time(nullptr);
   WorkersFlushInfo_.Time = currentTime;
   WorkersFlushInfo_.ShareId = 0;
@@ -86,6 +88,19 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   LastKnownShareId_ = std::max(WorkersFlushInfo_.ShareId, PoolFlushInfo_.ShareId);
   if (isDebugStatistic())
     LOG_F(1, "%s: last aggregated id: %" PRIu64 " last known id: %" PRIu64 "", coinInfo.Name.c_str(), lastAggregatedShareId(), lastKnownShareId());
+}
+
+void StatisticDb::taskHandler()
+{
+  Task *task;
+  for (;;) {
+    while (TaskQueue_.try_pop(task)) {
+      std::unique_ptr<Task> taskHolder(task);
+      task->run(this);
+    }
+
+    ioWaitUserEvent(TaskQueueEvent_);
+  }
 }
 
 void StatisticDb::enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::filesystem::path &directory)
@@ -267,6 +282,7 @@ void StatisticDb::initializationFinish(int64_t timeLabel)
 
 void StatisticDb::start()
 {
+  coroutineCall(coroutineNew([](void *arg) { static_cast<StatisticDb*>(arg)->taskHandler(); }, this, 0x100000));
   coroutineCall(coroutineNew([](void *arg) {
     StatisticDb *db = static_cast<StatisticDb*>(arg);
     aioUserEvent *timerEvent = newUserEvent(db->Base_, 0, nullptr, nullptr);
@@ -573,4 +589,24 @@ void StatisticDb::exportRecentStats(std::vector<CStatsExportData> &result)
   }
 
   std::sort(result.begin(), result.end(), [](const CStatsExportData &l, const CStatsExportData &r) { return l.UserId < r.UserId; });
+}
+
+void StatisticDb::queryPoolStatsImpl(QueryPoolStatsCallback callback)
+{
+  callback(getPoolStats());
+}
+
+void StatisticDb::queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending)
+{
+  StatisticDb::CStats aggregate;
+  std::vector<StatisticDb::CStats> workers;
+  getUserStats(user, aggregate, workers, offset, size, sortBy, sortDescending);
+  callback(aggregate, workers);
+}
+
+void StatisticDb::queryStatsHistoryImpl(const std::string &user, const std::string &worker, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInteval, QueryStatsHistoryCallback callback)
+{
+  std::vector<StatisticDb::CStats> history;
+  getHistory(user, worker, timeFrom, timeTo, groupByInteval, history);
+  callback(history);
 }
