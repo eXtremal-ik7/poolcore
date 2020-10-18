@@ -83,6 +83,30 @@ public:
       info.ScriptAddressPrefix = {196};
       info.DefaultRpcPort = 18332;
       info.Algorithm = "sha256";
+    } else if (strcmp(coinName, "BCHA") == 0) {
+      info.Name = "BCHA";
+      info.FullName = "Bitcoin Cash ABC";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {0};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 8332;
+      info.CoinGeckoName = "bitcoin-cash";
+    } else if (strcmp(coinName, "BCHN") == 0) {
+      info.Name = "BCHN";
+      info.FullName = "Bitcoin Cash Node";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {0};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 8332;
+      info.CoinGeckoName = "bitcoin-cash";
     } else if (strcmp(coinName, "BSV") == 0) {
       info.Name = "BSV";
       info.FullName = "Bitcoin SV";
@@ -192,6 +216,32 @@ public:
       info.DefaultRpcPort = 44555;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
+    } else if (strcmp(coinName, "FCH") == 0) {
+      info.Name = "FCH";
+      info.FullName = "FreeCash";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {35};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 8332;
+      info.ProfitSwitchDefaultCoeff = 0.4;
+      info.CoinGeckoName = "freecash";
+    } else if (strcmp(coinName, "LCC") == 0) {
+      info.Name = "LCC";
+      info.FullName = "LitecoinCash";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {28};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 62457;
+      info.ProfitSwitchDefaultCoeff = 0.1;
+      info.CoinGeckoName = "litecoin-cash";
     } else if (strcmp(coinName, "LTC") == 0) {
       info.Name = "LTC";
       info.FullName = "Litecoin";
