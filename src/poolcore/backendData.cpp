@@ -288,6 +288,8 @@ bool FoundBlockRecord::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, Time);
     dbIoUnserialize(stream, AvailableCoins);
     dbIoUnserialize(stream, FoundBy);
+    dbIoUnserialize(stream, ExpectedWork);
+    dbIoUnserialize(stream, AccumulatedWork);
   }
   
   return !stream.eof();
@@ -308,6 +310,8 @@ void FoundBlockRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Time);
   dbIoSerialize(stream, AvailableCoins);
   dbIoSerialize(stream, FoundBy);
+  dbIoSerialize(stream, ExpectedWork);
+  dbIoSerialize(stream, AccumulatedWork);
 }
 
 // ====================== PoolBalance ======================
