@@ -40,6 +40,7 @@ struct CCoinInfo {
 
   uint16_t DefaultRpcPort;
 
+  std::string Algorithm;
   std::string CoinGeckoName;
   double ProfitSwitchDefaultCoeff = 0.0;
   unsigned MinimalConfirmationsNumber = 6;

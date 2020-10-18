@@ -7,24 +7,6 @@
 #include "p2putils/xmstream.h"
 #include "loguru.hpp"
 
-void ShareLogIo<CShare>::serialize(xmstream &out, const CShare &data)
-{
-  out.writele<uint64_t>(data.UniqueShareId);
-  DbIo<std::string>::serialize(out, data.userId);
-  DbIo<std::string>::serialize(out, data.workerId);
-  out.write<double>(data.WorkValue);
-  DbIo<int64_t>::serialize(out, data.Time);
-}
-
-void ShareLogIo<CShare>::unserialize(xmstream &out, CShare &data)
-{
-  data.UniqueShareId = out.readle<uint64_t>();
-  DbIo<std::string>::unserialize(out, data.userId);
-  DbIo<std::string>::unserialize(out, data.workerId);
-  data.WorkValue = out.read<double>();
-  DbIo<int64_t>::unserialize(out, data.Time);
-}
-
 static void checkConsistency(AccountingDb *accounting)
 {
   std::map<std::string, int64_t> balancesRequested;
@@ -68,122 +50,10 @@ PoolBackend::PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserMan
   _statistics.reset(new StatisticDb(_base, _cfg, CoinInfo_));
   _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, *_statistics.get()));
 
-
-  // Enumerate share log files
-  std::error_code errc;
-  std::filesystem::path directory(cfg.dbPath / "shares.log");
-  std::filesystem::create_directories(directory, errc);
-  for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
-    std::string fileName = I->path().filename().u8string();
-    auto dotDatPos = fileName.find(".dat");
-    if (dotDatPos == fileName.npos) {
-      LOG_F(ERROR, "Invalid statitic cache file name format: %s", fileName.c_str());
-      continue;
-    }
-
-    fileName.resize(dotDatPos);
-    auto &file = ShareLog_.emplace_back();
-    file.Path = *I;
-    file.FirstId = xatoi<uint64_t>(fileName.c_str());
-    file.LastId = 0;
-  }
-
-  std::sort(ShareLog_.begin(), ShareLog_.end(), [](const CShareLogFile &l, const CShareLogFile &r) { return l.FirstId < r.FirstId; });
-  if (ShareLog_.empty())
-    LOG_F(WARNING, "%s: share log is empty like at first run", CoinInfo_.Name.c_str());
-
-  uint64_t currentTime = time(nullptr);
-  for (auto &file: ShareLog_)
-    replayShares(file);
-
-  _accounting->initializationFinish(currentTime);
-  _statistics->initializationFinish(currentTime);
-
-  CurrentShareId_ = std::max({
-    _statistics->lastKnownShareId(),
-    _accounting->lastKnownShareId()
-  }) + 1;
-
-  if (!ShareLog_.empty()) {
-    CShareLogFile &lastFile = ShareLog_.back();
-    if (lastFile.Fd.open(lastFile.Path)) {
-      lastFile.Fd.seekSet(lastFile.Fd.size());
-    } else {
-      LOG_F(ERROR, "Can't open share log %s", lastFile.Path.u8string().c_str());
-      ShareLoggingEnabled_ = false;
-    }
-  } else {
-    startNewShareLogFile();
-  }
+  ShareLogConfig shareLogConfig(_accounting.get(), _statistics.get());
+  ShareLog_.init(cfg.dbPath / "shares.log", info.Name, _base, _cfg.ShareLogFlushInterval, _cfg.ShareLogFileSizeLimit, shareLogConfig);
 
   ProfitSwitchCoeff_ = CoinInfo_.ProfitSwitchDefaultCoeff;
-}
-
-void PoolBackend::startNewShareLogFile()
-{
-  auto &file = ShareLog_.emplace_back();
-  file.Path = _cfg.dbPath / "shares.log" / (std::to_string(CurrentShareId_) + ".dat");
-  file.FirstId = CurrentShareId_;
-  file.LastId = 0;
-  if (!file.Fd.open(file.Path)) {
-    LOG_F(ERROR, "PoolBackend: can't write to share log %s", file.Path.u8string().c_str());
-    ShareLoggingEnabled_ = false;
-  } else {
-    LOG_F(INFO, "PoolBackend: started new share log file %s", file.Path.u8string().c_str());
-  }
-}
-
-void PoolBackend::replayShares(CShareLogFile &file)
-{
-  if (isDebugBackend())
-    LOG_F(1, "%s: Replaying shares from file %s", CoinInfo_.Name.c_str(), file.Path.u8string().c_str());
-
-  FileDescriptor fd;
-  if (!fd.open(file.Path.u8string().c_str())) {
-    LOG_F(ERROR, "StatisticDb: can't open file %s", file.Path.u8string().c_str());
-    return;
-  }
-
-  size_t fileSize = fd.size();
-  xmstream stream(fileSize);
-  size_t bytesRead = fd.read(stream.reserve(fileSize), 0, fileSize);
-  fd.close();
-  if (bytesRead != fileSize) {
-    LOG_F(ERROR, "StatisticDb: can't read file %s", file.Path.u8string().c_str());
-    return;
-  }
-
-  uint64_t id = 0;
-  uint64_t counter = 0;
-  uint64_t minShareId = std::numeric_limits<uint64_t>::max();
-  uint64_t maxShareId = 0;
-  stream.seekSet(0);
-  while (stream.remaining()) {
-    CShare share;
-    ShareLogIo<CShare>::unserialize(stream, share);
-    if (stream.eof()) {
-      LOG_F(ERROR, "Corrupted file %s", file.Path.u8string().c_str());
-      break;
-    }
-
-    if (isDebugBackend()) {
-      counter++;
-      minShareId = std::min(minShareId, share.UniqueShareId);
-      maxShareId = std::max(maxShareId, share.UniqueShareId);
-    }
-
-    // replay for accounting
-    _accounting->replayShare(share);
-    // replay for statistic
-    _statistics->replayShare(share);
-    // keep last known id
-    id = share.UniqueShareId;
-  }
-
-  file.LastId = id;
-
-  if (isDebugBackend())
-    LOG_F(1, "%s: Replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", CoinInfo_.Name.c_str(), counter, minShareId, maxShareId);
 }
 
 void PoolBackend::start()
@@ -195,16 +65,15 @@ void PoolBackend::stop()
 {
   postQuitOperation(_base);
   _thread.join();
-  shareLogFlush();
+  ShareLog_.flush();
 }
-
 
 void PoolBackend::backendMain()
 {
   InitializeWorkerThread();
   loguru::set_thread_name(CoinInfo_.Name.c_str());
+  ShareLog_.start();
 
-  coroutineCall(coroutineNew([](void *arg) { static_cast<PoolBackend*>(arg)->shareLogFlushHandler(); }, this, 0x100000));
   coroutineCall(coroutineNew([](void *arg) { static_cast<PoolBackend*>(arg)->taskHandler(); }, this, 0x100000));
   coroutineCall(coroutineNew([](void *arg) { static_cast<PoolBackend*>(arg)->checkConfirmationsHandler(); }, this, 0x100000));
   coroutineCall(coroutineNew([](void *arg) { static_cast<PoolBackend*>(arg)->checkBalanceHandler(); }, this, 0x100000));
@@ -223,42 +92,6 @@ void PoolBackend::backendMain()
 
   checkConsistency(_accounting.get());
   asyncLoop(_base);
-}
-
-void PoolBackend::shareLogFlush()
-{
-  if (!ShareLoggingEnabled_ || ShareLog_.empty())
-    return;
-
-  // Flush memory buffer to disk
-  ShareLog_.back().Fd.write(ShareLogInMemory_.data(), ShareLogInMemory_.sizeOf());
-  ShareLogInMemory_.reset();
-
-  // Check share log file size limit
-  if (ShareLog_.back().Fd.size() >= _cfg.ShareLogFileSizeLimit) {
-    ShareLog_.back().Fd.close();
-    startNewShareLogFile();
-
-    // Check status of shares in previous log files
-    uint64_t aggregatedShareId = std::min({
-      _accounting->lastAggregatedShareId(),
-      _statistics->lastAggregatedShareId()
-    });
-
-    while (!ShareLog_.empty() && ShareLog_.front().LastId < aggregatedShareId) {
-      std::filesystem::remove(ShareLog_.front().Path);
-      ShareLog_.pop_front();
-    }
-  }
-}
-
-void PoolBackend::shareLogFlushHandler()
-{
-  aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
-  for (;;) {
-    ioSleep(timerEvent, std::chrono::microseconds(_cfg.ShareLogFlushInterval).count());
-    shareLogFlush();
-  }
 }
 
 void PoolBackend::taskHandler()
@@ -306,10 +139,7 @@ void *PoolBackend::checkBalanceHandler()
 
 void PoolBackend::onShare(CShare *share)
 {
-  share->UniqueShareId = CurrentShareId_++;
-  // Serialize share to stream
-  ShareLogIo<CShare>::serialize(ShareLogInMemory_, *share);
-  // Processing share
+  ShareLog_.addShare(*share);
   _statistics->addShare(*share);
   _accounting->addShare(*share);
 }
@@ -403,7 +233,6 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
     if (!It->valid())
       break;
 
-    PayoutDbRecord &record = payouts.emplace_back();
     RawData data = It->value();
     if (!payouts.back().deserializeValue(data.data, data.size) || payouts.back().userId != user)
       break;

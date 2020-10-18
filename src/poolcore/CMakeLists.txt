@@ -11,6 +11,7 @@ add_library(poolcore STATIC
   poolInstance.cpp
   priceFetcher.cpp
   rocksdbBase.cpp
+  shareLog.cpp
   statistics.cpp
   thread.cpp
   usermgr.cpp

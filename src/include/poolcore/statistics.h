@@ -105,6 +105,7 @@ private:
 public:
   // Initialization
   StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo);
+//  const CCoinInfo &coinInfo() { return CoinInfo_; }
   void replayShare(const CShare &share);
   void initializationFinish(int64_t timeLabel);
   void start();

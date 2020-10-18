@@ -3,6 +3,7 @@
 
 #include "accounting.h"
 #include "priceFetcher.h"
+#include "shareLog.h"
 #include "statistics.h"
 #include "usermgr.h"
 #include "asyncio/asyncio.h"
@@ -32,22 +33,31 @@ struct MultiCall {
   }
 };
 
-template<typename T>
-struct DefaultIo {
-  static void serialize(xmstream &out, const T &data);
-  static void unserialize(xmstream &in, T &data);
-};
+class ShareLogConfig {
+public:
+  ShareLogConfig() {}
+  ShareLogConfig(AccountingDb *accounting, StatisticDb *statistic) : Accounting_(accounting), Statistic_(statistic) {}
+  void initializationFinish(int64_t time) {
+    Accounting_->initializationFinish(time);
+    Statistic_->initializationFinish(time);
+  }
 
-template<typename T>
-struct ShareLogIo {
-  static void serialize(xmstream &out, const T &data);
-  static void unserialize(xmstream &in, T &data);
-};
+  uint64_t minShareId() {
+    return std::min(Statistic_->lastKnownShareId(), Accounting_->lastKnownShareId());
+  }
 
-template<>
-struct ShareLogIo<CShare> {
-  static void serialize(xmstream &out, const CShare &data);
-  static void unserialize(xmstream &in, CShare &data);
+  uint64_t maxShareId() {
+    return std::max(Statistic_->lastKnownShareId(), Accounting_->lastKnownShareId());
+  }
+
+  void replayShare(const CShare &share) {
+    Accounting_->replayShare(share);
+    Statistic_->replayShare(share);
+  }
+
+private:
+  AccountingDb *Accounting_;
+  StatisticDb *Statistic_;
 };
 
 class PoolBackend {
@@ -60,13 +70,6 @@ public:
   using QueryStatsHistoryCallback = std::function<void(const std::vector<StatisticDb::CStats>&)>;
 
 private:
-  struct CShareLogFile {
-    std::filesystem::path Path;
-    uint64_t FirstId;
-    uint64_t LastId;
-    FileDescriptor Fd;
-  };
-
   class Task {
   public:
     virtual ~Task() {}
@@ -160,11 +163,7 @@ private:
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
   tbb::concurrent_queue<Task*> TaskQueue_;
-
-  xmstream ShareLogInMemory_;
-  std::deque<CShareLogFile> ShareLog_;
-  uint64_t CurrentShareId_ = 0;
-  bool ShareLoggingEnabled_ = true;
+  ShareLog<ShareLogConfig> ShareLog_;
 
   double ProfitSwitchCoeff_ = 0.0;
 
@@ -195,8 +194,6 @@ public:
   PoolBackend(const PoolBackend&) = delete;
   PoolBackend(PoolBackend&&) = default;
   PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher);
-  void startNewShareLogFile();
-  void replayShares(CShareLogFile &file);
 
   const PoolBackendConfig &getConfig() const { return _cfg; }
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
