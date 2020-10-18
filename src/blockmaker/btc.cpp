@@ -164,6 +164,15 @@ static inline double getDifficulty(uint32_t bits)
     return dDiff;
 }
 
+static inline void getDevFee(int64_t *coinbaseValue, int64_t *devFee, int64_t pureBlockReward, Proto::AddressTy &miningAddress, const std::string &ticker)
+{
+  if (ticker == "FCH") {
+    *coinbaseValue -= (pureBlockReward/2);
+    *devFee = (pureBlockReward/2);
+    decodeHumanReadableAddress("FTqiqAyXHnK7uDTXzMap3acvqADK4ZGzts", {35}, miningAddress);
+  }
+}
+
 bool Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&, double *shareDiff)
 {
   bool fNegative;
@@ -337,7 +346,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
                                      uint64_t uniqueWorkId,
                                      const MiningConfig &cfg,
                                      PoolBackend *backend,
-                                     const std::string&,
+                                     const std::string &ticker,
                                      Proto::AddressTy &miningAddress,
                                      const void *coinBaseExtraData,
                                      size_t coinbaseExtraSize,
@@ -398,6 +407,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   }
 
   int64_t blockReward = coinbaseValue.GetInt64();
+  int64_t pureBlockReward = blockReward;
 
   // Check segwit enabled (compare txid and hash for all transactions)
   bool segwitEnabled = false;
@@ -415,14 +425,15 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
       return false;
     }
 
-    if (i >= txNum) {
-      if (!tx.HasMember("fee") || !tx["fee"].IsInt64()) {
-        error = "no 'fee' in transaction";
-        return false;
-      }
-
-      blockReward -= tx["fee"].GetInt64();
+    if (!tx.HasMember("fee") || !tx["fee"].IsInt64()) {
+      error = "no 'fee' in transaction";
+      return false;
     }
+
+    int64_t txFee = tx["fee"].GetInt64();
+    pureBlockReward -= txFee;
+    if (i >= txNum)
+      blockReward -= txFee;
 
     if (i < txNum &&
         tx.HasMember("txid") && tx["txid"].IsString() &&
@@ -440,6 +451,10 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
       }
     }
   }
+
+  Proto::AddressTy devFeeAddress;
+  int64_t devFee = 0;
+  getDevFee(&blockReward, &devFee, pureBlockReward, devFeeAddress, ticker);
 
   if (txFilter)
     LOG_F(INFO, " * [txfilter] transactions num %i -> %i; coinbase value %" PRIi64 " -> %" PRIi64 "", static_cast<int>(transactions.Size()), static_cast<int>(txNum), coinbaseValue.GetInt64(), blockReward);
@@ -534,31 +549,39 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
 
   // TxOut
   {
-    coinbaseTx.txOut.resize(segwitEnabled ? 2 : 1);
+    BTC::Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
+    BlockReward = txOut.value = blockReward;
 
-    {
-      // First txout (funds)
-      BTC::Proto::TxOut &txOut = coinbaseTx.txOut[0];
-      BlockReward = txOut.value = blockReward;
+    // pkScript (use single P2PKH)
+    txOut.pkScript.resize(sizeof(BTC::Proto::AddressTy) + 5);
+    xmstream p2pkh(txOut.pkScript.data(), txOut.pkScript.size());
+    p2pkh.write<uint8_t>(BTC::Script::OP_DUP);
+    p2pkh.write<uint8_t>(BTC::Script::OP_HASH160);
+    p2pkh.write<uint8_t>(sizeof(BTC::Proto::AddressTy));
+    p2pkh.write(miningAddress.begin(), miningAddress.size());
+    p2pkh.write<uint8_t>(BTC::Script::OP_EQUALVERIFY);
+    p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
+  }
 
-      // pkScript (use single P2PKH)
-      txOut.pkScript.resize(sizeof(BTC::Proto::AddressTy) + 5);
-      xmstream p2pkh(txOut.pkScript.data(), txOut.pkScript.size());
-      p2pkh.write<uint8_t>(BTC::Script::OP_DUP);
-      p2pkh.write<uint8_t>(BTC::Script::OP_HASH160);
-      p2pkh.write<uint8_t>(sizeof(BTC::Proto::AddressTy));
-      p2pkh.write(miningAddress.begin(), miningAddress.size());
-      p2pkh.write<uint8_t>(BTC::Script::OP_EQUALVERIFY);
-      p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
-    }
+  if (devFee) {
+    BTC::Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
+    txOut.value = devFee;
+    // pkScript (use single P2PKH)
+    txOut.pkScript.resize(sizeof(BTC::Proto::AddressTy) + 5);
+    xmstream p2pkh(txOut.pkScript.data(), txOut.pkScript.size());
+    p2pkh.write<uint8_t>(BTC::Script::OP_DUP);
+    p2pkh.write<uint8_t>(BTC::Script::OP_HASH160);
+    p2pkh.write<uint8_t>(sizeof(BTC::Proto::AddressTy));
+    p2pkh.write(devFeeAddress.begin(), devFeeAddress.size());
+    p2pkh.write<uint8_t>(BTC::Script::OP_EQUALVERIFY);
+    p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
+  }
 
-    if (segwitEnabled) {
-      // Second txout (witness commitment)
-      BTC::Proto::TxOut &txOut = coinbaseTx.txOut[1];
-      txOut.value = 0;
-      txOut.pkScript.resize(witnessCommitment.sizeOf());
-      memcpy(txOut.pkScript.data(), witnessCommitment.data(), witnessCommitment.sizeOf());
-    }
+  if (segwitEnabled) {
+    BTC::Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
+    txOut.value = 0;
+    txOut.pkScript.resize(witnessCommitment.sizeOf());
+    memcpy(txOut.pkScript.data(), witnessCommitment.data(), witnessCommitment.sizeOf());
   }
 
   coinbaseTx.lockTime = 0;

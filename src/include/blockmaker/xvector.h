@@ -111,10 +111,11 @@ public:
   T *begin() const { return Data_; }
   T *end() const { return Data_ + Size_; }
   
-  template<typename... Ts> void emplace_back(Ts&&... args) {
+  template<typename... Ts> T &emplace_back(Ts&&... args) {
     if (Size_ >= MemorySize_)
       grow();
     new(&Data_[Size_++]) T(std::forward<Ts>(args)...);
+    return Data_[Size_-1];
   }
 
   void resize(size_t size) {
