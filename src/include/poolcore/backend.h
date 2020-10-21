@@ -76,8 +76,10 @@ private:
   CPriceFetcher &PriceFetcher_;
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
+  StatisticServer *AlgoMetaStatistic_ = nullptr;
   tbb::concurrent_queue<Task*> TaskQueue_;
   ShareLog<ShareLogConfig> ShareLog_;
+
 
   double ProfitSwitchCoeff_ = 0.0;
 
@@ -100,7 +102,7 @@ private:
 public:
   PoolBackend(const PoolBackend&) = delete;
   PoolBackend(PoolBackend&&) = default;
-  PoolBackend(PoolBackendConfig &&cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher);
+  PoolBackend(const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher);
 
   const PoolBackendConfig &getConfig() const { return _cfg; }
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
@@ -108,6 +110,8 @@ public:
   CPriceFetcher &getPriceFetcher() const { return PriceFetcher_; }
   double getProfitSwitchCoeff() const { return ProfitSwitchCoeff_; }
   void setProfitSwitchCoeff(double profitSwithCoeff) { ProfitSwitchCoeff_ = profitSwithCoeff; }
+  StatisticServer *getAlgoMetaStatistic() { return AlgoMetaStatistic_; }
+  void setAlgoMetaStatistic(StatisticServer *server) { AlgoMetaStatistic_ = server; }
 
   void start();
   void stop();

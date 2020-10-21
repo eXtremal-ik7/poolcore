@@ -5,6 +5,7 @@
 #include "backendData.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/rocksdbBase.h"
+#include "poolcore/shareLog.h"
 #include "poolcommon/multiCall.h"
 #include "poolcommon/serialize.h"
 #include "asyncio/asyncio.h"
@@ -114,7 +115,7 @@ private:
 
 private:
   asyncBase *Base_;
-  const PoolBackendConfig &_cfg;
+  const PoolBackendConfig _cfg;
   CCoinInfo CoinInfo_;
   uint64_t LastKnownShareId_ = 0;
   // Pool stats
@@ -125,7 +126,7 @@ private:
   std::unordered_map<std::string, std::unordered_map<std::string, CStatsAccumulator>> LastWorkerStats_;
   std::unordered_map<std::string, CStatsAccumulator> LastUserStats_;
   CFlushInfo WorkersFlushInfo_;
-  
+
   kvdb<rocksdbBase> WorkerStatsDb_;
   kvdb<rocksdbBase> PoolStatsDb_;
   std::deque<CStatsFile> PoolStatsCache_;
@@ -140,7 +141,7 @@ private:
     uint64_t MaxShareId = 0;
     uint64_t Count = 0;
   } Dbg_;
-  
+
   void startAsyncTask(Task *task) {
     TaskQueue_.push(task);
     userEventActivate(TaskQueueEvent_);
@@ -165,6 +166,7 @@ public:
   void replayShare(const CShare &share);
   void initializationFinish(int64_t timeLabel);
   void start();
+  const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
 
   void addShare(const CShare &share);
 
@@ -178,7 +180,7 @@ public:
 
   void updateWorkersStats(int64_t timeLabel);
   void updatePoolStats(int64_t timeLabel);
-  
+
   const CStats &getPoolStats() { return PoolStatsCached_; }
   void getUserStats(const std::string &user, CStats &aggregate, std::vector<CStats> &workerStats, size_t offset, size_t size, EStatsColumn sortBy, bool sortDescending);
   void getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history);
@@ -241,5 +243,65 @@ struct DbIo<StatisticDb::CStatsExportData> {
     DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
   }
 };
+
+class StatisticShareLogConfig {
+public:
+  StatisticShareLogConfig() {}
+  StatisticShareLogConfig(StatisticDb *statistic) : Statistic_(statistic) {}
+  void initializationFinish(int64_t time) { Statistic_->initializationFinish(time); }
+  uint64_t minShareId() { return Statistic_->lastKnownShareId(); }
+  uint64_t maxShareId() { return Statistic_->lastKnownShareId(); }
+  void replayShare(const CShare &share) { Statistic_->replayShare(share); }
+
+private:
+  StatisticDb *Statistic_;
+};
+
+class StatisticServer {
+public:
+  StatisticServer(const PoolBackendConfig &config, const CCoinInfo &coinInfo);
+  void start();
+  void stop();
+  StatisticDb *statisticDb() { return Statistics_.get(); }
+
+  // Asynchronous api
+  void sendShare(CShare *share) { startAsyncTask(new TaskShare(share)); }
+
+private:
+  class Task {
+  public:
+    virtual ~Task() {}
+    virtual void run(StatisticServer *backend) = 0;
+  };
+
+  class TaskShare : public Task {
+  public:
+    TaskShare(CShare *share) : Share_(share) {}
+    void run(StatisticServer *backend) final { backend->onShare(Share_.get()); }
+  private:
+    std::unique_ptr<CShare> Share_;
+  };
+
+private:
+  void startAsyncTask(Task *task) {
+    TaskQueue_.push(task);
+    userEventActivate(TaskQueueEvent_);
+  }
+
+  void onShare(CShare *share);
+  void statisticServerMain();
+  void taskHandler();
+
+private:
+  CCoinInfo CoinInfo_;
+  const PoolBackendConfig Cfg_;
+  std::unique_ptr<StatisticDb> Statistics_;
+  ShareLog<StatisticShareLogConfig> ShareLog_;
+  std::thread Thread_;
+  asyncBase *Base_;
+  tbb::concurrent_queue<Task*> TaskQueue_;
+  aioUserEvent *TaskQueueEvent_;
+};
+
 
 #endif //__STATISTICS_H_

@@ -88,6 +88,11 @@ public:
       exit(1);
     }
 
+    if (!config.HasMember("backends") || !config["backends"].IsArray()) {
+      LOG_F(ERROR, "instance %s: no backends specified", Name_.c_str());
+      exit(1);
+    }
+
     // BTC ASIC boost
     if (config.HasMember("versionMask") && config["versionMask"].IsString())
       VersionMask_ = readHexBE<uint32_t>(config["versionMask"].GetString(), 4);
@@ -421,6 +426,7 @@ private:
   bool shareCheck(Connection *connection, StratumMessage &msg, StratumErrorTy &errorCode, JobInfo *info) {
     ThreadData &data = Data_[GetLocalThreadId()];
     info->HasJob = false;
+    uint64_t height = 0;
 
     // Check worker name
     auto It = connection->Workers.find(msg.submit.WorkerName);
@@ -485,7 +491,7 @@ private:
         continue;
       }
 
-      uint64_t height = work.height(i);
+      height = work.height(i);
       double shareDiff = 0.0;
       bool isBlock = work.checkConsensus(i, &shareDiff);
       if (shareDiff < connection->ShareDifficulty) {
@@ -545,6 +551,18 @@ private:
 
     if (!shareAccepted)
       errorCode = StratumErrorInvalidShare;
+
+    if (shareAccepted && AlgoMetaStatistic_) {
+      CShare *backendShare = new CShare;
+      backendShare->Time = time(nullptr);
+      backendShare->userId = worker.User;
+      backendShare->workerId = worker.WorkerName;
+      backendShare->height = height;
+      backendShare->WorkValue = connection->ShareDifficulty;
+      backendShare->isBlock = false;
+      AlgoMetaStatistic_->sendShare(backendShare);
+    }
+
     return shareAccepted;
   }
 

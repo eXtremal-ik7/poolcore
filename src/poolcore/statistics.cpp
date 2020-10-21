@@ -610,3 +610,57 @@ void StatisticDb::queryStatsHistoryImpl(const std::string &user, const std::stri
   getHistory(user, worker, timeFrom, timeTo, groupByInteval, history);
   callback(history);
 }
+
+StatisticServer::StatisticServer(const PoolBackendConfig &config, const CCoinInfo &coinInfo) :
+  CoinInfo_(coinInfo), Cfg_(config)
+{
+  Base_ = createAsyncBase(amOSDefault);
+  TaskQueueEvent_ = newUserEvent(Base_, 0, nullptr, nullptr);
+  Statistics_.reset(new StatisticDb(Base_, config, CoinInfo_));
+  StatisticShareLogConfig shareLogConfig(Statistics_.get());
+  ShareLog_.init(config.dbPath / "shares.log", coinInfo.Name, Base_, config.ShareLogFlushInterval, config.ShareLogFileSizeLimit, shareLogConfig);
+}
+
+void StatisticServer::start()
+{
+  Thread_ = std::thread([](StatisticServer *server){ server->statisticServerMain(); }, this);
+}
+
+void StatisticServer::stop()
+{
+  postQuitOperation(Base_);
+  Thread_.join();
+  ShareLog_.flush();
+}
+
+void StatisticServer::taskHandler()
+{
+  Task *task;
+  for (;;) {
+    while (TaskQueue_.try_pop(task)) {
+      std::unique_ptr<Task> taskHolder(task);
+      task->run(this);
+    }
+
+    ioWaitUserEvent(TaskQueueEvent_);
+  }
+}
+
+void StatisticServer::statisticServerMain()
+{
+  InitializeWorkerThread();
+  loguru::set_thread_name(CoinInfo_.Name.c_str());
+  ShareLog_.start();
+
+  coroutineCall(coroutineNew([](void *arg) { static_cast<StatisticServer*>(arg)->taskHandler(); }, this, 0x100000));
+  Statistics_->start();
+
+  LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), Cfg_.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
+  asyncLoop(Base_);
+}
+
+void StatisticServer::onShare(CShare *share)
+{
+  ShareLog_.addShare(*share);
+  Statistics_->addShare(*share);
+}

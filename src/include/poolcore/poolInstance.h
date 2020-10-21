@@ -6,8 +6,10 @@
 #include "tbb/concurrent_queue.h"
 #include <atomic>
 #include <thread>
+#include <vector>
 
 class PoolBackend;
+class StatisticServer;
 class UserManager;
 
 class CBlockTemplate {
@@ -75,8 +77,11 @@ public:
   /// @arg blockTemplate: deserialized 'getblocktemplate' response
   virtual void checkNewBlockTemplate(CBlockTemplate *blockTemplate, PoolBackend *backend) = 0;
 
+  void setAlgoMetaStatistic(StatisticServer *server) { AlgoMetaStatistic_ = server; }
+
 protected:
   asyncBase *MonitorBase_;
   UserManager &UserMgr_;
   CThreadPool &ThreadPool_;
+  StatisticServer* AlgoMetaStatistic_ = nullptr;
 };
