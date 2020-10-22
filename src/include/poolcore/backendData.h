@@ -261,8 +261,8 @@ struct FoundBlockRecord {
   int64_t Time;
   int64_t AvailableCoins;
   std::string FoundBy;
-  double ExpectedWork;
-  double AccumulatedWork;
+  double ExpectedWork = 0.0;
+  double AccumulatedWork = 0.0;
   
   std::string getPartitionId() const { return partByHeight(Height); }
   bool deserializeValue(const void *data, size_t size);
