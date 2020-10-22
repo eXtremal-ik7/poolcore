@@ -6,6 +6,7 @@
 #include "poolcore/poolCore.h"
 #include "poolcore/rocksdbBase.h"
 #include "poolcore/shareLog.h"
+#include "poolcore/usermgr.h"
 #include "poolcommon/multiCall.h"
 #include "poolcommon/serialize.h"
 #include "asyncio/asyncio.h"
@@ -21,6 +22,28 @@ public:
     EStatsColumnAveragePower,
     EStatsColumnSharesPerSecond,
     EStatsColumnLastShareTime
+  };
+
+  struct CredentialsWithStatistic {
+    std::string Login;
+    std::string Name;
+    std::string EMail;
+    int64_t RegistrationDate;
+    uint32_t WorkersNum = 0;
+    uint64_t AveragePower = 0;
+    double SharesPerSecond = 0.0;
+    int64_t LastShareTime = 0;
+
+    enum EColumns {
+      ELogin,
+      EName,
+      EEmail,
+      ERegistrationDate,
+      EWorkersNum,
+      EAveragePower,
+      ESharesPerSecord,
+      ELastShareTime
+    };
   };
 
   struct CStats {
@@ -59,6 +82,7 @@ private:
   using QueryPoolStatsCallback = std::function<void(const StatisticDb::CStats&)>;
   using QueryUserStatsCallback = std::function<void(const StatisticDb::CStats&, const std::vector<StatisticDb::CStats>&)>;
   using QueryStatsHistoryCallback = std::function<void(const std::vector<StatisticDb::CStats>&)>;
+  using QueryAllUsersStatisticCallback = std::function<void(const std::vector<CredentialsWithStatistic>&)>;
 
   struct CStatsFile {
     int64_t TimeLabel;
@@ -111,6 +135,20 @@ private:
     uint64_t TimeTo_;
     uint64_t GroupByInterval_;
     QueryStatsHistoryCallback Callback_;
+  };
+
+  class TaskQueryAllUsersStats : public Task {
+  public:
+    TaskQueryAllUsersStats(std::vector<UserManager::Credentials> &&users, QueryAllUsersStatisticCallback callback, size_t offset, size_t size, CredentialsWithStatistic::EColumns sortBy, bool sortDescending) :
+      Users_(std::move(users)), Callback_(callback), Offset_(offset), Size_(size), SortBy_(sortBy), SortDescending_(sortDescending) {}
+    void run(StatisticDb *statistic) final { statistic->queryAllUserStatsImpl(Users_, Callback_, Offset_, Size_, SortBy_, SortDescending_); }
+  private:
+    std::vector<UserManager::Credentials> Users_;
+    QueryAllUsersStatisticCallback Callback_;
+    size_t Offset_;
+    size_t Size_;
+    CredentialsWithStatistic::EColumns SortBy_;
+    bool SortDescending_;
   };
 
 private:
@@ -204,6 +242,15 @@ public:
     startAsyncTask(new TaskQueryStatsHistory(user, worker, timeFrom, timeTo, groupByInterval, callback));
   }
 
+  void queryAllusersStats(std::vector<UserManager::Credentials> &&users,
+                          QueryAllUsersStatisticCallback callback,
+                          size_t offset,
+                          size_t size,
+                          CredentialsWithStatistic::EColumns sortBy,
+                          bool sortDescending) {
+    startAsyncTask(new TaskQueryAllUsersStats(std::move(users), callback, offset, size, sortBy, sortDescending));
+  }
+
   static void queryPoolStatsMulti(StatisticDb **backends, size_t backendsNum, std::function<void(const StatisticDb::CStats*, size_t)> callback) {
     MultiCall<StatisticDb::CStats> *context = new MultiCall<StatisticDb::CStats>(backendsNum, callback);
     for (size_t i = 0; i < backendsNum; i++)
@@ -214,6 +261,13 @@ private:
   void queryPoolStatsImpl(QueryPoolStatsCallback callback);
   void queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending);
   void queryStatsHistoryImpl(const std::string &user, const std::string &worker, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInteval, QueryStatsHistoryCallback callback);
+
+  void queryAllUserStatsImpl(const std::vector<UserManager::Credentials> &users,
+                             QueryAllUsersStatisticCallback callback,
+                             size_t offset,
+                             size_t size,
+                             CredentialsWithStatistic::EColumns sortBy,
+                             bool sortDescending);
 };
 
 template<>

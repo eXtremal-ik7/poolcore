@@ -28,7 +28,7 @@ public:
     std::string Name;
     std::string EMail;
     std::string TwoFactor;
-    uint64_t RegistrationDate;
+    int64_t RegistrationDate;
   };
 
   struct UserInfo {

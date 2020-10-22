@@ -179,6 +179,7 @@ void StatisticDb::calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, 
   result.SharesPerSecond = (double)workerSharesNum / timeInterval;
   result.AveragePower = CoinInfo_.calculateAveragePower(workerSharesWork, timeInterval);
   result.SharesWork = workerSharesWork;
+  result.LastShareTime = acc.LastShareTime;
 }
 
 void StatisticDb::writeStatsToDb(const std::string &loginId, const std::string &workerId, const CStatsElement &element)
@@ -609,6 +610,79 @@ void StatisticDb::queryStatsHistoryImpl(const std::string &user, const std::stri
   std::vector<StatisticDb::CStats> history;
   getHistory(user, worker, timeFrom, timeTo, groupByInteval, history);
   callback(history);
+}
+
+void StatisticDb::queryAllUserStatsImpl(const std::vector<UserManager::Credentials> &users,
+                                        QueryAllUsersStatisticCallback callback,
+                                        size_t offset,
+                                        size_t size,
+                                        CredentialsWithStatistic::EColumns sortBy,
+                                        bool sortDescending)
+{
+  std::vector<CredentialsWithStatistic> usersWithStatistic(users.size());
+  for (size_t i = 0, ie = users.size(); i != ie; ++i) {
+    const UserManager::Credentials &src = users[i];
+    CredentialsWithStatistic &dst = usersWithStatistic[i];
+    dst.Login = src.Login;
+    dst.Name = src.Name;
+    dst.EMail = src.EMail;
+    dst.RegistrationDate = src.RegistrationDate;
+
+    auto userIt = LastUserStats_.find(dst.Login);
+    if (userIt == LastUserStats_.end())
+      continue;
+
+    CStats userStats;
+    calcAverageMetrics(userIt->second, _cfg.StatisticWorkersPowerCalculateInterval, _cfg.StatisticWorkersAggregateTime, userStats);
+    dst.WorkersNum = userStats.WorkersNum;
+    dst.AveragePower = userStats.AveragePower;
+    dst.SharesPerSecond = userStats.SharesPerSecond;
+    dst.LastShareTime = userStats.LastShareTime;
+  }
+
+  switch (sortBy) {
+    case CredentialsWithStatistic::ELogin :
+      if (!sortDescending)
+        std::sort(usersWithStatistic.begin(), usersWithStatistic.end(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.Login < r.Login; });
+      else
+        std::sort(usersWithStatistic.rbegin(), usersWithStatistic.rend(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.Login < r.Login; });
+      break;
+    case CredentialsWithStatistic::EWorkersNum :
+      if (!sortDescending)
+        std::sort(usersWithStatistic.begin(), usersWithStatistic.end(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.WorkersNum < r.WorkersNum; });
+      else
+        std::sort(usersWithStatistic.rbegin(), usersWithStatistic.rend(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.WorkersNum < r.WorkersNum; });
+      break;
+    case CredentialsWithStatistic::EAveragePower :
+      if (!sortDescending)
+        std::sort(usersWithStatistic.begin(), usersWithStatistic.end(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.AveragePower < r.AveragePower; });
+      else
+        std::sort(usersWithStatistic.rbegin(), usersWithStatistic.rend(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.AveragePower < r.AveragePower; });
+      break;
+    case CredentialsWithStatistic::ESharesPerSecord :
+      if (!sortDescending)
+        std::sort(usersWithStatistic.begin(), usersWithStatistic.end(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.SharesPerSecond < r.SharesPerSecond; });
+      else
+        std::sort(usersWithStatistic.rbegin(), usersWithStatistic.rend(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.SharesPerSecond < r.SharesPerSecond; });
+      break;
+    case CredentialsWithStatistic::ELastShareTime :
+      if (!sortDescending)
+        std::sort(usersWithStatistic.begin(), usersWithStatistic.end(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.LastShareTime < r.LastShareTime; });
+      else
+        std::sort(usersWithStatistic.rbegin(), usersWithStatistic.rend(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.LastShareTime < r.LastShareTime; });
+      break;
+    default:
+      break;
+  }
+
+  // Make page
+  std::vector<CredentialsWithStatistic> result;
+  if (offset < usersWithStatistic.size()) {
+    size_t endIdx = std::min(offset + size, usersWithStatistic.size());
+    result.insert(result.end(), std::make_move_iterator(usersWithStatistic.begin() + offset), std::make_move_iterator(usersWithStatistic.begin() + endIdx));
+  }
+
+  callback(result);
 }
 
 StatisticServer::StatisticServer(const PoolBackendConfig &config, const CCoinInfo &coinInfo) :
