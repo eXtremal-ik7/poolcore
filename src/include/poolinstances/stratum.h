@@ -258,6 +258,7 @@ private:
     std::string AddressHr;
     bool Active = true;
     bool IsCgMiner = false;
+    bool IsNiceHash = false;
     int64_t LastUpdateTime = std::numeric_limits<int64_t>::max();
     // Stratum protocol decoding
     char Buffer[40960];
@@ -303,6 +304,11 @@ private:
   void onStratumSubscribe(Connection *connection, StratumMessage &msg) {
     if (msg.subscribe.minerUserAgent.find("cgminer") != std::string::npos)
       connection->IsCgMiner = true;
+    if (msg.subscribe.minerUserAgent.find("NiceHash") != std::string::npos) {
+      connection->IsNiceHash = true;
+      if (AlgoMetaStatistic_->coinInfo().Name == "sha256")
+        connection->ShareDifficulty = std::max(500000.0, connection->ShareDifficulty);
+    }
 
     std::string subscribeInfo;
     char buffer[4096];

@@ -317,6 +317,7 @@ public:
   void start();
   void stop();
   StatisticDb *statisticDb() { return Statistics_.get(); }
+  CCoinInfo &coinInfo() { return CoinInfo_; }
 
   // Asynchronous api
   void sendShare(CShare *share) { startAsyncTask(new TaskShare(share)); }
