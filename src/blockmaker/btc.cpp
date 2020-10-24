@@ -236,6 +236,11 @@ void Stratum::WorkerConfig::setupVersionRolling(uint32_t versionMask)
   VersionMask = versionMask;
 }
 
+double Stratum::Work::expectedWork(size_t)
+{
+  return getDifficulty(Header.nBits);
+}
+
 void Stratum::Work::buildNotifyMessage(MiningConfig &cfg, uint64_t majorJobId, unsigned int minorJobId, bool resetPreviousWork)
 {
   {
@@ -304,7 +309,7 @@ static inline void addId(JSON::Object &object, StratumMessage &msg) {
     object.addInt("id", msg.integerId);
 }
 
-void Stratum::WorkerConfig::onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out)
+void Stratum::WorkerConfig::onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo)
 {
   // Response format
   // {"id": 1, "result": [ [ ["mining.set_difficulty", <setDifficultySession>:string(hex)], ["mining.notify", <notifySession>:string(hex)]], <uniqueExtraNonce>:string(hex), extraNonceSize:integer], "error": null}\n
@@ -340,6 +345,7 @@ void Stratum::WorkerConfig::onSubscribe(MiningConfig &miningCfg, StratumMessage 
   }
 
   out.write('\n');
+  subscribeInfo = std::to_string(ExtraNonceFixed);
 }
 
 bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,

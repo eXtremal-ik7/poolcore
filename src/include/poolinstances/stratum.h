@@ -304,11 +304,14 @@ private:
     if (msg.subscribe.minerUserAgent.find("cgminer") != std::string::npos)
       connection->IsCgMiner = true;
 
+    std::string subscribeInfo;
     char buffer[4096];
     xmstream stream(buffer, sizeof(buffer));
     stream.reset();
-    connection->WorkerConfig.onSubscribe(MiningCfg_, msg, stream);
+    connection->WorkerConfig.onSubscribe(MiningCfg_, msg, stream, subscribeInfo);
     send(connection, stream);
+    if (isDebugInstanceStratumConnections())
+      LOG_F(1, "%s(%s): subscribe data: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), subscribeInfo.c_str());
   }
 
   bool onStratumAuthorize(Connection *connection, StratumMessage &msg) {
@@ -515,8 +518,9 @@ private:
         // Serialize block
         int64_t generatedCoins = work.blockReward(i);
         double shareDifficulty = connection->ShareDifficulty;
+        double expectedWork = work.expectedWork(i);
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, hash, generatedCoins, backend, shareDifficulty, worker](uint32_t successNum, const std::string &hostName, const std::string &error) {
+        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, hash, generatedCoins, expectedWork, backend, shareDifficulty, worker](uint32_t successNum, const std::string &hostName, const std::string &error) {
           std::string blockHash = hash.ToString();
           if (successNum) {
             LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
@@ -531,6 +535,7 @@ private:
               backendShare->isBlock = true;
               backendShare->hash = blockHash;
               backendShare->generatedCoins = generatedCoins;
+              backendShare->ExpectedWork = expectedWork;
               backend->sendShare(backendShare);
             }
           } else {

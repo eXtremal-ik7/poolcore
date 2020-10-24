@@ -24,6 +24,7 @@ struct CShare {
   std::string hash;
   int64_t generatedCoins;
   int64_t Time;
+  double ExpectedWork = 0.0;
 };
 
 struct PoolFeeEntry {

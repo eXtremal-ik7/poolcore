@@ -264,7 +264,7 @@ public:
     uint32_t VersionMask = 0;
     void initialize(ThreadConfig &threadCfg);
     void setupVersionRolling(uint32_t versionMask);
-    void onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out);
+    void onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo);
   };
 
   class Work {
@@ -302,6 +302,7 @@ public:
     uint64_t height(size_t) { return Height; }
     size_t txNum(size_t) { return TxNum; }
     int64_t blockReward(size_t) { return BlockReward; }
+    double expectedWork(size_t);
     const xmstream &notifyMessage() { return NotifyMessage; }
     const xmstream &blockHexData(size_t) { return BlockHexData; }
     bool initialized() { return Backend != nullptr; }

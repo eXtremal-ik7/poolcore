@@ -309,6 +309,12 @@ void AccountingDb::addShare(const CShare &share)
       blk.Time = time(0);
       blk.AvailableCoins = share.generatedCoins;
       blk.FoundBy = share.userId.c_str();
+      blk.ExpectedWork = share.ExpectedWork;
+
+      blk.AccumulatedWork = 0.0;
+      for (const auto &score: CurrentScores_)
+        blk.AccumulatedWork += score.second;
+
       _foundBlocksDb.put(blk);
     }
 
