@@ -150,7 +150,7 @@ struct UsersRecord {
   uint256 PasswordHash;
   int64_t RegistrationDate;
   bool IsActive;
-  uint32_t Type = 0;
+  bool IsReadOnly = false;
 
   UsersRecord() {}
   std::string getPartitionId() const { return "default"; }
@@ -187,6 +187,7 @@ struct UserSessionRecord {
   std::string Login;
   uint64_t LastAccessTime;
   bool Dirty = false;
+  bool IsReadOnly = false;
 
   UserSessionRecord() {}
   std::string getPartitionId() const { return "default"; }

@@ -93,11 +93,12 @@ public:
 
   class UserCreateTask : public Task {
   public:
-    UserCreateTask(UserManager *userMgr, Credentials &&credentials, DefaultCb callback) : Task(userMgr), Credentials_(credentials), Callback_(callback) {}
+    UserCreateTask(UserManager *userMgr, Credentials &&credentials, DefaultCb callback, bool isActivated, bool isReadOnly) :
+      Task(userMgr), Credentials_(credentials), Callback_(callback), IsActivated_(isActivated), IsReadOnly_(isReadOnly) {}
     void run() final {
       coroutineTy *coroutine = coroutineNew([](void *arg) {
         auto task =  static_cast<UserCreateTask*>(arg);
-        task->UserMgr_->userCreateImpl(task->Credentials_, task->Callback_);
+        task->UserMgr_->userCreateImpl(task->Credentials_, task->Callback_, task->IsActivated_, task->IsReadOnly_);
       }, this, 0x10000);
 
       coroutineCall(coroutine);
@@ -106,6 +107,8 @@ public:
   private:
     Credentials Credentials_;
     DefaultCb Callback_;
+    bool IsActivated_;
+    bool IsReadOnly_;
   };
 
   class UserResendEmailTask: public Task {
@@ -190,12 +193,15 @@ public:
 
   void addSpecialUser(ESpecialUser type, const std::string &hash) {
     const char *name = nullptr;
+    bool isReadOnly = false;
     switch (type) {
       case ESpecialUserAdmin :
         name = "admin";
+        isReadOnly = false;
         break;
       case ESpecialUserObserver :
         name = "observer";
+        isReadOnly = true;
         break;
     }
 
@@ -205,6 +211,7 @@ public:
       adminRecord.PasswordHash = uint256S(hash);
       adminRecord.Name = name;
       adminRecord.IsActive = true;
+      adminRecord.IsReadOnly = isReadOnly;
       UsersCache_.insert(std::make_pair(name, adminRecord));
     }
   }
@@ -231,7 +238,7 @@ public:
   void userAction(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserActionTask(this, uint512S(id), callback)); }
   void userActionInitiate(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback) { startAsyncTask(new UserInitiateActionTask(this, login, type, callback)); }
   void userChangePassword(const std::string &id, const std::string &newPassword, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordTask(this, uint512S(id), newPassword, callback)); }
-  void userCreate(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserCreateTask(this, std::move(credentials), callback)); }
+  void userCreate(Credentials &&credentials, Task::DefaultCb callback, bool isActivated, bool isReadOnly) { startAsyncTask(new UserCreateTask(this, std::move(credentials), callback, isActivated, isReadOnly)); }
   void userResendEmail(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserResendEmailTask(this, std::move(credentials), callback)); }
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
@@ -251,7 +258,7 @@ private:
   void actionImpl(const uint512 &id, Task::DefaultCb callback);
   void actionInitiateImpl(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback);
   void userChangePasswordImpl(const uint512 &id, const std::string &newPassword, Task::DefaultCb callback);
-  void userCreateImpl(Credentials &credentials, Task::DefaultCb callback);
+  void userCreateImpl(Credentials &credentials, Task::DefaultCb callback, bool isActivated, bool isReadOnly);
   void resendEmailImpl(Credentials &credentials, Task::DefaultCb callback);
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
   void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);

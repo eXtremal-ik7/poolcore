@@ -420,7 +420,7 @@ void UserManager::userChangePasswordImpl(const uint512 &id, const std::string &n
   callback("ok");
 }
 
-void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callback)
+void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callback, bool isActivated, bool isReadOnly)
 {
   // NOTE: function is coroutine!
 
@@ -437,7 +437,12 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
   }
 
   // Check email format
-  if (credentials.EMail.size() > 256 || !validEmail(credentials.EMail)) {
+  if (!credentials.EMail.empty()) {
+    if (credentials.EMail.size() > 256 || !validEmail(credentials.EMail)) {
+      callback("email_format_invalid");
+      return;
+    }
+  } else if (!isActivated) {
     callback("email_format_invalid");
     return;
   }
@@ -451,7 +456,7 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
   }
 
   // Check for known email
-  if (AllEmails_.count(credentials.EMail)) {
+  if (!credentials.EMail.empty() && AllEmails_.count(credentials.EMail)) {
     callback("duplicate_email");
     return;
   }
@@ -472,71 +477,74 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
   userRecord.TwoFactorAuthData.clear();
   userRecord.PasswordHash = generateHash(credentials.Login, credentials.Password);
   userRecord.RegistrationDate = time(nullptr);
-  userRecord.IsActive = false;
+  userRecord.IsActive = isActivated;
+  userRecord.IsReadOnly = isReadOnly;
 
   if (!UsersCache_.insert(std::pair(credentials.Login, userRecord))) {
     callback("duplicate_login");
     return;
   }
 
-  if (SMTP.Enabled) {
-    HostAddress localAddress;
-    localAddress.ipv4 = INADDR_ANY;
-    localAddress.family = AF_INET;
-    localAddress.port = 0;
-    SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
-    if (!client) {
-      LOG_F(ERROR, "Can't create smtp client");
-      callback("smtp_client_create_error");
-      return;
-    }
+  if (!isActivated) {
+    if (SMTP.Enabled) {
+      HostAddress localAddress;
+      localAddress.ipv4 = INADDR_ANY;
+      localAddress.family = AF_INET;
+      localAddress.port = 0;
+      SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
+      if (!client) {
+        LOG_F(ERROR, "Can't create smtp client");
+        callback("smtp_client_create_error");
+        return;
+      }
 
-    std::string EMailText;
-    std::string activationLink = "http://";
-      activationLink.append(BaseCfg.PoolHostAddress);
-      activationLink.append(BaseCfg.ActivateLinkPrefix);
-      activationLink.append(actionRecord.Id.ToString());
+      std::string EMailText;
+      std::string activationLink = "http://";
+        activationLink.append(BaseCfg.PoolHostAddress);
+        activationLink.append(BaseCfg.ActivateLinkPrefix);
+        activationLink.append(actionRecord.Id.ToString());
 
-    EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
-    EMailText.append("This email generated automatically, please don't reply.\r\n");
-    EMailText.append("For finish registration visit <a href=\"");
-    EMailText.append(activationLink);
-    EMailText.append("\">");
-    EMailText.append(activationLink);
-    EMailText.append("</a>\r\n");
+      EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
+      EMailText.append("This email generated automatically, please don't reply.\r\n");
+      EMailText.append("For finish registration visit <a href=\"");
+      EMailText.append(activationLink);
+      EMailText.append("\">");
+      EMailText.append(activationLink);
+      EMailText.append("</a>\r\n");
 
-    int result = ioSmtpSendMail(client,
-                                SMTP.ServerAddress,
-                                SMTP.UseStartTls,
-                                BaseCfg.PoolHostAddress.c_str(),
-                                SMTP.Login.c_str(),
-                                SMTP.Password.c_str(),
-                                SMTP.SenderAddress.c_str(),
-                                userRecord.EMail.c_str(),
-                                ("Registration at " + BaseCfg.PoolName).c_str(),
-                                EMailText.c_str(),
-                                afNone,
-                                16000000);
-    if (result != 0) {
-      if (result == -smtpError)
-        LOG_F(ERROR, "SMTP error; code: %u; text: %s", smtpClientGetResultCode(client), smtpClientGetResponse(client));
-      else
-        LOG_F(ERROR, "SMTP client error %u", -result);
+      int result = ioSmtpSendMail(client,
+                                  SMTP.ServerAddress,
+                                  SMTP.UseStartTls,
+                                  BaseCfg.PoolHostAddress.c_str(),
+                                  SMTP.Login.c_str(),
+                                  SMTP.Password.c_str(),
+                                  SMTP.SenderAddress.c_str(),
+                                  userRecord.EMail.c_str(),
+                                  ("Registration at " + BaseCfg.PoolName).c_str(),
+                                  EMailText.c_str(),
+                                  afNone,
+                                  16000000);
+      if (result != 0) {
+        if (result == -smtpError)
+          LOG_F(ERROR, "SMTP error; code: %u; text: %s", smtpClientGetResultCode(client), smtpClientGetResponse(client));
+        else
+          LOG_F(ERROR, "SMTP client error %u", -result);
+        smtpClientDelete(client);
+        callback("email_send_error");
+        return;
+      }
+
       smtpClientDelete(client);
-      callback("email_send_error");
-      return;
     }
 
-    smtpClientDelete(client);
+    // TODO: Setup default settings for all coins
+
+    // Save changes to databases
+    AllEmails_.insert(credentials.EMail);
+    actionAdd(actionRecord);
   }
 
-  // TODO: Setup default settings for all coins
-
-  // Save changes to databases
-  AllEmails_.insert(credentials.EMail);
   UsersDb_.put(userRecord);
-  actionAdd(actionRecord);
-
   LOG_F(INFO, "New user: %s (%s) email: %s; actionId: %s", userRecord.Login.c_str(), userRecord.Name.c_str(), userRecord.EMail.c_str(), actionRecord.Id.ToString().c_str());
   callback("ok");
 }
@@ -644,6 +652,8 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
 void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback)
 {
   // Find user in db
+  bool isReadOnly = false;
+
   {
     decltype (UsersCache_)::const_accessor accessor;
     if (!UsersCache_.find(accessor, credentials.Login)) {
@@ -664,6 +674,8 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
       callback("", "user_not_active");
       return;
     }
+
+    isReadOnly = record.IsReadOnly;
   }
 
   auto It = LoginSessionMap_.find(credentials.Login);
@@ -677,6 +689,7 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
   makeRandom(session.Id);
   session.Login = credentials.Login;
   session.LastAccessTime = time(nullptr);
+  session.IsReadOnly = isReadOnly;
   sessionAdd(session);
   callback(session.Id.ToString(), "ok");
 }
@@ -749,16 +762,21 @@ bool UserManager::checkPassword(const std::string &login, const std::string &pas
 
 bool UserManager::validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin, bool needWriteAccess)
 {
+  bool isReadOnly = false;
   time_t currentTime = time(nullptr);
   {
     decltype (SessionsCache_)::accessor accessor;
     if (SessionsCache_.find(accessor, uint512S(id))) {
       resultLogin = accessor->second.Login;
+      isReadOnly = accessor->second.IsReadOnly;
       accessor->second.updateLastAccessTime(currentTime);
     } else {
       return false;
     }
   }
+
+  if (isReadOnly && needWriteAccess)
+    return false;
 
   bool isSuperUser = (resultLogin == "admin") || (resultLogin == "observer" && !needWriteAccess);
   if (isSuperUser) {
