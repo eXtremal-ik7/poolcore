@@ -41,7 +41,7 @@ inline void StatisticDb::parseStatsCacheFile(CStatsFile &file, std::function<CSt
     acc.Recent.emplace_back();
     CStatsElement &stats = acc.Recent.back();
     acc.LastShareTime = record.Time;
-    stats.SharesNum = record.ShareCount;
+    stats.SharesNum = static_cast<uint32_t>(record.ShareCount);
     stats.SharesWork = record.ShareWork;
     stats.TimeLabel = file.TimeLabel;
     if (isDebugStatistic()) {
@@ -369,7 +369,7 @@ void StatisticDb::updatePoolStats(int64_t timeLabel)
         PoolStatsCached_.SharesPerSecond);
 }
 
-void StatisticDb::updateStatsDiskCache(const char *name, std::deque<CStatsFile> &cache, uint64_t timeLabel, uint64_t lastShareId, const void *data, size_t size)
+void StatisticDb::updateStatsDiskCache(const char *name, std::deque<CStatsFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size)
 {
   // Don't write empty files to disk
   if (!size)
@@ -536,11 +536,11 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
       stats.emplace_back();
       CStatsElement &current = stats.back();
       current.TimeLabel = record.Time + groupByInterval - (record.Time % groupByInterval);
-      current.SharesNum = record.ShareCount;
+      current.SharesNum = static_cast<uint32_t>(record.ShareCount);
       current.SharesWork = record.ShareWork;
     } else {
       CStatsElement &current = stats.back();
-      current.SharesNum += record.ShareCount;
+      current.SharesNum += static_cast<uint32_t>(record.ShareCount);
       current.SharesWork += record.ShareWork;
     }
 

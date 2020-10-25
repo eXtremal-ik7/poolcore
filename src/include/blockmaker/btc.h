@@ -314,7 +314,7 @@ public:
       return UniqueWorkId != workId;
     }
 
-    void mutate() { Header.nTime = time(nullptr); }
+    void mutate() { Header.nTime = static_cast<uint32_t>(time(nullptr)); }
 
     bool checkConsensus(size_t, double *shareDiff) {
       Proto::CheckConsensusCtx ctx;
@@ -334,7 +334,7 @@ public:
                           const void *coinBaseExtraData,
                           size_t coinbaseExtraSize,
                           std::string &error,
-                          size_t txNumLimit=0);
+                          uint32_t txNumLimit=0);
 
     bool prepareForSubmit(const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
   };

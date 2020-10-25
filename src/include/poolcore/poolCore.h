@@ -89,11 +89,11 @@ public:
 
   class CSubmitBlockOperation {
   public:
-    CSubmitBlockOperation(CNetworkClient::SumbitBlockCb callback, uint32_t clientsNum) : Callback_(callback), ClientsNum_(clientsNum) {}
+    CSubmitBlockOperation(CNetworkClient::SumbitBlockCb callback, size_t clientsNum) : Callback_(callback), ClientsNum_(clientsNum) {}
     void accept(bool result, const std::string &hostName, const std::string &error);
   private:
     CNetworkClient::SumbitBlockCb Callback_;
-    uint32_t ClientsNum_;
+    size_t ClientsNum_;
     std::atomic<uint32_t> State_ = 0;
   };
 

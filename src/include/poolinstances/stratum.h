@@ -73,7 +73,7 @@ public:
     // Share diff
     if (config.HasMember("shareDiff")) {
       if (config["shareDiff"].IsUint64()) {
-        ConstantShareDiff_ = config["shareDiff"].GetUint64();
+        ConstantShareDiff_ = static_cast<double>(config["shareDiff"].GetUint64());
       } else if (config["shareDiff"].IsFloat()) {
         ConstantShareDiff_ = config["shareDiff"].GetFloat();
       } else {
@@ -214,7 +214,7 @@ public:
 
     auto endPt = std::chrono::steady_clock::now();
     auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(endPt - beginPt).count();
-    LOG_F(INFO, "%s: Accepting work %" PRIu64 "#%zu (reset=%s) & send to %u clients in %.3lf seconds", Name_.c_str(), data.MajorWorkId_, data.MinorLastWorkId_, isNewBlock ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
+    LOG_F(INFO, "%s: Accepting work %" PRIu64 "#%u (reset=%s) & send to %u clients in %.3lf seconds", Name_.c_str(), data.MajorWorkId_, data.MinorLastWorkId_, isNewBlock ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
   }
 
 private:
@@ -262,7 +262,7 @@ private:
     int64_t LastUpdateTime = std::numeric_limits<int64_t>::max();
     // Stratum protocol decoding
     char Buffer[40960];
-    unsigned MsgTailSize = 0;
+    size_t MsgTailSize = 0;
     // Mining info
     typename X::Stratum::WorkerConfig WorkerConfig;
     // Current share difficulty (one for all workers on connection)
@@ -282,7 +282,7 @@ private:
     std::set<Connection*> Connections_;
     std::unordered_set<typename X::Proto::BlockHashTy> KnownShares;
     uint64_t MajorWorkId_ = 0;
-    uint64_t MinorLastWorkId_ = 0;
+    uint32_t MinorLastWorkId_ = 0;
   };
 
   struct JobInfo {
@@ -415,7 +415,7 @@ private:
     return true;
   }
 
-  void onStratumMiningSuggestDifficulty(Connection *connection, StratumMessage &message) {
+  void onStratumMiningSuggestDifficulty(Connection*, StratumMessage&) {
     // Nothing to do
   }
 
@@ -647,7 +647,6 @@ private:
   }
 
   void stratumSendTarget(Connection *connection) {
-    ThreadData &data = Data_[GetLocalThreadId()];
     xmstream stream;
     {
       JSON::Object object(stream);

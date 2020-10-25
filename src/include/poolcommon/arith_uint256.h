@@ -69,7 +69,7 @@ public:
       static double multiplier = pow(FLT_RADIX, DBL_MANT_DIG);
 
       int exponent = 0;
-      uint64_t fractionalPart = frexp(d, &exponent) * multiplier;
+      uint64_t fractionalPart = static_cast<uint64_t>(frexp(d, &exponent) * multiplier);
       exponent -= DBL_MANT_DIG;
       pn[0] = (unsigned int)fractionalPart;
       pn[1] = (unsigned int)(fractionalPart >> 32);

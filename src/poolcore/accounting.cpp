@@ -395,7 +395,7 @@ void AccountingDb::addShare(const CShare &share)
         if (haveUser && (!havePoolFee || userIt->userId < poolFeeIt->User)) {
           shareValue = userIt->shareValue;
           payout.Login = userIt->userId;
-          payout.payoutValue = R->availableCoins * (shareValue / R->totalShareValue);
+          payout.payoutValue = static_cast<int64_t>(R->availableCoins * (shareValue / R->totalShareValue));
           ++userIt;
         } else {
           bool needMerge = haveUser && userIt->userId == poolFeeIt->User;
@@ -403,7 +403,7 @@ void AccountingDb::addShare(const CShare &share)
           payout.Login = poolFeeIt->User;
           payout.payoutValue = feeValues[poolFeeIt - _cfg.PoolFee.begin()];
           if (needMerge)
-            payout.payoutValue += R->availableCoins * (shareValue / R->totalShareValue);
+            payout.payoutValue += static_cast<int64_t>(R->availableCoins * (shareValue / R->totalShareValue));
 
           ++poolFeeIt;
           if (needMerge)

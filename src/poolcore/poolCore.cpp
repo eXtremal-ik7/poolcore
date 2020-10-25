@@ -54,6 +54,8 @@ const char *CCoinInfo::getPowerUnitName() const
     case EHash : return "hash";
     case ECPD : return "cpd";
   }
+
+  return "???";
 }
 
 uint64_t CCoinInfo::calculateAveragePower(double work, uint64_t timeInterval) const
@@ -61,13 +63,15 @@ uint64_t CCoinInfo::calculateAveragePower(double work, uint64_t timeInterval) co
   switch (PowerUnitType) {
     case EHash : {
       static double workMultiplier = 4294967296.0;
-      return work / timeInterval * (workMultiplier / pow(10.0, PowerMultLog10));
+      return static_cast<uint64_t>(work / timeInterval * (workMultiplier / pow(10.0, PowerMultLog10)));
     }
 
     case ECPD :
       // TODO: implement
       return 0;
   }
+
+  return 0;
 }
 
 

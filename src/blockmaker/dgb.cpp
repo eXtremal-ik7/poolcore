@@ -2,7 +2,7 @@
 
 namespace DGB {
 
-bool Proto::checkConsensus(const DGB::Proto::BlockHeader &header, CheckConsensusCtx&, DGB::Proto::ChainParams &chainParams, double *shareDiff)
+bool Proto::checkConsensus(const DGB::Proto::BlockHeader&, CheckConsensusCtx&, DGB::Proto::ChainParams&, double *shareDiff)
 {
   // TODO: implement
   *shareDiff = 0;

@@ -489,8 +489,8 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
     // Coinbase message
     scriptsig.write(coinbaseMsg.data(), coinbaseMsg.size());
     // Extra nonce
-    work.ScriptSigExtraNonceOffset = scriptsig.offsetOf();
-    work.TxExtraNonceOffset = work.ScriptSigExtraNonceOffset + coinbaseTx.getFirstScriptSigOffset(false);
+    work.ScriptSigExtraNonceOffset = static_cast<unsigned>(scriptsig.offsetOf());
+    work.TxExtraNonceOffset = static_cast<unsigned>(work.ScriptSigExtraNonceOffset + coinbaseTx.getFirstScriptSigOffset(false));
     for (size_t i = 0, ie = cfg.FixedExtraNonceSize; i != ie; ++i)
       scriptsig.write('\0');
 
@@ -520,7 +520,7 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   }
 
   coinbaseTx.lockTime = 0;
-  work.BlockHexExtraNonceOffset = work.BlockHexData.sizeOf() + work.TxExtraNonceOffset*2;
+  work.BlockHexExtraNonceOffset = static_cast<unsigned>(work.BlockHexData.sizeOf() + work.TxExtraNonceOffset*2);
   BTC::X::serialize(work.FirstTxData, coinbaseTx);
   bin2hexLowerCase(work.FirstTxData.data(), work.BlockHexData.reserve<char>(work.FirstTxData.sizeOf()*2), work.FirstTxData.sizeOf());
 

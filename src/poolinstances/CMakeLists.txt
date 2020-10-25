@@ -7,5 +7,9 @@ add_library(poolinstances STATIC
   ${ProtoSources}
 )
 
+if (MSVC)
+  set_source_files_properties(${ProtoSources} PROPERTIES COMPILE_FLAGS "/wd4244 /wd4267")
+endif()
+
 target_link_libraries(poolinstances ${TBB_IMPORTED_TARGETS})
 add_dependencies(poolinstances mpir)

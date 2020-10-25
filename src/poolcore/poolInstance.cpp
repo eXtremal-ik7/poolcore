@@ -23,7 +23,7 @@ void CThreadPool::start()
     ThreadData &threadData = Threads_[i];
     threadData.Thread = std::thread([](ThreadData *threadData) {
       char name[32];
-      srand(time(nullptr)*threadData->Id);
+      srand(static_cast<unsigned>(time(nullptr))*threadData->Id);
       snprintf(name, sizeof(name), "worker%u", threadData->Id);
       loguru::set_thread_name(name);
       InitializeWorkerThread();

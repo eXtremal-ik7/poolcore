@@ -36,13 +36,13 @@ static inline void serializeForCoinbase(xmstream &stream, int64_t value)
   }
 
   if (absValue & 0x80) {
-    stream.write<uint8_t>(absValue);
+    stream.write<uint8_t>(static_cast<uint8_t>(absValue));
     stream.write<uint8_t>(isNegative ? 0x80 : 0);
   } else {
-    stream.write<uint8_t>(absValue | (isNegative ? 0x80 : 0));
+    stream.write<uint8_t>(static_cast<uint8_t>(absValue | (isNegative ? 0x80 : 0)));
   }
 
-  stream.data<uint8_t>()[offset] = stream.offsetOf() - offset - 1;
+  stream.data<uint8_t>()[offset] = static_cast<uint8_t>(stream.offsetOf() - offset - 1);
 }
 
 // variable size

@@ -93,9 +93,8 @@ void CPriceFetcher::onConnect(AsyncOpStatus status)
 
 void CPriceFetcher::onRequest(AsyncOpStatus status)
 {
-  bool success = false;
   if (status == aosSuccess && ParseCtx_.resultCode == 200) {
-    success = processRequest(ParseCtx_.body.data, ParseCtx_.body.size);
+    processRequest(ParseCtx_.body.data, ParseCtx_.body.size);
   } else {
     LOG_F(ERROR, "PriceFetcher(%s) request error %i; http code: %i", CoinInfo_.Name.c_str(), status, ParseCtx_.resultCode);
   }

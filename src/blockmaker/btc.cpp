@@ -357,7 +357,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
                                      const void *coinBaseExtraData,
                                      size_t coinbaseExtraSize,
                                      std::string &error,
-                                     size_t txNumLimit)
+                                     uint32_t txNumLimit)
 {
   char buffer[4096];
   xmstream stream(buffer, sizeof(buffer));
@@ -543,10 +543,10 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     // Coinbase message
     scriptsig.write(coinBaseExtraData, coinbaseExtraSize);
     // Extra nonce
-    CBTxLegacy.ExtraNonceOffset = scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset(false);
-    CBTxLegacy.ExtraDataOffset = extraDataOffset + coinbaseTx.getFirstScriptSigOffset(false);
-    CBTxWitness.ExtraNonceOffset = scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset(true);
-    CBTxWitness.ExtraDataOffset = extraDataOffset + coinbaseTx.getFirstScriptSigOffset(true);
+    CBTxLegacy.ExtraNonceOffset = static_cast<unsigned>(scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset(false));
+    CBTxLegacy.ExtraDataOffset = static_cast<unsigned>(extraDataOffset + coinbaseTx.getFirstScriptSigOffset(false));
+    CBTxWitness.ExtraNonceOffset = static_cast<unsigned>(scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset(true));
+    CBTxWitness.ExtraDataOffset = static_cast<unsigned>(extraDataOffset + coinbaseTx.getFirstScriptSigOffset(true));
     scriptsig.reserve(cfg.FixedExtraNonceSize+cfg.MutableExtraNonceSize);
 
     xvectorFromStream(std::move(scriptsig), txIn.scriptSig);
@@ -591,7 +591,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   }
 
   coinbaseTx.lockTime = 0;
-  BlockHexCoinbaseTxOffset = BlockHexData.sizeOf();
+  BlockHexCoinbaseTxOffset = static_cast<unsigned>(BlockHexData.sizeOf());
   BTC::Io<BTC::Proto::Transaction>::serialize(CBTxLegacy.Data, coinbaseTx, false);
   BTC::Io<BTC::Proto::Transaction>::serialize(CBTxWitness.Data, coinbaseTx, true);
   bin2hexLowerCase(CBTxWitness.Data.data(), BlockHexData.reserve<char>(CBTxWitness.Data.sizeOf()*2), CBTxWitness.Data.sizeOf());

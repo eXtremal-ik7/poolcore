@@ -199,7 +199,7 @@ private:
   std::string BackendName_;
   asyncBase *Base_;
   std::chrono::seconds ShareLogFlushInterval_;
-  int64_t ShareLogFileSizeLimit_;
+  uint64_t ShareLogFileSizeLimit_;
   CConfig Config_;
 
   xmstream ShareLogInMemory_;

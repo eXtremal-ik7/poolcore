@@ -123,9 +123,9 @@ StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumM
         } else if (strcmp(extensions[i].GetString(), "minimum-difficulty") == 0) {
           if (arguments.HasMember("minimum-difficulty.value")) {
             if (arguments["minimum-difficulty.value"].IsUint64())
-              out->miningConfigure.MinimumDifficultyValue = arguments["minimum-difficulty.value"].GetUint64();
-            else if (arguments["minimum-difficulty.value"].IsFloat())
-              out->miningConfigure.MinimumDifficultyValue = arguments["minimum-difficulty.value"].GetFloat();
+              out->miningConfigure.MinimumDifficultyValue = static_cast<double>(arguments["minimum-difficulty.value"].GetUint64());
+            else if (arguments["minimum-difficulty.value"].IsDouble())
+              out->miningConfigure.MinimumDifficultyValue = arguments["minimum-difficulty.value"].GetDouble();
           }
           out->miningConfigure.ExtensionsField |= StratumMiningConfigure::EMinimumDifficulty;
         } else if (strcmp(extensions[i].GetString(), "subscribe-extranonce") == 0) {
@@ -137,10 +137,10 @@ StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumM
     }
   } else if (method == "mining.suggest_difficulty" && params.Size() >= 1) {
     out->method = MiningSuggestDifficulty;
-    if (params[0].IsFloat()) {
-      out->miningSuggestDifficulty.Difficulty = params[0].GetFloat();
+    if (params[0].IsDouble()) {
+      out->miningSuggestDifficulty.Difficulty = params[0].GetDouble();
     } else if (params[0].IsUint64()) {
-      out->miningSuggestDifficulty.Difficulty = params[0].GetUint64();
+      out->miningSuggestDifficulty.Difficulty = static_cast<double>(params[0].GetUint64());
     } else {
       return FormatError;
     }
