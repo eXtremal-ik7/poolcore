@@ -37,6 +37,7 @@ struct CCoinInfo {
 
   std::vector<uint8_t> PubkeyAddressPrefix;
   std::vector<uint8_t> ScriptAddressPrefix;
+  std::string Bech32Prefix;
 
   uint16_t DefaultRpcPort;
 

@@ -30,6 +30,7 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
+      info.Bech32Prefix = "bc";
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "bitcoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
@@ -44,6 +45,7 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
+      info.Bech32Prefix = "tb";
       info.DefaultRpcPort = 18332;
       info.Algorithm = "sha256";
     } else if (strcmp(coinName, "BTC.regtest") == 0) {
@@ -56,6 +58,7 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
+      info.Bech32Prefix = "bcrt";
       info.DefaultRpcPort = 18443;
       info.Algorithm = "sha256";
     } else if (strcmp(coinName, "BCH") == 0) {
@@ -83,18 +86,6 @@ public:
       info.ScriptAddressPrefix = {196};
       info.DefaultRpcPort = 18332;
       info.Algorithm = "sha256";
-    } else if (strcmp(coinName, "BCHA") == 0) {
-      info.Name = "BCHA";
-      info.FullName = "Bitcoin Cash ABC";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
-      info.RationalPartSize = 100000000;
-      info.SegwitEnabled = false;
-      info.PowerUnitType = CCoinInfo::EHash;
-      info.PowerMultLog10 = 6;
-      info.PubkeyAddressPrefix = {0};
-      info.ScriptAddressPrefix = {5};
-      info.DefaultRpcPort = 8332;
-      info.CoinGeckoName = "bitcoin-cash";
     } else if (strcmp(coinName, "BCHN") == 0) {
       info.Name = "BCHN";
       info.FullName = "Bitcoin Cash Node";
@@ -107,6 +98,7 @@ public:
       info.ScriptAddressPrefix = {5};
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "bitcoin-cash";
+      info.Algorithm = "sha256";
     } else if (strcmp(coinName, "BSV") == 0) {
       info.Name = "BSV";
       info.FullName = "Bitcoin SV";
@@ -142,6 +134,7 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {63};
+      info.Bech32Prefix = "dgb";
       info.DefaultRpcPort = 14022;
       info.CoinGeckoName = "digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
@@ -157,6 +150,7 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {126};
       info.ScriptAddressPrefix = {140};
+      info.Bech32Prefix = "dgbt";
       info.DefaultRpcPort = 14023;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "sha256";
@@ -170,6 +164,7 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {63};
+      info.Bech32Prefix = "dgb";
       info.DefaultRpcPort = 14022;
       info.CoinGeckoName = "digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
@@ -185,6 +180,7 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {126};
       info.ScriptAddressPrefix = {140};
+      info.Bech32Prefix = "dgbt";
       info.DefaultRpcPort = 14023;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "scrypt";
@@ -229,6 +225,7 @@ public:
       info.DefaultRpcPort = 8332;
       info.ProfitSwitchDefaultCoeff = 0.4;
       info.CoinGeckoName = "freecash";
+      info.Algorithm = "sha256";
     } else if (strcmp(coinName, "LCC") == 0) {
       info.Name = "LCC";
       info.FullName = "LitecoinCash";
@@ -242,6 +239,7 @@ public:
       info.DefaultRpcPort = 62457;
       info.ProfitSwitchDefaultCoeff = 0.1;
       info.CoinGeckoName = "litecoin-cash";
+      info.Algorithm = "sha256";
     } else if (strcmp(coinName, "LTC") == 0) {
       info.Name = "LTC";
       info.FullName = "Litecoin";
@@ -252,6 +250,7 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {48};
       info.ScriptAddressPrefix = {50};
+      info.Bech32Prefix = "ltc";
       info.DefaultRpcPort = 9332;
       info.CoinGeckoName = "litecoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
@@ -267,6 +266,7 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {58};
+      info.Bech32Prefix = "tltc";
       info.DefaultRpcPort = 19332;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";

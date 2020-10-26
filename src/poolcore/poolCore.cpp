@@ -1,4 +1,6 @@
 #include "poolcore/poolCore.h"
+
+#include "poolcommon/bech32.h"
 #include "poolcore/base58.h"
 #include "openssl/sha.h"
 #include <string.h>
@@ -29,19 +31,26 @@ static bool checkBase58Address(const std::vector<uint8_t> &decodedAddress, const
   return reinterpret_cast<uint32_t*>(sha256)[0] == addrHash;
 }
 
+static bool checkBech32Address(const std::string &address, const std::string &prefix)
+{
+  auto result = bech32::Decode(address);
+  return result.second.size() > 0 && result.first == prefix;
+}
+
 bool CCoinInfo::checkAddress(const std::string &address, EAddressType type) const
 {
   if (type & (EP2PKH | EPS2H | EBech32)) {
     std::vector<uint8_t> decoded;
-    if (!DecodeBase58(address, decoded))
-      return false;
+    if (DecodeBase58(address, decoded)) {
+      if ((type & EP2PKH) && checkBase58Address(decoded, PubkeyAddressPrefix)) {
+        return true;
+      } else if ((type & EPS2H) && checkBase58Address(decoded, ScriptAddressPrefix)) {
+        return true;
+      }
+    }
 
-    if ((type & EP2PKH) && checkBase58Address(decoded, PubkeyAddressPrefix)) {
+    if ((type & EBech32) && checkBech32Address(address, Bech32Prefix)) {
       return true;
-    } else if ((type & EPS2H) && checkBase58Address(decoded, ScriptAddressPrefix)) {
-      return true;
-    } else if ((type & EBech32)) {
-      LOG_F(WARNING, "bech32 addresses not supported now");
     }
   }
 

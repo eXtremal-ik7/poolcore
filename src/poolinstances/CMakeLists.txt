@@ -9,7 +9,7 @@ add_library(poolinstances STATIC
 protobuf_generate(TARGET poolinstances)
 
 if (MSVC)
-  set_source_files_properties(${ProtoSources} PROPERTIES COMPILE_FLAGS "/wd4244 /wd4267")
+  set_source_files_properties("protocol.pb.cc" PROPERTIES COMPILE_FLAGS "/wd4244 /wd4267")
 endif()
 
 target_link_libraries(poolinstances ${TBB_IMPORTED_TARGETS})
