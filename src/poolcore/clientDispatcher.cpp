@@ -6,10 +6,10 @@ bool CNetworkClientDispatcher::ioGetBalance(asyncBase *base, CNetworkClient::Get
 {
   unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
-  for (size_t i = 0, ie = Clients_.size(); i != ie; ++i) {
-    if (Clients_[currentClientIdx]->ioGetBalance(base, result))
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
+    if (RPCClients_[currentClientIdx]->ioGetBalance(base, result))
       return true;
-    currentClientIdx = (currentClientIdx + 1) % Clients_.size();
+    currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
   }
 
   return false;
@@ -19,10 +19,10 @@ bool CNetworkClientDispatcher::ioGetBlockConfirmations(asyncBase *base, std::vec
 {
   unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
-  for (size_t i = 0, ie = Clients_.size(); i != ie; ++i) {
-    if (Clients_[currentClientIdx]->ioGetBlockConfirmations(base, query))
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
+    if (RPCClients_[currentClientIdx]->ioGetBlockConfirmations(base, query))
       return true;
-    currentClientIdx = (currentClientIdx + 1) % Clients_.size();
+    currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
   }
 
   return false;
@@ -38,10 +38,10 @@ bool CNetworkClientDispatcher::ioSendMoney(asyncBase *base, const char *address,
 {
   unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
-  for (size_t i = 0, ie = Clients_.size(); i != ie; ++i) {
-    if (Clients_[currentClientIdx]->ioSendMoney(base, address, value, result))
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
+    if (RPCClients_[currentClientIdx]->ioSendMoney(base, address, value, result))
       return true;
-    currentClientIdx = (currentClientIdx + 1) % Clients_.size();
+    currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
   }
 
   return false;
@@ -49,9 +49,9 @@ bool CNetworkClientDispatcher::ioSendMoney(asyncBase *base, const char *address,
 
 void CNetworkClientDispatcher::aioSubmitBlock(asyncBase *base, const void *data, size_t size, CNetworkClient::SumbitBlockCb callback)
 {
-  CNetworkClient::CSubmitBlockOperation *submitOperation = new CNetworkClient::CSubmitBlockOperation(callback, Clients_.size());
-  for (size_t i = 0, ie = Clients_.size(); i != ie; ++i)
-    Clients_[i]->aioSubmitBlock(base, Clients_[i]->prepareBlock(data, size), submitOperation);
+  CNetworkClient::CSubmitBlockOperation *submitOperation = new CNetworkClient::CSubmitBlockOperation(callback, RPCClients_.size());
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i)
+    RPCClients_[i]->aioSubmitBlock(base, RPCClients_[i]->prepareBlock(data, size), submitOperation);
 }
 
 // ZEC specific
@@ -69,8 +69,8 @@ bool CNetworkClientDispatcher::ioZSendMoney(asyncBase*, const std::string&, cons
 
 void CNetworkClientDispatcher::poll()
 {
-  if (!Clients_.empty()) {
-    Clients_[CurrentWorkFetcherIdx]->poll();
+  if (!GetWorkClients_.empty()) {
+    GetWorkClients_[CurrentWorkFetcherIdx]->poll();
   } else {
     LOG_F(ERROR, "%s: no nodes configured", CoinInfo_.Name.c_str());
   }
@@ -89,8 +89,8 @@ void CNetworkClientDispatcher::onWorkFetchReconnectTimer()
     }
   }
 
-  CurrentWorkFetcherIdx = (CurrentWorkFetcherIdx + 1) % Clients_.size();
-  Clients_[CurrentWorkFetcherIdx]->poll();
+  CurrentWorkFetcherIdx = (CurrentWorkFetcherIdx + 1) % GetWorkClients_.size();
+  GetWorkClients_[CurrentWorkFetcherIdx]->poll();
 }
 
 void CNetworkClientDispatcher::onWorkFetcherConnectionError()

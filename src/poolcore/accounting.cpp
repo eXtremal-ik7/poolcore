@@ -332,6 +332,7 @@ void AccountingDb::addShare(const CShare &share)
       feeValuesSum += value;
     }
 
+    feeValuesSum = std::min(generatedCoins, feeValuesSum);
     int64_t available = generatedCoins - feeValuesSum;
     LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share.height, share.hash.c_str(), generatedCoins, feeValuesSum, available);
 

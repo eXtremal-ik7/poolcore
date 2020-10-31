@@ -67,9 +67,11 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
       }
 
       UsersCache_.insert(std::make_pair(userRecord.Login, userRecord));
-      if (!AllEmails_.insert(userRecord.EMail).second) {
-        LOG_F(ERROR, "Non-unique email detected: %s", userRecord.EMail.c_str());
-        exit(1);
+      if (!userRecord.EMail.empty()) {
+        if (!AllEmails_.insert(userRecord.EMail).second) {
+          LOG_F(ERROR, "Non-unique email detected: %s", userRecord.EMail.c_str());
+          exit(1);
+        }
       }
     }
 

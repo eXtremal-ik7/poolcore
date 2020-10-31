@@ -13,8 +13,13 @@ public:
       static_cast<CNetworkClientDispatcher*>(arg)->onWorkFetchReconnectTimer();
     }, this);
   }
-  void addClient(CNetworkClient *client) {
-    Clients_.emplace_back(client);
+  void addGetWorkClient(CNetworkClient *client) {
+    GetWorkClients_.emplace_back(client);
+    client->setDispatcher(this);
+  }
+
+  void addRPCClient(CNetworkClient *client) {
+    RPCClients_.emplace_back(client);
     client->setDispatcher(this);
   }
 
@@ -54,7 +59,8 @@ private:
   asyncBase *Base_;
   CCoinInfo CoinInfo_;
   PoolBackend *Backend_ = nullptr;
-  std::vector<std::unique_ptr<CNetworkClient>> Clients_;
+  std::vector<std::unique_ptr<CNetworkClient>> GetWorkClients_;
+  std::vector<std::unique_ptr<CNetworkClient>> RPCClients_;
   std::vector<size_t> CurrentClientIdx_;
   size_t CurrentWorkFetcherIdx = 0;
 
