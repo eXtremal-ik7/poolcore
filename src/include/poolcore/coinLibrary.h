@@ -16,6 +16,10 @@ public:
       info.Name = "scrypt";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
+    } else if (strcmp(coinName, "sha3.shake256.16") == 0) {
+      info.Name = "sha3.shake256.16";
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
     } else if (strcmp(coinName, "primecoin") == 0) {
       info.Name = "primecoin";
       info.PowerUnitType = CCoinInfo::ECPD;
