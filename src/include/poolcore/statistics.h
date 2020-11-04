@@ -29,6 +29,8 @@ public:
     std::string Name;
     std::string EMail;
     int64_t RegistrationDate;
+    bool IsActive;
+    bool IsReadOnly;
     uint32_t WorkersNum = 0;
     uint64_t AveragePower = 0;
     double SharesPerSecond = 0.0;

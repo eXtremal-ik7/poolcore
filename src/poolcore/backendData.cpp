@@ -38,7 +38,6 @@ bool payoutElement::deserializeValue(const void *data, size_t size)
 bool payoutElement::deserializeValue(xmstream &stream)
 {
   uint32_t version;
-  DbIo<decltype (version)>::unserialize(stream, version);
   dbIoUnserialize(stream, version);
   if (version >= 1) {
     dbIoUnserialize(stream, Login);

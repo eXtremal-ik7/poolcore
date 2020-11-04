@@ -29,6 +29,8 @@ public:
     std::string EMail;
     std::string TwoFactor;
     int64_t RegistrationDate;
+    bool IsActive;
+    bool IsReadOnly;
   };
 
   struct UserInfo {
@@ -129,7 +131,7 @@ public:
 
   class UserLoginTask: public Task {
   public:
-    using Cb = std::function<void(const std::string&, const char*)>;
+    using Cb = std::function<void(const std::string&, const char*, bool)>;
     UserLoginTask(UserManager *userMgr, Credentials &&credentials, Cb callback) : Task(userMgr), Credentials_(credentials), Callback_(callback) {}
     void run() final { UserMgr_->loginImpl(Credentials_, Callback_); }
   private:

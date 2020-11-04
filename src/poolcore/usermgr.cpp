@@ -659,7 +659,7 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
   {
     decltype (UsersCache_)::const_accessor accessor;
     if (!UsersCache_.find(accessor, credentials.Login)) {
-      callback("", "invalid_password");
+      callback("", "invalid_password", false);
       return;
     }
 
@@ -667,13 +667,13 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
 
     // Check password
     if (record.PasswordHash != generateHash(credentials.Login, credentials.Password)) {
-      callback("", "invalid_password");
+      callback("", "invalid_password", false);
       return;
     }
 
     // Check activation
     if (!record.IsActive) {
-      callback("", "user_not_active");
+      callback("", "user_not_active", false);
       return;
     }
 
@@ -682,7 +682,7 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
 
   auto It = LoginSessionMap_.find(credentials.Login);
   if (It != LoginSessionMap_.end()) {
-    callback(It->second.ToString(), "ok");
+    callback(It->second.ToString(), "ok", isReadOnly);
     return;
   }
 
@@ -693,7 +693,7 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
   session.LastAccessTime = time(nullptr);
   session.IsReadOnly = isReadOnly;
   sessionAdd(session);
-  callback(session.Id.ToString(), "ok");
+  callback(session.Id.ToString(), "ok", isReadOnly);
 }
 
 void UserManager::logoutImpl(const uint512 &sessionId, Task::DefaultCb callback)
@@ -740,6 +740,8 @@ void UserManager::enumerateUsersImpl(EnumerateUsersTask::Cb callback)
     credentials.Name = record.second.Name;
     credentials.EMail = record.second.EMail;
     credentials.RegistrationDate = record.second.RegistrationDate;
+    credentials.IsActive = record.second.IsActive;
+    credentials.IsReadOnly = record.second.IsReadOnly;
   }
 
   callback(result);

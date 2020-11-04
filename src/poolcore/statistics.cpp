@@ -627,6 +627,8 @@ void StatisticDb::queryAllUserStatsImpl(const std::vector<UserManager::Credentia
     dst.Name = src.Name;
     dst.EMail = src.EMail;
     dst.RegistrationDate = src.RegistrationDate;
+    dst.IsActive = src.IsActive;
+    dst.IsReadOnly = src.IsReadOnly;
 
     auto userIt = LastUserStats_.find(dst.Login);
     if (userIt == LastUserStats_.end())
