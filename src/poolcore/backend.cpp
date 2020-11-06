@@ -180,7 +180,8 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
       break;
 
     RawData data = It->value();
-    if (!payouts.back().deserializeValue(data.data, data.size) || payouts.back().userId != user)
+    PayoutDbRecord &payout = payouts.emplace_back();
+    if (!payout.deserializeValue(data.data, data.size) || payout.userId != user)
       break;
 
     It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
