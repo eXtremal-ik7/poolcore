@@ -159,7 +159,7 @@ public:
   void updatePayoutFile();
   void cleanupRounds();
   
-  void requestPayout(const std::string &address, int64_t value, bool force = false);
+  bool requestPayout(const std::string &address, int64_t value, bool force = false);
   void payoutSuccess(const std::string &address, int64_t value, int64_t fee, const std::string &transactionId);
 
   void addShare(const CShare &share);

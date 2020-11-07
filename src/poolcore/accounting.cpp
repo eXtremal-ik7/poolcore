@@ -784,8 +784,9 @@ void AccountingDb::checkBalance()
         FormatMoney(net, CoinInfo_.RationalPartSize).c_str());
 }
 
-void AccountingDb::requestPayout(const std::string &address, int64_t value, bool force)
+bool AccountingDb::requestPayout(const std::string &address, int64_t value, bool force)
 {
+  bool result = false;
   auto It = _balanceMap.find(address);
   if (It == _balanceMap.end())
     It = _balanceMap.insert(It, std::make_pair(address, UserBalanceRecord(address, _cfg.DefaultPayoutThreshold)));
@@ -800,9 +801,11 @@ void AccountingDb::requestPayout(const std::string &address, int64_t value, bool
     _payoutQueue.push_back(payoutElement(address, rationalBalance, 0));
     balance.Requested += rationalBalance;
     balance.Balance.subRational(rationalBalance, CoinInfo_.ExtraMultiplier);
+    result = true;
   }
 
   _balanceDb.put(balance);
+  return result;
 }
 
 void AccountingDb::payoutSuccess(const std::string &address, int64_t value, int64_t fee, const std::string &transactionId)
@@ -839,8 +842,7 @@ void AccountingDb::manualPayoutImpl(const std::string &user, ManualPayoutCallbac
   if (It != _balanceMap.end()) {
     auto &B = It->second;
     if (B.Balance.getRational(CoinInfo_.ExtraMultiplier) >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance.getRational(CoinInfo_.ExtraMultiplier) >= _cfg.MinimalAllowedPayout) {
-      requestPayout(user, 0, true);
-      callback(true);
+      callback(requestPayout(user, 0, true));
       return;
     }
   }
