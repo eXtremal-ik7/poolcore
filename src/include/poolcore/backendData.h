@@ -29,7 +29,7 @@ struct CShare {
 
 struct PoolFeeEntry {
   std::string User;
-  float Percentage;
+  double Percentage;
 };
 
 template<typename T>

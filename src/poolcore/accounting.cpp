@@ -327,12 +327,26 @@ void AccountingDb::addShare(const CShare &share)
     int64_t feeValuesSum = 0;
     std::vector<int64_t> feeValues;
     for (const auto &poolFeeRecord: _cfg.PoolFee) {
-      int64_t value = static_cast<int64_t>(generatedCoins * (poolFeeRecord.Percentage / 100.0f));
+      int64_t value = static_cast<int64_t>(generatedCoins * (poolFeeRecord.Percentage / 100.0));
       feeValues.push_back(value);
       feeValuesSum += value;
     }
 
-    feeValuesSum = std::min(generatedCoins, feeValuesSum);
+    if (feeValuesSum > generatedCoins) {
+      int64_t diff = feeValuesSum - generatedCoins;
+      int64_t div = diff / static_cast<int64_t>(feeValues.size());
+      int64_t mv = diff >= 0 ? 1 : -1;
+      uint64_t mod = (diff > 0 ? diff : -diff) % feeValues.size();
+
+      feeValuesSum = 0;
+      for (size_t i = 0, ie = feeValues.size(); i != ie; ++i) {
+        feeValues[i] -= div;
+        if (i < mod)
+          feeValues[i] -= mv;
+        feeValuesSum += feeValues[i];
+      }
+    }
+
     int64_t available = generatedCoins - feeValuesSum;
     LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share.height, share.hash.c_str(), generatedCoins, feeValuesSum, available);
 
