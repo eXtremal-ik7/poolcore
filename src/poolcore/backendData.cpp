@@ -29,35 +29,27 @@ std::string partByTime(time_t time)
   return buffer;
 }
 
-bool payoutElement::deserializeValue(const void *data, size_t size)
-{
-  xmstream stream((void*)data, size);
-  return deserializeValue(stream);
-}
-
-bool payoutElement::deserializeValue(xmstream &stream)
-{
-  uint32_t version;
-  dbIoUnserialize(stream, version);
-  if (version >= 1) {
-    dbIoUnserialize(stream, Login);
-    dbIoUnserialize(stream, payoutValue);
-    dbIoUnserialize(stream, queued);
-    dbIoUnserialize(stream, asyncOpId);
+template<>
+struct DbIo<PayoutDbRecord> {
+  static inline void serialize(xmstream &stream, const PayoutDbRecord &data) {
+    dbIoSerialize(stream, static_cast<uint32_t>(data.CurrentRecordVersion));
+    dbIoSerialize(stream, data.userId);
+    dbIoSerialize(stream, data.time);
+    dbIoSerialize(stream, data.value);
+    dbIoSerialize(stream, data.transactionId);
   }
-  
-  return !stream.eof();
-}
 
-void payoutElement::serializeValue(xmstream &stream) const
-{
-  dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
-  dbIoSerialize(stream, Login);
-  dbIoSerialize(stream, payoutValue);
-  dbIoSerialize(stream, queued);
-  dbIoSerialize(stream, asyncOpId);
-}
-
+  static inline void unserialize(xmstream &stream, PayoutDbRecord &data) {
+    uint32_t version;
+    dbIoUnserialize(stream, version);
+    if (version >= 1) {
+      dbIoUnserialize(stream, data.userId);
+      dbIoUnserialize(stream, data.time);
+      dbIoUnserialize(stream, data.value);
+      dbIoUnserialize(stream, data.transactionId);
+    }
+  }
+};
 
 void miningRound::serializeKey(xmstream &stream) const
 {
@@ -110,9 +102,8 @@ void miningRound::dump()
   }
   for (auto p: payouts) {
     fprintf(stderr, " *** payout element ***\n");
-    fprintf(stderr, " * userId: %s\n", p.Login.c_str());
-    fprintf(stderr, " * payoutValue: %" PRId64 "\n", p.payoutValue);
-    fprintf(stderr, " * queued: %" PRId64 "\n", p.queued);    
+    fprintf(stderr, " * userId: %s\n", p.userId.c_str());
+    fprintf(stderr, " * payoutValue: %" PRId64 "\n", p.value);
   }  
 }
 
@@ -376,8 +367,7 @@ bool StatsRecord::deserializeValue(xmstream &stream)
 bool StatsRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
-  deserializeValue(stream);
-  return !stream.eof();
+  return deserializeValue(stream);
 }
 
 void StatsRecord::serializeKey(xmstream &stream) const
@@ -402,16 +392,13 @@ void StatsRecord::serializeValue(xmstream &stream) const
 bool PayoutDbRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
-  uint32_t version;
-  dbIoUnserialize(stream, version);
-  if (version >= 1) {
-    dbIoUnserialize(stream, userId);
-    dbIoUnserialize(stream, time);
-    dbIoUnserialize(stream, value);
-    dbIoUnserialize(stream, transactionId);
-  }
-  
-  return !stream.eof();  
+  return deserializeValue(stream);
+}
+
+bool PayoutDbRecord::deserializeValue(xmstream &stream)
+{
+  dbIoUnserialize(stream, *this);
+  return !stream.eof();
 }
 
 void PayoutDbRecord::serializeKey(xmstream &stream) const
@@ -423,9 +410,5 @@ void PayoutDbRecord::serializeKey(xmstream &stream) const
 
 void PayoutDbRecord::serializeValue(xmstream &stream) const
 {
-  dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
-  dbIoSerialize(stream, userId);
-  dbIoSerialize(stream, time);
-  dbIoSerialize(stream, value);
-  dbIoSerialize(stream, transactionId);
+  dbIoSerialize(stream, *this);
 }

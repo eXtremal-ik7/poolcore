@@ -88,22 +88,24 @@ struct roundElement {
   double shareValue;
 };
 
-struct payoutElement {
-  enum { CurrentRecordVersion = 1 };  
-  
-  std::string Login;
-  int64_t payoutValue;
-  int64_t queued;
-  std::string asyncOpId;
-  
-  payoutElement() {}
-  payoutElement(const std::string &userIdArg, int64_t paymentValueArg, int64_t queuedArg) :
-    Login(userIdArg), payoutValue(paymentValueArg), queued(queuedArg) {}
-    
+struct PayoutDbRecord {
+  enum { CurrentRecordVersion = 1 };
+
+  std::string userId;
+  int64_t time;
+  int64_t value;
+  std::string transactionId;
+  friend bool operator<(const PayoutDbRecord &r1, const PayoutDbRecord &r2) { return r1.userId < r2.userId; }
+
+  std::string getPartitionId() const { return partByTime(time); }
   bool deserializeValue(const void *data, size_t size);
-  bool deserializeValue(xmstream &stream);  
-  void serializeValue(xmstream &stream) const;    
-};  
+  bool deserializeValue(xmstream &stream);
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;
+
+  PayoutDbRecord() {}
+  PayoutDbRecord(const std::string &userId2, int64_t value2) : userId(userId2), value(value2) {}
+};
 
 struct shareInfo {
   std::string type;
@@ -122,18 +124,13 @@ struct miningRound {
   int64_t availableCoins;
     
   std::list<roundElement> rounds;
-  std::list<payoutElement> payouts;
+  std::list<PayoutDbRecord> payouts;
     
   miningRound() {}
   miningRound(unsigned heightArg) : height(heightArg) {}
     
   friend bool operator<(const miningRound &L, const miningRound &R) { return L.height < R.height; }
-    
-  void clearQueued() {
-    for (auto I = payouts.begin(), IE = payouts.end(); I != IE; ++I)
-      I->queued = 0;
-  }
-    
+
   std::string getPartitionId() const { return "default"; }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
@@ -301,7 +298,7 @@ struct StatsRecord {
   bool deserializeValue(xmstream &stream);
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
-  void serializeValue(xmstream &stream) const;    
+  void serializeValue(xmstream &stream) const;
 };
 
 struct ShareStatsRecord {
@@ -314,22 +311,7 @@ struct ShareStatsRecord {
   std::string getPartitionId() const { return partByTime(Time); }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
-  void serializeValue(xmstream &stream) const;    
-};
-
-struct PayoutDbRecord {
-  enum { CurrentRecordVersion = 1 };
-  
-  std::string userId;
-  int64_t time;
-  int64_t value;
-  std::string transactionId;
-  friend bool operator<(const PayoutDbRecord &r1, const PayoutDbRecord &r2) { return r1.userId < r2.userId; }
-  
-  std::string getPartitionId() const { return partByTime(time); }
-  bool deserializeValue(const void *data, size_t size);
-  void serializeKey(xmstream &stream) const;
-  void serializeValue(xmstream &stream) const;      
+  void serializeValue(xmstream &stream) const;
 };
 
 template<>
@@ -342,23 +324,6 @@ struct DbIo<roundElement> {
   static inline void unserialize(xmstream &stream, roundElement &data) {
     DbIo<decltype (data.userId)>::unserialize(stream, data.userId);
     DbIo<decltype (data.shareValue)>::unserialize(stream, data.shareValue);
-  }
-};
-
-template<>
-struct DbIo<payoutElement> {
-  static inline void serialize(xmstream &stream, const payoutElement &data) {
-    DbIo<decltype (data.Login)>::serialize(stream, data.Login);
-    DbIo<decltype (data.payoutValue)>::serialize(stream, data.payoutValue);
-    DbIo<decltype (data.queued)>::serialize(stream, data.queued);
-    DbIo<decltype (data.asyncOpId)>::serialize(stream, data.asyncOpId);
-  }
-
-  static inline void unserialize(xmstream &stream, payoutElement &data) {
-    DbIo<decltype (data.Login)>::unserialize(stream, data.Login);
-    DbIo<decltype (data.payoutValue)>::unserialize(stream, data.payoutValue);
-    DbIo<decltype (data.queued)>::unserialize(stream, data.queued);
-    DbIo<decltype (data.asyncOpId)>::unserialize(stream, data.asyncOpId);
   }
 };
 

@@ -169,7 +169,7 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
 
       stream.seekSet(0);
       while (stream.remaining()) {
-        payoutElement element;
+        PayoutDbRecord element;
         if (!element.deserializeValue(stream))
           break;
         _payoutQueue.push_back(element);
@@ -190,12 +190,8 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
       RawData data = It->value();
       if (R->deserializeValue(data.data, data.size)) {
         _allRounds.push_back(R);
-        for (auto p: R->payouts) {
-          if (p.queued) {
-            _roundsWithPayouts.insert(R);
-            break;
-          }
-        }
+        if (!R->payouts.empty())
+          _roundsWithPayouts.insert(R);
       } else {
         LOG_F(ERROR, "rounds db contains invalid record");
         delete R;
@@ -402,34 +398,32 @@ void AccountingDb::addShare(const CShare &share)
       auto poolFeeIt = _cfg.PoolFee.begin();
       auto userIt = R->rounds.begin();
       while (userIt != R->rounds.end() || poolFeeIt != _cfg.PoolFee.end()) {
-        payoutElement &payout = R->payouts.emplace_back();
+        PayoutDbRecord &payout = R->payouts.emplace_back();
 
         bool haveUser = userIt != R->rounds.end();
         bool havePoolFee = poolFeeIt != _cfg.PoolFee.end();
         double shareValue = 0.0;
         if (haveUser && (!havePoolFee || userIt->userId < poolFeeIt->User)) {
           shareValue = userIt->shareValue;
-          payout.Login = userIt->userId;
-          payout.payoutValue = static_cast<int64_t>(R->availableCoins * (shareValue / R->totalShareValue));
+          payout.userId = userIt->userId;
+          payout.value = static_cast<int64_t>(R->availableCoins * (shareValue / R->totalShareValue));
           ++userIt;
         } else {
           bool needMerge = haveUser && userIt->userId == poolFeeIt->User;
           shareValue = needMerge ? userIt->shareValue : 0.0;
-          payout.Login = poolFeeIt->User;
-          payout.payoutValue = feeValues[poolFeeIt - _cfg.PoolFee.begin()];
+          payout.userId = poolFeeIt->User;
+          payout.value = feeValues[poolFeeIt - _cfg.PoolFee.begin()];
           if (needMerge)
-            payout.payoutValue += static_cast<int64_t>(R->availableCoins * (shareValue / R->totalShareValue));
+            payout.value += static_cast<int64_t>(R->availableCoins * (shareValue / R->totalShareValue));
 
           ++poolFeeIt;
           if (needMerge)
             ++userIt;
         }
 
-        payout.queued = payout.payoutValue;
-
-        if (payout.payoutValue != 0.0) {
-          totalPayout += payout.payoutValue;
-          LOG_F(INFO, "   * %s: share value: %.3lf; payout: %" PRId64 "", payout.Login.c_str(), shareValue, payout.payoutValue);
+        if (payout.value) {
+          totalPayout += payout.value;
+          LOG_F(INFO, "   * %s: share value: %.3lf; payout: %" PRId64 "", payout.userId.c_str(), shareValue, payout.value);
         } else {
           R->payouts.pop_back();
         }
@@ -447,12 +441,11 @@ void AccountingDb::addShare(const CShare &share)
         totalPayout = 0;
         int64_t i = 0;
         for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I, ++i) {
-          I->payoutValue -= div;
+          I->value -= div;
           if (i < mod)
-            I->payoutValue -= mv;
-          I->queued = I->payoutValue;
-          totalPayout += I->payoutValue;
-          LOG_F(INFO, "   * %s: payout: %" PRId64"", I->Login.c_str(), I->payoutValue);
+            I->value -= mv;
+          totalPayout += I->value;
+          LOG_F(INFO, "   * %s: payout: %" PRId64"", I->userId.c_str(), I->value);
         }
 
         LOG_F(INFO, " * total payout (after correct): %" PRId64 "", totalPayout);
@@ -544,16 +537,17 @@ void AccountingDb::checkBlockConfirmations()
 
     if (confirmationsQuery[i].Confirmations == -1) {
       LOG_F(INFO, "block %" PRIu64 "/%s marked as orphan, can't do any payout", R->height, confirmationsQuery[i].Hash.c_str());
-      for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I)
-        I->queued = 0;
+      R->payouts.clear();
       _roundsWithPayouts.erase(R);
       _roundsDb.put(*R);
     } else if (confirmationsQuery[i].Confirmations >= _cfg.RequiredConfirmations) {
       LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R->height, R->blockHash.c_str());
       for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I) {
-        requestPayout(I->Login, I->queued);
-        I->queued = 0;
+        requestPayout(I->userId, I->value);
       }
+
+      R->payouts.clear();
+
       _roundsWithPayouts.erase(R);
       _roundsDb.put(*R);
     }
@@ -571,13 +565,13 @@ void AccountingDb::makePayout()
     {
       std::map<std::string, int64_t> payoutAccMap;
       for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
-        if (I->payoutValue < _cfg.MinimalAllowedPayout) {
-          payoutAccMap[I->Login] += I->payoutValue;
+        if (I->value < _cfg.MinimalAllowedPayout) {
+          payoutAccMap[I->userId] += I->value;
           LOG_F(INFO,
                 "Accounting: merge payout %s for %s (total already %s)",
-                FormatMoney(I->payoutValue, CoinInfo_.RationalPartSize).c_str(),
-                I->Login.c_str(),
-                FormatMoney(payoutAccMap[I->Login], CoinInfo_.RationalPartSize).c_str());
+                FormatMoney(I->value, CoinInfo_.RationalPartSize).c_str(),
+                I->userId.c_str(),
+                FormatMoney(payoutAccMap[I->userId], CoinInfo_.RationalPartSize).c_str());
           _payoutQueue.erase(I++);
         } else {
           ++I;
@@ -585,17 +579,17 @@ void AccountingDb::makePayout()
       }
 
       for (auto I: payoutAccMap)
-        _payoutQueue.push_back(payoutElement(I.first, I.second, 0));
+        _payoutQueue.push_back(PayoutDbRecord(I.first, I.second));
     }
 
     unsigned index = 0;
     for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
-      if (I->payoutValue < _cfg.MinimalAllowedPayout) {
+      if (I->value < _cfg.MinimalAllowedPayout) {
         LOG_F(INFO,
               "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
               index,
-              I->Login.c_str(),
-              FormatMoney(I->payoutValue, CoinInfo_.RationalPartSize).c_str(),
+              I->userId.c_str(),
+              FormatMoney(I->value, CoinInfo_.RationalPartSize).c_str(),
               FormatMoney(_cfg.MinimalAllowedPayout, CoinInfo_.RationalPartSize).c_str());
         ++I;
         continue;
@@ -603,26 +597,26 @@ void AccountingDb::makePayout()
 
       // Get address for payment
       UserSettingsRecord settings;
-      bool hasSettings = UserManager_.getUserCoinSettings(I->Login, CoinInfo_.Name, settings);
+      bool hasSettings = UserManager_.getUserCoinSettings(I->userId, CoinInfo_.Name, settings);
       if (!hasSettings || settings.Address.empty()) {
-        LOG_F(WARNING, "user %s did not setup payout address, ignoring", I->Login.c_str());
+        LOG_F(WARNING, "user %s did not setup payout address, ignoring", I->userId.c_str());
         ++I;
         continue;
       }
 
       if (!CoinInfo_.checkAddress(settings.Address, CoinInfo_.PayoutAddressType)) {
-        LOG_F(ERROR, "Invalid payment address %s for %s", settings.Address.c_str(), I->Login.c_str());
+        LOG_F(ERROR, "Invalid payment address %s for %s", settings.Address.c_str(), I->userId.c_str());
         ++I;
         continue;
       }
 
       CNetworkClient::SendMoneyResult result;
-      if (!ClientDispatcher_.ioSendMoney(Base_, settings.Address.c_str(), I->payoutValue, result)) {
+      if (!ClientDispatcher_.ioSendMoney(Base_, settings.Address.c_str(), I->value, result)) {
         LOG_F(ERROR,
               "Accounting: [%u] SendMoneyToDestination FAILED: %s (%s) coins to %s because: %s",
               index,
-              FormatMoney(I->payoutValue, CoinInfo_.RationalPartSize).c_str(),
-              I->Login.c_str(),
+              FormatMoney(I->value, CoinInfo_.RationalPartSize).c_str(),
+              I->userId.c_str(),
               settings.Address.c_str(),
               result.Error.c_str());
         if (result.Error == "Insufficient funds") {
@@ -637,11 +631,11 @@ void AccountingDb::makePayout()
       LOG_F(INFO,
             "Accounting: [%u] %s coins sent to %s (%s) with txid %s",
             index,
-            FormatMoney(I->payoutValue, CoinInfo_.RationalPartSize).c_str(),
-            I->Login.c_str(),
+            FormatMoney(I->value, CoinInfo_.RationalPartSize).c_str(),
+            I->userId.c_str(),
             settings.Address.c_str(),
             result.TxId.c_str());
-      payoutSuccess(I->Login, I->payoutValue, result.Fee, result.TxId.c_str());
+      payoutSuccess(I->userId, I->value, result.Fee, result.TxId.c_str());
       _payoutQueue.erase(I++);
       index++;
     }
@@ -701,14 +695,14 @@ void AccountingDb::makePayout()
   // Check consistency
   std::set<std::string> waitingForPayout;
   for (auto &p: _payoutQueue)
-    waitingForPayout.insert(p.Login);
+    waitingForPayout.insert(p.userId);
 
   int64_t totalLost = 0;
   for (auto &userIt: _balanceMap) {
     if (userIt.second.Requested > 0 && waitingForPayout.count(userIt.second.Login) == 0) {
       // payout lost? add to back of queue
       LOG_F(WARNING, "found lost payout! %s", userIt.second.Login.c_str());
-       _payoutQueue.push_back(payoutElement(userIt.second.Login, userIt.second.Requested, 0));
+       _payoutQueue.push_back(PayoutDbRecord(userIt.second.Login, userIt.second.Requested));
        totalLost = userIt.second.Requested;
     }
   }
@@ -752,11 +746,11 @@ void AccountingDb::checkBalance()
   }
 
   for (auto &p: _payoutQueue)
-    requestedInQueue += p.payoutValue;
+    requestedInQueue += p.value;
 
   for (auto &roundIt: _roundsWithPayouts) {
     for (auto &pIt: roundIt->payouts)
-      queued += pIt.queued;
+      queued += pIt.value;
   }
   queued /= CoinInfo_.ExtraMultiplier;
 
@@ -798,7 +792,7 @@ bool AccountingDb::requestPayout(const std::string &address, int64_t value, bool
   bool hasSettings = UserManager_.getUserCoinSettings(balance.Login, CoinInfo_.Name, settings);
   int64_t rationalBalance = balance.Balance.getRational(CoinInfo_.ExtraMultiplier);
   if (force || (hasSettings && settings.AutoPayout && rationalBalance >= settings.MinimalPayout)) {
-    _payoutQueue.push_back(payoutElement(address, rationalBalance, 0));
+    _payoutQueue.push_back(PayoutDbRecord(address, rationalBalance));
     balance.Requested += rationalBalance;
     balance.Balance.subRational(rationalBalance, CoinInfo_.ExtraMultiplier);
     result = true;

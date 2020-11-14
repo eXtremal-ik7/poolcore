@@ -14,8 +14,8 @@ static void checkConsistency(AccountingDb *accounting)
 
   int64_t totalQueued = 0;
   for (auto &p: accounting->getPayoutsQueue()) {
-    queueRequested[p.Login] += p.payoutValue;
-    totalQueued += p.payoutValue;
+    queueRequested[p.userId] += p.value;
+    totalQueued += p.value;
   }
 
   int64_t totalInBalance = 0;

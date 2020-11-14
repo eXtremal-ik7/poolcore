@@ -111,7 +111,7 @@ private:
   std::map<std::string, UserBalanceRecord> _balanceMap;
   std::deque<miningRound*> _allRounds;
   std::set<miningRound*> _roundsWithPayouts;
-  std::list<payoutElement> _payoutQueue;  
+  std::list<PayoutDbRecord> _payoutQueue;
 
   int64_t LastBlockTime_ = 0;
   std::deque<CAccountingFile> AccountingDiskStorage_;
@@ -170,7 +170,7 @@ public:
   void makePayout();
   void checkBalance();
   
-  std::list<payoutElement> &getPayoutsQueue() { return _payoutQueue; }
+  std::list<PayoutDbRecord> &getPayoutsQueue() { return _payoutQueue; }
   kvdb<rocksdbBase> &getFoundBlocksDb() { return _foundBlocksDb; }
   kvdb<rocksdbBase> &getPoolBalanceDb() { return _poolBalanceDb; }
   kvdb<rocksdbBase> &getPayoutDb() { return _payoutDb; }
