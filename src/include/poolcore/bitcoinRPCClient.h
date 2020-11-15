@@ -65,6 +65,7 @@ private:
 private:
   std::string buildSendToAddress(const std::string &destination, int64_t amount);
   std::string buildGetTransaction(const std::string &txId);
+  EOperationStatus signRawTransaction(CConnection *connection, const std::string &fundedTransaction, std::string &signedTransaction, std::string &error);
 
   void submitBlockRequestCb(CPreparedSubmitBlock *query) {
     std::unique_ptr<CPreparedSubmitBlock> queryHolder(query);
@@ -124,7 +125,6 @@ private:
       return status == aosTimeout ? EStatusTimeout : EStatusNetworkError;
     }
 
-    LOG_F(WARNING, "%s", connection.ParseCtx.body.data);
     document.Parse<flag>(connection.ParseCtx.body.data, connection.ParseCtx.body.size);
 
     if (connection.ParseCtx.resultCode != 200) {
@@ -175,6 +175,7 @@ private:
   bool HasLongPoll_;
   bool HasGetWalletInfo_ = true;
   bool HasGetBlockChainInfo_ = true;
+  bool HasSignRawTransactionWithWallet_ = true;
 
   // Queries cache
   std::string BalanceQuery_;

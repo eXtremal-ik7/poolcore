@@ -60,6 +60,7 @@ public:
     EStatusNetworkError,
     EStatusProtocolError,
     EStatusTimeout,
+    EStatusMethodNotFound,
     EStatusInsufficientFunds,
     EStatusVerifyRejected,
     EStatusInvalidAddressOrKey,

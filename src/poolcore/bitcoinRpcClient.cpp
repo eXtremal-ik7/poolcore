@@ -156,6 +156,58 @@ std::string CBitcoinRpcClient::buildGetTransaction(const std::string &txId)
   return result;
 }
 
+CNetworkClient::EOperationStatus CBitcoinRpcClient::signRawTransaction(CConnection *connection, const std::string &fundedTransaction, std::string &signedTransaction, std::string &error)
+{
+  xmstream postData;
+
+  {
+    JSON::Object object(postData);
+    object.addString("method", HasSignRawTransactionWithWallet_ ? "signrawtransactionwithwallet" : "signrawtransaction");
+    object.addField("params");
+    {
+      JSON::Array params(postData);
+      params.addString(fundedTransaction);
+      params.addField();
+      {
+        JSON::Array privKeys(postData);
+      }
+    }
+  }
+
+  {
+    rapidjson::Document document;
+    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+    if (status != CNetworkClient::EStatusOk) {
+      constexpr int RPC_METHOD_NOT_FOUND = -32601;
+      error = connection->LastError;
+      if (connection->LastErrorCode == RPC_METHOD_NOT_FOUND && HasSignRawTransactionWithWallet_) {
+        HasSignRawTransactionWithWallet_ = false;
+        return signRawTransaction(connection, fundedTransaction, signedTransaction, error);
+      } else {
+        return status;
+      }
+    }
+
+    if (!document.HasMember("result") || !document["result"].IsObject())
+      return CNetworkClient::EStatusProtocolError;
+
+    rapidjson::Value &signTxResult = document["result"];
+    if (!signTxResult.HasMember("hex") || !signTxResult["hex"].IsString() ||
+        !signTxResult.HasMember("complete") || !signTxResult["complete"].IsBool())
+      return CNetworkClient::EStatusProtocolError;
+
+    signedTransaction = signTxResult["hex"].GetString();
+    if (!signTxResult["complete"].IsTrue()) {
+      // Try check error
+      if (signTxResult.HasMember("error") && signTxResult["error"].IsString())
+        error = signTxResult["error"].GetString();
+      return EStatusUnknownError;
+    }
+  }
+
+  return EStatusOk;
+}
+
 CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, bool longPollEnabled) :
   CNetworkClient(threadsNum),
   WorkFetcherBase_(base), ThreadsNum_(threadsNum), CoinInfo_(coinInfo), HasLongPoll_(longPollEnabled)
@@ -398,12 +450,8 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
 
       params.addField();
       {
-        JSON::Array outputs(postData);
-        outputs.addField();
-        {
-          JSON::Object mainOutput(postData);
-          mainOutput.addCustom(address.c_str(), FormatMoney(value, CoinInfo_.RationalPartSize));
-        }
+        JSON::Object mainOutput(postData);
+        mainOutput.addCustom(address.c_str(), FormatMoney(value, CoinInfo_.RationalPartSize));
       }
     }
   }
@@ -467,44 +515,10 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
   }
 
   // signrawtransaction
-  postData.reset();
   {
-    JSON::Object object(postData);
-    object.addString("method", "signrawtransactionwithwallet");
-    object.addField("params");
-    {
-      JSON::Array params(postData);
-      params.addString(fundedTransaction);
-      params.addField();
-      {
-        JSON::Array privKeys(postData);
-      }
-    }
-  }
-
-  {
-    rapidjson::Document document;
-    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
-    if (status != CNetworkClient::EStatusOk) {
-      result.Error = connection->LastError;
+    EOperationStatus status = signRawTransaction(connection.get(), fundedTransaction, result.TxData, result.Error);
+    if (status != EStatusOk)
       return status;
-    }
-
-    if (!document.HasMember("result") || !document["result"].IsObject())
-      return CNetworkClient::EStatusProtocolError;
-
-    rapidjson::Value &signTxResult = document["result"];
-    if (!signTxResult.HasMember("hex") || !signTxResult["hex"].IsString() ||
-        !signTxResult.HasMember("complete") || !signTxResult["complete"].IsBool())
-      return CNetworkClient::EStatusProtocolError;
-
-    result.TxData = signTxResult["hex"].GetString();
-    if (!signTxResult["complete"].IsTrue()) {
-      // Try check error
-      if (signTxResult.HasMember("error") && signTxResult["error"].IsString())
-        result.Error = signTxResult["error"].GetString();
-      return EStatusUnknownError;
-    }
   }
 
   // get transaction id
