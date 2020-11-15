@@ -120,12 +120,13 @@ bool UsersRecord::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, Login);
     dbIoUnserialize(stream, EMail);
     dbIoUnserialize(stream, Name);
+    dbIoUnserialize(stream, ParentUser);
     dbIoUnserialize(stream, TwoFactorAuthData);
     dbIoUnserialize(stream, PasswordHash);
     dbIoUnserialize(stream, RegistrationDate);
     dbIoUnserialize(stream, IsActive);
-    if (stream.remaining())
-      dbIoUnserialize(stream, IsReadOnly);
+    dbIoUnserialize(stream, IsReadOnly);
+    dbIoUnserialize(stream, IsSuperUser);
   }
 
   return !stream.eof();
@@ -142,11 +143,13 @@ void UsersRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Login);
   dbIoSerialize(stream, EMail);
   dbIoSerialize(stream, Name);
+  dbIoSerialize(stream, ParentUser);
   dbIoSerialize(stream, TwoFactorAuthData);
   dbIoSerialize(stream, PasswordHash);
   dbIoSerialize(stream, RegistrationDate);
   dbIoSerialize(stream, IsActive);
   dbIoSerialize(stream, IsReadOnly);
+  dbIoSerialize(stream, IsSuperUser);
 }
 
 bool UserSettingsRecord::deserializeValue(const void *data, size_t size)

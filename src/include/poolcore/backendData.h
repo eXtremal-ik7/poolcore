@@ -153,10 +153,12 @@ struct UsersRecord {
   std::string EMail;
   std::string Name;
   std::string TwoFactorAuthData;
+  std::string ParentUser;
   uint256 PasswordHash;
   int64_t RegistrationDate;
   bool IsActive;
   bool IsReadOnly = false;
+  bool IsSuperUser = false;
 
   UsersRecord() {}
   std::string getPartitionId() const { return "default"; }
