@@ -332,6 +332,7 @@ bool PoolBalanceRecord::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, Immature);
     dbIoUnserialize(stream, Users);
     dbIoUnserialize(stream, Queued);
+    dbIoUnserialize(stream, ConfirmationWait);
     dbIoUnserialize(stream, Net);
   }
   
@@ -351,6 +352,7 @@ void PoolBalanceRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Immature);
   dbIoSerialize(stream, Users);
   dbIoSerialize(stream, Queued);
+  dbIoSerialize(stream, ConfirmationWait);
   dbIoSerialize(stream, Net);
 }
 

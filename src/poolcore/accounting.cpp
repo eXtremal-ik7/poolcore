@@ -556,7 +556,7 @@ void AccountingDb::checkBlockConfirmations()
   updatePayoutFile();
 }
 
-bool AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index)
+bool AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient)
 {
   if (payout.Value < _cfg.MinimalAllowedPayout) {
     LOG_F(INFO,
@@ -576,6 +576,7 @@ bool AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index)
     return true;
   }
 
+  recipient = settings.Address;
   if (!CoinInfo_.checkAddress(settings.Address, CoinInfo_.PayoutAddressType)) {
     LOG_F(ERROR, "Invalid payment address %s for %s", settings.Address.c_str(), payout.UserId.c_str());
     return true;
@@ -605,7 +606,7 @@ bool AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index)
   return true;
 }
 
-void AccountingDb::sendTransaction(PayoutDbRecord &payout)
+bool AccountingDb::sendTransaction(PayoutDbRecord &payout)
 {
   // Send transaction and change it status to 'Sent'
   // For bitcoin-based API it's 'sendrawtransaction'
@@ -625,21 +626,22 @@ void AccountingDb::sendTransaction(PayoutDbRecord &payout)
     payout.TransactionId.clear();
     payout.TransactionData.clear();
     payout.Status = PayoutDbRecord::EInitialized;
-    return;
+    return false;
   } else {
     LOG_F(WARNING, "Sending transaction %s error \"%s\", will try send later...", payout.TransactionId.c_str(), error.c_str());
-    return;
+    return false;
   }
 
   payout.Status = PayoutDbRecord::ETxSent;
   _payoutDb.put(payout);
+  return true;
 }
 
-void AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
+bool AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
 {
   int64_t confirmations = 0;
   std::string error;
-  CNetworkClient::EOperationStatus status = ClientDispatcher_.ioGetTxConfirmations(Base_, payout.TransactionData, &confirmations, error);
+  CNetworkClient::EOperationStatus status = ClientDispatcher_.ioGetTxConfirmations(Base_, payout.TransactionId, &confirmations, error);
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusInvalidAddressOrKey) {
@@ -647,7 +649,7 @@ void AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
     payout.Status = PayoutDbRecord::ETxCreated;
   } else {
     LOG_F(WARNING, "Checking transaction %s error \"%s\", will do it later...", payout.TransactionId.c_str(), error.c_str());
-    return;
+    return false;
   }
 
   // Update database
@@ -659,7 +661,7 @@ void AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
     auto It = _balanceMap.find(payout.UserId);
     if (It == _balanceMap.end()) {
       LOG_F(ERROR, "payout to unknown address %s", payout.UserId.c_str());
-      return;
+      return false;
     }
 
     UserBalanceRecord &balance = It->second;
@@ -667,7 +669,10 @@ void AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
     balance.Requested -= payout.Value;
     balance.Paid += payout.Value;
     _balanceDb.put(balance);
+    return true;
   }
+
+  return false;
 }
 
 void AccountingDb::makePayout()
@@ -679,8 +684,10 @@ void AccountingDb::makePayout()
     {
       std::map<std::string, int64_t> payoutAccMap;
       for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
-        if (I->Status != PayoutDbRecord::EInitialized)
+        if (I->Status != PayoutDbRecord::EInitialized) {
+          ++I;
           continue;
+        }
 
         if (I->Value < _cfg.MinimalAllowedPayout) {
           payoutAccMap[I->UserId] += I->Value;
@@ -704,17 +711,21 @@ void AccountingDb::makePayout()
       if (payout.Status == PayoutDbRecord::EInitialized) {
         // Build transaction
         // For bitcoin-based API it's sequential call of createrawtransaction, fundrawtransaction and signrawtransaction
-        if (!buildTransaction(payout, index))
+        std::string recipientAddress;
+        if (!buildTransaction(payout, index, recipientAddress))
           break;
         // Send transaction and change it status to 'Sent'
         // For bitcoin-based API it's 'sendrawtransaction'
-        sendTransaction(payout);
+        if (sendTransaction(payout))
+          LOG_F(INFO, "Sent %s to %s(%s) with txid=%s", FormatMoney(payout.Value, CoinInfo_.RationalPartSize).c_str(), payout.UserId.c_str(), recipientAddress.c_str(), payout.TransactionId.c_str());
       } else if (payout.Status == PayoutDbRecord::ETxCreated) {
         // Resend transaction
-        sendTransaction(payout);
+        if (sendTransaction(payout))
+          LOG_F(INFO, "Retry send txid=%s", payout.TransactionId.c_str());
       } else if (payout.Status == PayoutDbRecord::ETxSent) {
         // Check confirmations
-        checkTxConfirmations(payout);
+        if (checkTxConfirmations(payout))
+          LOG_F(INFO, "Transaction txid=%s confirmed", payout.TransactionId.c_str());
       } else {
         // Invalid status
       }
@@ -806,6 +817,7 @@ void AccountingDb::checkBalance()
   int64_t balance = 0;
   int64_t requestedInBalance = 0;
   int64_t requestedInQueue = 0;
+  int64_t confirmationWait = 0;
   int64_t immature = 0;
   int64_t userBalance = 0;
   int64_t queued = 0;
@@ -829,12 +841,15 @@ void AccountingDb::checkBalance()
   immature = getBalanceResult.Immatured;
 
   for (auto &userIt: _balanceMap) {
-    userBalance += userIt.second.Balance.getRational(CoinInfo_.ExtraMultiplier)+userIt.second.Requested;
+    userBalance += userIt.second.Balance.getRational(CoinInfo_.ExtraMultiplier);
     requestedInBalance += userIt.second.Requested;
   }
 
-  for (auto &p: _payoutQueue)
+  for (auto &p: _payoutQueue) {
     requestedInQueue += p.Value;
+    if (p.Status == PayoutDbRecord::ETxSent)
+      confirmationWait += p.Value;
+  }
 
   for (auto &roundIt: _roundsWithPayouts) {
     for (auto &pIt: roundIt->payouts)
@@ -842,7 +857,7 @@ void AccountingDb::checkBalance()
   }
   queued /= CoinInfo_.ExtraMultiplier;
 
-  net = balance + immature - userBalance - queued;
+  net = balance + immature - userBalance - queued + confirmationWait;
 
   {
     PoolBalanceRecord pb;
@@ -851,18 +866,20 @@ void AccountingDb::checkBalance()
     pb.Immature = immature;
     pb.Users = userBalance;
     pb.Queued = queued;
+    pb.ConfirmationWait = confirmationWait;
     pb.Net = net;
     _poolBalanceDb.put(pb);
   }
 
   LOG_F(INFO,
-        "accounting: balance=%s req/balance=%s req/queue=%s immature=%s users=%s queued=%s, net=%s",
+        "accounting: balance=%s req/balance=%s req/queue=%s immature=%s users=%s queued=%s, confwait=%s, net=%s",
         FormatMoney(balance, CoinInfo_.RationalPartSize).c_str(),
         FormatMoney(requestedInBalance, CoinInfo_.RationalPartSize).c_str(),
         FormatMoney(requestedInQueue, CoinInfo_.RationalPartSize).c_str(),
         FormatMoney(immature, CoinInfo_.RationalPartSize).c_str(),
         FormatMoney(userBalance, CoinInfo_.RationalPartSize).c_str(),
         FormatMoney(queued, CoinInfo_.RationalPartSize).c_str(),
+        FormatMoney(confirmationWait, CoinInfo_.RationalPartSize).c_str(),
         FormatMoney(net, CoinInfo_.RationalPartSize).c_str());
 }
 

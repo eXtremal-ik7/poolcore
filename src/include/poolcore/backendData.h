@@ -287,6 +287,7 @@ struct PoolBalanceRecord {
   int64_t Immature;
   int64_t Users;
   int64_t Queued;
+  int64_t ConfirmationWait;
   int64_t Net;
 
   std::string getPartitionId() const { return partByTime(Time); }
