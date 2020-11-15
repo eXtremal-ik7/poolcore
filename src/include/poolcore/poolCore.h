@@ -55,6 +55,17 @@ class CNetworkClient {
 public:
   using SumbitBlockCb = std::function<void(uint32_t, const std::string&, const std::string&)>;
 
+  enum EOperationStatus {
+    EStatusOk = 0,
+    EStatusNetworkError,
+    EStatusProtocolError,
+    EStatusTimeout,
+    EStatusInsufficientFunds,
+    EStatusVerifyRejected,
+    EStatusInvalidAddressOrKey,
+    EStatusUnknownError
+  };
+
   struct GetBlockConfirmationsQuery {
     std::string Hash;
     uint64_t Height;
@@ -71,6 +82,14 @@ public:
   struct SendMoneyResult {
     std::string TxId;
     std::string Error;
+    int64_t Fee;
+  };
+
+  struct BuildTransactionResult {
+    std::string TxId;
+    std::string TxData;
+    std::string Error;
+    int64_t Value;
     int64_t Fee;
   };
 
@@ -108,7 +127,9 @@ public:
   virtual CPreparedQuery *prepareBlock(const void *data, size_t size) = 0;
   virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) = 0;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
-  virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, SendMoneyResult &result) = 0;
+  virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) = 0;
+  virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error) = 0;
+  virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error) = 0;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, CSubmitBlockOperation *operation) = 0;
 
   virtual void poll() = 0;

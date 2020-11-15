@@ -90,21 +90,29 @@ struct roundElement {
 
 struct PayoutDbRecord {
   enum { CurrentRecordVersion = 1 };
+  enum EStatus {
+    EInitialized = 0,
+    ETxCreated,
+    ETxSent,
+    ETxConfirmed,
+    ETxRejected
+  };
 
-  std::string userId;
-  int64_t time;
-  int64_t value;
-  std::string transactionId;
-  friend bool operator<(const PayoutDbRecord &r1, const PayoutDbRecord &r2) { return r1.userId < r2.userId; }
+  std::string UserId;
+  int64_t Time;
+  int64_t Value;
+  std::string TransactionId;
+  std::string TransactionData;
+  uint32_t Status = EInitialized;
 
-  std::string getPartitionId() const { return partByTime(time); }
+  std::string getPartitionId() const { return partByTime(Time); }
   bool deserializeValue(const void *data, size_t size);
   bool deserializeValue(xmstream &stream);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;
 
   PayoutDbRecord() {}
-  PayoutDbRecord(const std::string &userId2, int64_t value2) : userId(userId2), value(value2) {}
+  PayoutDbRecord(const std::string &userId2, int64_t value2) : UserId(userId2), Value(value2) {}
 };
 
 struct shareInfo {

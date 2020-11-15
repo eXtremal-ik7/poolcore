@@ -34,17 +34,49 @@ bool CNetworkClientDispatcher::ioListUnspent(asyncBase*, CNetworkClient::ListUns
   return false;
 }
 
-bool CNetworkClientDispatcher::ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result)
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, CNetworkClient::BuildTransactionResult &result)
 {
+  CNetworkClient::EOperationStatus status;
   unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
   for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
-    if (RPCClients_[currentClientIdx]->ioSendMoney(base, address, value, result))
-      return true;
+    status = RPCClients_[currentClientIdx]->ioBuildTransaction(base, address, changeAddress, value, result);
+    if (status == CNetworkClient::EStatusOk)
+      return CNetworkClient::EStatusOk;
     currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
   }
 
-  return false;
+  return status;
+}
+
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error)
+{
+  CNetworkClient::EOperationStatus status;
+  unsigned threadId = GetGlobalThreadId();
+  size_t &currentClientIdx = CurrentClientIdx_[threadId];
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
+    status = RPCClients_[currentClientIdx]->ioSendTransaction(base, txData, error);
+    if (status == CNetworkClient::EStatusOk)
+      return CNetworkClient::EStatusOk;
+    currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
+  }
+
+  return status;
+}
+
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error)
+{
+  CNetworkClient::EOperationStatus status;
+  unsigned threadId = GetGlobalThreadId();
+  size_t &currentClientIdx = CurrentClientIdx_[threadId];
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
+    status = RPCClients_[currentClientIdx]->ioGetTxConfirmations(base, txId, confirmations, error);
+    if (status == CNetworkClient::EStatusOk)
+      return CNetworkClient::EStatusOk;
+    currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
+  }
+
+  return status;
 }
 
 void CNetworkClientDispatcher::aioSubmitBlock(asyncBase *base, const void *data, size_t size, CNetworkClient::SumbitBlockCb callback)

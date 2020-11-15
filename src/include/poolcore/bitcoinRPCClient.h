@@ -17,7 +17,9 @@ public:
   virtual CPreparedQuery *prepareBlock(const void *data, size_t size) override;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
   virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) override;
-  virtual bool ioSendMoney(asyncBase *base, const char *address, int64_t value, CNetworkClient::SendMoneyResult &result) override;
+  virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) override;
+  virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error) override;
+  virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error) override;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation) override;
   virtual void poll() override;
 
@@ -49,6 +51,7 @@ private:
     HTTPClient *Client = nullptr;
     HTTPParseDefaultContext ParseCtx;
     std::string LastError;
+    int LastErrorCode = 0;
   };
 
   struct CPreparedSubmitBlock : public CPreparedQuery {
@@ -114,19 +117,22 @@ private:
   }
 
   template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>
-  bool ioQueryJson(CConnection &connection, const std::string &query, rapidjson::Document &document, uint64_t timeout) {
+  EOperationStatus ioQueryJson(CConnection &connection, const std::string &query, rapidjson::Document &document, uint64_t timeout) {
     AsyncOpStatus status = ioHttpRequest(connection.Client, query.data(), query.size(), timeout, httpParseDefault, &connection.ParseCtx);
     if (status != aosSuccess) {
       LOG_F(WARNING, "%s %s:%u: error code: %u", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)), status);
-      return false;
+      return status == aosTimeout ? EStatusTimeout : EStatusNetworkError;
     }
 
+    LOG_F(WARNING, "%s", connection.ParseCtx.body.data);
     document.Parse<flag>(connection.ParseCtx.body.data, connection.ParseCtx.body.size);
 
     if (connection.ParseCtx.resultCode != 200) {
       if (!document.HasParseError()) {
         if (document.HasMember("error") && document["error"].IsObject()) {
           rapidjson::Value &value = document["error"];
+          if (value.HasMember("code") && value["code"].IsInt())
+            connection.LastErrorCode = value["code"].GetInt();
           if (value.HasMember("message") && value["message"].IsString())
             connection.LastError = value["message"].GetString();
         }
@@ -139,15 +145,15 @@ private:
             static_cast<unsigned>(status),
             connection.ParseCtx.resultCode,
             connection.ParseCtx.body.data ? connection.ParseCtx.body.data : "<null>");
-      return false;
+      return EStatusUnknownError;
     }
 
     if (document.HasParseError()) {
       LOG_F(WARNING, "%s %s:%u: JSON parse error", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
-      return false;
+      return EStatusProtocolError;
     }
 
-    return true;
+    return EStatusOk;
   }
 
   void onWorkFetcherConnect(AsyncOpStatus status);

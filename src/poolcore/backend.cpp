@@ -14,8 +14,8 @@ static void checkConsistency(AccountingDb *accounting)
 
   int64_t totalQueued = 0;
   for (auto &p: accounting->getPayoutsQueue()) {
-    queueRequested[p.userId] += p.value;
-    totalQueued += p.value;
+    queueRequested[p.UserId] += p.Value;
+    totalQueued += p.Value;
   }
 
   int64_t totalInBalance = 0;
@@ -153,15 +153,15 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
   xmstream resumeKey;
   {
     PayoutDbRecord record;
-    record.userId = user;
-    record.time = std::numeric_limits<int64_t>::max();
+    record.UserId = user;
+    record.Time = std::numeric_limits<int64_t>::max();
     record.serializeKey(resumeKey);
   }
 
   {
     PayoutDbRecord record;
-    record.userId = user;
-    record.time = timeFrom == 0 ? std::numeric_limits<int64_t>::max() : timeFrom;
+    record.UserId = user;
+    record.Time = timeFrom == 0 ? std::numeric_limits<int64_t>::max() : timeFrom;
     It->seekForPrev(record);
   }
 
@@ -172,7 +172,7 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
       return true;
     }
 
-    return record.userId != user;
+    return record.UserId != user;
   };
 
   for (unsigned i = 0; i < count; i++) {
@@ -181,7 +181,7 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
 
     RawData data = It->value();
     PayoutDbRecord &payout = payouts.emplace_back();
-    if (!payout.deserializeValue(data.data, data.size) || payout.userId != user)
+    if (!payout.deserializeValue(data.data, data.size) || payout.UserId != user)
       break;
 
     It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());

@@ -160,13 +160,15 @@ public:
   void cleanupRounds();
   
   bool requestPayout(const std::string &address, int64_t value, bool force = false);
-  void payoutSuccess(const std::string &address, int64_t value, int64_t fee, const std::string &transactionId);
 
   void addShare(const CShare &share);
   void replayShare(const CShare &share);
   void initializationFinish(int64_t timeLabel);
   void mergeRound(const Round *round);
   void checkBlockConfirmations();
+  bool buildTransaction(PayoutDbRecord &payout, unsigned index);
+  void sendTransaction(PayoutDbRecord &payout);
+  void checkTxConfirmations(PayoutDbRecord &payout);
   void makePayout();
   void checkBalance();
   

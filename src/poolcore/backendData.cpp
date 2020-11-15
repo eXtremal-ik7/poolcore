@@ -33,20 +33,24 @@ template<>
 struct DbIo<PayoutDbRecord> {
   static inline void serialize(xmstream &stream, const PayoutDbRecord &data) {
     dbIoSerialize(stream, static_cast<uint32_t>(data.CurrentRecordVersion));
-    dbIoSerialize(stream, data.userId);
-    dbIoSerialize(stream, data.time);
-    dbIoSerialize(stream, data.value);
-    dbIoSerialize(stream, data.transactionId);
+    dbIoSerialize(stream, data.UserId);
+    dbIoSerialize(stream, data.Time);
+    dbIoSerialize(stream, data.Value);
+    dbIoSerialize(stream, data.TransactionId);
+    dbIoSerialize(stream, data.TransactionData);
+    dbIoSerialize(stream, data.Status);
   }
 
   static inline void unserialize(xmstream &stream, PayoutDbRecord &data) {
     uint32_t version;
     dbIoUnserialize(stream, version);
     if (version >= 1) {
-      dbIoUnserialize(stream, data.userId);
-      dbIoUnserialize(stream, data.time);
-      dbIoUnserialize(stream, data.value);
-      dbIoUnserialize(stream, data.transactionId);
+      dbIoUnserialize(stream, data.UserId);
+      dbIoUnserialize(stream, data.Time);
+      dbIoUnserialize(stream, data.Value);
+      dbIoUnserialize(stream, data.TransactionId);
+      dbIoUnserialize(stream, data.TransactionData);
+      dbIoUnserialize(stream, data.Status);
     }
   }
 };
@@ -102,8 +106,8 @@ void miningRound::dump()
   }
   for (auto p: payouts) {
     fprintf(stderr, " *** payout element ***\n");
-    fprintf(stderr, " * userId: %s\n", p.userId.c_str());
-    fprintf(stderr, " * payoutValue: %" PRId64 "\n", p.value);
+    fprintf(stderr, " * userId: %s\n", p.UserId.c_str());
+    fprintf(stderr, " * payoutValue: %" PRId64 "\n", p.Value);
   }  
 }
 
@@ -403,9 +407,9 @@ bool PayoutDbRecord::deserializeValue(xmstream &stream)
 
 void PayoutDbRecord::serializeKey(xmstream &stream) const
 {
-  dbKeyIoSerialize(stream, userId);
-  dbKeyIoSerialize(stream, time);
-  dbKeyIoSerialize(stream, transactionId);
+  dbKeyIoSerialize(stream, UserId);
+  dbKeyIoSerialize(stream, Time);
+  dbKeyIoSerialize(stream, TransactionId);
 }
 
 void PayoutDbRecord::serializeValue(xmstream &stream) const

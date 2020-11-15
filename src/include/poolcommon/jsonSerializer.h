@@ -79,6 +79,16 @@ public:
     Stream_.write("null");
   }
 
+  void addCustom(const char *name, const char *value) {
+    addField(name);
+    Stream_.write(value);
+  }
+
+  void addCustom(const char *name, const std::string &value) {
+    addField(name);
+    Stream_.write(value.data(), value.size());
+  }
+
   void addField(const char *name) {
     if (HasFields_)
       Stream_.write(',');
