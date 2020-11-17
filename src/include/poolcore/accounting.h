@@ -166,7 +166,7 @@ public:
   void initializationFinish(int64_t timeLabel);
   void mergeRound(const Round *round);
   void checkBlockConfirmations();
-  bool buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient);
+  void buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout);
   bool sendTransaction(PayoutDbRecord &payout);
   bool checkTxConfirmations(PayoutDbRecord &payout);
   void makePayout();

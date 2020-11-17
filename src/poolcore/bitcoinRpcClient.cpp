@@ -436,82 +436,91 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
   std::string signedTransaction;
 
   // createrawtransaction
+  result.Value = value;
   xmstream postData;
-  {
-    JSON::Object object(postData);
-    object.addString("method", "createrawtransaction");
-    object.addField("params");
+
+  while (result.Value) {
+    postData.reset();
     {
-      JSON::Array params(postData);
-      params.addField();
+      JSON::Object object(postData);
+      object.addString("method", "createrawtransaction");
+      object.addField("params");
       {
-        JSON::Array inputs(postData);
-      }
-
-      params.addField();
-      {
-        JSON::Object mainOutput(postData);
-        mainOutput.addCustom(address.c_str(), FormatMoney(value, CoinInfo_.RationalPartSize));
-      }
-    }
-  }
-
-  {
-    rapidjson::Document document;
-    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
-    if (status != CNetworkClient::EStatusOk) {
-      result.Error = connection->LastError;
-      return status;
-    }
-    if (!document.HasMember("result") || !document["result"].IsString())
-      return CNetworkClient::EStatusProtocolError;
-    rawTransaction = document["result"].GetString();
-  }
-
-  // fundrawtransaction
-  postData.reset();
-  {
-    JSON::Object object(postData);
-    object.addString("method", "fundrawtransaction");
-    object.addField("params");
-    {
-      JSON::Array params(postData);
-      params.addString(rawTransaction);
-      params.addField();
-      {
-        JSON::Object options(postData);
-        options.addString("changeAddress", changeAddress);
-        options.addField("subtractFeeFromOutputs");
+        JSON::Array params(postData);
+        params.addField();
         {
-          JSON::Array outputs(postData);
-          outputs.addInt(0);
+          JSON::Array inputs(postData);
+        }
+
+        params.addField();
+        {
+          JSON::Object mainOutput(postData);
+          mainOutput.addCustom(address.c_str(), FormatMoney(result.Value, CoinInfo_.RationalPartSize));
         }
       }
     }
-  }
 
-  {
-    rapidjson::Document document;
-    CNetworkClient::EOperationStatus status = ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
-    if (status != CNetworkClient::EStatusOk) {
-      static constexpr int RPC_WALLET_INSUFFICIENT_FUNDS = -6;
-      result.Error = connection->LastError;
-      return connection->LastErrorCode == RPC_WALLET_INSUFFICIENT_FUNDS ? EStatusInsufficientFunds : status;
+    {
+      rapidjson::Document document;
+      CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+      if (status != CNetworkClient::EStatusOk) {
+        result.Error = connection->LastError;
+        return status;
+      }
+      if (!document.HasMember("result") || !document["result"].IsString())
+        return CNetworkClient::EStatusProtocolError;
+      rawTransaction = document["result"].GetString();
     }
 
-    if (!document.HasMember("result") || !document["result"].IsObject())
-      return CNetworkClient::EStatusProtocolError;
+    // fundrawtransaction
+    postData.reset();
+    {
+      JSON::Object object(postData);
+      object.addString("method", "fundrawtransaction");
+      object.addField("params");
+      {
+        JSON::Array params(postData);
+        params.addString(rawTransaction);
+        params.addField();
+        {
+          JSON::Object options(postData);
+          options.addString("changeAddress", changeAddress);
+        }
+      }
+    }
 
-    rapidjson::Value &fundTxResult = document["result"];
-    if (!fundTxResult.HasMember("hex") || !fundTxResult["hex"].IsString() ||
-        !fundTxResult.HasMember("fee") || !fundTxResult["fee"].IsString())
-      return CNetworkClient::EStatusProtocolError;
+    {
+      rapidjson::Document document;
+      CNetworkClient::EOperationStatus status = ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+      if (status != CNetworkClient::EStatusOk) {
+        static constexpr int RPC_WALLET_INSUFFICIENT_FUNDS = -6;
+        result.Error = connection->LastError;
+        return connection->LastErrorCode == RPC_WALLET_INSUFFICIENT_FUNDS ? EStatusInsufficientFunds : status;
+      }
 
-    fundedTransaction = fundTxResult["hex"].GetString();
-    if (!parseMoneyValue(fundTxResult["fee"].GetString(), CoinInfo_.RationalPartSize, &result.Fee))
-      return CNetworkClient::EStatusProtocolError;
+      if (!document.HasMember("result") || !document["result"].IsObject())
+        return CNetworkClient::EStatusProtocolError;
 
-    result.Value = value - result.Fee;
+      rapidjson::Value &fundTxResult = document["result"];
+      if (!fundTxResult.HasMember("hex") || !fundTxResult["hex"].IsString() ||
+          !fundTxResult.HasMember("fee") || !fundTxResult["fee"].IsString())
+        return CNetworkClient::EStatusProtocolError;
+
+      fundedTransaction = fundTxResult["hex"].GetString();
+      if (!parseMoneyValue(fundTxResult["fee"].GetString(), CoinInfo_.RationalPartSize, &result.Fee))
+        return CNetworkClient::EStatusProtocolError;
+    }
+
+    if (result.Value + result.Fee > value) {
+      result.Value -= result.Fee;
+    } else {
+      break;
+    }
+  }
+
+  if (result.Value <= 0) {
+    result.Error = "too big fee";
+    return CNetworkClient::EStatusUnknownError;
   }
 
   // signrawtransaction

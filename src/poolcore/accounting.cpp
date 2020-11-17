@@ -556,8 +556,9 @@ void AccountingDb::checkBlockConfirmations()
   updatePayoutFile();
 }
 
-bool AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient)
+void AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout)
 {
+  *needSkipPayout = false;
   if (payout.Value < _cfg.MinimalAllowedPayout) {
     LOG_F(INFO,
           "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
@@ -565,7 +566,8 @@ bool AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
           payout.UserId.c_str(),
           FormatMoney(payout.Value, CoinInfo_.RationalPartSize).c_str(),
           FormatMoney(_cfg.MinimalAllowedPayout, CoinInfo_.RationalPartSize).c_str());
-    return true;
+    *needSkipPayout = true;
+    return;
   }
 
   // Get address for payment
@@ -573,13 +575,15 @@ bool AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
   bool hasSettings = UserManager_.getUserCoinSettings(payout.UserId, CoinInfo_.Name, settings);
   if (!hasSettings || settings.Address.empty()) {
     LOG_F(WARNING, "user %s did not setup payout address, ignoring", payout.UserId.c_str());
-    return true;
+    *needSkipPayout = true;
+    return;
   }
 
   recipient = settings.Address;
   if (!CoinInfo_.checkAddress(settings.Address, CoinInfo_.PayoutAddressType)) {
     LOG_F(ERROR, "Invalid payment address %s for %s", settings.Address.c_str(), payout.UserId.c_str());
-    return true;
+    *needSkipPayout = true;
+    return;
   }
 
   // Build transaction
@@ -591,10 +595,31 @@ bool AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
     // Nothing to do
   } else if (status == CNetworkClient::EStatusInsufficientFunds) {
     LOG_F(INFO, "No money left to pay");
-    return false;
+    return;
   } else {
     LOG_F(ERROR, "Payment %s to %s failed with error \"%s\"", FormatMoney(payout.Value, CoinInfo_.RationalPartSize).c_str(), settings.Address.c_str(), transaction.Error.c_str());
-    return false;
+    return;
+  }
+
+  int64_t delta = payout.Value - (transaction.Value + transaction.Fee);
+  if (delta > 0) {
+    // Correct payout value and request balance
+    payout.Value -= delta;
+
+    // Update user balance
+    auto It = _balanceMap.find(payout.UserId);
+    if (It == _balanceMap.end()) {
+      LOG_F(ERROR, "payout to unknown address %s", payout.UserId.c_str());
+      return;
+    }
+
+    LOG_F(INFO, "   * correct requested balance for %s by %s", payout.UserId.c_str(), FormatMoney(delta, CoinInfo_.RationalPartSize).c_str());
+    UserBalanceRecord &balance = It->second;
+    balance.Requested -= delta;
+    _balanceDb.put(balance);
+  } else if (delta < 0) {
+    LOG_F(ERROR, "Payment %s to %s failed: too big transaction amount", FormatMoney(payout.Value, CoinInfo_.RationalPartSize).c_str(), settings.Address.c_str());
+    return;
   }
 
   // Save transaction to database
@@ -603,7 +628,6 @@ bool AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
   payout.Time = time(nullptr);
   payout.Status = PayoutDbRecord::ETxCreated;
   _payoutDb.put(payout);
-  return true;
 }
 
 bool AccountingDb::sendTransaction(PayoutDbRecord &payout)
@@ -711,21 +735,28 @@ void AccountingDb::makePayout()
       if (payout.Status == PayoutDbRecord::EInitialized) {
         // Build transaction
         // For bitcoin-based API it's sequential call of createrawtransaction, fundrawtransaction and signrawtransaction
+        bool needSkipPayout;
         std::string recipientAddress;
-        if (!buildTransaction(payout, index, recipientAddress))
+        buildTransaction(payout, index, recipientAddress, &needSkipPayout);
+        if (needSkipPayout)
+          continue;
+
+        if (payout.Status == PayoutDbRecord::ETxCreated) {
+          // Send transaction and change it status to 'Sent'
+          // For bitcoin-based API it's 'sendrawtransaction'
+          if (sendTransaction(payout))
+            LOG_F(INFO, " * sent %s to %s(%s) with txid %s", FormatMoney(payout.Value, CoinInfo_.RationalPartSize).c_str(), payout.UserId.c_str(), recipientAddress.c_str(), payout.TransactionId.c_str());
+        } else {
           break;
-        // Send transaction and change it status to 'Sent'
-        // For bitcoin-based API it's 'sendrawtransaction'
-        if (sendTransaction(payout))
-          LOG_F(INFO, "Sent %s to %s(%s) with txid=%s", FormatMoney(payout.Value, CoinInfo_.RationalPartSize).c_str(), payout.UserId.c_str(), recipientAddress.c_str(), payout.TransactionId.c_str());
+        }
       } else if (payout.Status == PayoutDbRecord::ETxCreated) {
         // Resend transaction
         if (sendTransaction(payout))
-          LOG_F(INFO, "Retry send txid=%s", payout.TransactionId.c_str());
+          LOG_F(INFO, " * retry send txid %s", payout.TransactionId.c_str());
       } else if (payout.Status == PayoutDbRecord::ETxSent) {
         // Check confirmations
         if (checkTxConfirmations(payout))
-          LOG_F(INFO, "Transaction txid=%s confirmed", payout.TransactionId.c_str());
+          LOG_F(INFO, " * transaction txid %s confirmed", payout.TransactionId.c_str());
       } else {
         // Invalid status
       }
