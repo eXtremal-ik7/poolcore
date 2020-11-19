@@ -65,9 +65,9 @@ public:
       info.Bech32Prefix = "bcrt";
       info.DefaultRpcPort = 18443;
       info.Algorithm = "sha256";
-    } else if (strcmp(coinName, "BCH") == 0) {
-      info.Name = "BCH";
-      info.FullName = "Bitcoin Cash";
+    } else if (strcmp(coinName, "BCHABC") == 0) {
+      info.Name = "BCHABC";
+      info.FullName = "Bitcoin Cash ABC";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
@@ -76,11 +76,11 @@ public:
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
       info.DefaultRpcPort = 8332;
-      info.CoinGeckoName = "bitcoin-cash";
+      info.CoinGeckoName = "bitcoin-cash-abc-2";
       info.Algorithm = "sha256";
-    } else if (strcmp(coinName, "BCH.testnet") == 0) {
-      info.FullName = "Bitcoin Cash";
-      info.Name = "BCH.testnet";
+    } else if (strcmp(coinName, "BCHABC.testnet") == 0) {
+      info.FullName = "Bitcoin Cash ABC testnet";
+      info.Name = "BCHABC.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
