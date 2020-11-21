@@ -699,7 +699,7 @@ void CBitcoinRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
 
   std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled);
   std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, BasicAuth_);
-  aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
+  aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), 60000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherIncomingData(status);
   }, this);
 }
