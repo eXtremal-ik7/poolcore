@@ -7,6 +7,7 @@
 #include "blockmaker/serializeJson.h"
 #include "poolcore/base58.h"
 #include "poolcommon/arith_uint256.h"
+#include "poolcommon/bech32.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcommon/utils.h"
 #include "blockmaker/merkleTree.h"
@@ -162,15 +163,6 @@ static inline double getDifficulty(uint32_t bits)
     }
 
     return dDiff;
-}
-
-static inline void getDevFee(int64_t *coinbaseValue, int64_t *devFee, int64_t pureBlockReward, Proto::AddressTy &miningAddress, const std::string &ticker)
-{
-  if (ticker == "FCH") {
-    *coinbaseValue -= (pureBlockReward/2);
-    *devFee = (pureBlockReward/2);
-    decodeHumanReadableAddress("FTqiqAyXHnK7uDTXzMap3acvqADK4ZGzts", {35}, miningAddress);
-  }
 }
 
 bool Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&, double *shareDiff)
@@ -458,9 +450,43 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     }
   }
 
-  Proto::AddressTy devFeeAddress;
+  // "coinbasedevreward" support
   int64_t devFee = 0;
-  getDevFee(&blockReward, &devFee, pureBlockReward, devFeeAddress, ticker);
+  xmstream devScriptPubKey;
+  if (blockTemplate.HasMember("coinbasedevreward") && blockTemplate["coinbasedevreward"].IsObject()) {
+    rapidjson::Value &devReward = blockTemplate["coinbasedevreward"];
+    if (devReward.HasMember("value") && devReward["value"].IsInt64() &&
+        devReward.HasMember("scriptpubkey") && devReward["scriptpubkey"].IsString()) {
+      devFee = devReward["value"].GetInt64();
+      size_t scriptPubKeyLength = devReward["scriptpubkey"].GetStringLength();
+      hex2bin(devReward["scriptpubkey"].GetString(), scriptPubKeyLength, devScriptPubKey.reserve<uint8_t>(scriptPubKeyLength/2));
+    }
+  }
+
+  if (blockTemplate.HasMember("coinbasetxn") && blockTemplate["coinbasetxn"].IsObject()) {
+    rapidjson::Value &coinbasetxn = blockTemplate["coinbasetxn"];
+    if (coinbasetxn.HasMember("minerfund") && coinbasetxn["minerfund"].IsObject()) {
+      rapidjson::Value &minerfund = coinbasetxn["minerfund"];
+      if (minerfund.HasMember("addresses") && minerfund["addresses"].IsArray() &&
+          minerfund.HasMember("minimumvalue") && minerfund["minimumvalue"].IsInt64()) {
+        rapidjson::Value &addresses = minerfund["addresses"];
+        rapidjson::Value &minimumvalue = minerfund["minimumvalue"];
+        if (addresses.Size() >= 1 && addresses[0].IsString() && strstr(addresses[0].GetString(), "bitcoincash:") == addresses[0]) {
+          // Decode bch bech32 address
+          auto feeAddr = bech32::DecodeCashAddrContent(addresses[0].GetString(), "bitcoincash");
+          if (feeAddr.type == bech32::SCRIPT_TYPE) {
+            devFee = minimumvalue.GetInt64();
+            devScriptPubKey.write<uint8_t>(BTC::Script::OP_HASH160);
+            devScriptPubKey.write<uint8_t>(0x14);
+            devScriptPubKey.write(&feeAddr.hash[0], feeAddr.hash.size());
+            devScriptPubKey.write<uint8_t>(BTC::Script::OP_EQUAL);
+          }
+        }
+      }
+    }
+  }
+
+  Proto::AddressTy devFeeAddress;
 
   if (txFilter)
     LOG_F(INFO, " * [txfilter] transactions num %i -> %i; coinbase value %" PRIi64 " -> %" PRIi64 "", static_cast<int>(transactions.Size()), static_cast<int>(txNum), coinbaseValue.GetInt64(), blockReward);
@@ -572,15 +598,8 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   if (devFee) {
     BTC::Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
     txOut.value = devFee;
-    // pkScript (use single P2PKH)
-    txOut.pkScript.resize(sizeof(BTC::Proto::AddressTy) + 5);
-    xmstream p2pkh(txOut.pkScript.data(), txOut.pkScript.size());
-    p2pkh.write<uint8_t>(BTC::Script::OP_DUP);
-    p2pkh.write<uint8_t>(BTC::Script::OP_HASH160);
-    p2pkh.write<uint8_t>(sizeof(BTC::Proto::AddressTy));
-    p2pkh.write(devFeeAddress.begin(), devFeeAddress.size());
-    p2pkh.write<uint8_t>(BTC::Script::OP_EQUALVERIFY);
-    p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
+    txOut.pkScript.resize(devScriptPubKey.sizeOf());
+    memcpy(txOut.pkScript.begin(), devScriptPubKey.data(), devScriptPubKey.sizeOf());
   }
 
   if (segwitEnabled) {
