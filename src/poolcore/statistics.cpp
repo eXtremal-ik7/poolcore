@@ -512,7 +512,28 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     return record.Login != login || record.WorkerId != workerId;
   };
 
+  // Fill 'stats' with zero-initialized elements for entire range
+  int64_t firstTimeLabel = 0;
   std::vector<CStatsElement> stats;
+
+  {
+    firstTimeLabel = (timeFrom+1) + groupByInterval - ((timeFrom+1) % groupByInterval);
+    int64_t lastTimeLabel = timeTo + groupByInterval - (timeTo % groupByInterval);
+    size_t count = (lastTimeLabel - firstTimeLabel) / groupByInterval + 1;
+    if (count > 3200) {
+      LOG_F(WARNING, "statisticDb: too much count %zu", count);
+      return;
+    }
+
+    stats.resize(count);
+
+    int64_t timeLabel = firstTimeLabel;
+    for (size_t i = 0; i < count; i++) {
+      stats[i].TimeLabel = timeLabel;
+      timeLabel += groupByInterval;
+    }
+  }
+
   while (It->valid()) {
     StatsRecord record;
     RawData data = It->value();
@@ -532,14 +553,10 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     if (isDebugStatistic())
       LOG_F(1, "getHistory: use row with time=%" PRIi64 " shares=%" PRIu64 " work=%.3lf", record.Time, record.ShareCount, record.ShareWork);
 
-    if (stats.empty() || record.Time < (stats.back().TimeLabel - groupByInterval)) {
-      stats.emplace_back();
-      CStatsElement &current = stats.back();
-      current.TimeLabel = record.Time + groupByInterval - (record.Time % groupByInterval);
-      current.SharesNum = static_cast<uint32_t>(record.ShareCount);
-      current.SharesWork = record.ShareWork;
-    } else {
-      CStatsElement &current = stats.back();
+    int64_t alignedTimeLabel = record.Time + groupByInterval - (record.Time % groupByInterval);
+    size_t index = (alignedTimeLabel - firstTimeLabel) / groupByInterval;
+    if (index < stats.size()) {
+      CStatsElement &current = stats[index];
       current.SharesNum += static_cast<uint32_t>(record.ShareCount);
       current.SharesWork += record.ShareWork;
     }
@@ -547,23 +564,12 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
   }
 
-  int64_t lastTimeLabel = 0;
-  for (auto It = stats.rbegin(), ItE = stats.rend(); It != ItE; ++It) {
-    int64_t expectedTime = lastTimeLabel + groupByInterval;
-    if (lastTimeLabel != 0) {
-      while (expectedTime < It->TimeLabel) {
-        CStats &stats = history.emplace_back();
-        stats.Time = expectedTime;
-        expectedTime += groupByInterval;
-      }
-    }
-
-    CStats &stats = history.emplace_back();
-    stats.Time = It->TimeLabel;
-    stats.SharesPerSecond = (double)It->SharesNum / groupByInterval;
-    stats.AveragePower = CoinInfo_.calculateAveragePower(It->SharesWork, groupByInterval);
-    stats.SharesWork = It->SharesWork;
-    lastTimeLabel = It->TimeLabel;
+  history.resize(stats.size());
+  for (size_t i = 0, ie = stats.size(); i != ie; ++i) {
+    history[i].Time = stats[i].TimeLabel;
+    history[i].SharesPerSecond = static_cast<double>(stats[i].SharesNum) / groupByInterval;
+    history[i].AveragePower = CoinInfo_.calculateAveragePower(stats[i].SharesWork, groupByInterval);
+    history[i].SharesWork = stats[i].SharesWork;
   }
 }
 
