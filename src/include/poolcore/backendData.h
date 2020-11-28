@@ -40,7 +40,9 @@ public:
     ValueIndexes.insert(ValueIndexes.end(), weight, Values.size()-1);
   }
 
+  size_t size() const { return Values.size(); }
   const T &get() const { return Values[ValueIndexes[rand() % ValueIndexes.size()]]; }
+  const T &getByIndex(size_t index) const { return Values[index]; }
 
 private:
   struct Entry {

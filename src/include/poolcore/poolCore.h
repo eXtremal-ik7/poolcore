@@ -61,6 +61,7 @@ public:
     EStatusProtocolError,
     EStatusTimeout,
     EStatusMethodNotFound,
+    EStatusTooSmallOutputs,
     EStatusInsufficientFunds,
     EStatusVerifyRejected,
     EStatusInvalidAddressOrKey,

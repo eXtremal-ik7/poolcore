@@ -17,6 +17,7 @@
 namespace BTC {
 
 void Io<Proto::BlockHeader>::serialize(xmstream &dst, const BTC::Proto::BlockHeader &data)
+
 {
   BTC::serialize(dst, data.nVersion);
   BTC::serialize(dst, data.hashPrevBlock);
