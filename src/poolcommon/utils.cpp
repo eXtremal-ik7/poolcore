@@ -43,25 +43,40 @@ std::string real_strprintf(const std::string &format, int dummy, ...)
 
 std::string FormatMoney(int64_t n, int64_t rationalPartSize, bool fPlus)
 {
-    // Note: not using straight sprintf here because we do NOT want
-    // localized number formatting.
-    int64_t n_abs = (n > 0 ? n : -n);
-    int64_t quotient = n_abs/rationalPartSize;
-    int64_t remainder = n_abs%rationalPartSize;
-    std::string str = strprintf("%" PRId64 ".%08" PRId64, quotient, remainder);
+  std::string result;
+  int64_t n_abs = (n > 0 ? n : -n);
+  int64_t quotient = n_abs/rationalPartSize;
+  int64_t remainder = n_abs%rationalPartSize;
+  result.reserve(64);
+  if (n < 0)
+    result.push_back('-');
+  else if (fPlus)
+    result.push_back('+');
 
-    // Right-trim excess zeros before the decimal point:
-    int nTrim = 0;
-    for (int i = static_cast<int>(str.size())-1; (str[i] == '0' && isdigit(str[i-2])); --i)
-        ++nTrim;
-    if (nTrim)
-        str.erase(str.size()-nTrim, nTrim);
+  auto begin = result.begin() + result.size();
+  do {
+    result.push_back('0' + quotient % 10);
+    quotient /= 10;
+  } while (quotient);
+  std::reverse(begin, result.end());
 
-    if (n < 0)
-        str.insert((unsigned int)0, 1, '-');
-    else if (fPlus && n > 0)
-        str.insert((unsigned int)0, 1, '+');
-    return str;
+  if (remainder) {
+    result.push_back('.');
+    auto begin = result.begin() + result.size();
+    bool printZeroes = false;
+    do {
+      char digit = remainder % 10;
+      printZeroes |= digit != 0;
+      if (printZeroes)
+        result.push_back('0' + digit);
+      remainder /= 10;
+      rationalPartSize /= 10;
+    } while (rationalPartSize > 1);
+
+    std::reverse(begin, result.end());
+  }
+
+  return result;
 }
 
 bool parseMoneyValue(const char *value, const int64_t rationalPartSize, int64_t *out)
