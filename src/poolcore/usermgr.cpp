@@ -329,7 +329,7 @@ void UserManager::actionInitiateImpl(const std::string &login, UserActionRecord:
     }
 
     std::string EMailText;
-    std::string activationLink = "http://";
+    std::string activationLink = BaseCfg.PoolHostProtocol + "://";
       activationLink.append(BaseCfg.PoolHostAddress);
       activationLink.append(linkPrefix);
       activationLink.append(actionRecord.Id.ToString());
@@ -501,7 +501,7 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
       }
 
       std::string EMailText;
-      std::string activationLink = "http://";
+      std::string activationLink = BaseCfg.PoolHostProtocol + "://";
         activationLink.append(BaseCfg.PoolHostAddress);
         activationLink.append(BaseCfg.ActivateLinkPrefix);
         activationLink.append(actionRecord.Id.ToString());
@@ -608,7 +608,7 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
     }
 
     std::string EMailText;
-    std::string activationLink = "http://";
+    std::string activationLink = BaseCfg.PoolHostProtocol + "://";
       activationLink.append(BaseCfg.PoolHostAddress);
       activationLink.append(BaseCfg.ActivateLinkPrefix);
       activationLink.append(actionRecord.Id.ToString());

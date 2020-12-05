@@ -184,10 +184,12 @@ public:
   }
 
   void setBaseCfg(const std::string &poolName,
+                  const std::string &poolHostProtocol,
                   const std::string &poolHostAddress,
                   const std::string &userActivateLinkPrefix,
                   const std::string &userChangePasswordLinkPrefix) {
     BaseCfg.PoolName = poolName;
+    BaseCfg.PoolHostProtocol = poolHostProtocol;
     BaseCfg.PoolHostAddress = poolHostAddress;
     BaseCfg.ActivateLinkPrefix = userActivateLinkPrefix;
     BaseCfg.ChangePasswordLinkPrefix = userChangePasswordLinkPrefix;
@@ -324,6 +326,7 @@ private:
 
   struct {
     std::string PoolName;
+    std::string PoolHostProtocol;
     std::string PoolHostAddress;
     std::string ActivateLinkPrefix;
     std::string ChangePasswordLinkPrefix;
