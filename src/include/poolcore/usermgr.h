@@ -214,6 +214,7 @@ public:
       adminRecord.Login = name;
       adminRecord.PasswordHash = uint256S(hash);
       adminRecord.Name = name;
+      adminRecord.RegistrationDate = 0;
       adminRecord.IsActive = true;
       adminRecord.IsReadOnly = isReadOnly;
       UsersCache_.insert(std::make_pair(name, adminRecord));

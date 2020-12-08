@@ -804,6 +804,8 @@ bool UserManager::getUserCredentials(const std::string &login, Credentials &out)
     out.Name = accessor->second.Name;
     out.EMail = accessor->second.EMail;
     out.RegistrationDate = accessor->second.RegistrationDate;
+    out.IsActive = accessor->second.IsActive;
+    out.IsReadOnly = accessor->second.IsReadOnly;
     return true;
   } else {
     return false;
