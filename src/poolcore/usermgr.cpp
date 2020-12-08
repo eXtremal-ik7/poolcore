@@ -542,9 +542,11 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
     // TODO: Setup default settings for all coins
 
     // Save changes to databases
-    AllEmails_.insert(credentials.EMail);
     actionAdd(actionRecord);
   }
+
+  if (!credentials.EMail.empty())
+    AllEmails_.insert(credentials.EMail);
 
   UsersDb_.put(userRecord);
   LOG_F(INFO, "New user: %s (%s) email: %s; actionId: %s", userRecord.Login.c_str(), userRecord.Name.c_str(), userRecord.EMail.c_str(), actionRecord.Id.ToString().c_str());
