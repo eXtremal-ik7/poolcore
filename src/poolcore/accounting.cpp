@@ -975,6 +975,12 @@ void AccountingDb::queryFoundBlocksImpl(int64_t heightFrom, const std::string &h
     RawData data = It->value();
     if (!dbBlock.deserializeValue(data.data, data.size))
       break;
+
+    // Replace login with public name
+    UserManager::Credentials credentials;
+    if (UserManager_.getUserCredentials(dbBlock.FoundBy, credentials) && !credentials.Name.empty())
+      dbBlock.FoundBy = credentials.Name;
+
     foundBlocks.push_back(dbBlock);
     confirmationsQuery.emplace_back(dbBlock.Hash, dbBlock.Height);
     It->prev();
