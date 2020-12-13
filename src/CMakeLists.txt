@@ -44,7 +44,7 @@ set(protobuf_MODULE_COMPATIBLE TRUE)
 set(_tbb_cmake_module_path ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(${_tbb_cmake_module_path}/TBBGet.cmake)
 include(${_tbb_cmake_module_path}/TBBBuild.cmake)
-tbb_get(TBB_ROOT tbb_root SOURCE_CODE)
+tbb_get(TBB_ROOT tbb_root SOURCE_CODE RELEASE_TAG v2020.3)
 tbb_build(TBB_ROOT ${tbb_root} CONFIG_DIR TBB_DIR)
 find_package(TBB REQUIRED tbb)
 
