@@ -422,6 +422,43 @@ void UserManager::userChangePasswordImpl(const uint512 &id, const std::string &n
   callback("ok");
 }
 
+void UserManager::userChangePasswordForceImpl(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback)
+{
+  std::string resultLogin;
+  if (!validateSession(sessionId, "admin", resultLogin, true) || resultLogin != "admin") {
+    callback("unknown_id");
+    return;
+  }
+
+  // Check password format
+  if (newPassword.size() < 8 || newPassword.size() > 64) {
+    callback("password_format_invalid");
+    return;
+  }
+
+  UsersRecord userRecord;
+
+  {
+    decltype(UsersCache_)::const_accessor accessor;
+    if (!UsersCache_.find(accessor, login)) {
+      callback("unknown_login");
+      return;
+    }
+
+    userRecord = accessor->second;
+  }
+
+  userRecord.PasswordHash = generateHash(login, newPassword);
+  {
+    decltype(UsersCache_)::accessor accessor;
+    if (UsersCache_.find(accessor, login))
+      accessor->second = userRecord;
+  }
+
+  UsersDb_.put(userRecord);
+  callback("ok");
+}
+
 void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callback, bool isActivated, bool isReadOnly)
 {
   // NOTE: function is coroutine!
