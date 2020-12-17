@@ -481,6 +481,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
             devScriptPubKey.write<uint8_t>(0x14);
             devScriptPubKey.write(&feeAddr.hash[0], feeAddr.hash.size());
             devScriptPubKey.write<uint8_t>(BTC::Script::OP_EQUAL);
+            blockReward -= devFee;
           }
         }
       }
