@@ -807,7 +807,6 @@ void CBitcoinRpcClient::onWorkFetchTimeout()
 CBitcoinRpcClient::CConnection *CBitcoinRpcClient::getConnection(asyncBase *base)
 {
   CConnection *connection = new CConnection;
-  httpParseDefaultInit(&connection->ParseCtx);
   connection->Socket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
   // NOTE: Linux only
   if (connection->Socket == -1) {
