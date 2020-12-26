@@ -305,8 +305,8 @@ public:
   StatisticShareLogConfig() {}
   StatisticShareLogConfig(StatisticDb *statistic) : Statistic_(statistic) {}
   void initializationFinish(int64_t time) { Statistic_->initializationFinish(time); }
-  uint64_t minShareId() { return Statistic_->lastKnownShareId(); }
-  uint64_t maxShareId() { return Statistic_->lastKnownShareId(); }
+  uint64_t lastAggregatedShareId() { return Statistic_->lastAggregatedShareId(); }
+  uint64_t lastKnownShareId() { return Statistic_->lastKnownShareId(); }
   void replayShare(const CShare &share) { Statistic_->replayShare(share); }
 
 private:

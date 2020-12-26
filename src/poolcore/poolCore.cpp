@@ -39,7 +39,7 @@ static bool checkBech32Address(const std::string &address, const std::string &pr
 
 bool CCoinInfo::checkAddress(const std::string &address, EAddressType type) const
 {
-  if (type & (EP2PKH | EPS2H | EBech32)) {
+  if (type & (EP2PKH | EPS2H)) {
     std::vector<uint8_t> decoded;
     if (DecodeBase58(address, decoded)) {
       if ((type & EP2PKH) && checkBase58Address(decoded, PubkeyAddressPrefix)) {
@@ -48,10 +48,16 @@ bool CCoinInfo::checkAddress(const std::string &address, EAddressType type) cons
         return true;
       }
     }
+  }
 
-    if ((type & EBech32) && checkBech32Address(address, Bech32Prefix)) {
+  if ((type & EBech32) && checkBech32Address(address, Bech32Prefix)) {
+    return true;
+  }
+
+  if (type & EBCH) {
+    auto addr = bech32::DecodeCashAddrContent(address, "bitcoincash");
+    if (!addr.hash.empty())
       return true;
-    }
   }
 
   return false;

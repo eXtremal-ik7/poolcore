@@ -76,7 +76,7 @@ public:
       replayShares(file);
 
     Config_.initializationFinish(currentTime);
-    CurrentShareId_ = Config_.maxShareId() + 1;
+    CurrentShareId_ = Config_.lastKnownShareId() + 1;
 
     if (!ShareLog_.empty()) {
       CShareLogFile &lastFile = ShareLog_.back();
@@ -102,8 +102,10 @@ public:
   }
 
   void flush() {
-    if (!ShareLoggingEnabled_ || ShareLog_.empty())
+    if (!ShareLoggingEnabled_ || ShareLog_.empty()) {
+      ShareLogInMemory_.reset();
       return;
+    }
 
     // Flush memory buffer to disk
     ShareLog_.back().Fd.write(ShareLogInMemory_.data(), ShareLogInMemory_.sizeOf());
@@ -115,9 +117,14 @@ public:
       startNewShareLogFile();
 
       // Check status of shares in previous log files
-      uint64_t aggregatedShareId = Config_.minShareId();
+      uint64_t aggregatedShareId = Config_.lastAggregatedShareId();
+      if (isDebugBackend() && !ShareLog_.empty()) {
+        LOG_F(1, "Last aggregated share id: %" PRIu64 "; first file range is [%" PRIu64": %" PRIu64 "]", aggregatedShareId, ShareLog_.front().FirstId, ShareLog_.front().LastId);
+      }
 
-      while (!ShareLog_.empty() && ShareLog_.front().LastId < aggregatedShareId) {
+
+      while (ShareLog_.size() > 1 && ShareLog_.front().LastId < aggregatedShareId) {
+        LOG_F(INFO, "remove old share log file %s", ShareLog_.front().Path.u8string().c_str());
         std::filesystem::remove(ShareLog_.front().Path);
         ShareLog_.pop_front();
       }
@@ -174,6 +181,9 @@ private:
   }
 
   void startNewShareLogFile() {
+    if (!ShareLog_.empty())
+      ShareLog_.back().LastId = CurrentShareId_ - 1;
+
     auto &file = ShareLog_.emplace_back();
     file.Path = Path_ / (std::to_string(CurrentShareId_) + ".dat");
     file.FirstId = CurrentShareId_;

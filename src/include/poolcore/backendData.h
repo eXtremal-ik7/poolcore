@@ -59,7 +59,7 @@ struct PoolBackendConfig {
   bool isMaster;
   std::filesystem::path dbPath;
   std::chrono::seconds ShareLogFlushInterval = std::chrono::seconds(3);
-  uint64_t ShareLogFileSizeLimit = 134217728;
+  uint64_t ShareLogFileSizeLimit = 4194304;
 
   std::vector<PoolFeeEntry> PoolFee;
   unsigned RequiredConfirmations;

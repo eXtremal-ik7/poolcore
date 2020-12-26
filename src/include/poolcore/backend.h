@@ -21,11 +21,11 @@ public:
     Statistic_->initializationFinish(time);
   }
 
-  uint64_t minShareId() {
-    return std::min(Statistic_->lastKnownShareId(), Accounting_->lastKnownShareId());
+  uint64_t lastAggregatedShareId() {
+    return std::min(Statistic_->lastAggregatedShareId(), Accounting_->lastAggregatedShareId());
   }
 
-  uint64_t maxShareId() {
+  uint64_t lastKnownShareId() {
     return std::max(Statistic_->lastKnownShareId(), Accounting_->lastKnownShareId());
   }
 

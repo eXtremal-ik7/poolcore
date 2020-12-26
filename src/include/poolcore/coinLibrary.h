@@ -68,7 +68,7 @@ public:
     } else if (strcmp(coinName, "BCHABC") == 0) {
       info.Name = "BCHABC";
       info.FullName = "Bitcoin Cash ABC";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EBCH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
@@ -81,7 +81,7 @@ public:
     } else if (strcmp(coinName, "BCHABC.testnet") == 0) {
       info.FullName = "Bitcoin Cash ABC testnet";
       info.Name = "BCHABC.testnet";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EBCH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
@@ -93,7 +93,7 @@ public:
     } else if (strcmp(coinName, "BCHN") == 0) {
       info.Name = "BCHN";
       info.FullName = "Bitcoin Cash Node";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EBCH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
@@ -106,7 +106,7 @@ public:
     } else if (strcmp(coinName, "BSV") == 0) {
       info.Name = "BSV";
       info.FullName = "Bitcoin SV";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EBCH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
@@ -119,7 +119,7 @@ public:
     } else if (strcmp(coinName, "BSV.testnet") == 0) {
       info.Name = "BSV.testnet";
       info.FullName = "Bitcoin SV";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EBCH);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;

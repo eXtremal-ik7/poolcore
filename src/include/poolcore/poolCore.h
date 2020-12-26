@@ -18,7 +18,8 @@ struct CCoinInfo {
     EP2PKH = 1,
     EPS2H = 2,
     EBech32 = 4,
-    EZAddr = 8
+    EBCH = 8,
+    EZAddr = 16,
   };
 
   enum EPowerUnitType {
