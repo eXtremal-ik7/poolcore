@@ -261,7 +261,7 @@ private:
     bool IsNiceHash = false;
     int64_t LastUpdateTime = std::numeric_limits<int64_t>::max();
     // Stratum protocol decoding
-    char Buffer[40960];
+    char Buffer[12288];
     size_t MsgTailSize = 0;
     // Mining info
     typename X::Stratum::WorkerConfig WorkerConfig;
