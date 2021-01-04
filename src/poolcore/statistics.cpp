@@ -484,7 +484,12 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
   auto &db = !login.empty() ? WorkerStatsDb_ : PoolStatsDb_;
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
 
+  StatsRecord valueRecord;
   xmstream resumeKey;
+  auto validPredicate = [&login, &workerId](const StatsRecord &record) -> bool {
+    return record.Login == login && record.WorkerId == workerId;
+  };
+
   {
     StatsRecord record;
     record.Login = login;
@@ -494,23 +499,23 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
   }
 
   {
-    StatsRecord record;
-    record.Login = login;
-    record.WorkerId = workerId;
-    record.Time = timeTo;
-    It->seekForPrev(record);
+    StatsRecord keyRecord;
+    keyRecord.Login = login;
+    keyRecord.WorkerId = workerId;
+    keyRecord.Time = timeTo;
+    It->seekForPrev<StatsRecord>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
-  auto endPredicate = [&login, &workerId](const void *key, size_t size) -> bool {
-    StatsRecord record;
-    xmstream stream(const_cast<void*>(key), size);
-    if (!record.deserializeValue(stream)) {
-      LOG_F(ERROR, "Statistic database corrupt!");
-      return true;
-    }
+//  auto endPredicate = [&login, &workerId](const void *key, size_t size) -> bool {
+//    StatsRecord keyRecord;
+//    xmstream stream(const_cast<void*>(key), size);
+//    if (!keyRecord.deserializeValue(stream)) {
+//      LOG_F(ERROR, "Statistic database corrupt!");
+//      return true;
+//    }
 
-    return record.Login != login || record.WorkerId != workerId;
-  };
+//    return keyRecord.Login != login || keyRecord.WorkerId != workerId;
+//  };
 
   // Fill 'stats' with zero-initialized elements for entire range
   int64_t firstTimeLabel = 0;
@@ -535,33 +540,21 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
   }
 
   while (It->valid()) {
-    StatsRecord record;
-    RawData data = It->value();
-    if (!record.deserializeValue(data.data, data.size)) {
-      LOG_F(ERROR, "Statistic database corrupt!");
-      break;
-    }
-
-    if (record.Login != login || record.WorkerId != workerId) {
-      It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
-      continue;
-    }
-
-    if (record.Time <= timeFrom)
+    if (valueRecord.Time <= timeFrom)
       break;
 
     if (isDebugStatistic())
-      LOG_F(1, "getHistory: use row with time=%" PRIi64 " shares=%" PRIu64 " work=%.3lf", record.Time, record.ShareCount, record.ShareWork);
+      LOG_F(1, "getHistory: use row with time=%" PRIi64 " shares=%" PRIu64 " work=%.3lf", valueRecord.Time, valueRecord.ShareCount, valueRecord.ShareWork);
 
-    int64_t alignedTimeLabel = record.Time + groupByInterval - (record.Time % groupByInterval);
+    int64_t alignedTimeLabel = valueRecord.Time + groupByInterval - (valueRecord.Time % groupByInterval);
     size_t index = (alignedTimeLabel - firstTimeLabel) / groupByInterval;
     if (index < stats.size()) {
       CStatsElement &current = stats[index];
-      current.SharesNum += static_cast<uint32_t>(record.ShareCount);
-      current.SharesWork += record.ShareWork;
+      current.SharesNum += static_cast<uint32_t>(valueRecord.ShareCount);
+      current.SharesWork += valueRecord.ShareWork;
     }
 
-    It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
+    It->prev<StatsRecord>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
   history.resize(stats.size());

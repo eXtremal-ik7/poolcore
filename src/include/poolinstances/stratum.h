@@ -117,9 +117,9 @@ public:
       ThreadPool_.startAsyncTask(i, new AcceptWork(*this, nullptr, nullptr));
   }
 
-  void acceptConnection(socketTy socketFd, HostAddress address) {
-    ThreadData &data = Data_[GetLocalThreadId()];
-    Connection *connection = new Connection(this, newSocketIo(data.WorkerBase, socketFd), CurrentThreadId_, address);
+  void acceptConnection(unsigned workerId, socketTy socketFd, HostAddress address) {
+    ThreadData &data = Data_[workerId];
+    Connection *connection = new Connection(this, newSocketIo(data.WorkerBase, socketFd), workerId, address);
     connection->WorkerConfig.initialize(data.ThreadCfg);
     if (isDebugInstanceStratumConnections())
       LOG_F(1, "%s: new connection from %s", Name_.c_str(), connection->AddressHr.c_str());
@@ -234,7 +234,7 @@ private:
   class AcceptNewConnection : public CThreadPool::Task {
   public:
     AcceptNewConnection(StratumInstance &instance, socketTy socketFd, HostAddress address) : Instance_(instance), SocketFd_(socketFd), Address_(address) {}
-    void run(unsigned) final { Instance_.acceptConnection(SocketFd_, Address_); }
+    void run(unsigned workerId) final { Instance_.acceptConnection(workerId, SocketFd_, Address_); }
   private:
     StratumInstance &Instance_;
     socketTy SocketFd_;

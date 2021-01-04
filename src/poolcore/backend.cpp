@@ -149,8 +149,12 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
   auto &db = accountingDb()->getPayoutDb();
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
 
-
+  PayoutDbRecord valueRecord;
   xmstream resumeKey;
+  auto validPredicate = [&user](const PayoutDbRecord &record) -> bool {
+    return record.UserId == user;
+  };
+
   {
     PayoutDbRecord record;
     record.UserId = user;
@@ -159,35 +163,38 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
   }
 
   {
-    PayoutDbRecord record;
-    record.UserId = user;
-    record.Time = timeFrom == 0 ? std::numeric_limits<int64_t>::max() : timeFrom;
-    It->seekForPrev(record);
+    PayoutDbRecord keyRecord;
+    keyRecord.UserId = user;
+    keyRecord.Time = timeFrom == 0 ? std::numeric_limits<int64_t>::max() : timeFrom;
+    It->seekForPrev<PayoutDbRecord>(keyRecord, resumeKey.data<const char*>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
-  auto endPredicate = [&user](const void *key, size_t size) -> bool {
-    PayoutDbRecord record;
-    if (!record.deserializeValue(key, size)) {
-      LOG_F(ERROR, "Statistic database corrupt!");
-      return true;
-    }
+//  auto endPredicate = [&user](const void *key, size_t size) -> bool {
 
-    return record.UserId != user;
-  };
+//    if (!valueRecord.deserializeValue(key, size)) {
+//      LOG_F(ERROR, "Statistic database corrupt!");
+//      return true;
+//    }
+
+//    return valueRecord.UserId != user;
+//  };
 
   for (unsigned i = 0; i < count; i++) {
     if (!It->valid())
       break;
+    payouts.emplace_back(valueRecord);
 
-    RawData data = It->value();
-    PayoutDbRecord &payout = payouts.emplace_back();
-    if (!payout.deserializeValue(data.data, data.size))
-      break;
-    if (payout.UserId != user) {
-      payouts.pop_back();
-      break;
-    }
+//    RawData data = It->value();
+//    PayoutDbRecord &payout = payouts.emplace_back();
 
-    It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
+//    if (!payout.deserializeValue(data.data, data.size))
+//      break;
+//    if (payout.UserId != user) {
+//      payouts.pop_back();
+//      break;
+//    }
+
+//    It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
+    It->prev<PayoutDbRecord>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 }

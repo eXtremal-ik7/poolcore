@@ -37,7 +37,7 @@ public:
     ~IteratorType();
     bool valid();
     void prev();
-    void prev(std::function<bool(const void *data, size_t)> endPredicate, const void *resumeKey, size_t resumeKeySize);
+//    void prev(std::function<bool(const void *data, size_t)> endPredicate, const void *resumeKey, size_t resumeKeySize);
     void next();
     void seekFirst();
     void seekLast();
@@ -114,6 +114,74 @@ public:
         iterator = np.db->NewIterator(options);
         iterator->SeekToLast();
       }
+    }
+
+
+    template<typename ValueType> void seekForPrev(const ValueType &firstKey, const void *nextKeyData, size_t nextKeySize, ValueType &out, const std::function<bool(const ValueType&)> &validPredicate) {
+      std::string partId = firstKey.getPartitionId();
+      if (id != partId) {
+        cleanup();
+        auto p = base->lessOrEqualPartition(partId);
+        if (!p.db)
+          return;
+
+        id = p.id;
+        rocksdb::ReadOptions options;
+        iterator = p.db->NewIterator(options);
+      }
+
+      char buffer[128];
+      xmstream S(buffer, sizeof(buffer));
+      S.reset();
+      firstKey.serializeKey(S);
+      rocksdb::Slice firstKeySlice(S.data<const char>(), S.sizeOf());
+      iterator->SeekForPrev(firstKeySlice);
+
+      rocksdb::Slice nextKeySlice(static_cast<const char*>(nextKeyData), nextKeySize);
+      while (!checkValid(out, validPredicate)) {
+        cleanup();
+        auto np = base->lessPartition(id);
+        if (!np.db)
+          return;
+
+        id = np.id;
+        rocksdb::ReadOptions options;
+        iterator = np.db->NewIterator(options);
+        iterator->SeekForPrev(nextKeySlice);
+      }
+    }
+
+    template<typename ValueType> void prev(const void *nextKeyData, size_t nextKeySize, ValueType &out, const std::function<bool(const ValueType&)> &validPredicate) {
+      if (iterator)
+        iterator->Prev();
+
+      rocksdb::ReadOptions options;
+      rocksdb::Slice nextKeySlice(static_cast<const char*>(nextKeyData), nextKeySize);
+      while (!checkValid(out, validPredicate)) {
+        if (id.empty())
+          return;
+
+        cleanup();
+        auto p = base->lessPartition(id);
+        if (!p.db)
+          return;
+
+        id = p.id;
+
+        iterator = p.db->NewIterator(options);
+        iterator->SeekForPrev(nextKeySlice);
+      }
+    }
+
+  private:
+    template<typename ValueType> bool checkValid(ValueType &out, const std::function<bool(const ValueType&)> &validPredicate) {
+      if (!iterator->Valid())
+        return false;
+      if (!out.deserializeValue(iterator->value().data(), iterator->value().size()))
+        return false;
+      if (!validPredicate(out))
+        return false;
+      return true;
     }
   };
   

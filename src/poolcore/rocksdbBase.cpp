@@ -44,37 +44,37 @@ void rocksdbBase::IteratorType::prev()
   end = false;
 }
 
-void rocksdbBase::IteratorType::prev(std::function<bool(const void *data, size_t)> endPredicate, const void *resumeKey, size_t resumeKeySize)
-{
-  if (end) {
-    rocksdb::ReadOptions options;
-    auto lastp = base->getLastPartition();
-    if (!lastp.db)
-      return;
-    id = lastp.id;
-    iterator = lastp.db->NewIterator(options);
-    iterator->SeekToLast();
-  } else if (iterator) {
-    iterator->Prev();
-  }
+//void rocksdbBase::IteratorType::prev(std::function<bool(const void *data, size_t)> endPredicate, const void *resumeKey, size_t resumeKeySize)
+//{
+//  if (end) {
+//    rocksdb::ReadOptions options;
+//    auto lastp = base->getLastPartition();
+//    if (!lastp.db)
+//      return;
+//    id = lastp.id;
+//    iterator = lastp.db->NewIterator(options);
+//    iterator->SeekToLast();
+//  } else if (iterator) {
+//    iterator->Prev();
+//  }
 
-  while (!iterator->Valid() || endPredicate(iterator->value().data(), iterator->value().size())) {
-    if (id.empty())
-      return;
+//  while (!iterator->Valid() || endPredicate(iterator->value().data(), iterator->value().size())) {
+//    if (id.empty())
+//      return;
 
-    cleanup();
-    auto p = base->lessPartition(id);
-    if (!p.db)
-      return;
+//    cleanup();
+//    auto p = base->lessPartition(id);
+//    if (!p.db)
+//      return;
 
-    rocksdb::ReadOptions options;
-    id = p.id;
-    iterator = p.db->NewIterator(options);
-    iterator->SeekForPrev(rocksdb::Slice(static_cast<const char*>(resumeKey), resumeKeySize));
-  }
+//    rocksdb::ReadOptions options;
+//    id = p.id;
+//    iterator = p.db->NewIterator(options);
+//    iterator->SeekForPrev(rocksdb::Slice(static_cast<const char*>(resumeKey), resumeKeySize));
+//  }
 
-  end = false;
-}
+//  end = false;
+//}
 
 
 void rocksdbBase::IteratorType::next()
