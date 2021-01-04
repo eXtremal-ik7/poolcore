@@ -117,7 +117,20 @@ public:
       ThreadPool_.startAsyncTask(i, new AcceptWork(*this, nullptr, nullptr));
   }
 
-  void acceptWork(unsigned, CBlockTemplate *blockTemplate, PoolBackend *backend) {
+  void acceptConnection(socketTy socketFd, HostAddress address) {
+    ThreadData &data = Data_[GetLocalThreadId()];
+    Connection *connection = new Connection(this, newSocketIo(data.WorkerBase, socketFd), CurrentThreadId_, address);
+    connection->WorkerConfig.initialize(data.ThreadCfg);
+    if (isDebugInstanceStratumConnections())
+      LOG_F(1, "%s: new connection from %s", Name_.c_str(), connection->AddressHr.c_str());
+
+    // Initialize share difficulty
+    connection->ShareDifficulty = ConstantShareDiff_;
+
+    aioRead(connection->Socket, connection->Buffer, sizeof(connection->Buffer), afNone, 3000000, reinterpret_cast<aioCb*>(readCb), connection);
+  }
+
+  void acceptWork(CBlockTemplate *blockTemplate, PoolBackend *backend) {
     auto beginPt = std::chrono::steady_clock::now();
     unsigned counter = 0;
     if (!blockTemplate) {
@@ -218,10 +231,20 @@ public:
   }
 
 private:
+  class AcceptNewConnection : public CThreadPool::Task {
+  public:
+    AcceptNewConnection(StratumInstance &instance, socketTy socketFd, HostAddress address) : Instance_(instance), SocketFd_(socketFd), Address_(address) {}
+    void run(unsigned) final { Instance_.acceptConnection(SocketFd_, Address_); }
+  private:
+    StratumInstance &Instance_;
+    socketTy SocketFd_;
+    HostAddress Address_;
+  };
+
   class AcceptWork : public CThreadPool::Task {
   public:
     AcceptWork(StratumInstance &instance, CBlockTemplate *blockTemplate, PoolBackend *backend) : Instance_(instance), BlockTemplate_(blockTemplate), Backend_(backend) {}
-    void run(unsigned workerId) final { Instance_.acceptWork(workerId, BlockTemplate_.get(), Backend_); }
+    void run(unsigned) final { Instance_.acceptWork(BlockTemplate_.get(), Backend_); }
   private:
     StratumInstance &Instance_;
     intrusive_ptr<CBlockTemplate> BlockTemplate_;
@@ -670,16 +693,9 @@ private:
   }
 
   void newFrontendConnection(socketTy fd, HostAddress address) {
-    ThreadData &data = Data_[CurrentThreadId_];
-    Connection *connection = new Connection(this, newSocketIo(data.WorkerBase, fd), CurrentThreadId_, address);
-    connection->WorkerConfig.initialize(data.ThreadCfg);
-    if (isDebugInstanceStratumConnections())
-      LOG_F(1, "%s: new connection from %s", Name_.c_str(), connection->AddressHr.c_str());
-
-    // Initialize share difficulty
-    connection->ShareDifficulty = ConstantShareDiff_;
-
-    aioRead(connection->Socket, connection->Buffer, sizeof(connection->Buffer), afNone, 3000000, reinterpret_cast<aioCb*>(readCb), connection);
+    // Functions runs inside 'monitor' thread
+    // Send task to one of worker threads
+    ThreadPool_.startAsyncTask(CurrentThreadId_, new AcceptNewConnection(*this, fd, address));
     CurrentThreadId_ = (CurrentThreadId_ + 1) % ThreadPool_.threadsNum();
   }
 
