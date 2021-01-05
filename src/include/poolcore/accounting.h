@@ -7,6 +7,7 @@
 #include "usermgr.h"
 #include "poolcommon/file.h"
 #include "poolcommon/multiCall.h"
+#include "poolcommon/taskHandler.h"
 #include "poolcore/clientDispatcher.h"
 #include "kvdb.h"
 #include "poolcore/rocksdbBase.h"
@@ -57,13 +58,7 @@ private:
     int64_t Time;
   };
 
-  class Task {
-  public:
-    virtual ~Task() {}
-    virtual void run(AccountingDb *accounting) = 0;
-  };
-
-  class TaskShare : public Task {
+  class TaskShare : public Task<AccountingDb> {
   public:
     TaskShare(CShare *share) : Share_(share) {}
     void run(AccountingDb *accounting) final { accounting->addShare(*Share_); }
@@ -71,7 +66,7 @@ private:
     std::unique_ptr<CShare> Share_;
   };
 
-  class TaskManualPayout : public Task {
+  class TaskManualPayout : public Task<AccountingDb> {
   public:
     TaskManualPayout(const std::string &user, ManualPayoutCallback callback) : User_(user), Callback_(callback) {}
     void run(AccountingDb *accounting) final { accounting->manualPayoutImpl(User_, Callback_); }
@@ -80,7 +75,7 @@ private:
     ManualPayoutCallback Callback_;
   };
 
-  class TaskQueryFoundBlocks : public Task {
+  class TaskQueryFoundBlocks : public Task<AccountingDb> {
   public:
     TaskQueryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) : HeightFrom_(heightFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
     void run(AccountingDb *accounting) final { accounting->queryFoundBlocksImpl(HeightFrom_, HashFrom_, Count_, Callback_); }
@@ -91,7 +86,7 @@ private:
     QueryFoundBlocksCallback Callback_;
   };
 
-  class TaskQueryBalance : public Task {
+  class TaskQueryBalance : public Task<AccountingDb> {
   public:
     TaskQueryBalance(const std::string &user, QueryBalanceCallback callback) : User_(user), Callback_(callback) {}
     void run(AccountingDb *accounting) final { accounting->queryBalanceImpl(User_, Callback_); }
@@ -135,13 +130,10 @@ private:
   
   uint64_t LastKnownShareId_ = 0;
   
-  tbb::concurrent_queue<Task*> TaskQueue_;
-  aioUserEvent *TaskQueueEvent_;
-
-  void startAsyncTask(Task *task) {
-    TaskQueue_.push(task);
-    userEventActivate(TaskQueueEvent_);
-  }
+  TaskHandlerCoroutine<AccountingDb> TaskHandler_;
+  aioUserEvent *FlushTimerEvent_;
+  bool ShutdownRequested_ = false;
+  bool FlushFinished_ = false;
 
   void printRecentStatistic();
   bool parseAccoutingStorageFile(CAccountingFile &file);
@@ -156,6 +148,7 @@ public:
 
   void enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory);
   void start();
+  void stop();
   void updatePayoutFile();
   void cleanupRounds();
   
@@ -181,9 +174,9 @@ public:
   const std::map<std::string, UserBalanceRecord> &getUserBalanceMap() { return _balanceMap; }
 
   // Asynchronous api
-  void manualPayout(const std::string &user, ManualPayoutCallback callback) { startAsyncTask(new TaskManualPayout(user, callback)); }
-  void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { startAsyncTask(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
-  void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { startAsyncTask(new TaskQueryBalance(user, callback)); }
+  void manualPayout(const std::string &user, ManualPayoutCallback callback) { TaskHandler_.push(new TaskManualPayout(user, callback)); }
+  void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { TaskHandler_.push(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
+  void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { TaskHandler_.push(new TaskQueryBalance(user, callback)); }
 
   // Asynchronous multi calls
   static void queryUserBalanceMulti(AccountingDb **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceRecord*, size_t)> callback) {

@@ -39,13 +39,14 @@ static void checkConsistency(AccountingDb *accounting)
 }
 
 
-PoolBackend::PoolBackend(const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher) :
-  _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher), PriceFetcher_(priceFetcher)
+PoolBackend::PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher) :
+  _base(base), _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher), PriceFetcher_(priceFetcher), TaskHandler_(this, base)
 {
+  CheckConfirmationsEvent_ = newUserEvent(base, 1, nullptr, nullptr);
+  PayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);
+  CheckBalanceEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   clientDispatcher.setBackend(this);
-  _base = createAsyncBase(amOSDefault);
   _timeout = 8*1000000;
-  TaskQueueEvent_ = newUserEvent(_base, 0, nullptr, nullptr);
 
   _statistics.reset(new StatisticDb(_base, _cfg, CoinInfo_));
   _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, *_statistics.get()));
@@ -63,6 +64,17 @@ void PoolBackend::start()
 
 void PoolBackend::stop()
 {
+  ShutdownRequested_ = true;
+  userEventActivate(CheckConfirmationsEvent_);
+  userEventActivate(CheckBalanceEvent_);
+  userEventActivate(PayoutEvent_);
+  _accounting->stop();
+  _statistics->stop();
+  TaskHandler_.stop(CoinInfo_.Name.c_str(), "PoolBackend task handler");
+  coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend check confirmations handler", &CheckConfirmationsHandlerFinished_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend check balance handler", &CheckBalanceHandlerFinished_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend payout handler", &PayoutHandlerFinished_);
+
   postQuitOperation(_base);
   _thread.join();
   ShareLog_.flush();
@@ -74,13 +86,12 @@ void PoolBackend::backendMain()
   loguru::set_thread_name(CoinInfo_.Name.c_str());
   ShareLog_.start();
 
-  coroutineCall(coroutineNew([](void *arg) { static_cast<PoolBackend*>(arg)->taskHandler(); }, this, 0x100000));
-  coroutineCall(coroutineNew([](void *arg) { static_cast<PoolBackend*>(arg)->checkConfirmationsHandler(); }, this, 0x100000));
-  coroutineCall(coroutineNew([](void *arg) { static_cast<PoolBackend*>(arg)->checkBalanceHandler(); }, this, 0x100000));
-  coroutineCall(coroutineNew([](void *arg) { static_cast<PoolBackend*>(arg)->payoutHandler(); }, this, 0x100000));
-
+  TaskHandler_.start();
   _accounting->start();
   _statistics->start();
+  coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->checkConfirmationsHandler(); }, this, 0x100000, coroutineFinishCb, &CheckConfirmationsHandlerFinished_));
+  coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->checkBalanceHandler(); }, this, 0x100000, coroutineFinishCb, &CheckBalanceHandlerFinished_));
+  coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->payoutHandler(); }, this, 0x100000, coroutineFinishCb, &PayoutHandlerFinished_));
 
   LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
   if (!_cfg.PoolFee.empty()) {
@@ -94,46 +105,36 @@ void PoolBackend::backendMain()
   asyncLoop(_base);
 }
 
-void PoolBackend::taskHandler()
+void PoolBackend::checkConfirmationsHandler()
 {
-  Task *task;
   for (;;) {
-    while (TaskQueue_.try_pop(task)) {
-      std::unique_ptr<Task> taskHolder(task);
-      task->run(this);
-    }
-
-    ioWaitUserEvent(TaskQueueEvent_);
-  }
-}
-
-void *PoolBackend::checkConfirmationsHandler()
-{
-  aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
-  while (true) {
-    ioSleep(timerEvent, _cfg.ConfirmationsCheckInterval);
+    ioSleep(CheckConfirmationsEvent_, _cfg.ConfirmationsCheckInterval);
+    if (ShutdownRequested_)
+      break;
     _accounting->cleanupRounds();
     _accounting->checkBlockConfirmations();
   }
 }
 
 
-void *PoolBackend::payoutHandler()
+void PoolBackend::payoutHandler()
 {
-  aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
-  while (true) {
-    ioSleep(timerEvent, _cfg.PayoutInterval);
+  for (;;) {
+    ioSleep(PayoutEvent_, _cfg.PayoutInterval);
+    if (ShutdownRequested_)
+      break;
     _accounting->makePayout();
   }
 }
 
 // Only for master
-void *PoolBackend::checkBalanceHandler()
+void PoolBackend::checkBalanceHandler()
 {
-  aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
-  while (true) {
+  for (;;) {
     _accounting->checkBalance();
-    ioSleep(timerEvent, _cfg.BalanceCheckInterval);
+    ioSleep(CheckBalanceEvent_, _cfg.BalanceCheckInterval);
+    if (ShutdownRequested_)
+      break;
   }
 }
 
@@ -169,32 +170,11 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
     It->seekForPrev<PayoutDbRecord>(keyRecord, resumeKey.data<const char*>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
-//  auto endPredicate = [&user](const void *key, size_t size) -> bool {
-
-//    if (!valueRecord.deserializeValue(key, size)) {
-//      LOG_F(ERROR, "Statistic database corrupt!");
-//      return true;
-//    }
-
-//    return valueRecord.UserId != user;
-//  };
-
   for (unsigned i = 0; i < count; i++) {
     if (!It->valid())
       break;
     payouts.emplace_back(valueRecord);
 
-//    RawData data = It->value();
-//    PayoutDbRecord &payout = payouts.emplace_back();
-
-//    if (!payout.deserializeValue(data.data, data.size))
-//      break;
-//    if (payout.UserId != user) {
-//      payouts.pop_back();
-//      break;
-//    }
-
-//    It->prev(endPredicate, resumeKey.data(), resumeKey.sizeOf());
     It->prev<PayoutDbRecord>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 }

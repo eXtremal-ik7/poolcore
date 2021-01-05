@@ -49,13 +49,7 @@ public:
   using QueryStatsHistoryCallback = std::function<void(const std::vector<StatisticDb::CStats>&)>;
 
 private:
-  class Task {
-  public:
-    virtual ~Task() {}
-    virtual void run(PoolBackend *backend) = 0;
-  };
-
-  class TaskShare : public Task {
+  class TaskShare : public Task<PoolBackend> {
   public:
     TaskShare(CShare *share) : Share_(share) {}
     void run(PoolBackend *backend) final { backend->onShare(Share_.get()); }
@@ -67,7 +61,6 @@ private:
   asyncBase *_base;
   uint64_t _timeout;
   std::thread _thread;
-  aioUserEvent *TaskQueueEvent_;
   
   PoolBackendConfig _cfg;
   CCoinInfo CoinInfo_;
@@ -77,32 +70,30 @@ private:
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
   StatisticServer *AlgoMetaStatistic_ = nullptr;
-  tbb::concurrent_queue<Task*> TaskQueue_;
   ShareLog<ShareLogConfig> ShareLog_;
 
+  TaskHandlerCoroutine<PoolBackend> TaskHandler_;
+  bool ShutdownRequested_ = false;
+  bool CheckConfirmationsHandlerFinished_ = false;
+  bool PayoutHandlerFinished_ = false;
+  bool CheckBalanceHandlerFinished_ = false;
+  aioUserEvent *CheckConfirmationsEvent_ = nullptr;
+  aioUserEvent *PayoutEvent_ = nullptr;
+  aioUserEvent *CheckBalanceEvent_ = nullptr;
 
   double ProfitSwitchCoeff_ = 0.0;
 
-  void startAsyncTask(Task *task) {
-    TaskQueue_.push(task);
-    userEventActivate(TaskQueueEvent_);
-  }
-  
   void backendMain();
-  void shareLogFlush();
-  void shareLogFlushHandler();
-  void taskHandler();
-  void *msgHandler();
-  void *checkConfirmationsHandler();  
-  void *payoutHandler();    
-  void *checkBalanceHandler();
+  void checkConfirmationsHandler();
+  void payoutHandler();
+  void checkBalanceHandler();
   
   void onShare(CShare *share); 
 
 public:
   PoolBackend(const PoolBackend&) = delete;
   PoolBackend(PoolBackend&&) = default;
-  PoolBackend(const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher);
+  PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher);
 
   const PoolBackendConfig &getConfig() const { return _cfg; }
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
@@ -120,7 +111,7 @@ public:
   void queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts);
 
   // Asynchronous api
-  void sendShare(CShare *share) { startAsyncTask(new TaskShare(share)); }
+  void sendShare(CShare *share) { TaskHandler_.push(new TaskShare(share)); }
 
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }

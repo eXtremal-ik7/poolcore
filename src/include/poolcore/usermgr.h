@@ -70,7 +70,7 @@ public:
   public:
     UserInitiateActionTask(UserManager *userMgr, const std::string &login, UserActionRecord::EType type, DefaultCb callback) : Task(userMgr), Login_(login), Type_(type), Callback_(callback) {}
     void run() final {
-      coroutineTy *coroutine = coroutineNew([](void *arg) {
+      coroutineTy *coroutine = UserMgr_->newCoroutine([](void *arg) {
         auto task = static_cast<UserInitiateActionTask*>(arg);
         task->UserMgr_->actionInitiateImpl(task->Login_, task->Type_, task->Callback_);
       }, this, 0x10000);
@@ -109,7 +109,7 @@ public:
     UserCreateTask(UserManager *userMgr, Credentials &&credentials, DefaultCb callback, bool isActivated, bool isReadOnly) :
       Task(userMgr), Credentials_(credentials), Callback_(callback), IsActivated_(isActivated), IsReadOnly_(isReadOnly) {}
     void run() final {
-      coroutineTy *coroutine = coroutineNew([](void *arg) {
+      coroutineTy *coroutine = UserMgr_->newCoroutine([](void *arg) {
         auto task =  static_cast<UserCreateTask*>(arg);
         task->UserMgr_->userCreateImpl(task->Credentials_, task->Callback_, task->IsActivated_, task->IsReadOnly_);
       }, this, 0x10000);
@@ -128,7 +128,7 @@ public:
   public:
     UserResendEmailTask(UserManager *userMgr, Credentials &&credentials, DefaultCb callback) : Task(userMgr), Credentials_(credentials), Callback_(callback) {}
     void run() final {
-      coroutineTy *coroutine = coroutineNew([](void *arg) {
+      coroutineTy *coroutine = UserMgr_->newCoroutine([](void *arg) {
         auto task =  static_cast<UserResendEmailTask*>(arg);
         task->UserMgr_->resendEmailImpl(task->Credentials_, task->Callback_);
       }, this, 0x10000);
@@ -250,6 +250,13 @@ public:
   std::vector<CCoinInfo> &coinInfo() { return CoinInfo_; }
   std::unordered_map<std::string, size_t> &coinIdxMap() { return CoinIdxMap_; }
 
+  coroutineTy *newCoroutine(coroutineProcTy entry, void *arg, unsigned stackSize) {
+    CoroutineCounter_ += 1;
+    return coroutineNewWithCb(entry, arg, stackSize, [](void *arg) {
+      static_cast<UserManager*>(arg)->CoroutineCounter_ -= 1;
+    }, this);
+  }
+
   // Asynchronous api
   void userAction(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserActionTask(this, uint512S(id), callback)); }
   void userActionInitiate(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback) { startAsyncTask(new UserInitiateActionTask(this, login, type, callback)); }
@@ -361,4 +368,6 @@ private:
   unsigned SessionLifeTime_ = DefaultSessionLifeTime;
   unsigned ActionLifeTime_ = DefaultActionLifeTime;
   unsigned CleanupInterval_ = DefaultCleanupInterval;
+
+  unsigned CoroutineCounter_ = 0;
 };

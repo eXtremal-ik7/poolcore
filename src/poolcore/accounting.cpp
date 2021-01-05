@@ -1,4 +1,5 @@
 #include "poolcore/accounting.h"
+#include "poolcommon/coroutineJoin.h"
 #include "poolcommon/utils.h"
 #include "poolcore/base58.h"
 #include "poolcore/statistics.h"
@@ -135,9 +136,10 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
   _balanceDb(config.dbPath / "balance"),
   _foundBlocksDb(config.dbPath / "foundBlocks"),
   _poolBalanceDb(config.dbPath / "poolBalance"),
-  _payoutDb(config.dbPath / "payouts")
+  _payoutDb(config.dbPath / "payouts"),
+  TaskHandler_(this, base)
 {
-  TaskQueueEvent_ = newUserEvent(base, 0, nullptr, nullptr);
+  FlushTimerEvent_ = newUserEvent(base, 1, nullptr, nullptr);
 
   int64_t currentTime = time(nullptr);
   FlushInfo_.Time = currentTime;
@@ -215,19 +217,6 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
   }
 }
 
-void AccountingDb::taskHandler()
-{
-  Task *task;
-  for (;;) {
-    while (TaskQueue_.try_pop(task)) {
-      std::unique_ptr<Task> taskHolder(task);
-      task->run(this);
-    }
-
-    ioWaitUserEvent(TaskQueueEvent_);
-  }
-}
-
 void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory)
 {
   std::error_code errc;
@@ -252,15 +241,25 @@ void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const
 
 void AccountingDb::start()
 {
-  coroutineCall(coroutineNew([](void *arg) { static_cast<AccountingDb*>(arg)->taskHandler(); }, this, 0x100000));
-  coroutineCall(coroutineNew([](void *arg) {
+  TaskHandler_.start();
+
+  coroutineCall(coroutineNewWithCb([](void *arg) {
     AccountingDb *db = static_cast<AccountingDb*>(arg);
-    aioUserEvent *timerEvent = newUserEvent(db->Base_, 0, nullptr, nullptr);
     for (;;) {
-      ioSleep(timerEvent, std::chrono::microseconds(std::chrono::minutes(1)).count());
+      if (db->ShutdownRequested_)
+        break;
+      ioSleep(db->FlushTimerEvent_, std::chrono::microseconds(std::chrono::minutes(1)).count());
       db->flushAccountingStorageFile(time(nullptr));
     }
-  }, this, 0x20000));
+  }, this, 0x20000, coroutineFinishCb, &FlushFinished_));
+}
+
+void AccountingDb::stop()
+{
+  ShutdownRequested_ = true;
+  userEventActivate(FlushTimerEvent_);
+  TaskHandler_.stop(CoinInfo_.Name.c_str(), "accounting: task handler");
+  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: flush thread", &FlushFinished_);
 }
 
 void AccountingDb::updatePayoutFile()

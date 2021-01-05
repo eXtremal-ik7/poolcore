@@ -1,5 +1,6 @@
 #include "poolcore/statistics.h"
 #include "poolcore/accounting.h"
+#include "poolcommon/coroutineJoin.h"
 #include "poolcommon/debug.h"
 #include "poolcommon/serialize.h"
 #include "loguru.hpp"
@@ -58,9 +59,11 @@ inline void StatisticDb::parseStatsCacheFile(CStatsFile &file, std::function<CSt
 
 StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo) : Base_(base), _cfg(config), CoinInfo_(coinInfo),
   WorkerStatsDb_(_cfg.dbPath / "workerStats"),
-  PoolStatsDb_(_cfg.dbPath / "poolstats")
+  PoolStatsDb_(_cfg.dbPath / "poolstats"),
+  TaskHandler_(this, base)
 {
-  TaskQueueEvent_ = newUserEvent(base, 0, nullptr, nullptr);
+  WorkerStatsUpdaterEvent_ = newUserEvent(base, 1, nullptr, nullptr);
+  PoolStatsUpdaterEvent_ = newUserEvent(base, 1, nullptr, nullptr);
 
   int64_t currentTime = time(nullptr);
   WorkersFlushInfo_.Time = currentTime;
@@ -88,19 +91,6 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   LastKnownShareId_ = std::max(WorkersFlushInfo_.ShareId, PoolFlushInfo_.ShareId);
   if (isDebugStatistic())
     LOG_F(1, "%s: last aggregated id: %" PRIu64 " last known id: %" PRIu64 "", coinInfo.Name.c_str(), lastAggregatedShareId(), lastKnownShareId());
-}
-
-void StatisticDb::taskHandler()
-{
-  Task *task;
-  for (;;) {
-    while (TaskQueue_.try_pop(task)) {
-      std::unique_ptr<Task> taskHolder(task);
-      task->run(this);
-    }
-
-    ioWaitUserEvent(TaskQueueEvent_);
-  }
 }
 
 void StatisticDb::enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::filesystem::path &directory)
@@ -283,24 +273,37 @@ void StatisticDb::initializationFinish(int64_t timeLabel)
 
 void StatisticDb::start()
 {
-  coroutineCall(coroutineNew([](void *arg) { static_cast<StatisticDb*>(arg)->taskHandler(); }, this, 0x100000));
-  coroutineCall(coroutineNew([](void *arg) {
+  TaskHandler_.start();
+
+  coroutineCall(coroutineNewWithCb([](void *arg) {
     StatisticDb *db = static_cast<StatisticDb*>(arg);
-    aioUserEvent *timerEvent = newUserEvent(db->Base_, 0, nullptr, nullptr);
     for (;;) {
-      ioSleep(timerEvent, std::chrono::microseconds(db->_cfg.StatisticWorkersAggregateTime).count());
+      ioSleep(db->WorkerStatsUpdaterEvent_, std::chrono::microseconds(db->_cfg.StatisticWorkersAggregateTime).count());
+      if (db->ShutdownRequested_)
+        break;
       db->updateWorkersStats(time(nullptr));
     }
-  }, this, 0x20000));
+  }, this, 0x20000, coroutineFinishCb, &WorkerStatsUpdaterFinished_));
 
-  coroutineCall(coroutineNew([](void *arg) {
+  coroutineCall(coroutineNewWithCb([](void *arg) {
     StatisticDb *db = static_cast<StatisticDb*>(arg);
-    aioUserEvent *timerEvent = newUserEvent(db->Base_, 0, nullptr, nullptr);
     for (;;) {
-      ioSleep(timerEvent, std::chrono::microseconds(db->_cfg.StatisticPoolAggregateTime).count());
+      ioSleep(db->PoolStatsUpdaterEvent_, std::chrono::microseconds(db->_cfg.StatisticPoolAggregateTime).count());
+      if (db->ShutdownRequested_)
+        break;
       db->updatePoolStats(time(nullptr));
     }
-  }, this, 0x20000));
+  }, this, 0x20000, coroutineFinishCb, &PoolStatsUpdaterFinished_));
+}
+
+void StatisticDb::stop()
+{
+  ShutdownRequested_ = true;
+  userEventActivate(WorkerStatsUpdaterEvent_);
+  userEventActivate(PoolStatsUpdaterEvent_);
+  TaskHandler_.stop(CoinInfo_.Name.c_str(), "statisticDb task handler");
+  coroutineJoin(CoinInfo_.Name.c_str(), "statisticDb worker stats updater", &WorkerStatsUpdaterFinished_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "statisticDb pool stats updater", &PoolStatsUpdaterFinished_);
 }
 
 void StatisticDb::updateWorkersStats(int64_t timeLabel)
@@ -675,11 +678,9 @@ void StatisticDb::queryAllUserStatsImpl(const std::vector<UserManager::Credentia
   callback(result);
 }
 
-StatisticServer::StatisticServer(const PoolBackendConfig &config, const CCoinInfo &coinInfo) :
-  CoinInfo_(coinInfo), Cfg_(config)
+StatisticServer::StatisticServer(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo) :
+  Base_(base), Cfg_(config), CoinInfo_(coinInfo), TaskHandler_(this, base)
 {
-  Base_ = createAsyncBase(amOSDefault);
-  TaskQueueEvent_ = newUserEvent(Base_, 0, nullptr, nullptr);
   Statistics_.reset(new StatisticDb(Base_, config, CoinInfo_));
   StatisticShareLogConfig shareLogConfig(Statistics_.get());
   ShareLog_.init(config.dbPath / "shares.log", coinInfo.Name, Base_, config.ShareLogFlushInterval, config.ShareLogFileSizeLimit, shareLogConfig);
@@ -692,22 +693,11 @@ void StatisticServer::start()
 
 void StatisticServer::stop()
 {
+  Statistics_->stop();
+  TaskHandler_.stop(CoinInfo_.Name.c_str(), "StatisticServer task handler");
   postQuitOperation(Base_);
   Thread_.join();
   ShareLog_.flush();
-}
-
-void StatisticServer::taskHandler()
-{
-  Task *task;
-  for (;;) {
-    while (TaskQueue_.try_pop(task)) {
-      std::unique_ptr<Task> taskHolder(task);
-      task->run(this);
-    }
-
-    ioWaitUserEvent(TaskQueueEvent_);
-  }
 }
 
 void StatisticServer::statisticServerMain()
@@ -715,8 +705,7 @@ void StatisticServer::statisticServerMain()
   InitializeWorkerThread();
   loguru::set_thread_name(CoinInfo_.Name.c_str());
   ShareLog_.start();
-
-  coroutineCall(coroutineNew([](void *arg) { static_cast<StatisticServer*>(arg)->taskHandler(); }, this, 0x100000));
+  TaskHandler_.start();
   Statistics_->start();
 
   LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), Cfg_.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());

@@ -153,6 +153,13 @@ void UserManager::start()
 
 void UserManager::stop()
 {
+  // Wait all coroutines
+  if (CoroutineCounter_) {
+    LOG_F(INFO, "Wait %u coroutines", CoroutineCounter_);
+    while (CoroutineCounter_)
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
   postQuitOperation(Base_);
   Thread_.join();
 }
