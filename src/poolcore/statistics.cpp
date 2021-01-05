@@ -506,17 +506,6 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     It->seekForPrev<StatsRecord>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
-//  auto endPredicate = [&login, &workerId](const void *key, size_t size) -> bool {
-//    StatsRecord keyRecord;
-//    xmstream stream(const_cast<void*>(key), size);
-//    if (!keyRecord.deserializeValue(stream)) {
-//      LOG_F(ERROR, "Statistic database corrupt!");
-//      return true;
-//    }
-
-//    return keyRecord.Login != login || keyRecord.WorkerId != workerId;
-//  };
-
   // Fill 'stats' with zero-initialized elements for entire range
   int64_t firstTimeLabel = 0;
   std::vector<CStatsElement> stats;

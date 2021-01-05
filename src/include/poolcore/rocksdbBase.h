@@ -37,7 +37,6 @@ public:
     ~IteratorType();
     bool valid();
     void prev();
-//    void prev(std::function<bool(const void *data, size_t)> endPredicate, const void *resumeKey, size_t resumeKeySize);
     void next();
     void seekFirst();
     void seekLast();
