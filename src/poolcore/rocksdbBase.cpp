@@ -144,12 +144,15 @@ bool rocksdbBase::PartitionBatchType::deleteRow(const void *key, size_t keySize)
 rocksdb::DB *rocksdbBase::open(rocksdbBase::partition &partition)
 {
   if (!partition.db) {
-    std::filesystem::path partitionPath(_path);
-    partitionPath /= partition.id;
+    std::lock_guard lock(DbMutex_);
+    if (!partition.db) {
+      std::filesystem::path partitionPath(_path);
+      partitionPath /= partition.id;
     
-    rocksdb::Options options;
-    options.create_if_missing = true;
-    rocksdb::Status status = rocksdb::DB::Open(options, partitionPath.u8string(), &partition.db);
+      rocksdb::Options options;
+      options.create_if_missing = true;
+      rocksdb::Status status = rocksdb::DB::Open(options, partitionPath.u8string(), &partition.db);
+    }
   }
   
   return partition.db;
@@ -157,6 +160,7 @@ rocksdb::DB *rocksdbBase::open(rocksdbBase::partition &partition)
 
 rocksdbBase::partition rocksdbBase::getFirstPartition()
 {
+  std::shared_lock lock(PartitionsMutex_);
   if (!_partitions.empty()) {
     auto &p = _partitions.front();
     open(p);
@@ -168,6 +172,7 @@ rocksdbBase::partition rocksdbBase::getFirstPartition()
 
 rocksdbBase::partition rocksdbBase::getLastPartition()
 {
+  std::shared_lock lock(PartitionsMutex_);
   if (!_partitions.empty()) {
     auto &p = _partitions.back();
     open(p);
@@ -177,9 +182,9 @@ rocksdbBase::partition rocksdbBase::getLastPartition()
   }
 }
 
-
 rocksdb::DB *rocksdbBase::getPartition(const std::string &id)
 {
+  std::shared_lock lock(PartitionsMutex_);
   auto It = std::lower_bound(_partitions.begin(), _partitions.end(), id);
   if (It == _partitions.end() || It->id != id)
     return 0;
@@ -188,6 +193,7 @@ rocksdb::DB *rocksdbBase::getPartition(const std::string &id)
 
 rocksdbBase::partition rocksdbBase::lessPartition(const std::string &id)
 {
+  std::shared_lock lock(PartitionsMutex_);
   auto It = std::upper_bound(_partitions.rbegin(), _partitions.rend(), id, [](const partition &l, const partition &r) { return l.id > r.id; });
   if (It == _partitions.rend())
     return partition();
@@ -199,6 +205,7 @@ rocksdbBase::partition rocksdbBase::lessPartition(const std::string &id)
 
 rocksdbBase::partition rocksdbBase::lessOrEqualPartition(const std::string &id)
 {
+  std::shared_lock lock(PartitionsMutex_);
   auto It = std::lower_bound(_partitions.rbegin(), _partitions.rend(), id, [](const partition &l, const partition &r) { return l.id > r.id; });
   if (It == _partitions.rend())
     return partition();
@@ -211,6 +218,7 @@ rocksdbBase::partition rocksdbBase::lessOrEqualPartition(const std::string &id)
 
 rocksdbBase::partition rocksdbBase::greaterPartition(const std::string &id)
 {
+  std::shared_lock lock(PartitionsMutex_);
   auto It = std::upper_bound(_partitions.begin(), _partitions.end(), id);
   if (It == _partitions.end())
     return partition();
@@ -223,6 +231,7 @@ rocksdbBase::partition rocksdbBase::greaterPartition(const std::string &id)
 
 rocksdbBase::partition rocksdbBase::greaterOrEqualPartition(const std::string &id)
 {
+  std::shared_lock lock(PartitionsMutex_);
   auto It = std::lower_bound(_partitions.begin(), _partitions.end(), id);
   if (It == _partitions.end())
     return partition();
@@ -234,6 +243,7 @@ rocksdbBase::partition rocksdbBase::greaterOrEqualPartition(const std::string &i
 
 rocksdb::DB *rocksdbBase::getOrCreatePartition(const std::string &id)
 {
+  std::lock_guard lock(PartitionsMutex_);
   auto It = std::lower_bound(_partitions.begin(),
                              _partitions.end(),
                              id,

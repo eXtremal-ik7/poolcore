@@ -120,20 +120,6 @@ private:
     bool SortDescending_;
   };
 
-  class TaskQueryStatsHistory : public Task<StatisticDb> {
-  public:
-    TaskQueryStatsHistory(const std::string &user, const std::string &workerId, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInterval, QueryStatsHistoryCallback callback) :
-      User_(user), WorkerId_(workerId), TimeFrom_(timeFrom), TimeTo_(timeTo), GroupByInterval_(groupByInterval), Callback_(callback) {}
-    void run(StatisticDb *statistic) final { statistic->queryStatsHistoryImpl(User_, WorkerId_, TimeFrom_, TimeTo_, GroupByInterval_, Callback_); }
-  private:
-    std::string User_;
-    std::string WorkerId_;
-    uint64_t TimeFrom_;
-    uint64_t TimeTo_;
-    uint64_t GroupByInterval_;
-    QueryStatsHistoryCallback Callback_;
-  };
-
   class TaskQueryAllUsersStats : public Task<StatisticDb> {
   public:
     TaskQueryAllUsersStats(std::vector<UserManager::Credentials> &&users, QueryAllUsersStatisticCallback callback, size_t offset, size_t size, CredentialsWithStatistic::EColumns sortBy, bool sortDescending) :
@@ -218,25 +204,18 @@ public:
 
   const CStats &getPoolStats() { return PoolStatsCached_; }
   void getUserStats(const std::string &user, CStats &aggregate, std::vector<CStats> &workerStats, size_t offset, size_t size, EStatsColumn sortBy, bool sortDescending);
-  void getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history);
 
   /// Return recent statistic for users
   /// result - sorted by UserId
   void exportRecentStats(std::vector<CStatsExportData> &result);
 
+  // Synchronous api
+  void getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history);
+
   // Asynchronous api
   void queryPoolStats(QueryPoolStatsCallback callback) { TaskHandler_.push(new TaskQueryPoolStats(callback)); }
   void queryUserStats(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending) {
     TaskHandler_.push(new TaskQueryUserStats(user, callback, offset, size, sortBy, sortDescending));
-  }
-
-  void queryStatsHistory(const std::string &user,
-                         const std::string &worker,
-                         uint64_t timeFrom,
-                         uint64_t timeTo,
-                         uint64_t groupByInterval,
-                         QueryStatsHistoryCallback callback) {
-    TaskHandler_.push(new TaskQueryStatsHistory(user, worker, timeFrom, timeTo, groupByInterval, callback));
   }
 
   void queryAllusersStats(std::vector<UserManager::Credentials> &&users,
@@ -257,7 +236,6 @@ public:
 private:
   void queryPoolStatsImpl(QueryPoolStatsCallback callback);
   void queryUserStatsImpl(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending);
-  void queryStatsHistoryImpl(const std::string &user, const std::string &worker, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInteval, QueryStatsHistoryCallback callback);
 
   void queryAllUserStatsImpl(const std::vector<UserManager::Credentials> &users,
                              QueryAllUsersStatisticCallback callback,

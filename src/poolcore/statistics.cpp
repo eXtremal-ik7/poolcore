@@ -596,13 +596,6 @@ void StatisticDb::queryUserStatsImpl(const std::string &user, QueryUserStatsCall
   callback(aggregate, workers);
 }
 
-void StatisticDb::queryStatsHistoryImpl(const std::string &user, const std::string &worker, uint64_t timeFrom, uint64_t timeTo, uint64_t groupByInteval, QueryStatsHistoryCallback callback)
-{
-  std::vector<StatisticDb::CStats> history;
-  getHistory(user, worker, timeFrom, timeTo, groupByInteval, history);
-  callback(history);
-}
-
 void StatisticDb::queryAllUserStatsImpl(const std::vector<UserManager::Credentials> &users,
                                         QueryAllUsersStatisticCallback callback,
                                         size_t offset,

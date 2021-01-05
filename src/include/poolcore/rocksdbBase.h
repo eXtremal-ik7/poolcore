@@ -6,6 +6,7 @@
 #include "rocksdb/db.h"
 
 #include <filesystem>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -188,7 +189,7 @@ private:
   struct partition {
     std::string id;
     rocksdb::DB *db;
-    partition() : id(), db(0) {}
+    partition() : id(), db(nullptr) {}
     partition(const std::string &idArg) : id(idArg), db(0) {}
     friend bool operator<(const partition &l, const partition &r) { return l.id < r.id; }
   };
@@ -196,13 +197,15 @@ private:
 private:
   std::filesystem::path _path;
   std::vector<partition> _partitions;
+  std::shared_mutex PartitionsMutex_;
+  std::mutex DbMutex_;
   
   partition getFirstPartition();
   partition getLastPartition();
-  partition lessPartition(const std::string &id);  
+  partition lessPartition(const std::string &id);
   partition lessOrEqualPartition(const std::string &id);
   partition greaterPartition(const std::string &id);
-  partition greaterOrEqualPartition(const std::string &id);  
+  partition greaterOrEqualPartition(const std::string &id);
   
   rocksdb::DB *open(partition &partition);
   rocksdb::DB *getPartition(const std::string &id);
