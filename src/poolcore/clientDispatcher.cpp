@@ -36,7 +36,7 @@ bool CNetworkClientDispatcher::ioListUnspent(asyncBase*, CNetworkClient::ListUns
 
 CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, CNetworkClient::BuildTransactionResult &result)
 {
-  CNetworkClient::EOperationStatus status;
+  CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
   unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
   for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
@@ -51,7 +51,7 @@ CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioBuildTransaction(as
 
 CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error)
 {
-  CNetworkClient::EOperationStatus status;
+  CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
   unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
   for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
@@ -66,7 +66,7 @@ CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioSendTransaction(asy
 
 CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error)
 {
-  CNetworkClient::EOperationStatus status;
+  CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
   unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
   for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
