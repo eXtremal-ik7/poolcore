@@ -155,6 +155,8 @@ public:
 
 namespace BTC {
 
+double getDifficulty(uint32_t bits);
+
 // Header
 template<> struct Io<Proto::BlockHeader> {
   static void serialize(xmstream &dst, const BTC::Proto::BlockHeader &data);

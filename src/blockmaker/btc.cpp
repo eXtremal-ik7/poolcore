@@ -146,7 +146,7 @@ size_t Proto::Transaction::getFirstScriptSigOffset(bool serializeWitness)
   return result;
 }
 
-static inline double getDifficulty(uint32_t bits)
+double getDifficulty(uint32_t bits)
 {
     int nShift = (bits >> 24) & 0xff;
     double dDiff =

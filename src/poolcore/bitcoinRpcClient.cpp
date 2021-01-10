@@ -1,5 +1,6 @@
 #include "poolcore/bitcoinRPCClient.h"
 
+#include "blockmaker/btc.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcommon/utils.h"
 #include "poolcore/clientDispatcher.h"
@@ -28,6 +29,15 @@ static const std::string gBalanceQueryWithImmatured = R"json({"method": "getbala
 static const std::string gGetWalletInfoQuery = R"json({"method": "getwalletinfo", "params": [] })json";
 static const std::string gGetBlockChainInfoQuery = R"json({"method": "getblockchaininfo", "params": [] })json";
 static const std::string gGetInfoQuery = R"json({"method": "getinfo", "params": []})json";
+
+static inline void jsonParseInt(const rapidjson::Value &value, const char *name, uint32_t *out, bool *validAcc) {
+  if (value.HasMember(name)) {
+    if (value[name].IsUint())
+      *out = value[name].GetUint();
+    else
+      *validAcc = false;
+  }
+}
 
 static inline void jsonParseInt(const rapidjson::Value &value, const char *name, int64_t *out, bool *validAcc) {
   if (value.HasMember(name)) {
@@ -739,10 +749,12 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 
   int64_t height;
   std::string prevBlockHash;
+  std::string bits;
   bool validAcc = true;
   rapidjson::Value &resultObject = blockTemplate->Document["result"];
   jsonParseString(resultObject, "previousblockhash", prevBlockHash, true, &validAcc);
   jsonParseInt(resultObject, "height", &height, &validAcc);
+  jsonParseString(resultObject, "bits", bits, true, &validAcc);
   if (!validAcc || prevBlockHash.size() < 16) {
     LOG_F(WARNING, "%s %s:%u: getblocktemplate invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
     httpClientDelete(WorkFetcher_.Client);
@@ -760,6 +772,8 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 
   // Get unique work id
   uint64_t workId = blockTemplate->UniqueWorkId = readHexBE<uint64_t>(prevBlockHash.c_str(), 16);
+
+  blockTemplate->Difficulty = BTC::getDifficulty(strtoul(bits.c_str(), nullptr, 16));
 
   // Check new work available
   if (!WorkFetcher_.LongPollId.empty()) {

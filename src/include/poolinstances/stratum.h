@@ -110,6 +110,8 @@ public:
   virtual void checkNewBlockTemplate(CBlockTemplate *blockTemplate, PoolBackend *backend) override {
     for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
       ThreadPool_.startAsyncTask(i, new AcceptWork(*this, blockTemplate, backend));
+    if (MiningStats_)
+      MiningStats_->onWork(blockTemplate->Difficulty, backend);
   }
 
   virtual void stopWork() override {
@@ -459,6 +461,9 @@ private:
     ThreadData &data = Data_[GetLocalThreadId()];
     info->HasJob = false;
     uint64_t height = 0;
+    double shareDiff = 0.0;
+    typename X::Proto::BlockHashTy hash;
+    std::vector<bool> foundBlockMask(LinkedBackends_.size(), false);
 
     // Check worker name
     auto It = connection->Workers.find(msg.submit.WorkerName);
@@ -504,7 +509,7 @@ private:
       return false;
     }
 
-    typename X::Proto::BlockHashTy hash = work.hash();
+    hash = work.hash();
     // Check for duplicate
     if (!data.KnownShares.insert(hash).second) {
       if (isDebugInstanceStratumRejects())
@@ -524,7 +529,6 @@ private:
       }
 
       height = work.height(i);
-      double shareDiff = 0.0;
       bool isBlock = work.checkConsensus(i, &shareDiff);
       if (shareDiff < connection->ShareDifficulty) {
         if (isDebugInstanceStratumRejects())
@@ -571,6 +575,13 @@ private:
             LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
           }
         });
+
+        for (size_t i = 0, ie = LinkedBackends_.size(); i != ie; ++i) {
+          if (LinkedBackends_[i] == backend) {
+            foundBlockMask[i] = true;
+            break;
+          }
+        }
       } else {
         CShare *backendShare = new CShare;
         backendShare->Time = time(nullptr);
@@ -586,7 +597,7 @@ private:
     if (!shareAccepted)
       errorCode = StratumErrorInvalidShare;
 
-    if (shareAccepted && AlgoMetaStatistic_) {
+    if (shareAccepted && (AlgoMetaStatistic_ || true)) {
       CShare *backendShare = new CShare;
       backendShare->Time = time(nullptr);
       backendShare->userId = worker.User;
@@ -594,7 +605,14 @@ private:
       backendShare->height = height;
       backendShare->WorkValue = connection->ShareDifficulty;
       backendShare->isBlock = false;
-      AlgoMetaStatistic_->sendShare(backendShare);
+      if (AlgoMetaStatistic_)
+        AlgoMetaStatistic_->sendShare(backendShare);
+
+      // Share
+      // All affected coins by this share
+      // Difficulty of all affected coins
+      if (MiningStats_)
+        MiningStats_->onShare(shareDiff, connection->ShareDifficulty, LinkedBackends_, foundBlockMask, hash);
     }
 
     return shareAccepted;

@@ -40,6 +40,7 @@ public:
 
   void connectWith(CPoolInstance *instance) {
     LinkedInstances_.push_back(instance);
+    instance->addBackend(Backend_);
   }
 
   // Work polling
