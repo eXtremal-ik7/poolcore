@@ -2,6 +2,7 @@
 
 #include "backendData.h"
 #include "rapidjson/document.h"
+#include <functional>
 
 class PoolBackend;
 
