@@ -941,7 +941,7 @@ void AccountingDb::manualPayoutImpl(const std::string &user, ManualPayoutCallbac
   auto It = _balanceMap.find(user);
   if (It != _balanceMap.end()) {
     auto &B = It->second;
-    if (B.Balance.getRational(CoinInfo_.ExtraMultiplier) >= ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE && B.Balance.getRational(CoinInfo_.ExtraMultiplier) >= _cfg.MinimalAllowedPayout) {
+    if (B.Balance.getRational(CoinInfo_.ExtraMultiplier) >= _cfg.MinimalAllowedPayout) {
       bool result = requestPayout(user, 0, true);
       if (result)
         updatePayoutFile();
