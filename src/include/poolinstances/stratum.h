@@ -692,6 +692,7 @@ private:
     {
       JSON::Object object(stream);
       object.addString("method", "mining.set_difficulty");
+      object.addNull("id");
       object.addField("params");
       {
         JSON::Array params(stream);
