@@ -341,6 +341,126 @@ void Stratum::WorkerConfig::onSubscribe(MiningConfig &miningCfg, StratumMessage 
   subscribeInfo = std::to_string(ExtraNonceFixed);
 }
 
+struct TxData {
+  const char *HexData;
+  size_t HexDataSize;
+  uint256 TxId;
+  uint256 WitnessHash;
+};
+
+struct TxTree {
+  TxData Data;
+  int64_t Fee;
+  size_t DependsOn = std::numeric_limits<size_t>::max();
+  bool Visited = false;
+};
+
+bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<TxData> &result, int64_t *blockReward)
+{
+  if (tree[index].Visited)
+    return true;
+
+  if (tree[index].DependsOn != std::numeric_limits<size_t>::max() && !addTransaction(tree, tree[index].DependsOn, txNumLimit, result, blockReward))
+    return false;
+  if (result.size() >= txNumLimit)
+    return false;
+
+  result.push_back(tree[index].Data);
+  tree[index].Visited = true;
+  *blockReward += tree[index].Fee;
+  return true;
+}
+
+static bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, std::vector<TxData> &result, int64_t *blockReward, bool sortByHash)
+{
+  size_t txNum = transactions.Size();
+  std::unique_ptr<TxTree[]> txTree(new TxTree[txNum]);
+
+  // Build hashmap txid -> index
+  std::unordered_map<uint256, size_t> txidMap;
+  for (size_t i = 0; i < txNum; i++) {
+    rapidjson::Value &txSrc = transactions[i];
+    if (!txSrc.HasMember("data") || !txSrc["data"].IsString())
+      return false;
+    if (!txSrc.HasMember("txid") || !txSrc["txid"].IsString())
+      return false;
+    if (!txSrc.HasMember("fee") || !txSrc["fee"].IsInt64())
+      return false;
+
+    txTree[i].Data.HexData = txSrc["data"].GetString();
+    txTree[i].Data.HexDataSize = txSrc["data"].GetStringLength();
+    txTree[i].Data.TxId.SetHex(txSrc["txid"].GetString());
+    if (txSrc.HasMember("hash"))
+      txTree[i].Data.WitnessHash.SetHex(txSrc["hash"].GetString());
+
+    txTree[i].Fee = txSrc["fee"].GetInt64();
+    txidMap[txTree[i].Data.TxId] = i;
+    *blockReward -= txTree[i].Fee;
+  }
+
+  xmstream txBinaryData;
+  BTC::Proto::Transaction tx;
+  for (size_t i = 0; i < txNum; i++) {
+    rapidjson::Value &txSrc = transactions[i];
+    if (!txSrc.HasMember("data") || !txSrc["data"].IsString())
+      return false;
+
+    // Convert hex -> binary data
+    txBinaryData.reset();
+    const char *txHexData = txSrc["data"].GetString();
+    size_t txHexSize = txSrc["data"].GetStringLength();
+    hex2bin(txHexData, txHexSize, txBinaryData.reserve<uint8_t>(txHexSize/2));
+
+    // Decode BTC transaction
+    txBinaryData.seekSet(0);
+    BTC::unserialize(txBinaryData, tx);
+    if (txBinaryData.eof() || txBinaryData.remaining())
+      return false;
+
+    // Iterate txin, found in-block dependencies
+    for (const auto &txin: tx.txIn) {
+      auto It = txidMap.find(txin.previousOutputHash);
+      if (It != txidMap.end())
+        txTree[i].DependsOn = It->second;
+    }
+  }
+
+  for (size_t i = 0; i < txNum; i++) {
+    // Add transactions with its dependencies recursively
+    if (!addTransaction(txTree.get(), i, txNumLimit, result, blockReward))
+      break;
+  }
+
+  // TODO: sort by hash (for BCHN, BCHABC)
+  if (sortByHash)
+    std::sort(result.begin(), result.end(), [](const TxData &l, const TxData &r) {
+      // TODO: use binary representation of txid
+      return l.TxId.GetHex() < r.TxId.GetHex();
+    });
+
+  return true;
+}
+
+static bool transactionChecker(rapidjson::Value::Array transactions, std::vector<TxData> &result)
+{
+  result.resize(transactions.Size());
+  for (size_t i = 0, ie = transactions.Size(); i != ie; ++i) {
+    rapidjson::Value &txSrc = transactions[i];
+    if (!txSrc.HasMember("data") || !txSrc["data"].IsString())
+      return false;
+    if (!txSrc.HasMember("txid") || !txSrc["txid"].IsString())
+      return false;
+
+    result[i].HexData = txSrc["data"].GetString();
+    result[i].HexDataSize = txSrc["data"].GetStringLength();
+    result[i].TxId.SetHex(txSrc["txid"].GetString());
+    if (txSrc.HasMember("hash"))
+      result[i].WitnessHash.SetHex(txSrc["hash"].GetString());
+  }
+
+  return true;
+}
+
 bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
                                      uint64_t uniqueWorkId,
                                      const MiningConfig &cfg,
@@ -361,6 +481,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   CBTxWitness.Data.reset();
   BlockHexData.reset();
   Backend = backend;
+  xmstream witnessCommitment;
 
   if (!document.HasMember("result") || !document["result"].IsObject()) {
     error = "no result";
@@ -406,50 +527,31 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   }
 
   int64_t blockReward = coinbaseValue.GetInt64();
-  int64_t pureBlockReward = blockReward;
-
-  // Check segwit enabled (compare txid and hash for all transactions)
   bool segwitEnabled = false;
   bool txFilter = txNumLimit && transactions.Size() > txNumLimit;
-  rapidjson::SizeType txNum = txFilter ? txNumLimit : transactions.Size();
-  std::vector<uint256> witnessHashes;
-  xmstream witnessCommitment;
+  std::vector<TxData> processedTransactions;
 
-  witnessHashes.emplace_back();
-  witnessHashes.back().SetNull();
+  // Check segwit enabled (compare txid and hash for all transactions)
   for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
     rapidjson::Value &tx = transactions[i];
-    if (!tx.IsObject()) {
-      error = "transaction is not JSON object";
-      return false;
-    }
-
-    if (!tx.HasMember("fee") || !tx["fee"].IsInt64()) {
-      error = "no 'fee' in transaction";
-      return false;
-    }
-
-    int64_t txFee = tx["fee"].GetInt64();
-    pureBlockReward -= txFee;
-    if (i >= txNum)
-      blockReward -= txFee;
-
-    if (i < txNum &&
-        tx.HasMember("txid") && tx["txid"].IsString() &&
+    if (tx.HasMember("txid") && tx["txid"].IsString() &&
         tx.HasMember("hash") && tx["hash"].IsString()) {
       rapidjson::Value &txid = tx["txid"];
       rapidjson::Value &hash = tx["hash"];
       if (txid.GetStringLength() == hash.GetStringLength()) {
-        if (memcmp(txid.GetString(), hash.GetString(), txid.GetStringLength()) != 0)
+        if (memcmp(txid.GetString(), hash.GetString(), txid.GetStringLength()) != 0) {
           segwitEnabled = true;
-      }
-
-      if (txFilter) {
-        witnessHashes.emplace_back();
-        witnessHashes.back().SetHex(hash.GetString());
+          break;
+        }
       }
     }
   }
+
+  bool needSortByHash = (ticker == "BCHN" || ticker == "BCHABC");
+  if (txFilter)
+    transactionFilter(transactions, txNumLimit, processedTransactions, &blockReward, needSortByHash);
+  else
+    transactionChecker(transactions, processedTransactions);
 
   // "coinbasedevreward" support
   int64_t devFee = 0;
@@ -491,7 +593,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   Proto::AddressTy devFeeAddress;
 
   if (txFilter)
-    LOG_F(INFO, " * [txfilter] transactions num %i -> %i; coinbase value %" PRIi64 " -> %" PRIi64 "", static_cast<int>(transactions.Size()), static_cast<int>(txNum), coinbaseValue.GetInt64(), blockReward);
+    LOG_F(INFO, " * [txfilter] transactions num %zu -> %zu; coinbase value %" PRIi64 " -> %" PRIi64 "", static_cast<size_t>(transactions.Size()), processedTransactions.size(), coinbaseValue.GetInt64(), blockReward);
 
   if (segwitEnabled) {
     if (!blockTemplate.HasMember("default_witness_commitment") || !blockTemplate["default_witness_commitment"].IsString()) {
@@ -505,6 +607,13 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
     if (!txFilter) {
       hex2bin(originalWitnessCommitment, originalWitnessCommitmentSize, witnessCommitment.reserve(originalWitnessCommitmentSize/2));
     } else {
+      // Collect witness hashes to array
+      std::vector<uint256> witnessHashes;
+      witnessHashes.emplace_back();
+      witnessHashes.back().SetNull();
+      for (const auto &tx: processedTransactions)
+        witnessHashes.push_back(tx.WitnessHash);
+
       // Calculate witness merkle root
       uint256 witnessMerkleRoot = calculateMerkleRoot(&witnessHashes[0], witnessHashes.size());
       // Calculate witness commitment
@@ -541,7 +650,7 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   // Serialize header and transactions count
   stream.reset();
   BTC::X::serialize(stream, header);
-  serializeVarSize(stream, txNum + 1);
+  serializeVarSize(stream, processedTransactions.size() + 1);
   bin2hexLowerCase(stream.data(), BlockHexData.reserve<char>(stream.sizeOf()*2), stream.sizeOf());
 
   // Coinbase
@@ -621,24 +730,12 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document,
   std::vector<uint256> txHashes;
   txHashes.emplace_back();
   txHashes.back().SetNull();
-  for (rapidjson::SizeType i = 0; i < txNum; i++) {
-    rapidjson::Value &txSrc = transactions[i];
-    if (!txSrc.HasMember("data") || !txSrc["data"].IsString()) {
-      error = "no 'data' for transaction";
-      return false;
-    }
-
-    BlockHexData.write(txSrc["data"].GetString(), txSrc["data"].GetStringLength());
-    if (!txSrc.HasMember("txid") || !txSrc["txid"].IsString()) {
-      error = "no 'txid' for transaction";
-      return false;
-    }
-
-    txHashes.emplace_back();
-    txHashes.back().SetHex(txSrc["txid"].GetString());
+  for (const auto &tx: processedTransactions) {
+    BlockHexData.write(tx.HexData, tx.HexDataSize);
+    txHashes.push_back(tx.TxId);
   }
 
-  TxNum = txNum;
+  TxNum = processedTransactions.size();
 
   // Build merkle path
   dumpMerkleTree(txHashes, MerklePath);

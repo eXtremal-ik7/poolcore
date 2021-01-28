@@ -35,8 +35,8 @@ private:
       newMemorySize_ *= 2;
 
     T *newData = static_cast<T*>(operator new(sizeof(T)*newMemorySize_));
-    for (size_t i = 0; i < MemorySize_; i++)
-      new(&newData[i]) T(Data_[i]);
+    for (size_t i = 0; i < Size_; i++)
+      new(&newData[i]) T(std::move(Data_[i]));
 
     free();
     Data_ = newData;
@@ -119,7 +119,7 @@ public:
   }
 
   void resize(size_t size) {
-    if (Size_ < size)
+    if (MemorySize_ < size)
       grow(size);
 
     for (size_t i = Size_; i < size; i++)
