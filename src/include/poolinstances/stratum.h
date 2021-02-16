@@ -462,7 +462,8 @@ private:
     info->HasJob = false;
     uint64_t height = 0;
     double shareDiff = 0.0;
-    typename X::Proto::BlockHashTy hash;
+    typename X::Proto::BlockHashTy shareHash;
+    typename X::Proto::BlockHashTy blockHash;
     std::vector<bool> foundBlockMask(LinkedBackends_.size(), false);
 
     // Check worker name
@@ -509,9 +510,9 @@ private:
       return false;
     }
 
-    hash = work.hash();
+    shareHash = work.shareHash();
     // Check for duplicate
-    if (!data.KnownShares.insert(hash).second) {
+    if (!data.KnownShares.insert(shareHash).second) {
       if (isDebugInstanceStratumRejects())
         LOG_F(1, "%s(%s) %s/%s reject: duplicate share", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
       errorCode = StratumErrorDuplicateShare;
@@ -527,6 +528,8 @@ private:
           LOG_F(1, "%s(%s) %s/%s sub-reject: backend %zu not initialized", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), i);
         continue;
       }
+
+      blockHash = work.blockHash(i);
 
       height = work.height(i);
       bool isBlock = work.checkConsensus(i, &shareDiff);
@@ -546,17 +549,17 @@ private:
 
       shareAccepted = true;
       if (isBlock) {
-        LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), hash.ToString().c_str(), work.txNum(i));
+        LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.ToString().c_str(), work.txNum(i));
 
         // Serialize block
         int64_t generatedCoins = work.blockReward(i);
         double shareDifficulty = connection->ShareDifficulty;
         double expectedWork = work.expectedWork(i);
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, hash, generatedCoins, expectedWork, backend, shareDifficulty, worker](uint32_t successNum, const std::string &hostName, const std::string &error) {
-          std::string blockHash = hash.ToString();
+        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, blockHash, generatedCoins, expectedWork, backend, shareDifficulty, worker](uint32_t successNum, const std::string &hostName, const std::string &error) {
+          std::string blockHashHex = blockHash.ToString();
           if (successNum) {
-            LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
+            LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHashHex.c_str(), height, hostName.c_str());
             if (successNum == 1) {
               // Send share with block to backend
               CShare *backendShare = new CShare;
@@ -566,13 +569,13 @@ private:
               backendShare->height = height;
               backendShare->WorkValue = shareDifficulty;
               backendShare->isBlock = true;
-              backendShare->hash = blockHash;
+              backendShare->hash = blockHashHex;
               backendShare->generatedCoins = generatedCoins;
               backendShare->ExpectedWork = expectedWork;
               backend->sendShare(backendShare);
             }
           } else {
-            LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
+            LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHashHex.c_str(), height, hostName.c_str(), error.c_str());
           }
         });
 
@@ -612,7 +615,7 @@ private:
       // All affected coins by this share
       // Difficulty of all affected coins
       if (MiningStats_)
-        MiningStats_->onShare(shareDiff, connection->ShareDifficulty, LinkedBackends_, foundBlockMask, hash);
+        MiningStats_->onShare(shareDiff, connection->ShareDifficulty, LinkedBackends_, foundBlockMask, shareHash);
     }
 
     return shareAccepted;

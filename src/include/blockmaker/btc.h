@@ -300,7 +300,8 @@ public:
 
   public:
     size_t backendsNum() { return 1; }
-    uint256 hash() { return Header.GetHash(); }
+    uint256 shareHash() { return Header.GetHash(); }
+    uint256 blockHash(size_t) { return Header.GetHash(); }
     PoolBackend *backend(size_t) { return Backend; }
     uint64_t height(size_t) { return Height; }
     size_t txNum(size_t) { return TxNum; }

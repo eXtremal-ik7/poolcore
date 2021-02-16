@@ -357,11 +357,9 @@ struct TxTree {
 
 bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<TxData> &result, int64_t *blockReward)
 {
-  if (tree[index].Visited)
+  // TODO: keep transactions depend on other transactions in same block
+  if (tree[index].Visited || tree[index].DependsOn != std::numeric_limits<size_t>::max())
     return true;
-
-  if (tree[index].DependsOn != std::numeric_limits<size_t>::max() && !addTransaction(tree, tree[index].DependsOn, txNumLimit, result, blockReward))
-    return false;
   if (result.size() >= txNumLimit)
     return false;
 

@@ -22,7 +22,7 @@ static inline double getDifficulty(uint32_t bits)
   return dDiff;
 }
 
-bool LTC::Proto::checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams&, double *shareDiff)
+bool LTC::Proto::checkPow(const Proto::BlockHeader &header, uint32_t nBits, double *shareDiff)
 {
   arith_uint256 scryptHash;
   scrypt_1024_1_1_256(reinterpret_cast<const char*>(&header), reinterpret_cast<char*>(scryptHash.begin()));
@@ -32,7 +32,7 @@ bool LTC::Proto::checkConsensus(const LTC::Proto::BlockHeader &header, CheckCons
   bool fOverflow;
   arith_uint256 bnTarget;
 
-  bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
+  bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)

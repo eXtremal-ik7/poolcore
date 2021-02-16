@@ -216,6 +216,19 @@ public:
       info.DefaultRpcPort = 44555;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
+    } else if (strcmp(coinName, "DOGE.regtest") == 0) {
+      info.Name = "DOGE.regtest";
+      info.FullName = "Dogecoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {111};
+      info.ScriptAddressPrefix = {196};
+      info.DefaultRpcPort = 18332;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
     } else if (strcmp(coinName, "FCH") == 0) {
       info.Name = "FCH";
       info.FullName = "FreeCash";
@@ -272,6 +285,20 @@ public:
       info.ScriptAddressPrefix = {58};
       info.Bech32Prefix = "tltc";
       info.DefaultRpcPort = 19332;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+    } else if (strcmp(coinName, "LTC.regtest") == 0) {
+      info.Name = "LTC.regtest";
+      info.FullName = "Litecoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {111};
+      info.ScriptAddressPrefix = {58};
+      info.Bech32Prefix = "rltc";
+      info.DefaultRpcPort = 19443;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
     } else if (strcmp(coinName, "XPM") == 0) {
