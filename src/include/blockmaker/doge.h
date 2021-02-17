@@ -129,7 +129,7 @@ public:
     return LTC::Stratum::suitableForProfitSwitcher(ticker);
   }
 
-  static double getIncomingProfitValue(rapidjson::Value &document, double price, double coeff) { return 0.0; }
+  static double getIncomingProfitValue(rapidjson::Value &document, double price, double coeff) { return BTC::Stratum::getIncomingProfitValue(document, price, coeff); }
 };
 
 struct X {
