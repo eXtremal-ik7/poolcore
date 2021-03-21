@@ -22,7 +22,7 @@ std::string partByTime(time_t time)
 
 static inline void serializeStringForKey(xmstream &stream, const std::string &S)
 {
-  stream.writeNetworkByteOrder<uint32_t>(S.size());
+  stream.writebe<uint32_t>(S.size());
   stream.write(S.data(), S.size());
 }
 
@@ -71,7 +71,7 @@ void payoutElement::serializeValue(xmstream &stream) const
 
 void miningRound::serializeKey(xmstream &stream) const
 {
-  stream.writeNetworkByteOrder<uint32_t>(height);
+  stream.writebe<uint32_t>(height);
   serializeStringForKey(stream, blockHash);
 }
 
@@ -220,7 +220,7 @@ bool foundBlock::deserializeValue(const void *data, size_t size)
 
 void foundBlock::serializeKey(xmstream &stream) const
 {
-  stream.writeNetworkByteOrder<uint32_t>(height);
+  stream.writebe<uint32_t>(height);
   serializeStringForKey(stream, hash);
 }
 
@@ -254,7 +254,7 @@ bool poolBalance::deserializeValue(const void *data, size_t size)
 
 void poolBalance::serializeKey(xmstream &stream) const
 {
-  stream.writeNetworkByteOrder<uint64_t>(time);
+  stream.writebe<uint64_t>(time);
 }
 
 void poolBalance::serializeValue(xmstream &stream) const
@@ -293,7 +293,7 @@ bool siteStats::deserializeValue(const void *data, size_t size)
 void siteStats::serializeKey(xmstream &stream) const
 {
   serializeStringForKey(stream, userId);
-  stream.writeNetworkByteOrder<uint64_t>(time);
+  stream.writebe<uint64_t>(time);
 }
 
 void siteStats::serializeValue(xmstream &stream) const
@@ -336,7 +336,7 @@ void clientStats::serializeKey(xmstream &stream) const
 {
   serializeStringForKey(stream, userId);
   serializeStringForKey(stream, workerId);
-  stream.writeNetworkByteOrder<uint64_t>(time);
+  stream.writebe<uint64_t>(time);
 }
 
 void clientStats::serializeValue(xmstream &stream) const
@@ -380,7 +380,7 @@ bool shareStats::deserializeValue(const void *data, size_t size)
 
 void shareStats::serializeKey(xmstream &stream) const
 {
-  stream.writeNetworkByteOrder<uint64_t>(time);
+  stream.writebe<uint64_t>(time);
 }
 
 void shareStats::serializeValue(xmstream &stream) const
@@ -414,7 +414,7 @@ bool payoutRecord::deserializeValue(const void *data, size_t size)
 void payoutRecord::serializeKey(xmstream &stream) const
 {
   serializeStringForKey(stream, userId);
-  stream.writeNetworkByteOrder<uint64_t>(time);
+  stream.writebe<uint64_t>(time);
 }
 
 void payoutRecord::serializeValue(xmstream &stream) const

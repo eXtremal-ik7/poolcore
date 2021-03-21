@@ -47,7 +47,7 @@ void StatisticDb::update()
   for (auto I = _statsMap.begin(), IE = _statsMap.end(); I != IE;) {
     const clientStats &stats = I->second;
     if (stats.time >= removeTimeLabel) {
-      if (stats.power < 16000)
+      if (stats.power < 1000000)
         power += stats.power;
       if (stats.latency >= 0) {
         avgLatency += stats.latency;
