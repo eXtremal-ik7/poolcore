@@ -284,16 +284,16 @@ bool Proto::checkConsensus(const Proto::BlockHeader &header, Proto::CheckConsens
   if (bnPrimeChainOriginBitSize > 2000)
     return false;
 
+  uint32_t chainLength;
   uint32_t l1 = c1Length(ctx);
   uint32_t l2 = c2Length(ctx);
   uint32_t lbitwin = bitwinLength(l1, l2);
-  if (!(l1 >= header.nBits || l2 >= header.nBits || lbitwin >= header.nBits))
-    return false;
-
-  uint32_t chainLength;
   chainLength = std::max(l1, l2);
   chainLength = std::max(chainLength, lbitwin);
   *shareSize = TargetGetLength(chainLength);
+
+  if (!(l1 >= header.nBits || l2 >= header.nBits || lbitwin >= header.nBits))
+    return false;
 
   // Check that the certificate (bnPrimeChainMultiplier) is normalized
   if (mpz_get_ui(header.bnPrimeChainMultiplier.get_mpz_t()) % 2 == 0 && mpz_get_ui(ctx.bnPrimeChainOrigin) % 4 == 0) {
@@ -356,11 +356,11 @@ void Zmq::generateNewWork(Work &work, WorkerConfig &workerCfg, ThreadConfig &thr
   workerCfg.ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
 
   // Write target extra nonce to first txin
-  uint8_t *scriptSig = work.FirstTxData.data<uint8_t>() + work.TxExtraNonceOffset;
+  uint8_t *scriptSig = work.CoinbaseTx.data<uint8_t>() + work.TxExtraNonceOffset;
   writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
 
   // Recalculate merkle root
-  header.hashMerkleRoot = calculateMerkleRoot(work.FirstTxData.data(), work.FirstTxData.sizeOf(), work.MerklePath);
+  header.hashMerkleRoot = calculateMerkleRoot(work.CoinbaseTx.data(), work.CoinbaseTx.sizeOf(), work.MerklePath);
 
   // Update thread config
   threadCfg.ExtraNonceMap[work.Header.hashMerkleRoot] = workerCfg.ExtraNonceFixed;
@@ -385,30 +385,29 @@ bool Zmq::prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &min
   }
 
   // Write extra nonce
-  uint64_t extraNonceFixed = nonceIt->second;
-  uint8_t *scriptSig = work.FirstTxData.data<uint8_t>() + work.TxExtraNonceOffset;
-  writeBinBE(extraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
-  bin2hexLowerCase(scriptSig, work.BlockHexData.data<char>() + work.BlockHexExtraNonceOffset, miningCfg.FixedExtraNonceSize);
+  std::string extraNonceHex = writeHexBE(nonceIt->second, miningCfg.FixedExtraNonceSize);
+  memcpy(work.TxHexData.data<uint8_t>() + work.BlockHexExtraNonceOffset, &extraNonceHex[0], extraNonceHex.size());
 
   {
-    // Update header in block hex dump
     char buffer[4096];
     xmstream stream(buffer, sizeof(buffer));
     stream.reset();
     BTC::X::serialize(stream, header);
-    bin2hexLowerCase(buffer, work.BlockHexData.data<char>(), stream.sizeOf());
+
+    work.BlockHexData.reset();
+    bin2hexLowerCase(stream.data(), work.BlockHexData.reserve<char>(stream.sizeOf()*2), stream.sizeOf());
+    work.BlockHexData.write(work.TxHexData.data(), work.TxHexData.sizeOf());
   }
 
   return true;
 }
 
-bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningConfig &cfg, PoolBackend *backend, const std::string &, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error)
+bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningConfig &cfg, PoolBackend *backend, const std::string &ticker, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error)
 {
-  char buffer[4096];
-  xmstream stream(buffer, sizeof(buffer));
   work.Height = 0;
   work.MerklePath.clear();
-  work.FirstTxData.reset();
+  work.CoinbaseTx.reset();
+  work.TxHexData.reset();
   work.BlockHexData.reset();
   work.Backend = backend;
 
@@ -457,7 +456,9 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
 
   work.Height = height.GetUint64();
   Proto::BlockHeader &header = work.Header;
-  header.nVersion = version.GetUint();
+  // TODO: use version from template
+  // header.nVersion = version.GetUint();
+  header.nVersion = 2;
   header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
   header.hashMerkleRoot.SetNull();
   header.nTime = curtime.GetUint();
@@ -466,10 +467,13 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   header.bnPrimeChainMultiplier = 0;
 
   // Serialize header and transactions count
-  stream.reset();
-  BTC::X::serialize(stream, header);
-  BTC::serializeVarSize(stream, transactions.Size() + 1);
-  bin2hexLowerCase(stream.data(), work.BlockHexData.reserve<char>(stream.sizeOf()*2), stream.sizeOf());
+  {
+    uint8_t txNumSerialized[16];
+    xmstream stream(txNumSerialized, sizeof(txNumSerialized));
+    stream.reset();
+    BTC::serializeVarSize(stream, transactions.Size() + 1);
+    bin2hexLowerCase(stream.data(), work.TxHexData.reserve<char>(stream.sizeOf()*2), stream.sizeOf());
+  }
 
   // Coinbase
   Proto::Transaction coinbaseTx;
@@ -500,7 +504,7 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
 
   // TxOut
   {
-    coinbaseTx.txOut.resize(2);
+    coinbaseTx.txOut.resize(1);
 
     {
       // First txout (funds)
@@ -520,9 +524,15 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   }
 
   coinbaseTx.lockTime = 0;
-  work.BlockHexExtraNonceOffset = static_cast<unsigned>(work.BlockHexData.sizeOf() + work.TxExtraNonceOffset*2);
-  BTC::X::serialize(work.FirstTxData, coinbaseTx);
-  bin2hexLowerCase(work.FirstTxData.data(), work.BlockHexData.reserve<char>(work.FirstTxData.sizeOf()*2), work.FirstTxData.sizeOf());
+  work.BlockHexExtraNonceOffset = static_cast<unsigned>(work.TxHexData.sizeOf() + work.TxExtraNonceOffset*2);
+  BTC::X::serialize(work.CoinbaseTx, coinbaseTx);
+
+  if (ticker == "DTC" || ticker == "DTC.testnet" || ticker == "DTC.regtest") {
+    // TODO: make separate 'blockmaker' for DTC
+    work.CoinbaseTx.write<uint8_t>(0);
+  }
+
+  bin2hexLowerCase(work.CoinbaseTx.data(), work.TxHexData.reserve<char>(work.CoinbaseTx.sizeOf()*2), work.CoinbaseTx.sizeOf());
 
   // Transactions
   std::vector<uint256> txHashes;

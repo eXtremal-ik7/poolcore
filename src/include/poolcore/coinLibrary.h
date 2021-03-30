@@ -229,6 +229,34 @@ public:
       info.DefaultRpcPort = 18332;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
+    } else if (strcmp(coinName, "DTC") == 0) {
+      info.Name = "DTC";
+      info.FullName = "Datacoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::ECPD;
+      info.PowerMultLog10 = -3;
+      info.PubkeyAddressPrefix = {30};
+      info.DefaultRpcPort = 11777;
+      info.CoinGeckoName = "datacoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "primecoin";
+    } else if (strcmp(coinName, "DTC.testnet") == 0) {
+      info.Name = "DTC";
+      info.FullName = "Datacoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::ECPD;
+      info.PowerMultLog10 = -3;
+      info.PubkeyAddressPrefix = {70};
+      info.DefaultRpcPort = 11776;
+      info.CoinGeckoName = "datacoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "primecoin";
     } else if (strcmp(coinName, "FCH") == 0) {
       info.Name = "FCH";
       info.FullName = "FreeCash";

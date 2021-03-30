@@ -104,7 +104,8 @@ public:
 
     Proto::BlockHeader Header;
     std::vector<uint256> MerklePath;
-    xmstream FirstTxData;
+    xmstream CoinbaseTx;
+    xmstream TxHexData;
     xmstream BlockHexData;
 
   public:
