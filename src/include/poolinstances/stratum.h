@@ -331,8 +331,11 @@ private:
       connection->IsCgMiner = true;
     if (msg.subscribe.minerUserAgent.find("NiceHash") != std::string::npos) {
       connection->IsNiceHash = true;
-      if (AlgoMetaStatistic_->coinInfo().Name == "sha256")
+      if (AlgoMetaStatistic_->coinInfo().Name == "sha256") {
         connection->ShareDifficulty = std::max(500000.0, connection->ShareDifficulty);
+      } else if (AlgoMetaStatistic_->coinInfo().Name == "scrypt") {
+        connection->ShareDifficulty = std::max(10.0, connection->ShareDifficulty);
+      }
     }
 
     std::string subscribeInfo;
