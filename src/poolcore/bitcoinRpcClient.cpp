@@ -267,6 +267,8 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
     HostName_ = inet_ntoa(addr);
   }
 
+  FullHostName_ = HostName_ + ":" + std::to_string(port);
+
   std::string basicAuth = login;
   basicAuth.push_back(':');
   basicAuth.append(password);
@@ -322,11 +324,11 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
           parseMoneyValue(immatureBalance.c_str(), CoinInfo_.RationalPartSize, &result.Immatured)) {
         return true;
       } else {
-        LOG_F(WARNING, "%s %s:%u: getwalletinfo invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+        LOG_F(WARNING, "%s %s: getwalletinfo invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
         return false;
       }
     } else if (connection->ParseCtx.resultCode == 404) {
-      LOG_F(WARNING, "%s %s:%u: doesn't support getwalletinfo api; recommended update your node", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      LOG_F(WARNING, "%s %s: doesn't support getwalletinfo api; recommended update your node", CoinInfo_.Name.c_str(), FullHostName_.c_str());
       connection.reset(getConnection(base));
       if (!connection)
         return false;
@@ -355,7 +357,7 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
         result.Immatured = balanceFull - result.Balance;
         return true;
       } else {
-        LOG_F(WARNING, "%s %s:%u: getbalance invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+        LOG_F(WARNING, "%s %s: getbalance invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
         return false;
       }
     }
@@ -392,7 +394,7 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<Get
 
   if (!document.IsArray() ||
       document.GetArray().Size() != query.size() + 1) {
-    LOG_F(WARNING, "%s %s:%u: response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
     return false;
   }
 
@@ -401,7 +403,7 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<Get
   {
     rapidjson::Value &value = document.GetArray()[0];
     if (!value.HasMember("result") || !(value["result"].IsObject() || value["result"].IsNull())) {
-      LOG_F(WARNING, "%s %s:%u: response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
       return false;
     }
 
@@ -412,7 +414,7 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<Get
 
     value = value["result"];
     if (!value.HasMember("blocks") || !value["blocks"].IsUint64()) {
-      LOG_F(WARNING, "%s %s:%u: response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
       return false;
     }
 
@@ -423,7 +425,7 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<Get
   for (rapidjson::SizeType i = 1, ie = document.GetArray().Size(); i != ie; ++i) {
     rapidjson::Value &value = document.GetArray()[i];
     if (!value.IsObject() || !value.HasMember("result") || !value["result"].IsString()) {
-      LOG_F(WARNING, "%s %s:%u: response invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
       return false;
     }
 
@@ -659,7 +661,7 @@ void CBitcoinRpcClient::aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr
   CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(queryPtr);
   query->Connection.reset(getConnection(base));
   if (!query->Connection) {
-    operation->accept(false, HostName_, "Socket creation error");
+    operation->accept(false, FullHostName_, "Socket creation error");
     return;
   }
   query->Operation = operation;
@@ -667,6 +669,7 @@ void CBitcoinRpcClient::aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr
   aioHttpConnect(query->Connection->Client, &Address_, nullptr, 10000000, [](AsyncOpStatus status, HTTPClient *httpClient, void *arg) {
     CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(arg);
     if (status != aosSuccess) {
+      query->Operation->accept(false, query->client<CBitcoinRpcClient>()->FullHostName_, "http connection error");
       delete query;
       return;
     }
@@ -674,6 +677,7 @@ void CBitcoinRpcClient::aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr
     aioHttpRequest(httpClient, query->stream().data<const char>(), query->stream().sizeOf(), 180000000, httpParseDefault, &query->Connection->ParseCtx, [](AsyncOpStatus status, HTTPClient *, void *arg) {
       CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(arg);
       if (status != aosSuccess) {
+        query->Operation->accept(false, query->client<CBitcoinRpcClient>()->FullHostName_, "http request error");
         delete query;
         return;
       }
@@ -717,10 +721,9 @@ void CBitcoinRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
 void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 {
   if (status != aosSuccess || WorkFetcher_.ParseCtx.resultCode != 200) {
-    LOG_F(WARNING, "%s %s:%u: request error code: %u (http result code: %u, data: %s)",
+    LOG_F(WARNING, "%s %s: request error code: %u (http result code: %u, data: %s)",
           CoinInfo_.Name.c_str(),
-          HostName_.c_str(),
-          static_cast<unsigned>(htons(Address_.port)),
+          FullHostName_.c_str(),
           static_cast<unsigned>(status),
           WorkFetcher_.ParseCtx.resultCode,
           WorkFetcher_.ParseCtx.body.data ? WorkFetcher_.ParseCtx.body.data : "<null>");
@@ -732,14 +735,14 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   std::unique_ptr<CBlockTemplate> blockTemplate(new CBlockTemplate);
   blockTemplate->Document.Parse(WorkFetcher_.ParseCtx.body.data);
   if (blockTemplate->Document.HasParseError()) {
-    LOG_F(WARNING, "%s %s:%u: JSON parse error", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+    LOG_F(WARNING, "%s %s: JSON parse error", CoinInfo_.Name.c_str(), FullHostName_.c_str());
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
   if (!blockTemplate->Document["result"].IsObject()) {
-    LOG_F(WARNING, "%s %s:%u: JSON invalid format: no result object", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+    LOG_F(WARNING, "%s %s: JSON invalid format: no result object", CoinInfo_.Name.c_str(), FullHostName_.c_str());
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
@@ -747,7 +750,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 
   auto now = std::chrono::steady_clock::now();
 
-  int64_t height;
+  int64_t height = 0;
   std::string prevBlockHash;
   std::string bits;
   bool validAcc = true;
@@ -756,7 +759,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   jsonParseInt(resultObject, "height", &height, &validAcc);
   jsonParseString(resultObject, "bits", bits, true, &validAcc);
   if (!validAcc || prevBlockHash.size() < 16) {
-    LOG_F(WARNING, "%s %s:%u: getblocktemplate invalid format", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+    LOG_F(WARNING, "%s %s: getblocktemplate invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
@@ -765,7 +768,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   if (!WorkFetcher_.LongPollId.empty()) {
     jsonParseString(resultObject, "longpollid", WorkFetcher_.LongPollId, true, &validAcc);
     if (!validAcc) {
-      LOG_F(WARNING, "%s %s:%u: does not support long poll, strongly recommended update your node", CoinInfo_.Name.c_str(), HostName_.c_str(), static_cast<unsigned>(htons(Address_.port)));
+      LOG_F(WARNING, "%s %s: does not support long poll, strongly recommended update your node", CoinInfo_.Name.c_str(), FullHostName_.c_str());
       WorkFetcher_.LongPollId.clear();
     }
   }

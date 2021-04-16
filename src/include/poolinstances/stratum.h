@@ -559,9 +559,9 @@ private:
         double shareDifficulty = connection->ShareDifficulty;
         double expectedWork = work.expectedWork(i);
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, blockHash, generatedCoins, expectedWork, backend, shareDifficulty, worker](uint32_t successNum, const std::string &hostName, const std::string &error) {
+        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, blockHash, generatedCoins, expectedWork, backend, shareDifficulty, worker](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
           std::string blockHashHex = blockHash.ToString();
-          if (successNum) {
+          if (success) {
             LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHashHex.c_str(), height, hostName.c_str());
             if (successNum == 1) {
               // Send share with block to backend

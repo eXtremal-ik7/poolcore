@@ -54,7 +54,7 @@ struct CCoinInfo {
 
 class CNetworkClient {
 public:
-  using SumbitBlockCb = std::function<void(uint32_t, const std::string&, const std::string&)>;
+  using SumbitBlockCb = std::function<void(bool, uint32_t, const std::string&, const std::string&)>;
 
   enum EOperationStatus {
     EStatusOk = 0,

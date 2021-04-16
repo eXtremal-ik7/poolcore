@@ -226,8 +226,8 @@ private:
       std::string user = share.addr();
       int64_t generatedCoins = work.blockReward();
       CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData().data(), work.blockHexData().sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](uint32_t successNum, const std::string &hostName, const std::string &error) {
-        if (successNum) {
+      dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData().data(), work.blockHexData().sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+        if (success) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
           if (successNum == 1) {
             // Send share with block to backend

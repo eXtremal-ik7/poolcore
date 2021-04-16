@@ -94,8 +94,9 @@ void CNetworkClient::CSubmitBlockOperation::accept(bool result, const std::strin
 {
   uint32_t st = 1u + ((result ? 1u : 0) << 16);
   uint32_t currentState = State_.fetch_add(st) + st;
+  uint32_t totalSubmits = currentState & 0xFFFF;
   uint32_t successSubmits = currentState >> 16;
-  Callback_(successSubmits, hostName, error);
-  if ((st & 0xFFFF) == ClientsNum_)
+  Callback_(result, successSubmits, hostName, error);
+  if (totalSubmits == ClientsNum_)
     delete this;
 }
