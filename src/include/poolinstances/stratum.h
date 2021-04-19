@@ -219,6 +219,7 @@ public:
       work.buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.MinorLastWorkId_, isNewBlock);
       int64_t currentTime = time(nullptr);
       for (auto &connection: data.Connections_) {
+        connection->ResendCount = 0;
         stratumSendWork(connection, currentTime);
         counter++;
       }
@@ -295,8 +296,15 @@ private:
     // Workers
     std::unordered_map<std::string, Worker> Workers;
     // Share statistic
-    uint64_t TotalShares = 0;
-    uint64_t InvalidShares = 0;
+    static constexpr unsigned SSWindowSize = 10;
+    static constexpr unsigned SSWindowElementSize = 10;
+
+    // TODO use cycle buffer here
+    std::deque<uint32_t> InvalidShares;
+    unsigned TotalSharesCounter = 0;
+    unsigned InvalidSharesCounter = 0;
+    unsigned InvalidSharesSequenceSize = 0;
+    unsigned ResendCount = 0;
   };
 
   struct ThreadData {
@@ -492,6 +500,10 @@ private:
       msg.submit.JobId[sharpPos] = 0;
       info->MajorJobId = xatoi<uint64_t>(msg.submit.JobId.c_str());
       info->MinorJobId = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
+
+      // Ignore resend counter
+      info->MinorJobId &= 0xFFFFF;
+
       size_t jobIdOffset = data.MinorLastWorkId_ - data.WorkSet.size() + 1;
       info->LocalJobIndex = info->MinorJobId - jobIdOffset;
       info->HasJob = info->MinorJobId >= jobIdOffset && info->LocalJobIndex < data.WorkSet.size();
@@ -628,8 +640,24 @@ private:
     StratumErrorTy errorCode;
     JobInfo info;
     bool result = shareCheck(connection, msg, errorCode, &info);
-    connection->TotalShares++;
-    connection->InvalidShares += result ? 0 : 1;
+
+    // Update invalid shares statistic
+    connection->TotalSharesCounter++;
+    if (!result) {
+      connection->InvalidSharesCounter++;
+      connection->InvalidSharesSequenceSize++;
+    } else {
+      connection->InvalidSharesSequenceSize = 0;
+    }
+
+    if (connection->TotalSharesCounter == Connection::SSWindowElementSize) {
+      connection->InvalidShares.push_back(connection->InvalidSharesCounter);
+      connection->InvalidSharesCounter = 0;
+      connection->TotalSharesCounter = 0;
+      if (connection->InvalidShares.size() > Connection::SSWindowSize)
+        connection->InvalidShares.pop_front();
+    }
+
     xmstream stream;
     {
       // Response
@@ -654,8 +682,16 @@ private:
     send(connection, stream);
 
     if (!result) {
-      uint64_t invalidSharedPercent = (connection->TotalShares >= 100) ? connection->InvalidShares*100 / connection->TotalShares : 0;
-      if (invalidSharedPercent >= 10) {
+      // Calculate invalid shares percentage
+      uint32_t invalidSharedPercent = 0;
+      if (connection->InvalidShares.size() >= 3) {
+        uint32_t invalidShares = 0;
+        for (auto v: connection->InvalidShares)
+          invalidShares += v;
+        invalidSharedPercent = invalidShares * 100 / (connection->InvalidShares.size()*Connection::SSWindowElementSize);
+      }
+
+      if (invalidSharedPercent >= 20) {
         if (isDebugInstanceStratumConnections())
           LOG_F(1, "%s: connection %s: too much errors, disconnecting...", Name_.c_str(), connection->AddressHr.c_str());
         connection->Active = false;
@@ -663,16 +699,17 @@ private:
       }
 
       // Change job for duplicate/invalid share (handle unstable clients)
-      if ((errorCode == StratumErrorDuplicateShare || errorCode == StratumErrorInvalidShare) && info.HasJob) {
+      // Do it every 4 sequential invalid shares
+      if ((errorCode == StratumErrorDuplicateShare || errorCode == StratumErrorInvalidShare) && info.HasJob && (connection->InvalidSharesSequenceSize % 4 == 0)) {
         ThreadData &data = Data_[GetLocalThreadId()];
+        // "Mutate" newest available work
         if (info.LocalJobIndex == data.WorkSet.size() - 1) {
-          // Create new job for unstable clients
-          // Deep copy last work
-          typename X::Stratum::Work *clone = new typename X::Stratum::Work(*data.WorkSet.back());
-          clone->mutate();
-          data.WorkSet.emplace_back(clone);
-          data.MinorLastWorkId_++;
-          clone->buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.MinorLastWorkId_, true);
+          typename X::Stratum::Work &work = *data.WorkSet.back();
+
+          // Usually increase 'nTime' in block header
+          work.mutate();
+          connection->ResendCount++;
+          work.buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.MinorLastWorkId_ | (connection->ResendCount << 20), true);
         }
 
         stratumSendWork(connection, time(nullptr));
