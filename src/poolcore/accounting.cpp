@@ -421,6 +421,12 @@ void AccountingDb::addShare(const CShare &share)
 
     CurrentScores_.clear();
 
+    // Get total share value
+    for (const auto &element: R->UserShares)
+      R->totalShareValue += element.shareValue;
+    for (const auto &element: personalFeeMap)
+      R->totalShareValue += element.second;
+
     // Calculate payments
     // Merge share value list with personal fee map
     int64_t totalPayout = 0;
@@ -447,8 +453,10 @@ void AccountingDb::addShare(const CShare &share)
       for (size_t i = 0, ie = _cfg.PoolFee.size(); i != ie; ++i) {
         PayoutDbRecord forSearch(_cfg.PoolFee[i].User, 0);
         auto It = std::lower_bound(R->payouts.begin(), R->payouts.end(), forSearch, [](const PayoutDbRecord &l, const PayoutDbRecord &r) { return l.UserId < r.UserId; });
-        if (It != R->payouts.end() && It->UserId == _cfg.PoolFee[i].User)
+        if (It != R->payouts.end() && It->UserId == _cfg.PoolFee[i].User) {
           It->Value += feeValues[i];
+          totalPayout += feeValues[i];
+        }
       }
     }
 
@@ -892,9 +900,10 @@ void AccountingDb::checkBalance()
   immature = getBalanceResult.Immatured;
 
   for (auto &userIt: _balanceMap) {
-    userBalance += userIt.second.Balance.getRational(CoinInfo_.ExtraMultiplier);
+    userBalance += userIt.second.Balance.get();
     requestedInBalance += userIt.second.Requested;
   }
+  userBalance /= CoinInfo_.ExtraMultiplier;
 
   for (auto &p: _payoutQueue) {
     requestedInQueue += p.Value;
