@@ -69,7 +69,7 @@ void miningRound::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, time);
   dbIoSerialize(stream, totalShareValue);
   dbIoSerialize(stream, availableCoins);
-  dbIoSerialize(stream, rounds);
+  dbIoSerialize(stream, UserShares);
   dbIoSerialize(stream, payouts);
 }
 
@@ -85,7 +85,7 @@ bool miningRound::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, time);
     dbIoUnserialize(stream, totalShareValue);
     dbIoUnserialize(stream, availableCoins);
-    dbIoUnserialize(stream, rounds);
+    dbIoUnserialize(stream, UserShares);
     dbIoUnserialize(stream, payouts);
   }
   
@@ -99,7 +99,7 @@ void miningRound::dump()
   fprintf(stderr, "time=%u\n", (unsigned)time);
   fprintf(stderr, "totalShareValue=%.3lf\n", totalShareValue);
   fprintf(stderr, "availableCoins=%" PRId64 "\n", availableCoins);
-  for (auto r: rounds) {
+  for (auto r: UserShares) {
     fprintf(stderr, " *** round element ***\n");
     fprintf(stderr, " * userId: %s\n", r.userId.c_str());
     fprintf(stderr, " * shareValue: %.3lf\n", r.shareValue);

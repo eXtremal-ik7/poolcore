@@ -4,6 +4,7 @@
 #include "poolcore/backendData.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/rocksdbBase.h"
+#include "poolcommon/intrusive_ptr.h"
 #include "poolcommon/uint256.h"
 #include "asyncio/asyncio.h"
 #include <tbb/concurrent_queue.h>
@@ -36,6 +37,56 @@ public:
   struct UserInfo {
     std::string Name;
     std::string EMail;
+  };
+
+  struct PersonalFeeNode {
+    PersonalFeeNode *Parent;
+    std::string UserId;
+    double DefaultFee;
+    std::unordered_map<std::string, double> CoinSpecificFee;
+
+    double getFeeCoefficient(const std::string &coinName) {
+      if (CoinSpecificFee.empty())
+        return DefaultFee;
+
+      auto It = CoinSpecificFee.find(coinName);
+      return It != CoinSpecificFee.end() ? It->second : DefaultFee;
+    }
+  };
+
+  class alignas(512) PersonalFeeTree {
+  private:
+    std::unordered_map<std::string, PersonalFeeNode*> Nodes_;
+    std::atomic<uintptr_t> Refs_ = 0;
+
+  public:
+    ~PersonalFeeTree() {
+      for (auto &node: Nodes_)
+        delete node.second;
+    }
+
+    PersonalFeeNode *get(const std::string &userId) {
+      auto It = Nodes_.find(userId);
+      return It != Nodes_.end() ? It->second : nullptr;
+    }
+
+    PersonalFeeTree *deepCopy() {
+      PersonalFeeTree *result = new PersonalFeeTree;
+      for (const auto &node: Nodes_)
+        result->Nodes_[node.second->UserId] = new PersonalFeeNode(*node.second);
+
+      // Fix parent pointers
+      for (auto &node: result->Nodes_) {
+        if (node.second->Parent)
+          node.second->Parent = result->Nodes_[node.second->Parent->UserId];
+      }
+
+      return result;
+    }
+
+  public:
+    uintptr_t ref_fetch_add(uint64_t value) { return Refs_.fetch_add(value); }
+    uintptr_t ref_fetch_sub(uint64_t value) { return Refs_.fetch_sub(value); }
   };
 
   // User session life time from last access (default: 30 minutes)
@@ -257,6 +308,11 @@ public:
     }, this);
   }
 
+  // Personal fee api
+  intrusive_ptr<PersonalFeeTree> personalFeeConfig() {
+    return intrusive_ptr<PersonalFeeTree>(PersonalFeeConfig_);
+  }
+
   // Asynchronous api
   void userAction(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserActionTask(this, uint512S(id), callback)); }
   void userActionInitiate(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback) { startAsyncTask(new UserInitiateActionTask(this, login, type, callback)); }
@@ -339,6 +395,9 @@ private:
   std::unordered_set<std::string> AllEmails_;
   std::map<std::string, uint512> LoginSessionMap_;
   std::map<std::string, uint512> LoginActionMap_;
+
+  // User personal fees (RCU)
+  atomic_intrusive_ptr<PersonalFeeTree> PersonalFeeConfig_;
 
   // Configuration
   std::vector<CCoinInfo> CoinInfo_;

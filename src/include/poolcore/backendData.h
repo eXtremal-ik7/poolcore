@@ -85,9 +85,11 @@ struct PoolBackendConfig {
   std::string poolZAddr;
 };
 
-struct roundElement {
+struct UserShareValue {
   std::string userId;
   double shareValue;
+  UserShareValue() {}
+  UserShareValue(const std::string &userId_, double shareValue_) : userId(userId_), shareValue(shareValue_) {}
 };
 
 struct PayoutDbRecord {
@@ -114,7 +116,7 @@ struct PayoutDbRecord {
   void serializeValue(xmstream &stream) const;
 
   PayoutDbRecord() {}
-  PayoutDbRecord(const std::string &userId2, int64_t value2) : UserId(userId2), Value(value2) {}
+  PayoutDbRecord(const std::string &userId, int64_t value) : UserId(userId), Value(value) {}
 };
 
 struct shareInfo {
@@ -133,8 +135,8 @@ struct miningRound {
   double totalShareValue;
   int64_t availableCoins;
     
-  std::list<roundElement> rounds;
-  std::list<PayoutDbRecord> payouts;
+  std::vector<UserShareValue> UserShares;
+  std::vector<PayoutDbRecord> payouts;
     
   miningRound() {}
   miningRound(unsigned heightArg) : height(heightArg) {}
@@ -328,13 +330,13 @@ struct ShareStatsRecord {
 };
 
 template<>
-struct DbIo<roundElement> {
-  static inline void serialize(xmstream &stream, const roundElement &data) {
+struct DbIo<UserShareValue> {
+  static inline void serialize(xmstream &stream, const UserShareValue &data) {
     DbIo<decltype (data.userId)>::serialize(stream, data.userId);
     DbIo<decltype (data.shareValue)>::serialize(stream, data.shareValue);
   }
 
-  static inline void unserialize(xmstream &stream, roundElement &data) {
+  static inline void unserialize(xmstream &stream, UserShareValue &data) {
     DbIo<decltype (data.userId)>::unserialize(stream, data.userId);
     DbIo<decltype (data.shareValue)>::unserialize(stream, data.shareValue);
   }

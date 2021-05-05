@@ -79,6 +79,18 @@ public:
   struct CStatsExportData {
     std::string UserId;
     std::vector<CStatsElement> Recent;
+
+    double recentShareValue(int64_t acceptSharesTime) const {
+      double shareValue = 0.0;
+      for (auto &statsElement: Recent) {
+        if (statsElement.TimeLabel > acceptSharesTime)
+          shareValue += statsElement.SharesWork;
+        else
+          break;
+      }
+
+      return shareValue;
+    }
   };
 
 private:

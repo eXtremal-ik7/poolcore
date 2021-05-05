@@ -1,5 +1,6 @@
 #include "poolcore/accounting.h"
 #include "poolcommon/coroutineJoin.h"
+#include "poolcommon/mergeSorted.h"
 #include "poolcommon/utils.h"
 #include "poolcore/base58.h"
 #include "poolcore/statistics.h"
@@ -289,6 +290,44 @@ void AccountingDb::cleanupRounds()
   }
 }
 
+void AccountingDb::processPersonalFee(UserManager::PersonalFeeTree &personalFeeConfig, UserShareValue &shareValue, std::map<std::string, double> &personalFeeMap)
+{
+  std::set<std::string> visited = {shareValue.userId};
+  UserManager::PersonalFeeNode *currentNode = personalFeeConfig.get(shareValue.userId);
+  UserManager::PersonalFeeNode *parentNode = currentNode ? currentNode->Parent : nullptr;
+  if (!parentNode)
+    return;
+
+  if (!visited.insert(parentNode->UserId).second) {
+    LOG_F(ERROR, "Personal fee recursion detected for %s\n", shareValue.userId.c_str());
+    return;
+  }
+
+  auto feeIt = personalFeeMap.find(parentNode->UserId);
+  if (feeIt == personalFeeMap.end())
+    feeIt = personalFeeMap.insert(feeIt, std::make_pair(parentNode->UserId, 0.0));
+
+  double shareValueDelta = shareValue.shareValue * currentNode->getFeeCoefficient(CoinInfo_.Name);
+  shareValue.shareValue -= shareValueDelta;
+  feeIt->second += shareValueDelta;
+  LOG_F(INFO, "   * PF %s -> %s %.3lf shares", shareValue.userId.c_str(), parentNode->UserId.c_str(), shareValueDelta);
+
+  for (currentNode = parentNode, parentNode = parentNode->Parent; parentNode; currentNode = parentNode, parentNode = parentNode->Parent) {
+    if (!visited.insert(parentNode->UserId).second) {
+      LOG_F(ERROR, "Personal fee recursion detected for %s\n", shareValue.userId.c_str());
+      return;
+    }
+
+    shareValueDelta *= currentNode->getFeeCoefficient(CoinInfo_.Name);
+    feeIt->second -= shareValueDelta;
+    feeIt = personalFeeMap.find(parentNode->UserId);
+    if (feeIt == personalFeeMap.end())
+      feeIt = personalFeeMap.insert(feeIt, std::make_pair(parentNode->UserId, 0.0));
+    feeIt->second += shareValueDelta;
+    LOG_F(INFO, "   * PF %s -> %s %.3lf shares", currentNode->UserId.c_str(), parentNode->UserId.c_str(), shareValueDelta);
+  }
+}
+
 void AccountingDb::addShare(const CShare &share)
 {
   // increment score
@@ -352,103 +391,85 @@ void AccountingDb::addShare(const CShare &share)
     R->availableCoins = available;
     R->totalShareValue = 0;
 
-    int64_t AcceptSharesTime = share.Time - 1800;
-    auto statsIt = RecentStats_.begin();
-    auto scoresIt = CurrentScores_.begin();
-    while (statsIt != RecentStats_.end() || scoresIt != CurrentScores_.end()) {
-      auto &element = R->rounds.emplace_back();
-      bool haveScores = scoresIt != CurrentScores_.end();
-      bool haveStats = statsIt != RecentStats_.end();
+    std::map<std::string, double> personalFeeMap;
+    for (const auto &poolFee: _cfg.PoolFee)
+      personalFeeMap[poolFee.User] = 0;
 
-      if (haveScores && (!haveStats || scoresIt->first < statsIt->UserId)) {
-        // User joined recently, no extra shares in statistic
-        element.userId = scoresIt->first;
-        element.shareValue = scoresIt->second;
-        ++scoresIt;
-      } else {
-        bool needMerge = haveScores && scoresIt->first == statsIt->UserId;
-        element.userId = statsIt->UserId;
-        element.shareValue = needMerge ? scoresIt->second : 0.0;
-
-        // Extract recent share work value if need
-        for (auto &statsElement: statsIt->Recent) {
-          if (statsElement.TimeLabel > AcceptSharesTime)
-            element.shareValue += statsElement.SharesWork;
-          else
-            break;
-        }
-
-        ++statsIt;
-        if (needMerge)
-          ++scoresIt;
-      }
-
-      if (element.shareValue != 0.0)
-        R->totalShareValue += element.shareValue;
-      else
-        R->rounds.pop_back();
+    {
+      intrusive_ptr<UserManager::PersonalFeeTree> personalFeeConfig(UserManager_.personalFeeConfig());
+      int64_t acceptSharesTime = share.Time - 1800;
+      mergeSorted(RecentStats_.begin(), RecentStats_.end(), CurrentScores_.begin(), CurrentScores_.end(),
+        [](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, double> &scores) { return stats.UserId < scores.first; },
+        [](const std::pair<std::string, double> &scores, const StatisticDb::CStatsExportData &stats) { return scores.first < stats.UserId; },
+        [&](const StatisticDb::CStatsExportData &stats) {
+          // User disconnected recently, no new shares
+          double shareValue = stats.recentShareValue(acceptSharesTime);
+          if (shareValue != 0.0) {
+            auto &element = R->UserShares.emplace_back(stats.UserId, shareValue);
+            processPersonalFee(*personalFeeConfig.get(), element, personalFeeMap);
+          }
+        }, [&](const std::pair<std::string, double> &scores) {
+          // User joined recently, no extra shares in statistic
+          auto &element = R->UserShares.emplace_back(scores.first, scores.second);
+          processPersonalFee(*personalFeeConfig.get(), element, personalFeeMap);
+        }, [&](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, double> &scores) {
+          // Need merge new shares and recent share statistics
+          auto &element = R->UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime));
+          processPersonalFee(*personalFeeConfig.get(), element, personalFeeMap);
+        });
     }
 
     CurrentScores_.clear();
 
-    // *** calculate payments ***
+    // Calculate payments
+    // Merge share value list with personal fee map
+    int64_t totalPayout = 0;
+    auto addPayout = [R, &totalPayout](const std::string &userId, double shareValue) {
+      int64_t payoutValue = static_cast<int64_t>(R->availableCoins * (shareValue / R->totalShareValue));
+      R->payouts.emplace_back(userId, payoutValue);
+      totalPayout += payoutValue;
+    };
+
+    // (R->UserShares, personalFeeMap) ==> R->payouts
+    mergeSorted(R->UserShares.begin(), R->UserShares.end(), personalFeeMap.begin(), personalFeeMap.end(),
+      [](const UserShareValue &l, const std::pair<std::string, double> &r) { return l.userId < r.first; },
+      [](const std::pair<std::string, double> &l, const UserShareValue &r) { return l.first < r.userId; },
+      [addPayout](const UserShareValue &value) { addPayout(value.userId, value.shareValue); },
+      [addPayout](const std::pair<std::string, double> &personalFee) { addPayout(personalFee.first, personalFee.second); },
+      [addPayout](const UserShareValue &value, const std::pair<std::string, double> &personalFee) {
+        addPayout(value.userId, value.shareValue + personalFee.second);
+      }
+    );
+
+    // Add pool fee payouts
     {
-      int64_t totalPayout = 0;
-      auto poolFeeIt = _cfg.PoolFee.begin();
-      auto userIt = R->rounds.begin();
-      while (userIt != R->rounds.end() || poolFeeIt != _cfg.PoolFee.end()) {
-        PayoutDbRecord &payout = R->payouts.emplace_back();
+      std::vector<PayoutDbRecord> extraPayouts;
+      for (size_t i = 0, ie = _cfg.PoolFee.size(); i != ie; ++i) {
+        PayoutDbRecord forSearch(_cfg.PoolFee[i].User, 0);
+        auto It = std::lower_bound(R->payouts.begin(), R->payouts.end(), forSearch, [](const PayoutDbRecord &l, const PayoutDbRecord &r) { return l.UserId < r.UserId; });
+        if (It != R->payouts.end() && It->UserId == _cfg.PoolFee[i].User)
+          It->Value += feeValues[i];
+      }
+    }
 
-        bool haveUser = userIt != R->rounds.end();
-        bool havePoolFee = poolFeeIt != _cfg.PoolFee.end();
-        double shareValue = 0.0;
-        if (haveUser && (!havePoolFee || userIt->userId < poolFeeIt->User)) {
-          shareValue = userIt->shareValue;
-          payout.UserId = userIt->userId;
-          payout.Value = static_cast<int64_t>(R->availableCoins * (shareValue / R->totalShareValue));
-          ++userIt;
-        } else {
-          bool needMerge = haveUser && userIt->userId == poolFeeIt->User;
-          shareValue = needMerge ? userIt->shareValue : 0.0;
-          payout.UserId = poolFeeIt->User;
-          payout.Value = feeValues[poolFeeIt - _cfg.PoolFee.begin()];
-          if (needMerge)
-            payout.Value += static_cast<int64_t>(R->availableCoins * (shareValue / R->totalShareValue));
+    // Correct payouts for use all available coins
+    if (!R->payouts.empty()) {
+      int64_t diff = totalPayout - generatedCoins;
+      int64_t div = diff / (int64_t)R->payouts.size();
+      int64_t mv = diff >= 0 ? 1 : -1;
+      int64_t mod = (diff > 0 ? diff : -diff) % R->payouts.size();
 
-          ++poolFeeIt;
-          if (needMerge)
-            ++userIt;
-        }
-
-        if (payout.Value) {
-          totalPayout += payout.Value;
-          LOG_F(INFO, "   * %s: share value: %.3lf; payout: %" PRId64 "", payout.UserId.c_str(), shareValue, payout.Value);
-        } else {
-          R->payouts.pop_back();
-        }
+      totalPayout = 0;
+      int64_t i = 0;
+      for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I, ++i) {
+        I->Value -= div;
+        if (i < mod)
+          I->Value -= mv;
+        totalPayout += I->Value;
+        LOG_F(INFO, "   * %s: payout: %" PRId64"", I->UserId.c_str(), I->Value);
       }
 
-      LOG_F(INFO, " * total payout: %" PRId64 "", totalPayout);
-
-      // correct payouts for use all available coins
-      if (!R->payouts.empty()) {
-        int64_t diff = totalPayout - generatedCoins;
-        int64_t div = diff / (int64_t)R->payouts.size();
-        int64_t mv = diff >= 0 ? 1 : -1;
-        int64_t mod = (diff > 0 ? diff : -diff) % R->payouts.size();
-
-        totalPayout = 0;
-        int64_t i = 0;
-        for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I, ++i) {
-          I->Value -= div;
-          if (i < mod)
-            I->Value -= mv;
-          totalPayout += I->Value;
-          LOG_F(INFO, "   * %s: payout: %" PRId64"", I->UserId.c_str(), I->Value);
-        }
-
-        LOG_F(INFO, " * total payout (after correct): %" PRId64 "", totalPayout);
-      }
+      LOG_F(INFO, " * total payout (after correct): %" PRId64 "", totalPayout);
     }
 
     // store round to DB and clear shares map

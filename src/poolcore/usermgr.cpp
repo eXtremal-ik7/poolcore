@@ -136,6 +136,13 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
     LOG_F(INFO, "UserManager: loaded %zu user actions", ActionsCache_.size());
   }
 
+  {
+    // Personal fee
+    PersonalFeeTree *tree = new PersonalFeeTree;
+    // TODO: load from database
+    // ...
+    PersonalFeeConfig_.reset(tree);
+  }
 
   Base_ = createAsyncBase(amOSDefault);
   TaskQueueEvent_ = newUserEvent(Base_, 0, [](aioUserEvent*, void *arg) {
