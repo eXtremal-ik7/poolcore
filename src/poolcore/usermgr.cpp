@@ -51,6 +51,7 @@ static void makeRandom(base_blob<BITS> &number)
 
 UserManager::UserManager(const std::filesystem::path &dbPath) :
   UsersDb_(dbPath / "users"),
+  UserPersonalFeeDb_(dbPath / "userpersonalfee"),
   UserSettingsDb_(dbPath / "usersettings"),
   UserActionsDb_(dbPath / "useractions"),
   UserSessionsDb_(dbPath / "usersessions")
@@ -139,8 +140,42 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
   {
     // Personal fee
     PersonalFeeTree *tree = new PersonalFeeTree;
-    // TODO: load from database
-    // ...
+
+    size_t recordsCount = 0;
+    std::unique_ptr<rocksdbBase::IteratorType> It(UserPersonalFeeDb_.iterator());
+    for (It->seekFirst(); It->valid(); It->next(), recordsCount++) {
+      UserPersonalFeeRecord record;
+      if (!record.deserializeValue(It->value().data, It->value().size)) {
+        LOG_F(ERROR, "Database corrupted (users personal fee)");
+        break;
+      }
+
+      if (!UsersCache_.count(record.UserId)) {
+        LOG_F(ERROR, "Users personal fee: user %s not exists", record.UserId.c_str());
+        continue;
+      }
+
+      if (!UsersCache_.count(record.ParentUserId)) {
+        LOG_F(ERROR, "Users personal fee: user %s not exists", record.ParentUserId.c_str());
+        continue;
+      }
+
+      PersonalFeeNode *currentNode = tree->getOrCreate(record.UserId);
+      PersonalFeeNode *parentNode = tree->getOrCreate(record.ParentUserId);
+      currentNode->Parent = parentNode;
+      currentNode->DefaultFee = record.DefaultFee;
+      for (const auto &coinSpecificFee: record.CoinSpecificFee)
+        currentNode->CoinSpecificFee[coinSpecificFee.CoinName] = coinSpecificFee.Fee;
+      parentNode->ChildNodes.push_back(currentNode);
+    }
+
+    if (tree->hasLoop()) {
+      LOG_F(ERROR, "Users personal fee: loop detected");
+      delete tree;
+      tree = new PersonalFeeTree;
+    }
+
+    LOG_F(INFO, "UserManager: loaded %zu personal fee relations", recordsCount);
     PersonalFeeConfig_.reset(tree);
   }
 
@@ -169,6 +204,36 @@ void UserManager::stop()
 
   postQuitOperation(Base_);
   Thread_.join();
+}
+
+bool UserManager::updatePersonalFee(const std::string &login, const std::string &parentUserId, double defaultFee)
+{
+  PersonalFeeTree *tree = PersonalFeeConfig_.get()->deepCopy();
+  PersonalFeeNode *parentNode = tree->getOrCreate(parentUserId);
+  PersonalFeeNode *currentNode = tree->getOrCreate(login);
+  if (currentNode->Parent) {
+    // Node already exists and have parent
+    // Remove it from children list of parent node
+    currentNode->Parent->removeFromChildNodes(currentNode);
+  }
+
+  currentNode->Parent = parentNode;
+  currentNode->DefaultFee = defaultFee;
+
+  // Check for loops
+  if (tree->hasLoop())
+    return false;
+
+  {
+    UserPersonalFeeRecord record;
+    record.UserId = currentNode->UserId;
+    record.ParentUserId = currentNode->Parent->UserId;
+    record.DefaultFee = currentNode->DefaultFee;
+    UserPersonalFeeDb_.put(record);
+  }
+
+  PersonalFeeConfig_.reset(tree);
+  return true;
 }
 
 void UserManager::userManagerMain()
@@ -473,12 +538,12 @@ void UserManager::userChangePasswordForceImpl(const std::string &sessionId, cons
   callback("ok");
 }
 
-void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callback, bool isActivated, bool isReadOnly)
+void UserManager::userCreateImpl(const std::string &login, Credentials &credentials, Task::DefaultCb callback)
 {
   // NOTE: function is coroutine!
 
   // Check login format
-  if (credentials.Login.empty() || credentials.Login.size() > 64 || credentials.Login == "admin") {
+  if (credentials.Login.empty() || credentials.Login.size() > 64 || credentials.Login == "admin" || credentials.Login == "observer") {
     callback("login_format_invalid");
     return;
   }
@@ -495,7 +560,7 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
       callback("email_format_invalid");
       return;
     }
-  } else if (!isActivated) {
+  } else if (!credentials.IsActive) {
     callback("email_format_invalid");
     return;
   }
@@ -514,6 +579,27 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
     return;
   }
 
+  // Check special flags available for admin only
+  if (credentials.IsActive || credentials.IsReadOnly) {
+    if (login != "admin") {
+      callback("unknown_id");
+      return;
+    }
+  }
+
+  // Check personal fee
+  if (!credentials.ParentUser.empty()) {
+    if (login != credentials.ParentUser && login != "admin") {
+      callback("parent_select_not_allowed");
+      return;
+    }
+
+    if (!UsersCache_.count(credentials.ParentUser)) {
+      callback("parent_not_exists");
+      return;
+    }
+  }
+
   // Prepare credentials (hashing password, activate link, etc...)
   // Generate 'user activate' action
   // Insert data into memory storage
@@ -530,15 +616,15 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
   userRecord.TwoFactorAuthData.clear();
   userRecord.PasswordHash = generateHash(credentials.Login, credentials.Password);
   userRecord.RegistrationDate = time(nullptr);
-  userRecord.IsActive = isActivated;
-  userRecord.IsReadOnly = isReadOnly;
+  userRecord.IsActive = credentials.IsActive;
+  userRecord.IsReadOnly = credentials.IsReadOnly;
 
   if (!UsersCache_.insert(std::pair(credentials.Login, userRecord))) {
     callback("duplicate_login");
     return;
   }
 
-  if (!isActivated) {
+  if (!credentials.IsActive) {
     if (SMTP.Enabled) {
       HostAddress localAddress;
       localAddress.ipv4 = INADDR_ANY;
@@ -591,7 +677,17 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
     }
 
     // TODO: Setup default settings for all coins
+  }
 
+  if (!credentials.ParentUser.empty()) {
+    if (!updatePersonalFee(credentials.Login, credentials.ParentUser, credentials.DefaultFee)) {
+      LOG_F(ERROR, "Can't join to personal fee tree (database correpted?)");
+      callback("personal_fee_loop_detected");
+      return;
+    }
+  }
+
+  if (!credentials.IsActive) {
     // Save changes to databases
     actionAdd(actionRecord);
   }
@@ -600,6 +696,7 @@ void UserManager::userCreateImpl(Credentials &credentials, Task::DefaultCb callb
     AllEmails_.insert(credentials.EMail);
 
   UsersDb_.put(userRecord);
+
   LOG_F(INFO, "New user: %s (%s) email: %s; actionId: %s", userRecord.Login.c_str(), userRecord.Name.c_str(), userRecord.EMail.c_str(), actionRecord.Id.ToString().c_str());
   callback("ok");
 }

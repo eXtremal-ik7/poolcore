@@ -171,6 +171,26 @@ struct UsersRecord {
   void serializeValue(xmstream &stream) const;
 };
 
+struct CoinSpecificFeeRecord {
+  std::string CoinName;
+  double Fee;
+};
+
+struct UserPersonalFeeRecord {
+  enum { CurrentRecordVersion = 1 };
+
+  std::string UserId;
+  std::string ParentUserId;
+  double DefaultFee;
+  std::vector<CoinSpecificFeeRecord> CoinSpecificFee;
+
+  UserPersonalFeeRecord() {}
+  std::string getPartitionId() const { return "default"; }
+  bool deserializeValue(const void *data, size_t size);
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;
+};
+
 struct UserActionRecord {
   enum { CurrentRecordVersion = 1 };
 

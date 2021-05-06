@@ -55,6 +55,19 @@ struct DbIo<PayoutDbRecord> {
   }
 };
 
+template<>
+struct DbIo<CoinSpecificFeeRecord> {
+  static inline void serialize(xmstream &stream, const CoinSpecificFeeRecord &data) {
+    dbIoSerialize(stream, data.CoinName);
+    dbIoSerialize(stream, data.Fee);
+  }
+
+  static inline void unserialize(xmstream &stream, CoinSpecificFeeRecord &data) {
+    dbIoUnserialize(stream, data.CoinName);
+    dbIoUnserialize(stream, data.Fee);
+  }
+};
+
 void miningRound::serializeKey(xmstream &stream) const
 {
   dbKeyIoSerialize(stream, height);
@@ -182,6 +195,35 @@ void UserSettingsRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Address);
   dbIoSerialize(stream, MinimalPayout);
   dbIoSerialize(stream, AutoPayout);
+}
+
+bool UserPersonalFeeRecord::deserializeValue(const void *data, size_t size)
+{
+  xmstream stream(const_cast<void*>(data), size);
+  uint32_t version;
+  dbIoUnserialize(stream, version);
+  if (version == 1) {
+    dbIoUnserialize(stream, UserId);
+    dbIoUnserialize(stream, ParentUserId);
+    dbIoUnserialize(stream, DefaultFee);
+    dbIoUnserialize(stream, CoinSpecificFee);
+  }
+
+  return !stream.eof();
+}
+
+void UserPersonalFeeRecord::serializeKey(xmstream &stream) const
+{
+  dbKeyIoSerialize(stream, UserId);
+}
+
+void UserPersonalFeeRecord::serializeValue(xmstream &stream) const
+{
+  dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
+  dbIoSerialize(stream, UserId);
+  dbIoSerialize(stream, ParentUserId);
+  dbIoSerialize(stream, DefaultFee);
+  dbIoSerialize(stream, CoinSpecificFee);
 }
 
 // UserActionRecord

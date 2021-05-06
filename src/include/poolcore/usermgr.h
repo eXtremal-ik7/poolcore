@@ -32,6 +32,9 @@ public:
     int64_t RegistrationDate;
     bool IsActive;
     bool IsReadOnly;
+    // Personal fee
+    std::string ParentUser;
+    double DefaultFee;
   };
 
   struct UserInfo {
@@ -41,6 +44,7 @@ public:
 
   struct PersonalFeeNode {
     PersonalFeeNode *Parent;
+    std::vector<PersonalFeeNode*> ChildNodes;
     std::string UserId;
     double DefaultFee;
     std::unordered_map<std::string, double> CoinSpecificFee;
@@ -51,6 +55,12 @@ public:
 
       auto It = CoinSpecificFee.find(coinName);
       return It != CoinSpecificFee.end() ? It->second : DefaultFee;
+    }
+
+    void removeFromChildNodes(PersonalFeeNode *node) {
+      auto It = std::find(ChildNodes.begin(), ChildNodes.end(), node);
+      if (It != ChildNodes.end())
+        ChildNodes.erase(It);
     }
   };
 
@@ -70,15 +80,61 @@ public:
       return It != Nodes_.end() ? It->second : nullptr;
     }
 
+    PersonalFeeNode *getOrCreate(const std::string &userId) {
+      auto It = Nodes_.find(userId);
+      if (It != Nodes_.end()) {
+        return It->second;
+      } else {
+        PersonalFeeNode *node = new PersonalFeeNode;
+        node->Parent = nullptr;
+        node->UserId = userId;
+        node->DefaultFee = 0.0;
+        Nodes_[userId] = node;
+        return node;
+      }
+    }
+
+    bool hasLoop() const {
+      std::unordered_set<PersonalFeeNode*> knownNodes;
+      for (const auto &It: Nodes_) {
+        PersonalFeeNode *current = It.second;
+        if (knownNodes.count(current))
+          continue;
+
+        std::unordered_set<PersonalFeeNode*> visited = {current};
+        while (current->Parent && !knownNodes.count(current->Parent)) {
+          if (!visited.insert(current->Parent).second)
+            return true;
+          current = current->Parent;
+        }
+
+        knownNodes.insert(visited.begin(), visited.end());
+      }
+
+      return false;
+    }
+
     PersonalFeeTree *deepCopy() {
       PersonalFeeTree *result = new PersonalFeeTree;
-      for (const auto &node: Nodes_)
-        result->Nodes_[node.second->UserId] = new PersonalFeeNode(*node.second);
+      for (const auto &It: Nodes_) {
+        PersonalFeeNode *oldNode = It.second;
+        PersonalFeeNode *newNode = new PersonalFeeNode;
+        newNode->ChildNodes.reserve(oldNode->ChildNodes.size());
+        newNode->Parent = oldNode->Parent;
+        newNode->UserId = oldNode->UserId;
+        newNode->DefaultFee = oldNode->DefaultFee;
+        newNode->CoinSpecificFee = oldNode->CoinSpecificFee;
+        result->Nodes_[newNode->UserId] = newNode;
 
-      // Fix parent pointers
-      for (auto &node: result->Nodes_) {
-        if (node.second->Parent)
-          node.second->Parent = result->Nodes_[node.second->Parent->UserId];
+      }
+
+      // Fix parent & child pointers
+      for (auto &It: result->Nodes_) {
+        PersonalFeeNode *node = It.second;
+        if (node->Parent) {
+          node->Parent = result->Nodes_[node->Parent->UserId];
+          node->Parent->ChildNodes.push_back(node);
+        }
       }
 
       return result;
@@ -157,22 +213,21 @@ public:
 
   class UserCreateTask : public Task {
   public:
-    UserCreateTask(UserManager *userMgr, Credentials &&credentials, DefaultCb callback, bool isActivated, bool isReadOnly) :
-      Task(userMgr), Credentials_(credentials), Callback_(callback), IsActivated_(isActivated), IsReadOnly_(isReadOnly) {}
+    UserCreateTask(UserManager *userMgr, const std::string &login, Credentials &&credentials, DefaultCb callback) :
+      Task(userMgr), Login_(login), Credentials_(credentials), Callback_(callback) {}
     void run() final {
       coroutineTy *coroutine = UserMgr_->newCoroutine([](void *arg) {
         auto task =  static_cast<UserCreateTask*>(arg);
-        task->UserMgr_->userCreateImpl(task->Credentials_, task->Callback_, task->IsActivated_, task->IsReadOnly_);
+        task->UserMgr_->userCreateImpl(task->Login_, task->Credentials_, task->Callback_);
       }, this, 0x10000);
 
       coroutineCall(coroutine);
     }
 
   private:
+    std::string Login_;
     Credentials Credentials_;
     DefaultCb Callback_;
-    bool IsActivated_;
-    bool IsReadOnly_;
   };
 
   class UserResendEmailTask: public Task {
@@ -318,7 +373,7 @@ public:
   void userActionInitiate(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback) { startAsyncTask(new UserInitiateActionTask(this, login, type, callback)); }
   void userChangePassword(const std::string &id, const std::string &newPassword, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordTask(this, uint512S(id), newPassword, callback)); }
   void userChangePasswordForce(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordForceTask(this, sessionId, login, newPassword, callback)); }
-  void userCreate(Credentials &&credentials, Task::DefaultCb callback, bool isActivated, bool isReadOnly) { startAsyncTask(new UserCreateTask(this, std::move(credentials), callback, isActivated, isReadOnly)); }
+  void userCreate(const std::string &login, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserCreateTask(this, login, std::move(credentials), callback)); }
   void userResendEmail(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserResendEmailTask(this, std::move(credentials), callback)); }
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
@@ -339,7 +394,7 @@ private:
   void actionInitiateImpl(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback);
   void userChangePasswordImpl(const uint512 &id, const std::string &newPassword, Task::DefaultCb callback);
   void userChangePasswordForceImpl(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback);
-  void userCreateImpl(Credentials &credentials, Task::DefaultCb callback, bool isActivated, bool isReadOnly);
+  void userCreateImpl(const std::string &login, Credentials &credentials, Task::DefaultCb callback);
   void resendEmailImpl(Credentials &credentials, Task::DefaultCb callback);
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
   void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);
@@ -370,6 +425,8 @@ private:
     ActionsCache_.erase(actionRecord.Id);
   }
 
+  bool updatePersonalFee(const std::string &login, const std::string &parentUserId, double defaultFee);
+
   void userManagerMain();
   void userManagerCleanup();
 
@@ -377,6 +434,7 @@ private:
   aioUserEvent *TaskQueueEvent_;
   tbb::concurrent_queue<Task*> Tasks_;
   kvdb<rocksdbBase> UsersDb_;
+  kvdb<rocksdbBase> UserPersonalFeeDb_;
   kvdb<rocksdbBase> UserSettingsDb_;
   kvdb<rocksdbBase> UserActionsDb_;
   kvdb<rocksdbBase> UserSessionsDb_;
