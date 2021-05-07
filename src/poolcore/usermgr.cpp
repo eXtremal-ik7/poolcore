@@ -897,6 +897,38 @@ void UserManager::enumerateUsersImpl(EnumerateUsersTask::Cb callback)
   callback(result);
 }
 
+void UserManager::updatePersonalFeeImpl(const std::string &sessionId, const Credentials &credentials, Task::DefaultCb callback)
+{
+  std::string login;
+  if (!validateSession(sessionId, "", login, true)) {
+    callback("unknown_id");
+    return;
+  }
+
+  if (login != "admin") {
+    callback("parent_select_not_allowed");
+    return;
+  }
+
+  if (!UsersCache_.count(credentials.Login)) {
+    callback("unknown_login");
+    return;
+  }
+
+  if (!UsersCache_.count(credentials.ParentUser)) {
+    callback("parent_not_exists");
+    return;
+  }
+
+  if (!updatePersonalFee(credentials.Login, credentials.ParentUser, credentials.DefaultFee)) {
+    callback("personal_fee_loop_detected");
+    return;
+  }
+
+  callback("ok");
+  return;
+}
+
 bool UserManager::checkUser(const std::string &login)
 {
   return UsersCache_.count(login);

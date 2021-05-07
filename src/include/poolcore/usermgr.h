@@ -283,6 +283,18 @@ public:
     Cb Callback_;
   };
 
+  class UpdatePersonalFeeTask: public Task {
+  public:
+    UpdatePersonalFeeTask(UserManager *userMgr, const std::string &sessionId, Credentials &&credentials, DefaultCb callback) :
+      Task(userMgr), SessionId_(sessionId), Credentials_(credentials), Callback_(callback) {}
+    void run() final { UserMgr_->updatePersonalFeeImpl(SessionId_, Credentials_, Callback_); }
+
+  private:
+    std::string SessionId_;
+    Credentials Credentials_;
+    DefaultCb Callback_;
+  };
+
 public:
   UserManager(const std::filesystem::path &dbPath);
   UserManager(const UserManager&) = delete;
@@ -379,6 +391,7 @@ public:
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
   void updateSettings(UserSettingsRecord &&settings, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), callback)); }
   void enumerateUsers(EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, callback)); }
+  void updatePersonalFee(const std::string &sessionId, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UpdatePersonalFeeTask(this, sessionId, std::move(credentials), callback)); }
 
   // Synchronous api
   bool checkUser(const std::string &login);
@@ -400,6 +413,7 @@ private:
   void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);
   void updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback);
   void enumerateUsersImpl(EnumerateUsersTask::Cb callback);
+  void updatePersonalFeeImpl(const std::string &sessionId, const Credentials &credentials, Task::DefaultCb callback);
 
   void sessionAdd(const UserSessionRecord &sessionRecord) {
     LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
