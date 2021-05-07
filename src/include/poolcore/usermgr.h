@@ -276,10 +276,11 @@ public:
 
   class EnumerateUsersTask: public Task {
   public:
-    using Cb = std::function<void(std::vector<Credentials>&)>;
-    EnumerateUsersTask(UserManager *userMgr, Cb callback) : Task(userMgr), Callback_(callback) {}
-    void run() final { UserMgr_->enumerateUsersImpl(Callback_); }
+    using Cb = std::function<void(const char*, std::vector<Credentials>&)>;
+    EnumerateUsersTask(UserManager *userMgr, const std::string &sessionId, Cb callback) : Task(userMgr), SessionId_(sessionId), Callback_(callback) {}
+    void run() final { UserMgr_->enumerateUsersImpl(SessionId_, Callback_); }
   private:
+    std::string SessionId_;
     Cb Callback_;
   };
 
@@ -390,7 +391,7 @@ public:
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
   void updateSettings(UserSettingsRecord &&settings, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), callback)); }
-  void enumerateUsers(EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, callback)); }
+  void enumerateUsers(const std::string &sessionId, EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, sessionId, callback)); }
   void updatePersonalFee(const std::string &sessionId, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UpdatePersonalFeeTask(this, sessionId, std::move(credentials), callback)); }
 
   // Synchronous api
@@ -412,7 +413,7 @@ private:
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
   void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);
   void updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback);
-  void enumerateUsersImpl(EnumerateUsersTask::Cb callback);
+  void enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback);
   void updatePersonalFeeImpl(const std::string &sessionId, const Credentials &credentials, Task::DefaultCb callback);
 
   void sessionAdd(const UserSessionRecord &sessionRecord) {

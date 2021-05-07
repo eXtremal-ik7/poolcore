@@ -219,6 +219,7 @@ bool UserManager::updatePersonalFee(const std::string &login, const std::string 
 
   currentNode->Parent = parentNode;
   currentNode->DefaultFee = defaultFee;
+  parentNode->ChildNodes.push_back(currentNode);
 
   // Check for loops
   if (tree->hasLoop())
@@ -881,20 +882,59 @@ void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, Task::D
   callback("ok");
 }
 
-void UserManager::enumerateUsersImpl(EnumerateUsersTask::Cb callback)
+void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback)
 {
   std::vector<Credentials> result;
-  for (const auto &record: UsersCache_) {
-    Credentials &credentials = result.emplace_back();
-    credentials.Login = record.second.Login;
-    credentials.Name = record.second.Name;
-    credentials.EMail = record.second.EMail;
-    credentials.RegistrationDate = record.second.RegistrationDate;
-    credentials.IsActive = record.second.IsActive;
-    credentials.IsReadOnly = record.second.IsReadOnly;
+  std::string login;
+  if (!validateSession(sessionId, "", login, false)) {
+    callback("unknown_id", result);
+    return;
   }
 
-  callback(result);
+  if (login == "admin" || login == "observer") {
+    for (const auto &record: UsersCache_) {
+      Credentials &credentials = result.emplace_back();
+      credentials.Login = record.second.Login;
+      credentials.Name = record.second.Name;
+      credentials.EMail = record.second.EMail;
+      credentials.RegistrationDate = record.second.RegistrationDate;
+      credentials.IsActive = record.second.IsActive;
+      credentials.IsReadOnly = record.second.IsReadOnly;
+    }
+  } else {
+    std::vector<PersonalFeeNode*> nodes;
+    std::unordered_set<PersonalFeeNode*> visited;
+    PersonalFeeNode *node = PersonalFeeConfig_.get()->get(login);
+    if (node) {
+      nodes.push_back(node);
+      visited.insert(node);
+    }
+
+    for (size_t i = 0; i < nodes.size(); i++) {
+      for (PersonalFeeNode *child: nodes[i]->ChildNodes) {
+        if (visited.insert(child).second)
+          nodes.push_back(child);
+      }
+    }
+
+    for (size_t i = 1; i < nodes.size(); i++) {
+      decltype (UsersCache_)::const_accessor accessor;
+      if (!UsersCache_.find(accessor, nodes[i]->UserId)) {
+        LOG_F(ERROR, "Unknown user in personal fee tree found: %s", nodes[i]->UserId.c_str());
+        continue;
+      }
+
+      Credentials &credentials = result.emplace_back();
+      credentials.Login = accessor->second.Login;
+      credentials.Name = accessor->second.Name;
+      credentials.EMail = accessor->second.EMail;
+      credentials.RegistrationDate = accessor->second.RegistrationDate;
+      credentials.IsActive = accessor->second.IsActive;
+      credentials.IsReadOnly = accessor->second.IsReadOnly;
+    }
+  }
+
+  callback("ok", result);
 }
 
 void UserManager::updatePersonalFeeImpl(const std::string &sessionId, const Credentials &credentials, Task::DefaultCb callback)
