@@ -900,6 +900,11 @@ void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUser
       credentials.RegistrationDate = record.second.RegistrationDate;
       credentials.IsActive = record.second.IsActive;
       credentials.IsReadOnly = record.second.IsReadOnly;
+      PersonalFeeNode *node = PersonalFeeConfig_.get()->get(record.second.Login);
+      if (node && node->Parent) {
+        credentials.ParentUser = node->Parent->UserId;
+        credentials.DefaultFee = node->DefaultFee;
+      }
     }
   } else {
     std::vector<PersonalFeeNode*> nodes;
@@ -931,6 +936,10 @@ void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUser
       credentials.RegistrationDate = accessor->second.RegistrationDate;
       credentials.IsActive = accessor->second.IsActive;
       credentials.IsReadOnly = accessor->second.IsReadOnly;
+      if (nodes[i]->Parent) {
+        credentials.ParentUser = nodes[i]->Parent->UserId;
+        credentials.DefaultFee = nodes[i]->DefaultFee;
+      }
     }
   }
 

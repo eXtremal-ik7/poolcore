@@ -26,12 +26,7 @@ public:
   };
 
   struct CredentialsWithStatistic {
-    std::string Login;
-    std::string Name;
-    std::string EMail;
-    int64_t RegistrationDate;
-    bool IsActive;
-    bool IsReadOnly;
+    UserManager::Credentials Credentials;
     uint32_t WorkersNum = 0;
     uint64_t AveragePower = 0;
     double SharesPerSecond = 0.0;

@@ -607,14 +607,10 @@ void StatisticDb::queryAllUserStatsImpl(const std::vector<UserManager::Credentia
   for (size_t i = 0, ie = users.size(); i != ie; ++i) {
     const UserManager::Credentials &src = users[i];
     CredentialsWithStatistic &dst = usersWithStatistic[i];
-    dst.Login = src.Login;
-    dst.Name = src.Name;
-    dst.EMail = src.EMail;
-    dst.RegistrationDate = src.RegistrationDate;
-    dst.IsActive = src.IsActive;
-    dst.IsReadOnly = src.IsReadOnly;
+    // TODO: check for std::move
+    dst.Credentials = src;
 
-    auto userIt = LastUserStats_.find(dst.Login);
+    auto userIt = LastUserStats_.find(dst.Credentials.Login);
     if (userIt == LastUserStats_.end())
       continue;
 
@@ -629,9 +625,9 @@ void StatisticDb::queryAllUserStatsImpl(const std::vector<UserManager::Credentia
   switch (sortBy) {
     case CredentialsWithStatistic::ELogin :
       if (!sortDescending)
-        std::sort(usersWithStatistic.begin(), usersWithStatistic.end(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.Login < r.Login; });
+        std::sort(usersWithStatistic.begin(), usersWithStatistic.end(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.Credentials.Login < r.Credentials.Login; });
       else
-        std::sort(usersWithStatistic.rbegin(), usersWithStatistic.rend(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.Login < r.Login; });
+        std::sort(usersWithStatistic.rbegin(), usersWithStatistic.rend(), [](const CredentialsWithStatistic &l, const CredentialsWithStatistic &r) { return l.Credentials.Login < r.Credentials.Login; });
       break;
     case CredentialsWithStatistic::EWorkersNum :
       if (!sortDescending)
