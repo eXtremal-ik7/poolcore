@@ -265,6 +265,18 @@ public:
     DefaultCb Callback_;
   };
 
+  class UpdateCredentialsTask: public Task {
+  public:
+    UpdateCredentialsTask(UserManager *userMgr, const std::string &sessionId, const std::string &targetLogin, Credentials &&credentials, DefaultCb callback) :
+      Task(userMgr), SessionId_(sessionId), TargetLogin_(targetLogin), Credentials_(credentials), Callback_(callback) {}
+    void run() final { UserMgr_->updateCredentialsImpl(SessionId_, TargetLogin_, Credentials_, Callback_); }
+  private:
+    std::string SessionId_;
+    std::string TargetLogin_;
+    Credentials Credentials_;
+    DefaultCb Callback_;
+  };
+
   class UpdateSettingsTask: public Task {
   public:
     UpdateSettingsTask(UserManager *userMgr, UserSettingsRecord &&settings, DefaultCb callback) : Task(userMgr), Settings_(settings), Callback_(callback) {}
@@ -390,6 +402,7 @@ public:
   void userResendEmail(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserResendEmailTask(this, std::move(credentials), callback)); }
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
+  void updateCredentials(const std::string &id, const std::string &targetLogin, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UpdateCredentialsTask(this, id, targetLogin, std::move(credentials), callback)); }
   void updateSettings(UserSettingsRecord &&settings, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), callback)); }
   void enumerateUsers(const std::string &sessionId, EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, sessionId, callback)); }
   void updatePersonalFee(const std::string &sessionId, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UpdatePersonalFeeTask(this, sessionId, std::move(credentials), callback)); }
@@ -412,6 +425,7 @@ private:
   void resendEmailImpl(Credentials &credentials, Task::DefaultCb callback);
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
   void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);
+  void updateCredentialsImpl(const std::string &sessionId, const std::string &targetLogin, const Credentials &credentials, Task::DefaultCb callback);
   void updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback);
   void enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback);
   void updatePersonalFeeImpl(const std::string &sessionId, const Credentials &credentials, Task::DefaultCb callback);

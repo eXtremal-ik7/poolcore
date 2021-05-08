@@ -864,6 +864,31 @@ void UserManager::logoutImpl(const uint512 &sessionId, Task::DefaultCb callback)
   callback("ok");
 }
 
+void UserManager::updateCredentialsImpl(const std::string &sessionId, const std::string &targetLogin, const Credentials &credentials, Task::DefaultCb callback)
+{
+  std::string login;
+  if (!validateSession(sessionId, targetLogin, login, true)) {
+    callback("unknown_id");
+    return;
+  }
+
+  UsersRecord record;
+
+  {
+    decltype (UsersCache_)::accessor accessor;
+    if (!UsersCache_.find(accessor, login)) {
+      callback("unknown_login");
+      return;
+    }
+
+    accessor->second.Name = credentials.Name;
+    record = accessor->second;
+  }
+
+  UsersDb_.put(record);
+  callback("ok");
+}
+
 void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback)
 {
   std::string key = settings.Login;
