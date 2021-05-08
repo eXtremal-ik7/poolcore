@@ -1046,8 +1046,28 @@ bool UserManager::validateSession(const std::string &id, const std::string &targ
     } else {
       return true;
     }
+  } else if (!targetLogin.empty()) {
+    // Check dependency in user personal fee tree
+    bool targetLoginIsChild = false;
+    intrusive_ptr<PersonalFeeTree> ref(PersonalFeeConfig_);
+    PersonalFeeTree *tree = ref.get();
+    PersonalFeeNode *node = tree->get(targetLogin);
+    while (node) {
+      if (node->UserId == resultLogin) {
+        targetLoginIsChild = true;
+        break;
+      }
+      node = node->Parent;
+    }
+
+    if (targetLoginIsChild && !needWriteAccess) {
+      resultLogin = targetLogin;
+      return true;
+    } else {
+      return false;
+    }
   } else {
-    return targetLogin.empty();
+    return true;
   }
 }
 
