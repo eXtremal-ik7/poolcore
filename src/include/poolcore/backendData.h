@@ -174,6 +174,8 @@ struct UsersRecord {
 struct CoinSpecificFeeRecord {
   std::string CoinName;
   double Fee;
+  CoinSpecificFeeRecord() {}
+  CoinSpecificFeeRecord(const std::string &coinName, double fee) : CoinName(coinName), Fee(fee) {}
 };
 
 struct UserPersonalFeeRecord {

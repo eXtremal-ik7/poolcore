@@ -206,7 +206,7 @@ void UserManager::stop()
   Thread_.join();
 }
 
-bool UserManager::updatePersonalFee(const std::string &login, const std::string &parentUserId, double defaultFee)
+bool UserManager::updatePersonalFee(const std::string &login, const std::string &parentUserId, double defaultFee, const std::vector<CoinSpecificFeeRecord> &specificFee)
 {
   PersonalFeeTree *tree = PersonalFeeConfig_.get()->deepCopy();
   PersonalFeeNode *parentNode = tree->getOrCreate(parentUserId);
@@ -219,6 +219,10 @@ bool UserManager::updatePersonalFee(const std::string &login, const std::string 
 
   currentNode->Parent = parentNode;
   currentNode->DefaultFee = defaultFee;
+  for (const auto &It: specificFee) {
+    // TODO: check for coin presence
+    currentNode->CoinSpecificFee[It.CoinName] = It.Fee;
+  }
   parentNode->ChildNodes.push_back(currentNode);
 
   // Check for loops
@@ -230,6 +234,8 @@ bool UserManager::updatePersonalFee(const std::string &login, const std::string 
     record.UserId = currentNode->UserId;
     record.ParentUserId = currentNode->Parent->UserId;
     record.DefaultFee = currentNode->DefaultFee;
+    for (const auto &It: currentNode->CoinSpecificFee)
+      record.CoinSpecificFee.emplace_back(It.first, It.second);
     UserPersonalFeeDb_.put(record);
   }
 
@@ -681,7 +687,7 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
   }
 
   if (!credentials.ParentUser.empty()) {
-    if (!updatePersonalFee(credentials.Login, credentials.ParentUser, credentials.DefaultFee)) {
+    if (!updatePersonalFee(credentials.Login, credentials.ParentUser, credentials.DefaultFee, credentials.SpecificFee)) {
       LOG_F(ERROR, "Can't join to personal fee tree (database correpted?)");
       callback("personal_fee_loop_detected");
       return;
@@ -929,6 +935,8 @@ void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUser
       if (node && node->Parent) {
         credentials.ParentUser = node->Parent->UserId;
         credentials.DefaultFee = node->DefaultFee;
+        for (const auto &It: node->CoinSpecificFee)
+          credentials.SpecificFee.emplace_back(It.first, It.second);
       }
     }
   } else {
@@ -964,6 +972,8 @@ void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUser
       if (nodes[i]->Parent) {
         credentials.ParentUser = nodes[i]->Parent->UserId;
         credentials.DefaultFee = nodes[i]->DefaultFee;
+        for (const auto &It: nodes[i]->CoinSpecificFee)
+          credentials.SpecificFee.emplace_back(It.first, It.second);
       }
     }
   }
@@ -994,7 +1004,7 @@ void UserManager::updatePersonalFeeImpl(const std::string &sessionId, const Cred
     return;
   }
 
-  if (!updatePersonalFee(credentials.Login, credentials.ParentUser, credentials.DefaultFee)) {
+  if (!updatePersonalFee(credentials.Login, credentials.ParentUser, credentials.DefaultFee, credentials.SpecificFee)) {
     callback("personal_fee_loop_detected");
     return;
   }

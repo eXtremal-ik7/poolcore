@@ -35,6 +35,7 @@ public:
     // Personal fee
     std::string ParentUser;
     double DefaultFee;
+    std::vector<CoinSpecificFeeRecord> SpecificFee;
   };
 
   struct UserInfo {
@@ -454,7 +455,7 @@ private:
     ActionsCache_.erase(actionRecord.Id);
   }
 
-  bool updatePersonalFee(const std::string &login, const std::string &parentUserId, double defaultFee);
+  bool updatePersonalFee(const std::string &login, const std::string &parentUserId, double defaultFee, const std::vector<CoinSpecificFeeRecord> &specificFee);
 
   void userManagerMain();
   void userManagerCleanup();
