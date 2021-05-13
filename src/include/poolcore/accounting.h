@@ -41,6 +41,12 @@ private:
   using QueryBalanceCallback = std::function<void(const UserBalanceRecord&)>;
 
 private:
+  struct UserFeePair {
+    std::string UserId;
+    double FeeCoeff;
+    UserFeePair(const std::string &userId, double fee) : UserId(userId), FeeCoeff(fee) {}
+  };
+
   struct payoutAggregate {
     std::string userId;
     double shareValue;
