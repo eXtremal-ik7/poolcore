@@ -392,8 +392,6 @@ void AccountingDb::addShare(const CShare &share)
     R->totalShareValue = 0;
 
     std::map<std::string, double> personalFeeMap;
-    for (const auto &poolFee: _cfg.PoolFee)
-      personalFeeMap[poolFee.User] = 0;
 
     {
       intrusive_ptr<UserManager::PersonalFeeTree> personalFeeConfig(UserManager_.personalFeeConfig());
@@ -418,6 +416,17 @@ void AccountingDb::addShare(const CShare &share)
           processPersonalFee(*personalFeeConfig.get(), element, personalFeeMap);
         });
     }
+
+    // Filter out users with zero share count
+    for (auto It = personalFeeMap.begin(); It != personalFeeMap.end();) {
+      if (It->second != 0.0)
+        ++It;
+      else
+        It = personalFeeMap.erase(It);
+    }
+
+    for (const auto &poolFee: _cfg.PoolFee)
+      personalFeeMap[poolFee.User] = 0;
 
     CurrentScores_.clear();
 
