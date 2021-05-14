@@ -300,7 +300,7 @@ void signalProc(void *arg)
 
     if (ioRead(poolObject.readFd(), &msgSize, sizeof(msgSize), afWaitAll, 0) != sizeof(msgSize))
       break;
-    if (ioRead(poolObject.readFd(), stream.alloc(msgSize), msgSize, afWaitAll, 0) != msgSize)
+    if (ioRead(poolObject.readFd(), stream.reserve(msgSize), msgSize, afWaitAll, 0) != msgSize)
       break;
     stream.seekSet(0);
             

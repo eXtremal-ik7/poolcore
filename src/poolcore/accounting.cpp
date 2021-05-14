@@ -116,12 +116,12 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
     lseek(_sharesFd, 0, SEEK_SET);
     if (fileSize > 0) {
       xmstream stream;
-      read(_sharesFd, stream.alloc(fileSize), fileSize);
+      read(_sharesFd, stream.reserve(fileSize), fileSize);
     
       stream.seekSet(0);
       while (stream.remaining()) {
         uint32_t userIdSize = stream.read<uint32_t>();
-        const char *userIdData = stream.jumpOver<const char>(userIdSize);
+        const char *userIdData = stream.seek<const char>(userIdSize);
         if (!userIdData)
           break;
         int64_t value = stream.read<int64_t>();
@@ -148,12 +148,12 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
 
     if (fileSize > 0) {
       xmstream stream;
-      read(_payoutsFdOld, stream.alloc(fileSize), fileSize);
+      read(_payoutsFdOld, stream.reserve(fileSize), fileSize);
       
       stream.seekSet(0);
       while (stream.remaining()) {
         uint32_t userIdSize = stream.read<uint32_t>();
-        const char *userIdData = stream.jumpOver<const char>(userIdSize);
+        const char *userIdData = stream.seek<const char>(userIdSize);
         if (!userIdData)
           break;
         int64_t value = stream.read<int64_t>();
@@ -177,7 +177,7 @@ AccountingDb::AccountingDb(AccountingDb::config *cfg, p2pNode *client) :
       auto fileSize = s.st_size;    
     if (fileSize > 0) {
       xmstream stream;
-      read(_payoutsFd, stream.alloc(fileSize), fileSize);
+      read(_payoutsFd, stream.reserve(fileSize), fileSize);
       
       stream.seekSet(0);
       while (stream.remaining()) {

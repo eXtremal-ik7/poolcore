@@ -3,12 +3,12 @@ set(PATHS
   ${ROOT_SOURCE_DIR}/libp2p/${BUILD_DIR}
 )
 
-find_library(AIO_LIBRARY asyncio-0.4
+find_library(AIO_LIBRARY asyncio-0.5
   PATHS ${PATHS}
   PATH_SUFFIXES asyncio
 )
 
-find_library(AIO_EXTRAS_LIBRARY asyncioextras-0.4
+find_library(AIO_EXTRAS_LIBRARY asyncioextras-0.5
   PATHS ${PATHS}
   PATH_SUFFIXES asyncioextras
 )
@@ -27,7 +27,7 @@ find_path(AIO_INCLUDE_DIR "asyncio/asyncio.h"
   PATH ${ROOT_SOURCE_DIR}/libp2p/src/include
 )
 
-find_path(AIO_INCLUDE_DIR2 "config.h"
+find_path(AIO_INCLUDE_DIR2 "libp2pconfig.h"
   PATHS ${PATHS}
   PATH_SUFFIXES include
 )

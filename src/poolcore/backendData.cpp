@@ -35,7 +35,7 @@ static inline void serializeString(xmstream &stream, const std::string &S)
 static inline void deserializeString(xmstream &stream, std::string &S)
 {
   size_t size = stream.read<uint32_t>();
-  const char *data = stream.jumpOver<const char>(size);
+  const char *data = stream.seek<const char>(size);
   if (data)
     S.assign(data, size);
 }

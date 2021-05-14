@@ -158,7 +158,7 @@ void *poolRpcThread(void *arg);
 void timerProc(void *arg)
 {
   asyncBase *base = (asyncBase*)arg;
-  aioUserEvent *timer = newUserEvent(base, nullptr, nullptr);
+  aioUserEvent *timer = newUserEvent(base, 0, nullptr, nullptr);
   
   while (true) {
     ioSleep(timer, 2000000);

@@ -132,7 +132,7 @@ void *PoolBackend::msgHandler()
     stream.reset();
     if (ioRead(_read, &msgSize, sizeof(msgSize), afWaitAll, 0) != sizeof(msgSize))
       break;
-    if (ioRead(_read, stream.alloc(msgSize), msgSize, afWaitAll, 0) != msgSize)
+    if (ioRead(_read, stream.reserve(msgSize), msgSize, afWaitAll, 0) != msgSize)
       break;
     stream.seekSet(0);
     
@@ -158,7 +158,7 @@ void *PoolBackend::msgHandler()
 
 void *PoolBackend::checkConfirmationsHandler()
 {
-  aioUserEvent *timerEvent = newUserEvent(_base, nullptr, nullptr);
+  aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.confirmationsCheckInterval);
     if (_client->connected()) {
@@ -173,7 +173,7 @@ void *PoolBackend::checkConfirmationsHandler()
 
 void *PoolBackend::payoutHandler()
 {
-  aioUserEvent *timerEvent = newUserEvent(_base, nullptr, nullptr);
+  aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.payoutInterval);
     if (_client->connected()) {
@@ -187,7 +187,7 @@ void *PoolBackend::payoutHandler()
 // Only for master
 void *PoolBackend::checkBalanceHandler()
 {
-  aioUserEvent *timerEvent = newUserEvent(_base, nullptr, nullptr);
+  aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.balanceCheckInterval);  
     if (_client->connected()) {
@@ -200,7 +200,7 @@ void *PoolBackend::checkBalanceHandler()
 
 void *PoolBackend::updateStatisticHandler()
 {
-  aioUserEvent *timerEvent = newUserEvent(_base, nullptr, nullptr);
+  aioUserEvent *timerEvent = newUserEvent(_base, 0, nullptr, nullptr);
   while (true) {
     ioSleep(timerEvent, _cfg.statisticCheckInterval);
     _statistics->update();
