@@ -368,6 +368,9 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
 
 bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query)
 {
+  for (auto &It: query)
+    It.Confirmations = -2;
+
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return false;
@@ -383,7 +386,6 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<Get
     char buffer[256];
     snprintf(buffer, sizeof(buffer), ", {\"method\": \"getblockhash\", \"params\": [%" PRIu64 "]}", block.Height);
     jsonQuery.append(buffer);
-    block.Confirmations = -2;
   }
   jsonQuery.push_back(']');
 
