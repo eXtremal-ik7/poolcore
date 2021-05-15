@@ -684,7 +684,7 @@ bool AccountingDb::sendTransaction(PayoutDbRecord &payout)
     // Nothing to do
   } else if (status == CNetworkClient::EStatusVerifyRejected) {
     // Sending failed, transaction is rejected
-    LOG_F(ERROR, "Transaction %s marked as rejected, removing from database...", payout.TransactionId.c_str());
+    LOG_F(ERROR, "Transaction %s to %s marked as rejected, removing from database...", payout.TransactionId.c_str(), payout.UserId.c_str());
 
     // Update transaction in database
     payout.Status = PayoutDbRecord::ETxRejected;
@@ -696,7 +696,7 @@ bool AccountingDb::sendTransaction(PayoutDbRecord &payout)
     payout.Status = PayoutDbRecord::EInitialized;
     return false;
   } else {
-    LOG_F(WARNING, "Sending transaction %s error \"%s\", will try send later...", payout.TransactionId.c_str(), error.c_str());
+    LOG_F(WARNING, "Sending transaction %s to %s error \"%s\", will try send later...", payout.TransactionId.c_str(), payout.UserId.c_str(), error.c_str());
     return false;
   }
 
@@ -716,7 +716,7 @@ bool AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
     // Wallet don't know about this transaction
     payout.Status = PayoutDbRecord::ETxCreated;
   } else {
-    LOG_F(WARNING, "Checking transaction %s error \"%s\", will do it later...", payout.TransactionId.c_str(), error.c_str());
+    LOG_F(WARNING, "Checking transaction %s to %s error \"%s\", will do it later...", payout.TransactionId.c_str(), payout.UserId.c_str(), error.c_str());
     return false;
   }
 
@@ -770,7 +770,7 @@ void AccountingDb::makePayout()
         }
       }
 
-      for (auto I: payoutAccMap)
+      for (const auto &I: payoutAccMap)
         _payoutQueue.push_back(PayoutDbRecord(I.first, I.second));
     }
 
@@ -796,11 +796,11 @@ void AccountingDb::makePayout()
       } else if (payout.Status == PayoutDbRecord::ETxCreated) {
         // Resend transaction
         if (sendTransaction(payout))
-          LOG_F(INFO, " * retry send txid %s", payout.TransactionId.c_str());
+          LOG_F(INFO, " * retry send txid %s to %s", payout.TransactionId.c_str(), payout.UserId.c_str());
       } else if (payout.Status == PayoutDbRecord::ETxSent) {
         // Check confirmations
         if (checkTxConfirmations(payout))
-          LOG_F(INFO, " * transaction txid %s confirmed", payout.TransactionId.c_str());
+          LOG_F(INFO, " * transaction txid %s to %s confirmed", payout.TransactionId.c_str(), payout.UserId.c_str());
       } else {
         // Invalid status
       }

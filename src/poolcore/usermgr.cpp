@@ -897,12 +897,14 @@ void UserManager::updateCredentialsImpl(const std::string &sessionId, const std:
 
 void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback)
 {
+  UserSettingsRecord oldSettings;
   std::string key = settings.Login;
   key.push_back('\0');
   key.append(settings.Coin);
   {
     decltype (SettingsCache_)::accessor accessor;
     if (SettingsCache_.find(accessor, key)) {
+      oldSettings = accessor->second;
       accessor->second = settings;
     } else {
       SettingsCache_.insert(std::make_pair(key, settings));
@@ -910,6 +912,10 @@ void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, Task::D
   }
 
   UserSettingsDb_.put(settings);
+  if (oldSettings.Address.empty())
+    LOG_F(INFO, "setup %s/%s address: %s", settings.Login.c_str(), settings.Coin.c_str(), settings.Address.c_str());
+  else
+    LOG_F(INFO, "change %s/%s %s -> %s", settings.Login.c_str(), settings.Coin.c_str(), oldSettings.Address.c_str(), settings.Address.c_str());
   callback("ok");
 }
 
