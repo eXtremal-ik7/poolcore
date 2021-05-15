@@ -35,12 +35,17 @@ struct Round {
 };
 
 class AccountingDb {
+public:
+  struct UserBalanceInfo {
+    UserBalanceRecord Data;
+    int Queued;
+  };
+
 private:
   using ManualPayoutCallback = std::function<void(bool)>;
   using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
-  using QueryBalanceCallback = std::function<void(const UserBalanceRecord&)>;
+  using QueryBalanceCallback = std::function<void(const UserBalanceInfo&)>;
 
-private:
   struct UserFeePair {
     std::string UserId;
     double FeeCoeff;
@@ -188,8 +193,8 @@ public:
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { TaskHandler_.push(new TaskQueryBalance(user, callback)); }
 
   // Asynchronous multi calls
-  static void queryUserBalanceMulti(AccountingDb **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceRecord*, size_t)> callback) {
-    MultiCall<UserBalanceRecord> *context = new MultiCall<UserBalanceRecord>(backendsNum, callback);
+  static void queryUserBalanceMulti(AccountingDb **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceInfo*, size_t)> callback) {
+    MultiCall<UserBalanceInfo> *context = new MultiCall<UserBalanceInfo>(backendsNum, callback);
     for (size_t i = 0; i < backendsNum; i++)
       backends[i]->queryUserBalance(user, context->generateCallback(i));
   }

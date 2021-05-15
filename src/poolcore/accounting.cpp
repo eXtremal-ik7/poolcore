@@ -1040,16 +1040,28 @@ void AccountingDb::queryFoundBlocksImpl(int64_t heightFrom, const std::string &h
 
 void AccountingDb::queryBalanceImpl(const std::string &user, QueryBalanceCallback callback)
 {
+  UserBalanceInfo info;
+
+  // Calculate queued balance
+  info.Queued = 0;
+  for (const auto &It: _roundsWithPayouts) {
+    auto payout = std::lower_bound(It->payouts.begin(), It->payouts.end(), user, [](const PayoutDbRecord &record, const std::string &user) -> bool { return record.UserId < user; });
+    if (payout != It->payouts.end() && payout->UserId == user)
+      info.Queued += payout->Value;
+  }
+  info.Queued /= CoinInfo_.ExtraMultiplier;
+
   auto &balanceMap = getUserBalanceMap();
   auto It = balanceMap.find(user);
   if (It != balanceMap.end()) {
-    callback(It->second);
+    info.Data = It->second;
   } else {
     UserBalanceRecord record;
-    record.Login = user;
-    record.Balance = 0;
-    record.Requested = 0;
-    record.Paid = 0;
-    callback(record);
+    info.Data.Login = user;
+    info.Data.Balance = 0;
+    info.Data.Requested = 0;
+    info.Data.Paid = 0;
   }
+
+  callback(info);
 }
