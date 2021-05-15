@@ -42,6 +42,7 @@ public:
   };
 
 private:
+  using DefaultCb = std::function<void(const char*)>;
   using ManualPayoutCallback = std::function<void(bool)>;
   using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
   using QueryBalanceCallback = std::function<void(const UserBalanceInfo&)>;
@@ -79,11 +80,11 @@ private:
 
   class TaskManualPayout : public Task<AccountingDb> {
   public:
-    TaskManualPayout(const std::string &user, ManualPayoutCallback callback) : User_(user), Callback_(callback) {}
+    TaskManualPayout(const std::string &user, DefaultCb callback) : User_(user), Callback_(callback) {}
     void run(AccountingDb *accounting) final { accounting->manualPayoutImpl(User_, Callback_); }
   private:
     std::string User_;
-    ManualPayoutCallback Callback_;
+    DefaultCb Callback_;
   };
 
   class TaskQueryFoundBlocks : public Task<AccountingDb> {
@@ -188,7 +189,7 @@ public:
   const std::map<std::string, UserBalanceRecord> &getUserBalanceMap() { return _balanceMap; }
 
   // Asynchronous api
-  void manualPayout(const std::string &user, ManualPayoutCallback callback) { TaskHandler_.push(new TaskManualPayout(user, callback)); }
+  void manualPayout(const std::string &user, DefaultCb callback) { TaskHandler_.push(new TaskManualPayout(user, callback)); }
   void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { TaskHandler_.push(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { TaskHandler_.push(new TaskQueryBalance(user, callback)); }
 
@@ -200,7 +201,7 @@ public:
   }
 
 private:
-  void manualPayoutImpl(const std::string &user, ManualPayoutCallback callback);
+  void manualPayoutImpl(const std::string &user, DefaultCb callback);
   void queryBalanceImpl(const std::string &user, QueryBalanceCallback callback);
   void queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
 };

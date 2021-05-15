@@ -972,7 +972,7 @@ bool AccountingDb::requestPayout(const std::string &address, int64_t value, bool
   UserSettingsRecord settings;
   bool hasSettings = UserManager_.getUserCoinSettings(balance.Login, CoinInfo_.Name, settings);
   int64_t nonQueuedBalance = balance.Balance.getRational(CoinInfo_.ExtraMultiplier) - balance.Requested;
-  if (force || (hasSettings && settings.AutoPayout && nonQueuedBalance >= settings.MinimalPayout)) {
+  if (hasSettings && (force || (settings.AutoPayout && nonQueuedBalance >= settings.MinimalPayout))) {
     _payoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
     balance.Requested += nonQueuedBalance;
     result = true;
@@ -982,21 +982,29 @@ bool AccountingDb::requestPayout(const std::string &address, int64_t value, bool
   return result;
 }
 
-void AccountingDb::manualPayoutImpl(const std::string &user, ManualPayoutCallback callback)
+void AccountingDb::manualPayoutImpl(const std::string &user, DefaultCb callback)
 {
   auto It = _balanceMap.find(user);
   if (It != _balanceMap.end()) {
     auto &B = It->second;
-    if (B.Balance.getRational(CoinInfo_.ExtraMultiplier) >= _cfg.MinimalAllowedPayout) {
+    int64_t nonQueuedBalance = B.Balance.getRational(CoinInfo_.ExtraMultiplier) - B.Requested;
+    if (nonQueuedBalance >= _cfg.MinimalAllowedPayout) {
       bool result = requestPayout(user, 0, true);
-      if (result)
+      const char *status = result ? "ok" : "payout_error";
+      if (result) {
+        LOG_F(INFO, "Manual payout success for %s", user.c_str());
         updatePayoutFile();
-      callback(result);
+      }
+      callback(status);
+      return;
+    } else {
+      callback("insufficient_balance");
       return;
     }
+  } else {
+    callback("no_balance");
+    return;
   }
-
-  callback(false);
 }
 
 void AccountingDb::queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback)
