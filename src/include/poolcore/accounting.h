@@ -38,7 +38,7 @@ class AccountingDb {
 public:
   struct UserBalanceInfo {
     UserBalanceRecord Data;
-    int Queued;
+    int64_t Queued;
   };
 
 private:
