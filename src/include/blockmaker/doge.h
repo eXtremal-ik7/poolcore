@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ltc.h"
+#include "poolinstances/stratumWorkStorage.h"
 
 namespace DOGE {
 class Proto {
@@ -48,88 +49,62 @@ public:
 
 class Stratum {
 public:
-  using MiningConfig = BTC::Stratum::MiningConfig;
-  using WorkerConfig = BTC::Stratum::WorkerConfig;
-  using ThreadConfig = BTC::Stratum::ThreadConfig;
   static constexpr double DifficultyFactor = 65536.0;
 
-  class Work {
+  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::TemplateLoader, BTC::Stratum::Notify, BTC::Stratum::Prepare>;
+  using SecondWork = LTC::Stratum::Work;
+  class MergedWork : public StratumMergedWork {
   public:
-    size_t backendsNum() { return 2; }
-    // TODO: check (LTC/DOGE hash differ)
-    uint256 shareHash() { return LTC.Header.GetHash(); }
-    uint256 blockHash(size_t index) { return index == 0 ? DOGE.Header.GetHash() : LTC.Header.GetHash(); }
+    MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, StratumSingleWork *second, MiningConfig &miningCfg);
 
-    PoolBackend *backend(size_t index) { return index == 0 ? DOGE.Backend : LTC.Backend; }
-    uint64_t height(size_t index) { return index == 0 ? DOGE.Height : LTC.Height; }
-    size_t txNum(size_t index) { return index == 0 ? DOGE.TxNum : LTC.TxNum; }
-    int64_t blockReward(size_t index) { return index == 0 ? DOGE.BlockReward : LTC.BlockReward; }
-    double expectedWork(size_t index);/* { return index == 0 ? DOGE.expectedWork(0) : LTC.expectedWork(0); }*/
-    const xmstream &blockHexData(size_t index) { return index == 0 ? DOGE.PreparedBlockData : LTC.BlockHexData; }
-    bool initialized() { return LTC.Backend != nullptr; }
-    bool isNewBlock(const PoolBackend *backend, const std::string &ticker, uint64_t workId) {
-      if (ticker == "DOGE" || ticker == "DOGE.testnet" || ticker == "DOGE.regtest")
-        return false;
-
-      return LTC.isNewBlock(backend, ticker, workId);
+    virtual void shareHash(void *data) override {
+      *reinterpret_cast<DOGE::Proto::BlockHashTy*>(data) = LTCHeader_.GetHash();
     }
-    const xmstream &notifyMessage() { return LTC.notifyMessage(); }
-    void mutate() { LTC.mutate(); }
 
-    bool checkConsensus(size_t index, double *shareDiff) {
-      if (index == 0) {
-        Proto::CheckConsensusCtx ctx;
-        Proto::ChainParams params;
-        Proto::checkConsensusInitialize(ctx);
-        return Proto::checkConsensus(DOGE.Header, ctx, params, shareDiff);
-      } else {
-        return LTC.checkConsensus(0, shareDiff);
+    virtual void mutate() override {
+      LTCHeader_.nTime = static_cast<uint32_t>(time(nullptr));
+      LTC::Stratum::Work::buildNotifyMessageImpl(this, LTCHeader_, LTCHeader_.nVersion, LTCLegacy_, LTCMerklePath_, MiningCfg_, true, NotifyMessage_);
+    }
+
+    virtual void buildNotifyMessage(bool resetPreviousWork) override {
+      LTC::Stratum::Work::buildNotifyMessageImpl(this, LTCHeader_, LTCHeader_.nVersion, LTCLegacy_, LTCMerklePath_, MiningCfg_, resetPreviousWork, NotifyMessage_);
+    }
+
+    virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage &msg) override;
+
+    virtual void buildBlock(size_t workIdx, xmstream &blockHexData) override {
+      if (workIdx == 0) {
+        dogeWork()->buildBlockImpl(DOGEHeader_, DOGEWitness_, blockHexData);
+      } else if (workIdx == 1) {
+        ltcWork()->buildBlockImpl(LTCHeader_, LTCWitness_, blockHexData);
       }
     }
 
-    void buildNotifyMessage(MiningConfig &cfg, uint64_t majorJobId, unsigned minorJobId, bool resetPreviousWork) {
-      LTC.buildNotifyMessage(cfg, majorJobId, minorJobId, resetPreviousWork);
+    virtual bool checkConsensus(size_t workIdx, double *shareDiff) override {
+      if (workIdx == 0)
+        return DOGE::Stratum::Work::checkConsensusImpl(DOGEHeader_, shareDiff);
+      else if (workIdx == 1)
+        return LTC::Stratum::Work::checkConsensusImpl(LTCHeader_, shareDiff);
+      return false;
     }
 
-    void updateLTCBlock();
-    void updateDOGEBlock();
-    bool loadFromTemplate(rapidjson::Value &document,
-                          uint64_t uniqueWorkId,
-                          const MiningConfig &cfg,
-                          PoolBackend *backend,
-                          const std::string &ticker,
-                          Proto::AddressTy &miningAddress,
-                          const void *coinBaseExtraData,
-                          size_t coinbaseExtraSize,
-                          std::string &error,
-                          uint32_t txNumLimit=0);
-
-    bool prepareForSubmit(const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
+  private:
+    DOGE::Stratum::Work *dogeWork() { return static_cast<DOGE::Stratum::Work*>(Works_[0]); }
+    LTC::Stratum::Work *ltcWork() { return static_cast<LTC::Stratum::Work*>(Works_[1]); }
 
   private:
-    LTC::Stratum::Work LTC;
+    LTC::Proto::BlockHeader LTCHeader_;
+    BTC::CoinbaseTx LTCLegacy_;
+    BTC::CoinbaseTx LTCWitness_;
+    std::vector<uint256> LTCMerklePath_;
 
-    struct {
-      uint64_t UniqueWorkId;
-      Proto::BlockHeader Header;
-      PoolBackend *Backend = nullptr;
-      uint64_t Height = 0;
-      int64_t BlockReward;
-      xmstream TxData;
-      xmstream PreparedBlockData;
-      size_t TxNum;
-    } DOGE;
-
+    DOGE::Proto::BlockHeader DOGEHeader_;
+    BTC::CoinbaseTx DOGELegacy_;
+    BTC::CoinbaseTx DOGEWitness_;
   };
 
-  static bool suitableForProfitSwitcher(const std::string &ticker) {
-    if (ticker == "DOGE" || ticker == "DOGE.testnet" || ticker == "DOGE.regtest")
-      return false;
-
-    return LTC::Stratum::suitableForProfitSwitcher(ticker);
-  }
-
-  static double getIncomingProfitValue(rapidjson::Value &document, double price, double coeff) { return BTC::Stratum::getIncomingProfitValue(document, price, coeff); }
+  static constexpr bool MergedMiningSupport = true;
+  static bool isMainBackend(const std::string &ticker) { return ticker == "DOGE" || ticker == "DOGE.testnet" || ticker == "DOGE.regtest"; }
 };
 
 struct X {

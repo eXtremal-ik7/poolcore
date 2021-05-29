@@ -2,6 +2,7 @@
 
 #include "common.h"
 #include "stratumMsg.h"
+#include "stratumWorkStorage.h"
 #include "poolcommon/arith_uint256.h"
 #include "poolcommon/debug.h"
 #include "poolcommon/jsonSerializer.h"
@@ -49,7 +50,13 @@ static inline void addId(JSON::Object &object, StratumMessage &msg) {
 template<typename X>
 class StratumInstance : public CPoolInstance {
 public:
-  StratumInstance(asyncBase *monitorBase, UserManager &userMgr, CThreadPool &threadPool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0) {
+  StratumInstance(asyncBase *monitorBase,
+                  UserManager &userMgr,
+                  const std::vector<PoolBackend*> &linkedBackends,
+                  CThreadPool &threadPool,
+                  unsigned instanceId,
+                  unsigned instancesNum,
+                  rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0) {
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
 
     unsigned totalInstancesNum = instancesNum * threadPool.threadsNum();
@@ -57,9 +64,16 @@ public:
       // initialInstanceId used for fixed extra nonce part calculation
       unsigned initialInstanceId = instanceId*threadPool.threadsNum() + i;
       Data_[i].ThreadCfg.initialize(initialInstanceId, totalInstancesNum);
-      X::Proto::checkConsensusInitialize(Data_[i].CheckConsensusCtx);
       Data_[i].WorkerBase = threadPool.getBase(i);
+      {
+        std::vector<std::pair<PoolBackend*, bool>> backendsWithInfo;
+        for (PoolBackend *backend: linkedBackends)
+          backendsWithInfo.push_back(std::make_pair(backend, X::Stratum::isMainBackend(backend->getCoinInfo().Name)));
+        Data_[i].WorkStorage.init(backendsWithInfo);
+      }
     }
+
+    BackendsNum_ = linkedBackends.size();
 
     if (!config.HasMember("port") || !config["port"].IsUint()) {
       LOG_F(ERROR, "instance %s: can't read 'port' valuee from config", Name_.c_str());
@@ -133,104 +147,90 @@ public:
   }
 
   void acceptWork(CBlockTemplate *blockTemplate, PoolBackend *backend) {
-    auto beginPt = std::chrono::steady_clock::now();
-    unsigned counter = 0;
     if (!blockTemplate) {
       return;
     }
 
     ThreadData &data = Data_[GetLocalThreadId()];
+    typename X::Proto::AddressTy miningAddress;
     auto &backendConfig = backend->getConfig();
     auto &coinInfo = backend->getCoinInfo();
-
-    // Profit switcher checks
-    if (ProfitSwitcherEnabled_ && X::Stratum::suitableForProfitSwitcher(coinInfo.Name)) {
-      double currentPrice = backend->getPriceFetcher().getPrice();
-      if (currentPrice == 0.0) {
-        // Can't accept work with unknown coin price
-        LOG_F(INFO, "Can't accept work from %s: unknown price", coinInfo.Name.c_str());
-        return;
-      }
-
-      if (CurrentBackend_ && (CurrentBackend_ != backend)) {
-        double incomingProfitValue = X::Stratum::getIncomingProfitValue(blockTemplate->Document, currentPrice, backend->getProfitSwitchCoeff());
-        if (incomingProfitValue <= CurrentProfitValue_) {
-          LOG_F(INFO, "Stay at %s (profit %.8lf from %s less than current profit %.8lf)", CurrentBackend_->getCoinInfo().Name.c_str(), incomingProfitValue, coinInfo.Name.c_str(), CurrentProfitValue_);
-          return;
-        }
-
-        LOG_F(INFO, "Switch from %s to %s (profit %.8lf more than current profit %.8lf)", CurrentBackend_->getCoinInfo().Name.c_str(), coinInfo.Name.c_str(), incomingProfitValue, CurrentProfitValue_);
-        CurrentProfitValue_ = incomingProfitValue;
-        CurrentBackend_ = backend;
-      } else {
-        if (!CurrentBackend_)
-          CurrentBackend_ = backend;
-        if (CurrentBackend_ == backend)
-          CurrentProfitValue_ = X::Stratum::getIncomingProfitValue(blockTemplate->Document, currentPrice, backend->getProfitSwitchCoeff());
-      }
-    }
-
-    bool isNewBlock = false;
-    if (!data.WorkSet.empty()) {
-      if (data.WorkSet.back()->isNewBlock(backend, coinInfo.Name, blockTemplate->UniqueWorkId)) {
-        // Incoming block template contains new work
-        // Cleanup work set and push last known work (for reuse allocated memory or keep non changed work part)
-        isNewBlock = true;
-        typename X::Stratum::Work *lastWork = data.WorkSet.back().release();
-        data.WorkSet.clear();
-        data.WorkSet.emplace_back(lastWork);
-        data.MinorLastWorkId_ = 0;
-      } else {
-        // Deep copy last work (required for merged mining)
-        typename X::Stratum::Work *clone = new typename X::Stratum::Work(*data.WorkSet.back());
-        data.WorkSet.emplace_back(clone);
-        data.MinorLastWorkId_++;
-      }
-    } else {
-      isNewBlock = true;
-      data.WorkSet.emplace_back(new typename X::Stratum::Work);
-      data.MinorLastWorkId_ = 0;
-    }
-
-    // Get mining address and coinbase message
-    typename X::Stratum::Work &work = *data.WorkSet.back();
-    typename X::Proto::AddressTy miningAddress;
     const std::string &addr = backendConfig.MiningAddresses.get();
     if (!decodeHumanReadableAddress(addr, coinInfo.PubkeyAddressPrefix, miningAddress)) {
       LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), addr.c_str());
       return;
     }
 
-    std::string error;
-    if (!work.loadFromTemplate(blockTemplate->Document, blockTemplate->UniqueWorkId, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg.data(), backendConfig.CoinBaseMsg.size(), error)) {
-      LOG_F(ERROR, "%s: can't process block template; error: %s", Name_.c_str(), error.c_str());
+    bool isNewBlock = false;
+    std::vector<uint8_t> miningAddressData(miningAddress.begin(), miningAddress.end());
+    if (!data.WorkStorage.createWork(blockTemplate->Document, blockTemplate->UniqueWorkId, backend, coinInfo.Name, miningAddressData, backendConfig.CoinBaseMsg, MiningCfg_, Name_, &isNewBlock))
       return;
+
+    StratumWork *work = nullptr;
+    if (ProfitSwitcherEnabled_) {
+      // Search most profitable work
+      auto calculateProfit = [](StratumWork *work) -> double {
+        double result = 0.0;
+        for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i) {
+          PoolBackend *backend = work->backend(i);
+          if (!backend)
+            continue;
+
+          result += work->getAbstractProfitValue(i, backend->getPriceFetcher().getPrice(), backend->getProfitSwitchCoeff());
+        }
+
+        return result;
+      };
+
+      std::vector<std::pair<StratumWork*, double>> allWorks;
+      for (size_t i = 0; i < LinkedBackends_.size(); i++) {
+        StratumWork *nextWork = data.WorkStorage.singleWork(i);
+        if (!nextWork || !nextWork->ready())
+          continue;
+
+        allWorks.emplace_back(nextWork, calculateProfit(nextWork));
+      }
+
+      for (size_t i = 0; i < LinkedBackends_.size(); i++) {
+        for (size_t j = 0; j < LinkedBackends_.size(); j++) {
+          StratumWork *nextWork = data.WorkStorage.mergedWork(i, j);
+          if (!nextWork || !nextWork->ready() || !nextWork->backend(0) || !nextWork->backend(1))
+            continue;
+
+          allWorks.emplace_back(nextWork, calculateProfit(nextWork));
+        }
+      }
+
+
+      StratumWork *currentWork = data.WorkStorage.currentWork();
+      std::sort(allWorks.begin(), allWorks.end(), [](const auto &l, const auto &r) { return l.second < r.second; });
+      if (!allWorks.empty() && allWorks.back().first != currentWork) {
+        work = allWorks.back().first;
+        LOG_F(INFO, "ProfitSwitcher: switch to %s (value: %lf)", workName(work).c_str(), allWorks.back().second);
+      }
+    } else {
+      // Switch to last accepted work
+      work = data.WorkStorage.lastAcceptedWork();
     }
 
-    if (isNewBlock) {
-      // Clear known shares set
-      data.KnownShares.clear();
-      // Update major job id
-      uint64_t newJobId = time(nullptr);
-      data.MajorWorkId_ = (data.MajorWorkId_ == newJobId) ? newJobId+1 : newJobId;
-    }
-
-    if (work.initialized()) {
-      work.buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.MinorLastWorkId_, isNewBlock);
+    if (work && work->ready()) {
+      // Send work to all miners
+      auto beginPt = std::chrono::steady_clock::now();
+      data.WorkStorage.setCurrentWork(work);
+      // resetNotRecommended - need be setted to true when resetting work is not profitable
+      work->buildNotifyMessage(isNewBlock & !work->resetNotRecommended());
       int64_t currentTime = time(nullptr);
+      unsigned counter = 0;
       for (auto &connection: data.Connections_) {
         connection->ResendCount = 0;
-        stratumSendWork(connection, currentTime);
+        stratumSendWork(connection, work, currentTime);
         counter++;
       }
+
+      auto endPt = std::chrono::steady_clock::now();
+      auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(endPt - beginPt).count();
+      LOG_F(INFO, "%s: Broadcast work %" PRIu64 "(reset=%s) & send to %u clients in %.3lf seconds", workName(work).c_str(), work->stratumId(), isNewBlock ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
     }
-
-    while (data.WorkSet.size() > WorksetSizeLimit)
-      data.WorkSet.pop_front();
-
-    auto endPt = std::chrono::steady_clock::now();
-    auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(endPt - beginPt).count();
-    LOG_F(INFO, "%s: Accepting work %" PRIu64 "#%u (reset=%s) & send to %u clients in %.3lf seconds", Name_.c_str(), data.MajorWorkId_, data.MinorLastWorkId_, isNewBlock ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
   }
 
 private:
@@ -290,7 +290,7 @@ private:
     char Buffer[12288];
     size_t MsgTailSize = 0;
     // Mining info
-    typename X::Stratum::WorkerConfig WorkerConfig;
+    CWorkerConfig WorkerConfig;
     // Current share difficulty (one for all workers on connection)
     double ShareDifficulty;
     // Workers
@@ -309,20 +309,9 @@ private:
 
   struct ThreadData {
     asyncBase *WorkerBase;
-    typename X::Proto::CheckConsensusCtx CheckConsensusCtx;
-    typename X::Stratum::ThreadConfig ThreadCfg;
-    std::deque<std::unique_ptr<typename X::Stratum::Work>> WorkSet;
+    ThreadConfig ThreadCfg;
     std::set<Connection*> Connections_;
-    std::unordered_set<typename X::Proto::BlockHashTy> KnownShares;
-    uint64_t MajorWorkId_ = 0;
-    uint32_t MinorLastWorkId_ = 0;
-  };
-
-  struct JobInfo {
-    bool HasJob;
-    size_t MajorJobId;
-    size_t MinorJobId;
-    size_t LocalJobIndex;
+    StratumWorkStorage<X> WorkStorage;
   };
 
 private:
@@ -446,8 +435,9 @@ private:
     send(connection, stream);
 
     ThreadData &data = Data_[GetLocalThreadId()];
-    if (connection->IsCgMiner && !data.WorkSet.empty())
-      stratumSendWork(connection, time(nullptr));
+    StratumWork *currentWork = data.WorkStorage.currentWork();
+    if (connection->IsCgMiner && currentWork)
+      stratumSendWork(connection, currentWork, time(nullptr));
     return true;
   }
 
@@ -468,13 +458,12 @@ private:
     send(connection, stream);
   }
 
-  bool shareCheck(Connection *connection, StratumMessage &msg, StratumErrorTy &errorCode, JobInfo *info) {
+  bool shareCheck(Connection *connection, StratumMessage &msg, StratumErrorTy &errorCode) {
     ThreadData &data = Data_[GetLocalThreadId()];
-    info->HasJob = false;
     uint64_t height = 0;
     double shareDiff = 0.0;
+    std::string blockHash;
     typename X::Proto::BlockHashTy shareHash;
-    typename X::Proto::BlockHashTy blockHash;
     std::vector<bool> foundBlockMask(LinkedBackends_.size(), false);
 
     // Check worker name
@@ -488,6 +477,8 @@ private:
     Worker &worker = It->second;
 
     // Check job id
+    StratumWork *work = nullptr;
+
     {
       size_t sharpPos = msg.submit.JobId.find('#');
       if (sharpPos == msg.submit.JobId.npos) {
@@ -498,16 +489,9 @@ private:
       }
 
       msg.submit.JobId[sharpPos] = 0;
-      info->MajorJobId = xatoi<uint64_t>(msg.submit.JobId.c_str());
-      info->MinorJobId = xatoi<size_t>(msg.submit.JobId.c_str() + sharpPos + 1);
-
-      // Ignore resend counter
-      info->MinorJobId &= 0xFFFFF;
-
-      size_t jobIdOffset = data.MinorLastWorkId_ - data.WorkSet.size() + 1;
-      info->LocalJobIndex = info->MinorJobId - jobIdOffset;
-      info->HasJob = info->MinorJobId >= jobIdOffset && info->LocalJobIndex < data.WorkSet.size();
-      if (info->MajorJobId != data.MajorWorkId_ || !info->HasJob) {
+      int64_t majorJobId = xatoi<uint64_t>(msg.submit.JobId.c_str());
+      work = data.WorkStorage.workById(majorJobId);
+      if (!work) {
         if (isDebugInstanceStratumRejects())
           LOG_F(1, "%s(%s) %s/%s reject: unknown job id: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), msg.submit.JobId.c_str());
         errorCode = StratumErrorJobNotFound;
@@ -517,17 +501,16 @@ private:
 
     // Build header and check proof of work
     std::string user = worker.User;
-    typename X::Stratum::Work &work = *data.WorkSet[info->LocalJobIndex];
-    if (!work.prepareForSubmit(connection->WorkerConfig, MiningCfg_, msg)) {
+    if (!work->prepareForSubmit(connection->WorkerConfig, msg)) {
       if (isDebugInstanceStratumRejects())
         LOG_F(1, "%s(%s) %s/%s reject: invalid share format", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
       errorCode = StratumErrorInvalidShare;
       return false;
     }
 
-    shareHash = work.shareHash();
     // Check for duplicate
-    if (!data.KnownShares.insert(shareHash).second) {
+    work->shareHash(shareHash.begin());
+    if (data.WorkStorage.isDuplicate(work, shareHash)) {
       if (isDebugInstanceStratumRejects())
         LOG_F(1, "%s(%s) %s/%s reject: duplicate share", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
       errorCode = StratumErrorDuplicateShare;
@@ -536,18 +519,18 @@ private:
 
     // Loop over all affected backends (usually 1 or 2 with enabled merged mining)
     bool shareAccepted = false;
-    for (size_t i = 0, ie = work.backendsNum(); i != ie; ++i) {
-      PoolBackend *backend = work.backend(i);
+    for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i) {
+      PoolBackend *backend = work->backend(i);
       if (!backend) {
         if (isDebugInstanceStratumRejects())
           LOG_F(1, "%s(%s) %s/%s sub-reject: backend %zu not initialized", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), i);
         continue;
       }
 
-      blockHash = work.blockHash(i);
+      blockHash = work->blockHash(i);
 
-      height = work.height(i);
-      bool isBlock = work.checkConsensus(i, &shareDiff);
+      height = work->height(i);
+      bool isBlock = work->checkConsensus(i, &shareDiff);
       if (shareDiff < connection->ShareDifficulty) {
         if (isDebugInstanceStratumRejects())
           LOG_F(1,
@@ -564,17 +547,19 @@ private:
 
       shareAccepted = true;
       if (isBlock) {
-        LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.ToString().c_str(), work.txNum(i));
+        LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work->txNum(i));
 
         // Serialize block
-        int64_t generatedCoins = work.blockReward(i);
+        xmstream blockHexData;
+        work->buildBlock(i, blockHexData);
+
+        int64_t generatedCoins = work->blockReward(i);
         double shareDifficulty = connection->ShareDifficulty;
-        double expectedWork = work.expectedWork(i);
+        double expectedWork = work->expectedWork(i);
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData(i).data(), work.blockHexData(i).sizeOf(), [height, blockHash, generatedCoins, expectedWork, backend, shareDifficulty, worker](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
-          std::string blockHashHex = blockHash.ToString();
+        dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(), [height, blockHash, generatedCoins, expectedWork, backend, shareDifficulty, worker](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
           if (success) {
-            LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHashHex.c_str(), height, hostName.c_str());
+            LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
             if (successNum == 1) {
               // Send share with block to backend
               CShare *backendShare = new CShare;
@@ -584,13 +569,13 @@ private:
               backendShare->height = height;
               backendShare->WorkValue = shareDifficulty;
               backendShare->isBlock = true;
-              backendShare->hash = blockHashHex;
+              backendShare->hash = blockHash;
               backendShare->generatedCoins = generatedCoins;
               backendShare->ExpectedWork = expectedWork;
               backend->sendShare(backendShare);
             }
           } else {
-            LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHashHex.c_str(), height, hostName.c_str(), error.c_str());
+            LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
           }
         });
 
@@ -638,8 +623,7 @@ private:
 
   void onStratumSubmit(Connection *connection, StratumMessage &msg) {
     StratumErrorTy errorCode;
-    JobInfo info;
-    bool result = shareCheck(connection, msg, errorCode, &info);
+    bool result = shareCheck(connection, msg, errorCode);
 
     // Update invalid shares statistic
     connection->TotalSharesCounter++;
@@ -700,19 +684,15 @@ private:
 
       // Change job for duplicate/invalid share (handle unstable clients)
       // Do it every 4 sequential invalid shares
-      if ((errorCode == StratumErrorDuplicateShare || errorCode == StratumErrorInvalidShare) && info.HasJob && (connection->InvalidSharesSequenceSize % 4 == 0)) {
+      if ((errorCode == StratumErrorDuplicateShare || errorCode == StratumErrorInvalidShare) && (connection->InvalidSharesSequenceSize % 4 == 0)) {
         ThreadData &data = Data_[GetLocalThreadId()];
         // "Mutate" newest available work
-        if (info.LocalJobIndex == data.WorkSet.size() - 1) {
-          typename X::Stratum::Work &work = *data.WorkSet.back();
-
-          // Usually increase 'nTime' in block header
-          work.mutate();
+        StratumWork *work = data.WorkStorage.currentWork();
+        if (work) {
+          work->mutate();
           connection->ResendCount++;
-          work.buildNotifyMessage(MiningCfg_, data.MajorWorkId_, data.MinorLastWorkId_ | (connection->ResendCount << 20), true);
+          stratumSendWork(connection, work, time(nullptr));
         }
-
-        stratumSendWork(connection, time(nullptr));
       }
     }
   }
@@ -747,11 +727,9 @@ private:
     send(connection, stream);
   }
 
-  void stratumSendWork(Connection *connection, int64_t currentTime) {
-    ThreadData &data = Data_[GetLocalThreadId()];
-    typename X::Stratum::Work &work = *data.WorkSet.back();
+  void stratumSendWork(Connection *connection, StratumWork *work, int64_t currentTime) {
     connection->LastUpdateTime = currentTime;
-    send(connection, work.notifyMessage());
+    send(connection, work->notifyMessage());
   }
 
   void newFrontendConnection(socketTy fd, HostAddress address) {
@@ -795,9 +773,10 @@ private:
               break;
             case StratumMethodTy::Authorize : {
               result = connection->Instance->onStratumAuthorize(connection, msg);
-              if (result && !data.WorkSet.empty()) {
+              StratumWork *currentWork = data.WorkStorage.currentWork();
+              if (result && currentWork) {
                 connection->Instance->stratumSendTarget(connection);
-                connection->Instance->stratumSendWork(connection, time(nullptr));
+                connection->Instance->stratumSendWork(connection, currentWork, time(nullptr));
               }
               break;
             }
@@ -874,17 +853,29 @@ private:
       delete connection;
   }
 
+  std::string workName(StratumWork *work) {
+    std::string name;
+    for (size_t i = 0; i < work->backendsNum(); i++) {
+      if (work->backend(i)) {
+        if (!name.empty())
+          name.push_back('+');
+        name.append(work->backend(i)->getCoinInfo().Name);
+      }
+    }
+
+    return name;
+  }
+
 private:
-  static constexpr size_t WorksetSizeLimit = 30;
+  size_t BackendsNum_;
   std::unique_ptr<ThreadData[]> Data_;
   std::string Name_ = "stratum";
   unsigned CurrentThreadId_;
-  typename X::Stratum::MiningConfig MiningCfg_;
+  MiningConfig MiningCfg_;
   double ConstantShareDiff_;
+
   // Profit switcher section
   bool ProfitSwitcherEnabled_ = false;
-  PoolBackend *CurrentBackend_ = nullptr;
-  double CurrentProfitValue_ = 0.0;
 
   // ASIC boost 'overt' data
   uint32_t VersionMask_ = 0x1FFFE000;

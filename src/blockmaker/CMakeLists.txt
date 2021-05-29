@@ -4,6 +4,7 @@ add_library(blockmaker STATIC
   scrypt-sse2.cpp
 
   btc.cpp
+  btcLike.cpp
   dgb.cpp
   doge.cpp
   ltc.cpp

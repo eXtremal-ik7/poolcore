@@ -1,34 +1,12 @@
 #pragma once
 
-#include <stdint.h>
-#include <string.h>
-#include <string>
-#include "blockmaker/serialize.h"
-#include "poolcommon/uint256.h"
-#include <openssl/sha.h>
-#include "rapidjson/document.h"
-#include "poolinstances/stratumMsg.h"
-#include "loguru.hpp"
-#include "poolcommon/intrusive_ptr.h"
-#include "poolcore/poolCore.h"
+#include "btcLike.h"
 
 struct CCoinInfo;
 struct PoolBackendConfig;
 class PoolBackend;
 
 namespace BTC {
-namespace Script {
-  enum {
-    OP_0 = 0,
-    OP_RETURN = 0x6A,
-    OP_DUP = 0x76,
-    OP_EQUAL = 0x87,
-    OP_EQUALVERIFY = 0x88,
-    OP_HASH160 = 0xA9,
-    OP_CHECKSIG = 0xAC
-  };
-}
-
 class Proto {
 public:
   static constexpr const char *TickerName = "BTC";
@@ -67,11 +45,6 @@ public:
     xvector<uint8_t> scriptSig;
     xvector<xvector<uint8_t>> witnessStack;
     uint32_t sequence;
-
-    static bool unpackWitnessStack(xmstream &src, DynamicPtr<BTC::Proto::TxIn> dst) {
-      BTC::unpack(src, DynamicPtr<decltype (dst->witnessStack)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::TxIn, witnessStack)));
-      return !dst->witnessStack.empty();
-    }
 
     size_t scriptSigOffset();
   };
@@ -155,8 +128,6 @@ public:
 
 namespace BTC {
 
-double getDifficulty(uint32_t bits);
-
 // Header
 template<> struct Io<Proto::BlockHeader> {
   static void serialize(xmstream &dst, const BTC::Proto::BlockHeader &data);
@@ -215,136 +186,29 @@ template<typename T> struct Io<Proto::BlockTy<T>> {
       data.vtx[i].SerializedDataSize = static_cast<uint32_t>(src.offsetOf() - data.vtx[i].SerializedDataOffset);
     }
   }
-
-  static inline void unpack(xmstream &src, DynamicPtr<BTC::Proto::BlockTy<T>> dst) {
-    size_t blockDataOffset = src.offsetOf();
-    BTC::unpack(src, DynamicPtr<decltype (dst->header)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::BlockTy<T>, header)));
-
-    {
-      auto vtxDst = DynamicPtr<decltype (dst->vtx)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::BlockTy<T>, vtx));
-      uint64_t txNum;
-      unserializeVarSize(src, txNum);
-      size_t dataOffset = vtxDst.stream().offsetOf();
-      vtxDst.stream().reserve(txNum*sizeof(typename T::Transaction));
-
-      new (vtxDst.ptr()) xvector<typename T::Transaction>(reinterpret_cast<typename T::Transaction*>(dataOffset), txNum, false);
-      for (uint64_t i = 0; i < txNum; i++) {
-        auto txPtr = DynamicPtr<typename T::Transaction>(vtxDst.stream(), dataOffset + sizeof(typename T::Transaction)*i);
-        txPtr->SerializedDataOffset = static_cast<uint32_t>(src.offsetOf() - blockDataOffset);
-        BTC::unpack(src, txPtr);
-        txPtr->SerializedDataSize = static_cast<uint32_t>(src.offsetOf() - txPtr->SerializedDataOffset);
-      }
-    }
-  }
-
-  static inline void unpackFinalize(DynamicPtr<BTC::Proto::BlockTy<T>> dst) {
-    BTC::unpackFinalize(DynamicPtr<decltype (dst->header)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::BlockTy<T>, header)));
-    BTC::unpackFinalize(DynamicPtr<decltype (dst->vtx)>(dst.stream(), dst.offset() + offsetof(BTC::Proto::BlockTy<T>, vtx)));
-  }
 };
 
 class Stratum {
 public:
   static constexpr double DifficultyFactor = 1.0;
 
-  struct MiningConfig {
-    unsigned FixedExtraNonceSize = 4;
-    unsigned MutableExtraNonceSize = 4;
-    void initialize(rapidjson::Value &instanceCfg);
+  // TODO: Use this for headers non-compatible with BTC
+  struct TemplateLoader {};
+
+  struct Notify {
+    static void build(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage);
   };
 
-  struct ThreadConfig {
-    uint64_t ExtraNonceCurrent;
-    unsigned ThreadsNum;
-    void initialize(unsigned instanceId, unsigned instancesNum);
+  struct Prepare {
+    static bool prepare(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
   };
 
-  struct WorkerConfig {
-    std::string SetDifficultySession;
-    std::string NotifySession;
-    uint64_t ExtraNonceFixed;
-    bool AsicBoostEnabled = false;
-    uint32_t VersionMask = 0;
-    void initialize(ThreadConfig &threadCfg);
-    void setupVersionRolling(uint32_t versionMask);
-    void onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo);
-  };
+  using Work = BTC::WorkTy<BTC::Proto, BTC::Stratum::TemplateLoader, BTC::Stratum::Notify, BTC::Stratum::Prepare>;
+  using SecondWork = StratumSingleWorkEmpty;
+  using MergedWork = StratumMergedWorkEmpty;
 
-  class Work {
-  public:
-    uint64_t UniqueWorkId;
-    uint64_t Height = 0;
-    PoolBackend *Backend = nullptr;
-
-    struct {
-      xmstream Data;
-      unsigned ExtraDataOffset;
-      unsigned ExtraNonceOffset;
-    } CBTxLegacy;
-
-    struct {
-      xmstream Data;
-      unsigned ExtraDataOffset;
-      unsigned ExtraNonceOffset;
-    } CBTxWitness;
-
-    unsigned BlockHexCoinbaseTxOffset;
-
-    Proto::BlockHeader Header;
-    std::vector<uint256> MerklePath;
-    uint32_t JobVersion;
-    size_t TxNum;
-    int64_t BlockReward;
-    xmstream BlockHexData;
-    xmstream NotifyMessage;
-
-  public:
-    size_t backendsNum() { return 1; }
-    uint256 shareHash() { return Header.GetHash(); }
-    uint256 blockHash(size_t) { return Header.GetHash(); }
-    PoolBackend *backend(size_t) { return Backend; }
-    uint64_t height(size_t) { return Height; }
-    size_t txNum(size_t) { return TxNum; }
-    int64_t blockReward(size_t) { return BlockReward; }
-    double expectedWork(size_t);
-    const xmstream &notifyMessage() { return NotifyMessage; }
-    const xmstream &blockHexData(size_t) { return BlockHexData; }
-    bool initialized() { return Backend != nullptr; }
-
-    bool isNewBlock(const PoolBackend *backend, const std::string&, uint64_t workId) {
-      // Profit switcher: don't reset previous work
-      if (backend != Backend)
-        return false;
-      return UniqueWorkId != workId;
-    }
-
-    void mutate() { Header.nTime = static_cast<uint32_t>(time(nullptr)); }
-
-    bool checkConsensus(size_t, double *shareDiff) {
-      Proto::CheckConsensusCtx ctx;
-      Proto::ChainParams params;
-      Proto::checkConsensusInitialize(ctx);
-      return Proto::checkConsensus(Header, ctx, params, shareDiff);
-    }
-
-    void buildNotifyMessage(MiningConfig &cfg, uint64_t majorJobId, unsigned minorJobId, bool resetPreviousWork);
-
-    bool loadFromTemplate(rapidjson::Value &document,
-                          uint64_t uniqueWorkId,
-                          const MiningConfig &cfg,
-                          PoolBackend *backend,
-                          const std::string &ticker,
-                          Proto::AddressTy &miningAddress,
-                          const void *coinBaseExtraData,
-                          size_t coinbaseExtraSize,
-                          std::string &error,
-                          uint32_t txNumLimit=0);
-
-    bool prepareForSubmit(const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
-  };
-
-  static bool suitableForProfitSwitcher(const std::string&) { return true; }
-  static double getIncomingProfitValue(rapidjson::Value &document, double price, double coeff);
+  static constexpr bool MergedMiningSupport = false;
+  static bool isMainBackend(const std::string&) { return true; }
 };
 
 struct X {

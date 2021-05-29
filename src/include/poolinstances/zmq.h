@@ -33,7 +33,7 @@ static bool checkRequest(pool::proto::Request &req,
 template<typename X>
 class ZmqInstance : public CPoolInstance {
 public:
-  ZmqInstance(asyncBase *monitorBase, UserManager &userMgr, CThreadPool &threadPool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool) {
+  ZmqInstance(asyncBase *monitorBase, UserManager &userMgr, const std::vector<PoolBackend*>&, CThreadPool &threadPool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool) {
     Name_ = (std::string)X::Proto::TickerName + ".zmq";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
 

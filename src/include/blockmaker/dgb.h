@@ -27,23 +27,14 @@ public:
 
 class Stratum {
 public:
-  using MiningConfig = BTC::Stratum::MiningConfig;
-  using WorkerConfig = BTC::Stratum::WorkerConfig;
-  using ThreadConfig = BTC::Stratum::ThreadConfig;
   static constexpr double DifficultyFactor = 65536.0;
 
-  class Work : public BTC::Stratum::Work {
-  public:
-    bool checkConsensus(size_t, double *shareDiff) {
-      DGB::Proto::CheckConsensusCtx ctx;
-      DGB::Proto::ChainParams params;
-      DGB::Proto::checkConsensusInitialize(ctx);
-      return DGB::Proto::checkConsensus(Header, ctx, params, shareDiff);
-    }
-  };
+  using Work = BTC::WorkTy<DGB::Proto, BTC::Stratum::TemplateLoader, BTC::Stratum::Notify, BTC::Stratum::Prepare>;
+  using SecondWork = StratumSingleWorkEmpty;
+  using MergedWork = StratumMergedWorkEmpty;
 
-  static inline bool suitableForProfitSwitcher(const std::string&) { return true; }
-  static inline double getIncomingProfitValue(rapidjson::Value &document, double price, double coeff) { return BTC::Stratum::getIncomingProfitValue(document, price, coeff); }
+  static constexpr bool MergedMiningSupport = false;
+  static bool isMainBackend(const std::string&) { return true; }
 };
 
 struct X {
