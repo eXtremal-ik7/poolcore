@@ -57,7 +57,7 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first
 
 bool Stratum::MergedWork::prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage &msg)
 {
-  if (LTC::Stratum::Work::prepareForSubmitImpl(LTCHeader_, LTCHeader_.nVersion, LTCLegacy_, LTCWitness_, LTCMerklePath_, workerCfg, MiningCfg_, msg))
+  if (!LTC::Stratum::Work::prepareForSubmitImpl(LTCHeader_, LTCHeader_.nVersion, LTCLegacy_, LTCWitness_, LTCMerklePath_, workerCfg, MiningCfg_, msg))
     return false;
 
   uint32_t chainId = DOGEHeader_.nVersion >> 16;

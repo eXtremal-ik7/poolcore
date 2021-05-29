@@ -169,6 +169,10 @@ public:
     LinkedWorks_.push_back(mergedWork);
   }
 
+  void clearLinks() {
+    LinkedWorks_.clear();
+  }
+
 protected:
   uint64_t UniqueWorkId_ = 0;
   PoolBackend *Backend_ = nullptr;
@@ -192,7 +196,6 @@ public:
   virtual ~StratumMergedWork() {}
 
   virtual size_t backendsNum() final { return 2; }
-  virtual std::string blockHash(size_t workIdx) final { return Works_[workIdx]->blockHash(0); }
   virtual PoolBackend *backend(size_t workIdx) final { return Works_[workIdx] ? Works_[workIdx]->backend(0) : nullptr; }
   virtual size_t backendId(size_t workIdx) final { return Works_[workIdx] ? Works_[workIdx]->backendId(0) : std::numeric_limits<size_t>::max(); }
   virtual uint64_t height(size_t workIdx) final { return Works_[workIdx]->height(0); }
@@ -237,6 +240,7 @@ class StratumMergedWorkEmpty : public StratumMergedWork {
 public:
   StratumMergedWorkEmpty(uint64_t stratumWorkId, StratumSingleWork *first, StratumSingleWork *second, MiningConfig &cfg) : StratumMergedWork(stratumWorkId, first, second, cfg) {}
   virtual void shareHash(void*) final {}
+  virtual std::string blockHash(size_t) final { return std::string(); }
   virtual void buildBlock(size_t, xmstream&) final {}
   virtual void mutate() final {}
   virtual void buildNotifyMessage(bool) final {}

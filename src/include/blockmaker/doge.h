@@ -61,6 +61,15 @@ public:
       *reinterpret_cast<DOGE::Proto::BlockHashTy*>(data) = LTCHeader_.GetHash();
     }
 
+    virtual std::string blockHash(size_t workIdx) override {
+      if (workIdx == 0)
+        return DOGEHeader_.GetHash().ToString();
+      else if (workIdx == 1)
+        return LTCHeader_.GetHash().ToString();
+      else
+        return std::string();
+    }
+
     virtual void mutate() override {
       LTCHeader_.nTime = static_cast<uint32_t>(time(nullptr));
       LTC::Stratum::Work::buildNotifyMessageImpl(this, LTCHeader_, LTCHeader_.nVersion, LTCLegacy_, LTCMerklePath_, MiningCfg_, true, NotifyMessage_);

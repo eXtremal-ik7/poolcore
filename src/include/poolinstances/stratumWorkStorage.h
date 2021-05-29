@@ -21,6 +21,13 @@ private:
   static constexpr size_t WorkNotExists = std::numeric_limits<size_t>::max();
 
 public:
+  ~StratumWorkStorage() {
+    for (size_t i = 0; i < BackendsNum_; i++) {
+      for (const auto &work: WorkStorage_[i])
+        work->clearLinks();
+    }
+  }
+
   void init(const std::vector<std::pair<PoolBackend*, bool>> &backends) {
     BackendsNum_ = backends.size();
     WorkStorage_.reset(new CSingleWorkSequence[BackendsNum_]);
@@ -128,9 +135,9 @@ private:
     lastStratumId = std::max(lastStratumId+1, static_cast<int64_t>(time(nullptr)));
     StratumSingleWork *work;
     if (FirstBackends_[backendIdx])
-      work = new typename X::Stratum::Work(uniqueId, lastStratumId, backend, backendIdx, miningCfg, miningAddress, coinbaseMessage);
+      work = new typename X::Stratum::Work(lastStratumId, uniqueId, backend, backendIdx, miningCfg, miningAddress, coinbaseMessage);
     else
-      work = new typename X::Stratum::SecondWork(uniqueId, lastStratumId, backend, backendIdx, miningCfg, miningAddress, coinbaseMessage);
+      work = new typename X::Stratum::SecondWork(lastStratumId, uniqueId, backend, backendIdx, miningCfg, miningAddress, coinbaseMessage);
 
     *newBlock = false;
     CSingleWorkSequence &sequence = WorkStorage_[backendIdx];
