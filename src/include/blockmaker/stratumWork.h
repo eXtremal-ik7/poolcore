@@ -133,8 +133,6 @@ public:
   virtual void buildNotifyMessage(bool resetPreviousWork) = 0;
   virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage &msg) = 0;
   virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) = 0;
-  // TODO: search better solution
-  virtual bool resetNotRecommended() = 0;
 
   xmstream &notifyMessage() { return NotifyMessage_; }
   int64_t stratumId() const { return StratumId_; }
@@ -204,7 +202,6 @@ public:
   virtual double expectedWork(size_t workIdx) final { return Works_[workIdx]->expectedWork(0); }
   virtual bool ready() final { return true; }
   virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) final { return Works_[workIdx]->getAbstractProfitValue(0, price, coeff); }
-  virtual bool resetNotRecommended() final { return (Works_[0] ? Works_[0]->resetNotRecommended() : false) | (Works_[1] ? Works_[1]->resetNotRecommended() : false); }
 
   void removeLink(StratumSingleWork *work) {
     if (Works_[0] == work)

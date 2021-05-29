@@ -218,7 +218,8 @@ public:
       auto beginPt = std::chrono::steady_clock::now();
       data.WorkStorage.setCurrentWork(work);
       // resetNotRecommended - need be setted to true when resetting work is not profitable
-      work->buildNotifyMessage(isNewBlock & !work->resetNotRecommended());
+      bool resetPreviousWork = isNewBlock & !X::Stratum::keepOldWorkForBackend(coinInfo.Name);
+      work->buildNotifyMessage(resetPreviousWork);
       int64_t currentTime = time(nullptr);
       unsigned counter = 0;
       for (auto &connection: data.Connections_) {
@@ -229,7 +230,7 @@ public:
 
       auto endPt = std::chrono::steady_clock::now();
       auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(endPt - beginPt).count();
-      LOG_F(INFO, "%s: Broadcast work %" PRIi64 "(reset=%s) & send to %u clients in %.3lf seconds", workName(work).c_str(), work->stratumId(), isNewBlock ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
+      LOG_F(INFO, "%s: Broadcast work %" PRIi64 "(reset=%s) & send to %u clients in %.3lf seconds", workName(work).c_str(), work->stratumId(), resetPreviousWork ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
     }
   }
 

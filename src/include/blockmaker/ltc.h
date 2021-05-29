@@ -40,6 +40,7 @@ public:
   using MergedWork = StratumMergedWorkEmpty;
   static constexpr bool MergedMiningSupport = false;
   static bool isMainBackend(const std::string&) { return true; }
+  static bool keepOldWorkForBackend(const std::string&) { return false; }
 };
 
 struct X {

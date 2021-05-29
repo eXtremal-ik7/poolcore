@@ -139,8 +139,8 @@ private:
     else
       work = new typename X::Stratum::SecondWork(lastStratumId, uniqueId, backend, backendIdx, miningCfg, miningAddress, coinbaseMessage);
 
-    *newBlock = false;
     CSingleWorkSequence &sequence = WorkStorage_[backendIdx];
+    *newBlock = sequence.empty();
     if (!sequence.empty() && sequence.back()->uniqueWorkId() != uniqueId) {
       // Cleanup main work
       for (const auto &w: sequence)

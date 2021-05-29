@@ -778,20 +778,21 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   // Get unique work id
   uint64_t workId = blockTemplate->UniqueWorkId = readHexBE<uint64_t>(prevBlockHash.c_str(), 16);
 
-  blockTemplate->Difficulty = BTC::getDifficulty(strtoul(bits.c_str(), nullptr, 16));
+  double difficulty = BTC::getDifficulty(strtoul(bits.c_str(), nullptr, 16));
+  blockTemplate->Difficulty = difficulty;
 
   // Check new work available
   if (!WorkFetcher_.LongPollId.empty()) {
     // With long polling enabled now we check time since last response
     uint64_t timeInterval = std::chrono::duration_cast<std::chrono::seconds>(now - WorkFetcher_.LastTemplateTime).count();
     if (timeInterval) {
-      LOG_F(INFO, "%s: new work available; previous block: %s; height: %u", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height));
+      LOG_F(INFO, "%s: new work available; previous block: %s; height: %u; difficulty: %lf", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height), difficulty);
       Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
     }
   } else {
     // Without long polling we send new task to miner on new block found
     if (WorkFetcher_.WorkId != workId) {
-      LOG_F(INFO, "%s: new work available; previous block: %s; height: %u", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height));
+      LOG_F(INFO, "%s: new work available; previous block: %s; height: %u; difficulty: %lf", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height), difficulty);
       Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
     }
   }

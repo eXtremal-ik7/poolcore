@@ -261,8 +261,6 @@ public:
     return price * BlockReward_ / getDifficulty(Header.nBits) * coeff;
   }
 
-  virtual bool resetNotRecommended() override { return false; }
-
 public:
   // Implementation
 
