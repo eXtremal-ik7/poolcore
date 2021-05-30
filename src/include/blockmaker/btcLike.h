@@ -2,6 +2,7 @@
 #include "stratumWork.h"
 #include "serialize.h"
 #include "loguru.hpp"
+#include <unordered_map>
 
 namespace BTC {
 namespace Script {
