@@ -73,8 +73,6 @@ public:
       }
     }
 
-    BackendsNum_ = linkedBackends.size();
-
     if (!config.HasMember("port") || !config["port"].IsUint()) {
       LOG_F(ERROR, "instance %s: can't read 'port' valuee from config", Name_.c_str());
       exit(1);
@@ -201,12 +199,10 @@ public:
         }
       }
 
-
-      StratumWork *currentWork = data.WorkStorage.currentWork();
       std::sort(allWorks.begin(), allWorks.end(), [](const auto &l, const auto &r) { return l.second < r.second; });
-      if (!allWorks.empty() && allWorks.back().first != currentWork) {
+      if (!allWorks.empty() && allWorks.back().first != data.WorkStorage.currentWork()) {
         work = allWorks.back().first;
-        LOG_F(INFO, "ProfitSwitcher: switch to %s (value: %lf)", workName(work).c_str(), allWorks.back().second);
+        LOG_F(INFO, "ProfitSwitcher: %s (value: %.8lf) selected", workName(work).c_str(), allWorks.back().second);
       }
     } else {
       // Switch to last accepted work
@@ -217,8 +213,10 @@ public:
       // Send work to all miners
       auto beginPt = std::chrono::steady_clock::now();
       data.WorkStorage.setCurrentWork(work);
-      // resetNotRecommended - need be setted to true when resetting work is not profitable
-      bool resetPreviousWork = isNewBlock & !X::Stratum::keepOldWorkForBackend(coinInfo.Name);
+
+      // If previous work has been updated (new block came), we need send 'true' as a last field of stratum.notify
+      bool resetPreviousWork = isNewBlock && !X::Stratum::keepOldWorkForBackend(coinInfo.Name);
+
       work->buildNotifyMessage(resetPreviousWork);
       int64_t currentTime = time(nullptr);
       unsigned counter = 0;
@@ -868,10 +866,9 @@ private:
   }
 
 private:
-  size_t BackendsNum_;
+  unsigned CurrentThreadId_;
   std::unique_ptr<ThreadData[]> Data_;
   std::string Name_ = "stratum";
-  unsigned CurrentThreadId_;
   MiningConfig MiningCfg_;
   double ConstantShareDiff_;
 

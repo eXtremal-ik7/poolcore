@@ -61,14 +61,14 @@ public:
   }
 
   /// Add work
-  bool createWork(rapidjson::Document &document, uint64_t uniqueWorkId, PoolBackend *backend, const std::string &ticker, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMsg, MiningConfig &miningConfig, const std::string &stratumInstanceName, bool *newBlock) {
+  bool createWork(rapidjson::Document &document, uint64_t uniqueWorkId, PoolBackend *backend, const std::string &ticker, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMsg, MiningConfig &miningConfig, const std::string &stratumInstanceName, bool *isNewBlock) {
     auto It = BackendMap_.find(backend);
     if (It == BackendMap_.end())
       return false;
     size_t backendIdx = It->second;
 
     std::string error;
-    StratumSingleWork *work = newSingleWork(backend, backendIdx, uniqueWorkId, miningConfig, miningAddress, coinbaseMsg, newBlock);
+    StratumSingleWork *work = newSingleWork(backend, backendIdx, uniqueWorkId, miningConfig, miningAddress, coinbaseMsg);
     if (!work->initialized()) {
       LOG_F(ERROR, "%s: work create impossible for %s", stratumInstanceName.c_str(), ticker.c_str());
       return false;
@@ -99,22 +99,23 @@ public:
       }
     }
 
+    if (CurrentWork_) {
+      bool currentWorkAffected = CurrentWork_->backendId(0) == backendIdx || CurrentWork_->backendId(1) == backendIdx;
+      bool blockUpdated = WorkStorage_[backendIdx].size() == 1;
+      *isNewBlock = currentWorkAffected & blockUpdated;
+    } else {
+      *isNewBlock = true;
+    }
+
     return true;
   }
 
   bool isDuplicate(StratumWork *work, const typename X::Proto::BlockHashTy &shareHash) {
     bool duplicate = false;
-    for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i) {
-      size_t backendId = work->backendId(i);
-      if (backendId >= BackendsNum_)
-        continue;
-
-      duplicate |= !AcceptedShares_[backendId].insert(shareHash).second;
-    }
-
+    for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i)
+      duplicate |= !AcceptedShares_[work->backendId(i)].insert(shareHash).second;
     return duplicate;
   }
-
 
 private:
   size_t BackendsNum_ = 0;
@@ -131,7 +132,7 @@ private:
   int64_t lastStratumId = 0;
 
 private: 
-  StratumSingleWork *newSingleWork(PoolBackend *backend, size_t backendIdx, uint64_t uniqueId, const MiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage, bool *newBlock) {
+  StratumSingleWork *newSingleWork(PoolBackend *backend, size_t backendIdx, uint64_t uniqueId, const MiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) {
     lastStratumId = std::max(lastStratumId+1, static_cast<int64_t>(time(nullptr)));
     StratumSingleWork *work;
     if (FirstBackends_[backendIdx])
@@ -140,25 +141,16 @@ private:
       work = new typename X::Stratum::SecondWork(lastStratumId, uniqueId, backend, backendIdx, miningCfg, miningAddress, coinbaseMessage);
 
     CSingleWorkSequence &sequence = WorkStorage_[backendIdx];
-    *newBlock = sequence.empty();
-    if (!sequence.empty() && sequence.back()->uniqueWorkId() != uniqueId) {
-      // Cleanup main work
-      for (const auto &w: sequence)
-        WorkIdMap_.erase(w->stratumId());
-      sequence.clear();
-      AcceptedShares_[backendIdx].clear();
-      *newBlock = true;
-    }
+    if (!sequence.empty() && sequence.back()->uniqueWorkId() != uniqueId)
+      eraseAll(sequence, backendIdx);
 
     WorkIdMap_[lastStratumId] = work;
     LastAcceptedWork_ = work;
     sequence.emplace_back(work);
 
     // Remove old work
-    while (sequence.size() > WorksetSizeLimit) {
-      WorkIdMap_.erase(sequence.front()->stratumId());
-      sequence.pop_front();
-    }
+    while (sequence.size() > WorksetSizeLimit)
+      eraseFirst(sequence);
 
     return work;
   }
@@ -174,13 +166,29 @@ private:
 
     // Cleanup
     while (!sequence.empty()) {
-      if (sequence.front()->empty()) {
-        WorkIdMap_.erase(sequence.front()->stratumId());
-        sequence.pop_front();
-      } else {
+      if (sequence.front()->empty())
+        eraseFirst(sequence);
+      else
         break;
-      }
     }
+  }
+
+  template<typename T> void eraseFirst(std::deque<T> &sequence) {
+    if (CurrentWork_ == sequence.front().get())
+      CurrentWork_ = nullptr;
+    WorkIdMap_.erase(sequence.front()->stratumId());
+    sequence.pop_front();
+  }
+
+  template<typename T> void eraseAll(std::deque<T> &sequence, size_t backendIdx) {
+    for (const auto &work: sequence) {
+      WorkIdMap_.erase(work->stratumId());
+      if (CurrentWork_ == work.get())
+        CurrentWork_ = nullptr;
+    }
+
+    sequence.clear();
+    AcceptedShares_[backendIdx].clear();
   }
 
 private:

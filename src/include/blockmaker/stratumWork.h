@@ -186,6 +186,8 @@ public:
   StratumMergedWork(uint64_t stratumWorkId, StratumSingleWork *first, StratumSingleWork *second, const MiningConfig &miningCfg) : StratumWork(stratumWorkId, miningCfg) {
     Works_[0] = first;
     Works_[1] = second;
+    WorkId_[0] = first->backendId(0);
+    WorkId_[1] = second->backendId(0);
     first->addLink(this);
     second->addLink(this);
     Initialized_ = true;
@@ -195,7 +197,7 @@ public:
 
   virtual size_t backendsNum() final { return 2; }
   virtual PoolBackend *backend(size_t workIdx) final { return Works_[workIdx] ? Works_[workIdx]->backend(0) : nullptr; }
-  virtual size_t backendId(size_t workIdx) final { return Works_[workIdx] ? Works_[workIdx]->backendId(0) : std::numeric_limits<size_t>::max(); }
+  virtual size_t backendId(size_t workIdx) final { return WorkId_[workIdx]; }
   virtual uint64_t height(size_t workIdx) final { return Works_[workIdx]->height(0); }
   virtual size_t txNum(size_t workIdx) final { return Works_[workIdx]->txNum(0); }
   virtual int64_t blockReward(size_t workIdx) final { return Works_[workIdx]->blockReward(0); }
@@ -214,6 +216,7 @@ public:
 
 protected:
   StratumSingleWork *Works_[2] = {nullptr, nullptr};
+  size_t WorkId_[2] = {std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max()};
 };
 
 class StratumSingleWorkEmpty : public StratumSingleWork {
