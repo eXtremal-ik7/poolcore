@@ -202,7 +202,20 @@ public:
       std::sort(allWorks.begin(), allWorks.end(), [](const auto &l, const auto &r) { return l.second < r.second; });
       if (!allWorks.empty() && allWorks.back().first != data.WorkStorage.currentWork()) {
         work = allWorks.back().first;
-        LOG_F(INFO, "ProfitSwitcher: %s (value: %.8lf) selected", workName(work).c_str(), allWorks.back().second);
+
+        std::string profitSwitcherInfo;
+        for (auto I = allWorks.rbegin(), IE = allWorks.rend(); I != IE; ++I) {
+          char buffer[64];
+          snprintf(buffer, sizeof(buffer), "%.8lf", I->second);
+          profitSwitcherInfo.push_back(' ');
+          profitSwitcherInfo.append(workName(I->first));
+          profitSwitcherInfo.push_back('(');
+          profitSwitcherInfo.append(buffer);
+          profitSwitcherInfo.push_back(')');
+        }
+
+        if (GetLocalThreadId() == 0)
+          LOG_F(INFO, "[t=0] %s: ProfitSwitcher:%s", Name_.c_str(), profitSwitcherInfo.c_str());
       }
     } else {
       // Switch to last accepted work
@@ -228,7 +241,8 @@ public:
 
       auto endPt = std::chrono::steady_clock::now();
       auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(endPt - beginPt).count();
-      LOG_F(INFO, "%s: Broadcast work %" PRIi64 "(reset=%s) & send to %u clients in %.3lf seconds", workName(work).c_str(), work->stratumId(), resetPreviousWork ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
+      if (GetLocalThreadId() == 0)
+        LOG_F(INFO, "[t=0] %s: Broadcast %s work %" PRIi64 "(reset=%s) & send to %u clients in %.3lf seconds", Name_.c_str(), workName(work).c_str(), work->stratumId(), resetPreviousWork ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
     }
   }
 
