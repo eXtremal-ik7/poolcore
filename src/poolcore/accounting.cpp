@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <poolcommon/file.h>
 #include "poolcommon/debug.h"
+#include <math.h>
 
 #define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
 
@@ -291,55 +292,6 @@ void AccountingDb::cleanupRounds()
   }
 }
 
-void AccountingDb::processPersonalFee(UserManager::PersonalFeeTree &personalFeeConfig, UserShareValue &shareValue, std::map<std::string, double> &personalFeeMap)
-{
-  std::vector<UserFeePair> personalFeePath;
-  UserManager::PersonalFeeNode *node = personalFeeConfig.get(shareValue.userId);
-  std::set<UserManager::PersonalFeeNode*> visited = {node};
-  while (node && node->Parent) {
-    if (!visited.insert(node->Parent).second) {
-      LOG_F(ERROR, "Personal fee recursion detected for %s\n", shareValue.userId.c_str());
-      return;
-    }
-
-    double feeCoeff = node->getFeeCoefficient(CoinInfo_.Name);
-    if (!personalFeePath.empty()) {
-      double extraFee = feeCoeff*personalFeePath.back().FeeCoeff;
-      personalFeePath.back().FeeCoeff -= extraFee;
-      feeCoeff += extraFee;
-    }
-
-    personalFeePath.emplace_back(node->Parent->UserId, feeCoeff);
-    node = node->Parent;
-  }
-
-  std::string debugString = "   * PF ";
-  {
-    char buffer[128];
-    snprintf(buffer, sizeof(buffer), "%s %.3lf shares -> ", shareValue.userId.c_str(), shareValue.shareValue);
-    debugString += buffer;
-  }
-
-  double originalShareValue = shareValue.shareValue;
-  for (auto I = personalFeePath.rbegin(), IE = personalFeePath.rend(); I != IE; ++I) {
-    double fee = originalShareValue * I->FeeCoeff;
-    double realFee = std::min(shareValue.shareValue, fee);
-    if (realFee == 0.0)
-      LOG_F(WARNING, "     * PF %s too much fee", shareValue.userId.c_str());
-    shareValue.shareValue -= realFee;
-    personalFeeMap[I->UserId] += realFee;
-    if (shareValue.shareValue < 0.0)
-      shareValue.shareValue = 0.0;
-
-    char buffer[128];
-    snprintf(buffer, sizeof(buffer), "%s %.3lf(%.3lf%%) ", I->UserId.c_str(), realFee, I->FeeCoeff*100.0);
-    debugString += buffer;
-  }
-
-  if (!personalFeePath.empty())
-    LOG_F(INFO, "%s", debugString.c_str());
-}
-
 void AccountingDb::addShare(const CShare &share)
 {
   // increment score
@@ -367,48 +319,17 @@ void AccountingDb::addShare(const CShare &share)
     int64_t generatedCoins = share.generatedCoins * CoinInfo_.ExtraMultiplier;
     if (!_cfg.poolZAddr.empty()) {
       // calculate miners fee for Z-Addr moving
-      generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE);
+      generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE * CoinInfo_.ExtraMultiplier);
     }
 
-    int64_t feeValuesSum = 0;
-    std::vector<int64_t> feeValues;
-    for (const auto &poolFeeRecord: _cfg.PoolFee) {
-      int64_t value = static_cast<int64_t>(generatedCoins * (poolFeeRecord.Percentage / 100.0));
-      feeValues.push_back(value);
-      feeValuesSum += value;
-    }
-
-    if (feeValuesSum > generatedCoins) {
-      int64_t diff = feeValuesSum - generatedCoins;
-      int64_t div = diff / static_cast<int64_t>(feeValues.size());
-      int64_t mv = diff >= 0 ? 1 : -1;
-      uint64_t mod = (diff > 0 ? diff : -diff) % feeValues.size();
-
-      feeValuesSum = 0;
-      for (size_t i = 0, ie = feeValues.size(); i != ie; ++i) {
-        feeValues[i] -= div;
-        if (i < mod)
-          feeValues[i] -= mv;
-        feeValuesSum += feeValues[i];
-      }
-    }
-
-    int64_t available = generatedCoins - feeValuesSum;
-    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share.height, share.hash.c_str(), generatedCoins, feeValuesSum, available);
+    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 "", (unsigned)share.height, share.hash.c_str(), generatedCoins);
 
     MiningRound *R = new MiningRound;
     R->Height = share.height;
     R->BlockHash = share.hash.c_str();
     R->Time = share.Time;
-    R->AvailableCoins = available;
+    R->AvailableCoins = generatedCoins;
     R->TotalShareValue = 0;
-
-    std::map<std::string, double> personalFeeMap;
-    std::unordered_set<std::string> poolFeeAddrs;
-    for (const auto &poolFee: _cfg.PoolFee) {
-      poolFeeAddrs.insert(poolFee.User);
-      personalFeeMap[poolFee.User] = 0.0;
-    }
 
     {
       intrusive_ptr<UserManager::PersonalFeeTree> personalFeeConfig(UserManager_.personalFeeConfig());
@@ -420,17 +341,14 @@ void AccountingDb::addShare(const CShare &share)
           // User disconnected recently, no new shares
           double shareValue = stats.recentShareValue(acceptSharesTime);
           if (shareValue != 0.0) {
-            auto &element = R->UserShares.emplace_back(stats.UserId, shareValue);
-            processPersonalFee(*personalFeeConfig.get(), element, personalFeeMap);
+            R->UserShares.emplace_back(stats.UserId, shareValue);
           }
         }, [&](const std::pair<std::string, double> &scores) {
           // User joined recently, no extra shares in statistic
-          auto &element = R->UserShares.emplace_back(scores.first, scores.second);
-          processPersonalFee(*personalFeeConfig.get(), element, personalFeeMap);
+          R->UserShares.emplace_back(scores.first, scores.second);
         }, [&](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, double> &scores) {
           // Need merge new shares and recent share statistics
-          auto &element = R->UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime));
-          processPersonalFee(*personalFeeConfig.get(), element, personalFeeMap);
+          R->UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime));
         });
     }
 
@@ -439,43 +357,61 @@ void AccountingDb::addShare(const CShare &share)
     // Get total share value
     for (const auto &element: R->UserShares)
       R->TotalShareValue += element.shareValue;
-    for (const auto &element: personalFeeMap)
-      R->TotalShareValue += element.second;
 
     // Calculate payments
-    // Merge share value list with personal fee map
     int64_t totalPayout = 0;
-    auto addPayout = [R, &totalPayout](const std::string &userId, double shareValue, std::unordered_set<std::string> &poolFeeAddrs) {
-      int64_t payoutValue = static_cast<int64_t>(R->AvailableCoins * (shareValue / R->TotalShareValue));
-      if (payoutValue || poolFeeAddrs.count(userId)) {
-        R->Payouts.emplace_back(userId, payoutValue);
-        totalPayout += payoutValue;
-      }
-    };
+    std::vector<PayoutDbRecord> payouts;
+    std::map<std::string, int64_t> feePayouts;
+    std::unordered_map<std::string, UserManager::UserFeeConfig> feePlans;
+    unsigned rationalPartSize = CoinInfo_.RationalPartSize + log10(CoinInfo_.ExtraMultiplier);
+    for (const auto &record: R->UserShares) {
+      // Calculate payout
+      int64_t payoutValue = static_cast<int64_t>(R->AvailableCoins * (record.shareValue / R->TotalShareValue));
 
-    // (R->UserShares, personalFeeMap) ==> R->payouts
-    mergeSorted(R->UserShares.begin(), R->UserShares.end(), personalFeeMap.begin(), personalFeeMap.end(),
-      [](const UserShareValue &l, const std::pair<std::string, double> &r) { return l.userId < r.first; },
-      [](const std::pair<std::string, double> &l, const UserShareValue &r) { return l.first < r.userId; },
-      [addPayout, &poolFeeAddrs](const UserShareValue &value) { addPayout(value.userId, value.shareValue, poolFeeAddrs); },
-      [addPayout, &poolFeeAddrs](const std::pair<std::string, double> &personalFee) { addPayout(personalFee.first, personalFee.second, poolFeeAddrs); },
-      [addPayout, &poolFeeAddrs](const UserShareValue &value, const std::pair<std::string, double> &personalFee) {
-        addPayout(value.userId, value.shareValue + personalFee.second, poolFeeAddrs);
-      }
-    );
+      // get fee plan for user
+      std::string feePlanId = UserManager_.getFeePlanId(record.userId);
+      auto It = feePlans.find(feePlanId);
+      if (It != feePlans.end())
+        It = feePlans.insert(It, std::make_pair(feePlanId, UserManager_.getFeeRecord(feePlanId, CoinInfo_.Name)));
 
-    // Add pool fee payouts
-    {
-      std::vector<PayoutDbRecord> extraPayouts;
-      for (size_t i = 0, ie = _cfg.PoolFee.size(); i != ie; ++i) {
-        PayoutDbRecord forSearch(_cfg.PoolFee[i].User, 0);
-        auto It = std::lower_bound(R->Payouts.begin(), R->Payouts.end(), forSearch, [](const PayoutDbRecord &l, const PayoutDbRecord &r) { return l.UserId < r.UserId; });
-        if (It != R->Payouts.end() && It->UserId == _cfg.PoolFee[i].User) {
-          It->Value += feeValues[i];
-          totalPayout += feeValues[i];
+      UserManager::UserFeeConfig &feeRecord = It->second;
+
+      int64_t feeValuesSum = 0;
+      std::vector<int64_t> feeValues;
+      for (const auto &poolFeeRecord: feeRecord) {
+        int64_t value = static_cast<int64_t>(payoutValue * (poolFeeRecord.Percentage / 100.0));
+        feeValues.push_back(value);
+        feeValuesSum += value;
+      }
+
+      std::string debugString;
+      if (feeValuesSum <= payoutValue) {
+        for (size_t i = 0, ie = feeRecord.size(); i != ie; ++i) {
+          debugString.append(feeRecord[i].UserId);
+          debugString.push_back('(');
+          debugString.append(FormatMoney(feeValues[i], rationalPartSize));
+          debugString.append(") ");
+          feePayouts[feeRecord[i].UserId] += feeValues[i];
         }
+
+        payoutValue -= feeValuesSum;
+      } else {
+        feeValuesSum = 0;
+        feeValues.clear();
+        debugString = "NONE";
+        LOG_F(ERROR, "   * user %s: fee over 100%% can't be applied", record.userId.c_str());
       }
+
+      payouts.emplace_back(record.userId, payoutValue);
+      LOG_F(INFO, " * %s %s -> %s, remaining %s", record.userId.c_str(), FormatMoney(payoutValue+feeValuesSum, rationalPartSize).c_str(), debugString.c_str(), FormatMoney(payoutValue, rationalPartSize).c_str());
     }
+
+    mergeSorted(payouts.begin(), payouts.end(), feePayouts.begin(), feePayouts.end(),
+      [](const PayoutDbRecord &l, const std::pair<std::string, int64_t> &r) { return l.UserId < r.first; },
+      [](const std::pair<std::string, int64_t> &l, const PayoutDbRecord &r) { return l.first < r.UserId; },
+      [R](const PayoutDbRecord &record) { R->Payouts.emplace_back(record); },
+      [R](const std::pair<std::string, int64_t> &fee) { R->Payouts.emplace_back(fee.first, fee.second); },
+      [R](const PayoutDbRecord &record, const std::pair<std::string, int64_t> &fee) { R->Payouts.emplace_back(record.UserId, record.Value + fee.second); });
 
     // Correct payouts for use all available coins
     if (!R->Payouts.empty()) {

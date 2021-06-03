@@ -52,6 +52,7 @@ static void makeRandom(base_blob<BITS> &number)
 UserManager::UserManager(const std::filesystem::path &dbPath) :
   UsersDb_(dbPath / "users"),
   UserPersonalFeeDb_(dbPath / "userpersonalfee"),
+  UserFeePlanDb_(dbPath / "userfeeplan"),
   UserSettingsDb_(dbPath / "usersettings"),
   UserActionsDb_(dbPath / "useractions"),
   UserSessionsDb_(dbPath / "usersessions")
@@ -179,6 +180,22 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
     PersonalFeeConfig_.reset(tree);
   }
 
+  {
+    // Fee plan
+    std::unique_ptr<rocksdbBase::IteratorType> It(UserFeePlanDb_.iterator());
+    for (It->seekFirst(); It->valid(); It->next()) {
+      UserFeePlanRecord record;
+      if (!record.deserializeValue(It->value().data, It->value().size)) {
+        LOG_F(ERROR, "Database corrupted (fee plan)");
+        break;
+      }
+
+      std::string error;
+      if (!acceptFeePlanRecord(record, error))
+        break;
+    }
+  }
+
   Base_ = createAsyncBase(amOSDefault);
   TaskQueueEvent_ = newUserEvent(Base_, 0, [](aioUserEvent*, void *arg) {
     Task *task = nullptr;
@@ -204,6 +221,76 @@ void UserManager::stop()
 
   postQuitOperation(Base_);
   Thread_.join();
+}
+
+bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::string &error)
+{
+  auto acceptProc = [this](const UserFeeConfig &config, const std::string &planId, std::string &error) -> bool {
+    double sum = 0.0;
+    for (const auto &pair: config) {
+      if (UsersCache_.count(pair.UserId) == 0) {
+        error = "unknown_login";
+        LOG_F(ERROR, "UserManager: can't accept fee plan '%s', user %s not exists", planId.c_str(), pair.UserId.c_str());
+        return false;
+      }
+
+      sum += pair.Percentage;
+    }
+
+    if (sum >= 100.0) {
+      error = "fee_too_much";
+        LOG_F(ERROR, "UserManager: can't accept fee plan '%s', fee %.2lf too big", planId.c_str(), sum);
+      return false;
+    }
+
+    return true;
+  };
+
+  auto feeConfigToString = [](const UserFeeConfig &config) -> std::string {
+    std::string result;
+    for (const auto &pair: config) {
+      result.append(pair.UserId);
+      result.push_back('(');
+      result.append(std::to_string(pair.Percentage));
+      result.append("%) ");
+    }
+
+    return result;
+  };
+
+  if (!acceptProc(record.Default, record.FeePlanId, error))
+    return false;
+  for (const auto &cfg: record.CoinSpecificFee) {
+    if (!acceptProc(cfg.Config, record.FeePlanId, error))
+      return false;
+  }
+
+  FeePlan plan;
+  plan.Default = record.Default;
+  for (const auto &specificFee: record.CoinSpecificFee)
+    plan.CoinSpecificFee[specificFee.CoinName] = specificFee.Config;
+
+  FeePlanCache_.erase(record.FeePlanId);
+  FeePlanCache_.insert(std::make_pair(record.FeePlanId, plan));
+
+  LOG_F(INFO, "UserManager: accepted fee plan %s", record.FeePlanId.c_str());
+  LOG_F(INFO, " * default: %s", feeConfigToString(record.Default).c_str());
+  for (const auto &specificFee: record.CoinSpecificFee)
+    LOG_F(INFO, " * %s: %s", specificFee.CoinName.c_str(), feeConfigToString(specificFee.Config).c_str());
+
+  return true;
+}
+
+void UserManager::buildFeePlanRecord(const std::string &feePlanId, const FeePlan &plan, UserFeePlanRecord &result)
+{
+  result.FeePlanId = feePlanId;
+  result.Default = plan.Default;
+  result.CoinSpecificFee.clear();
+  for (const auto &specificFee: plan.CoinSpecificFee) {
+    auto &cfg = result.CoinSpecificFee.emplace_back();
+    cfg.CoinName = specificFee.first;
+    cfg.Config = specificFee.second;
+  }
 }
 
 bool UserManager::updatePersonalFee(const std::string &login, const std::string &parentUserId, double defaultFee, const std::vector<CoinSpecificFeeRecord> &specificFee)
@@ -1019,6 +1106,25 @@ void UserManager::updatePersonalFeeImpl(const std::string &sessionId, const Cred
   return;
 }
 
+void UserManager::updateFeePlanImpl(const std::string &sessionId, const UserFeePlanRecord &plan, Task::DefaultCb callback)
+{
+  std::string login;
+  if (!validateSession(sessionId, "", login, true)) {
+    callback("unknown_id");
+    return;
+  }
+
+  if (login != "admin") {
+    callback("unknown_id");
+    return;
+  }
+
+  std::string error = "ok";
+  if (acceptFeePlanRecord(plan, error))
+    UserFeePlanDb_.put(plan);
+  callback(error.c_str());
+}
+
 bool UserManager::checkUser(const std::string &login)
 {
   return UsersCache_.count(login);
@@ -1114,5 +1220,60 @@ bool UserManager::getUserCoinSettings(const std::string &login, const std::strin
     return true;
   } else {
     return false;
+  }
+}
+
+std::string UserManager::getFeePlanId(const std::string &login)
+{
+  static const std::string defaultPlan = "default";
+  decltype (UsersCache_)::const_accessor accessor;
+  if (UsersCache_.find(accessor, login))
+    return !accessor->second.FeePlanId.empty() ? accessor->second.FeePlanId : defaultPlan;
+  else
+    return "default";
+}
+
+bool UserManager::getFeePlan(const std::string &sessionId, const std::string &feePlanId, std::string &status, UserFeePlanRecord &result)
+{
+  std::string login;
+  if (!validateSession(sessionId, "", login, true) || login != "admin") {
+    status = "unknown_id";
+    return false;
+  }
+
+  decltype (FeePlanCache_)::const_accessor accessor;
+  if (FeePlanCache_.find(accessor, feePlanId)) {
+    buildFeePlanRecord(accessor->first, accessor->second, result);
+    status = "ok";
+    return true;
+  } else {
+    status = "unknown_fee_plan";
+    return false;
+  }
+}
+
+bool UserManager::enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<UserFeePlanRecord> &result)
+{
+  std::string login;
+  if (!validateSession(sessionId, "", login, true) || login != "admin") {
+    status = "unknown_id";
+    return false;
+  }
+
+  for (const auto &plan: FeePlanCache_)
+    buildFeePlanRecord(plan.first, plan.second, result.emplace_back());
+
+  status = "ok";
+  return true;
+}
+
+UserManager::UserFeeConfig UserManager::getFeeRecord(const std::string &feePlanId, const std::string &coin)
+{
+  decltype (FeePlanCache_)::const_accessor accessor;
+  if (FeePlanCache_.find(accessor, feePlanId)) {
+    auto It = accessor->second.CoinSpecificFee.find(coin);
+    return It != accessor->second.CoinSpecificFee.end() ? It->second : accessor->second.Default;
+  } else {
+    return UserFeeConfig();
   }
 }

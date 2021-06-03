@@ -163,6 +163,8 @@ struct UsersRecord {
   bool IsActive;
   bool IsReadOnly = false;
   bool IsSuperUser = false;
+  std::string FeePlanId;
+  std::string PersonalFeePlanId;
 
   UsersRecord() {}
   std::string getPartitionId() const { return "default"; }
@@ -187,6 +189,32 @@ struct UserPersonalFeeRecord {
   std::vector<CoinSpecificFeeRecord> CoinSpecificFee;
 
   UserPersonalFeeRecord() {}
+  std::string getPartitionId() const { return "default"; }
+  bool deserializeValue(const void *data, size_t size);
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;
+};
+
+struct UserFeePair {
+  std::string UserId;
+  double Percentage;
+};
+
+using UserFeeConfig = std::vector<UserFeePair>;
+
+struct CoinSpecificFeeRecord2 {
+  std::string CoinName;
+  UserFeeConfig Config;
+};
+
+struct UserFeePlanRecord {
+  enum { CurrentRecordVersion = 1 };
+
+  std::string FeePlanId;
+  UserFeeConfig Default;
+  std::vector<CoinSpecificFeeRecord2> CoinSpecificFee;
+
+  UserFeePlanRecord() {}
   std::string getPartitionId() const { return "default"; }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;

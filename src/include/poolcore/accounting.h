@@ -166,9 +166,6 @@ public:
   
   bool requestPayout(const std::string &address, int64_t value, bool force = false);
 
-  void processPersonalFee(UserManager::PersonalFeeTree &personalFeeConfig, UserShareValue &shareValue, std::map<std::string, double> &personalFeeMap);
-  void processPersonalFeeImpl(UserManager::PersonalFeeNode *node, std::map<std::string, double> &personalFeeMap);
-
   void addShare(const CShare &share);
   void replayShare(const CShare &share);
   void initializationFinish(int64_t timeLabel);

@@ -146,6 +146,13 @@ public:
     uintptr_t ref_fetch_sub(uint64_t value) { return Refs_.fetch_sub(value); }
   };
 
+  using UserFeeConfig = std::vector<UserFeePair>;
+
+  struct FeePlan {
+    UserFeeConfig Default;
+    std::unordered_map<std::string, UserFeeConfig> CoinSpecificFee;
+  };
+
   // User session life time from last access (default: 30 minutes)
   static constexpr unsigned DefaultSessionLifeTime = 30*60;
   // User action(authentication data manage) life time (default 12 hours)
@@ -309,6 +316,16 @@ public:
     DefaultCb Callback_;
   };
 
+  class UpdateFeePlanTask: public Task {
+  public:
+    UpdateFeePlanTask(UserManager *userMgr, const std::string &sessionId, UserFeePlanRecord &&plan, DefaultCb callback) : Task(userMgr), SessionId_(sessionId), Plan_(plan), Callback_(callback) {}
+    void run() final { UserMgr_->updateFeePlanImpl(SessionId_, Plan_, Callback_); }
+  private:
+    std::string SessionId_;
+    UserFeePlanRecord Plan_;
+    DefaultCb Callback_;
+  };
+
 public:
   UserManager(const std::filesystem::path &dbPath);
   UserManager(const UserManager&) = delete;
@@ -407,6 +424,7 @@ public:
   void updateSettings(UserSettingsRecord &&settings, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), callback)); }
   void enumerateUsers(const std::string &sessionId, EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, sessionId, callback)); }
   void updatePersonalFee(const std::string &sessionId, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UpdatePersonalFeeTask(this, sessionId, std::move(credentials), callback)); }
+  void updateFeePlan(const std::string &sessionId, UserFeePlanRecord &&plan, Task::DefaultCb callback) { startAsyncTask(new UpdateFeePlanTask(this, sessionId, std::move(plan), callback)); }
 
   // Synchronous api
   bool checkUser(const std::string &login);
@@ -414,6 +432,10 @@ public:
   bool validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin, bool needWriteAccess);
   bool getUserCredentials(const std::string &login, Credentials &out);
   bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);
+  std::string getFeePlanId(const std::string &login);
+  bool getFeePlan(const std::string &sessionId, const std::string &feePlanId, std::string &status, UserFeePlanRecord &result);
+  bool enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<UserFeePlanRecord> &result);
+  UserFeeConfig getFeeRecord(const std::string &feePlanId, const std::string &coin);
 
 private:
   // Asynchronous api implementation
@@ -430,6 +452,7 @@ private:
   void updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback);
   void enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback);
   void updatePersonalFeeImpl(const std::string &sessionId, const Credentials &credentials, Task::DefaultCb callback);
+  void updateFeePlanImpl(const std::string &sessionId, const UserFeePlanRecord &plan, Task::DefaultCb callback);
 
   void sessionAdd(const UserSessionRecord &sessionRecord) {
     LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
@@ -455,6 +478,8 @@ private:
     ActionsCache_.erase(actionRecord.Id);
   }
 
+  bool acceptFeePlanRecord(const UserFeePlanRecord &record, std::string &error);
+  void buildFeePlanRecord(const std::string &feePlanId, const FeePlan &plan, UserFeePlanRecord &result);
   bool updatePersonalFee(const std::string &login, const std::string &parentUserId, double defaultFee, const std::vector<CoinSpecificFeeRecord> &specificFee);
 
   void userManagerMain();
@@ -465,6 +490,7 @@ private:
   tbb::concurrent_queue<Task*> Tasks_;
   kvdb<rocksdbBase> UsersDb_;
   kvdb<rocksdbBase> UserPersonalFeeDb_;
+  kvdb<rocksdbBase> UserFeePlanDb_;
   kvdb<rocksdbBase> UserSettingsDb_;
   kvdb<rocksdbBase> UserActionsDb_;
   kvdb<rocksdbBase> UserSessionsDb_;
@@ -477,6 +503,7 @@ private:
   tbb::concurrent_hash_map<std::string, UsersRecord> UsersCache_;
   tbb::concurrent_hash_map<uint512, UserSessionRecord, TbbHash<512>> SessionsCache_;
   tbb::concurrent_hash_map<std::string, UserSettingsRecord> SettingsCache_;
+  tbb::concurrent_hash_map<std::string, FeePlan> FeePlanCache_;
 
   // Thread local structures
   std::unordered_map<uint512, UserActionRecord> ActionsCache_;
