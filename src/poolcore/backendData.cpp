@@ -168,7 +168,6 @@ bool UsersRecord::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, IsSuperUser);
     if (!stream.eof()) {
       dbIoUnserialize(stream, FeePlanId);
-      dbIoUnserialize(stream, PersonalFeePlanId);
     }
   }
 
@@ -194,7 +193,6 @@ void UsersRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, IsReadOnly);
   dbIoSerialize(stream, IsSuperUser);
   dbIoSerialize(stream, FeePlanId);
-  dbIoSerialize(stream, PersonalFeePlanId);
 }
 
 bool UserSettingsRecord::deserializeValue(const void *data, size_t size)

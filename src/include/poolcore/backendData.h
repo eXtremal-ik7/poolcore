@@ -164,7 +164,6 @@ struct UsersRecord {
   bool IsReadOnly = false;
   bool IsSuperUser = false;
   std::string FeePlanId;
-  std::string PersonalFeePlanId;
 
   UsersRecord() {}
   std::string getPartitionId() const { return "default"; }

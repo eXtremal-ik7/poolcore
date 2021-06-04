@@ -51,7 +51,6 @@ static void makeRandom(base_blob<BITS> &number)
 
 UserManager::UserManager(const std::filesystem::path &dbPath) :
   UsersDb_(dbPath / "users"),
-  UserPersonalFeeDb_(dbPath / "userpersonalfee"),
   UserFeePlanDb_(dbPath / "userfeeplan"),
   UserSettingsDb_(dbPath / "usersettings"),
   UserActionsDb_(dbPath / "useractions"),
@@ -139,49 +138,8 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
   }
 
   {
-    // Personal fee
-    PersonalFeeTree *tree = new PersonalFeeTree;
-
-    size_t recordsCount = 0;
-    std::unique_ptr<rocksdbBase::IteratorType> It(UserPersonalFeeDb_.iterator());
-    for (It->seekFirst(); It->valid(); It->next(), recordsCount++) {
-      UserPersonalFeeRecord record;
-      if (!record.deserializeValue(It->value().data, It->value().size)) {
-        LOG_F(ERROR, "Database corrupted (users personal fee)");
-        break;
-      }
-
-      if (!UsersCache_.count(record.UserId)) {
-        LOG_F(ERROR, "Users personal fee: user %s not exists", record.UserId.c_str());
-        continue;
-      }
-
-      if (!UsersCache_.count(record.ParentUserId)) {
-        LOG_F(ERROR, "Users personal fee: user %s not exists", record.ParentUserId.c_str());
-        continue;
-      }
-
-      PersonalFeeNode *currentNode = tree->getOrCreate(record.UserId);
-      PersonalFeeNode *parentNode = tree->getOrCreate(record.ParentUserId);
-      currentNode->Parent = parentNode;
-      currentNode->DefaultFee = record.DefaultFee;
-      for (const auto &coinSpecificFee: record.CoinSpecificFee)
-        currentNode->CoinSpecificFee[coinSpecificFee.CoinName] = coinSpecificFee.Fee;
-      parentNode->ChildNodes.push_back(currentNode);
-    }
-
-    if (tree->hasLoop()) {
-      LOG_F(ERROR, "Users personal fee: loop detected");
-      delete tree;
-      tree = new PersonalFeeTree;
-    }
-
-    LOG_F(INFO, "UserManager: loaded %zu personal fee relations", recordsCount);
-    PersonalFeeConfig_.reset(tree);
-  }
-
-  {
     // Fee plan
+    FeePlanCache_.insert(std::make_pair("default", FeePlan()));
     std::unique_ptr<rocksdbBase::IteratorType> It(UserFeePlanDb_.iterator());
     for (It->seekFirst(); It->valid(); It->next()) {
       UserFeePlanRecord record;
@@ -286,48 +244,31 @@ void UserManager::buildFeePlanRecord(const std::string &feePlanId, const FeePlan
   result.FeePlanId = feePlanId;
   result.Default = plan.Default;
   result.CoinSpecificFee.clear();
+  std::sort(result.Default.begin(), result.Default.end(), [](const UserFeePair &l, const UserFeePair &r) { return l.UserId < r.UserId; });
   for (const auto &specificFee: plan.CoinSpecificFee) {
     auto &cfg = result.CoinSpecificFee.emplace_back();
     cfg.CoinName = specificFee.first;
     cfg.Config = specificFee.second;
+    std::sort(cfg.Config.begin(), cfg.Config.end(), [](const UserFeePair &l, const UserFeePair &r) { return l.UserId < r.UserId; });
   }
+
+  std::sort(result.CoinSpecificFee.begin(), result.CoinSpecificFee.end(), [](const CoinSpecificFeeRecord2 &l, const CoinSpecificFeeRecord2 &r) { return l.CoinName < r.CoinName; });
 }
 
-bool UserManager::updatePersonalFee(const std::string &login, const std::string &parentUserId, double defaultFee, const std::vector<CoinSpecificFeeRecord> &specificFee)
+void UserManager::collectLinkedFeePlans(const std::string &userId, std::unordered_set<std::string> &plans)
 {
-  PersonalFeeTree *tree = PersonalFeeConfig_.get()->deepCopy();
-  PersonalFeeNode *parentNode = tree->getOrCreate(parentUserId);
-  PersonalFeeNode *currentNode = tree->getOrCreate(login);
-  if (currentNode->Parent) {
-    // Node already exists and have parent
-    // Remove it from children list of parent node
-    currentNode->Parent->removeFromChildNodes(currentNode);
+  for (const auto &plan: FeePlanCache_) {
+    for (const auto &pair: plan.second.Default) {
+      if (pair.UserId == userId)
+        plans.insert(plan.first);
+    }
+    for (const auto &coin: plan.second.CoinSpecificFee) {
+      for (const auto &pair: coin.second) {
+        if (pair.UserId == userId)
+          plans.insert(plan.first);
+      }
+    }
   }
-
-  currentNode->Parent = parentNode;
-  currentNode->DefaultFee = defaultFee;
-  for (const auto &It: specificFee) {
-    // TODO: check for coin presence
-    currentNode->CoinSpecificFee[It.CoinName] = It.Fee;
-  }
-  parentNode->ChildNodes.push_back(currentNode);
-
-  // Check for loops
-  if (tree->hasLoop())
-    return false;
-
-  {
-    UserPersonalFeeRecord record;
-    record.UserId = currentNode->UserId;
-    record.ParentUserId = currentNode->Parent->UserId;
-    record.DefaultFee = currentNode->DefaultFee;
-    for (const auto &It: currentNode->CoinSpecificFee)
-      record.CoinSpecificFee.emplace_back(It.first, It.second);
-    UserPersonalFeeDb_.put(record);
-  }
-
-  PersonalFeeConfig_.reset(tree);
-  return true;
 }
 
 void UserManager::userManagerMain()
@@ -682,14 +623,15 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
   }
 
   // Check personal fee
-  if (!credentials.ParentUser.empty()) {
-    if (login != credentials.ParentUser && login != "admin") {
-      callback("parent_select_not_allowed");
+  const std::string &feePlan = credentials.FeePlan.empty() ? "default" : credentials.FeePlan;
+  if (feePlan != "default") {
+    if (login != "admin") {
+      callback("fee_plan_not_allowed");
       return;
     }
 
-    if (!UsersCache_.count(credentials.ParentUser)) {
-      callback("parent_not_exists");
+    if (!FeePlanCache_.count(feePlan)) {
+      callback("fee_plan_not_exists");
       return;
     }
   }
@@ -712,6 +654,7 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
   userRecord.RegistrationDate = time(nullptr);
   userRecord.IsActive = credentials.IsActive;
   userRecord.IsReadOnly = credentials.IsReadOnly;
+  userRecord.FeePlanId = feePlan;
 
   if (!UsersCache_.insert(std::pair(credentials.Login, userRecord))) {
     callback("duplicate_login");
@@ -771,14 +714,6 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
     }
 
     // TODO: Setup default settings for all coins
-  }
-
-  if (!credentials.ParentUser.empty()) {
-    if (!updatePersonalFee(credentials.Login, credentials.ParentUser, credentials.DefaultFee, credentials.SpecificFee)) {
-      LOG_F(ERROR, "Can't join to personal fee tree (database correpted?)");
-      callback("personal_fee_loop_detected");
-      return;
-    }
   }
 
   if (!credentials.IsActive) {
@@ -1024,86 +959,27 @@ void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUser
       credentials.RegistrationDate = record.second.RegistrationDate;
       credentials.IsActive = record.second.IsActive;
       credentials.IsReadOnly = record.second.IsReadOnly;
-      PersonalFeeNode *node = PersonalFeeConfig_.get()->get(record.second.Login);
-      if (node && node->Parent) {
-        credentials.ParentUser = node->Parent->UserId;
-        credentials.DefaultFee = node->DefaultFee;
-        for (const auto &It: node->CoinSpecificFee)
-          credentials.SpecificFee.emplace_back(It.first, It.second);
-      }
+      credentials.FeePlan = record.second.FeePlanId;
     }
   } else {
-    std::vector<PersonalFeeNode*> nodes;
-    std::unordered_set<PersonalFeeNode*> visited;
-    PersonalFeeNode *node = PersonalFeeConfig_.get()->get(login);
-    if (node) {
-      nodes.push_back(node);
-      visited.insert(node);
-    }
-
-    for (size_t i = 0; i < nodes.size(); i++) {
-      for (PersonalFeeNode *child: nodes[i]->ChildNodes) {
-        if (visited.insert(child).second)
-          nodes.push_back(child);
-      }
-    }
-
-    for (size_t i = 1; i < nodes.size(); i++) {
-      decltype (UsersCache_)::const_accessor accessor;
-      if (!UsersCache_.find(accessor, nodes[i]->UserId)) {
-        LOG_F(ERROR, "Unknown user in personal fee tree found: %s", nodes[i]->UserId.c_str());
+    std::unordered_set<std::string> linkedFeePlans;
+    collectLinkedFeePlans(login, linkedFeePlans);
+    for (const auto &record: UsersCache_) {
+      if (!linkedFeePlans.count(record.second.FeePlanId))
         continue;
-      }
 
       Credentials &credentials = result.emplace_back();
-      credentials.Login = accessor->second.Login;
-      credentials.Name = accessor->second.Name;
-      credentials.EMail = accessor->second.EMail;
-      credentials.RegistrationDate = accessor->second.RegistrationDate;
-      credentials.IsActive = accessor->second.IsActive;
-      credentials.IsReadOnly = accessor->second.IsReadOnly;
-      if (nodes[i]->Parent) {
-        credentials.ParentUser = nodes[i]->Parent->UserId;
-        credentials.DefaultFee = nodes[i]->DefaultFee;
-        for (const auto &It: nodes[i]->CoinSpecificFee)
-          credentials.SpecificFee.emplace_back(It.first, It.second);
-      }
+      credentials.Login = record.second.Login;
+      credentials.Name = record.second.Name;
+      credentials.EMail = record.second.EMail;
+      credentials.RegistrationDate = record.second.RegistrationDate;
+      credentials.IsActive = record.second.IsActive;
+      credentials.IsReadOnly = record.second.IsReadOnly;
+      credentials.FeePlan = record.second.FeePlanId;
     }
   }
 
   callback("ok", result);
-}
-
-void UserManager::updatePersonalFeeImpl(const std::string &sessionId, const Credentials &credentials, Task::DefaultCb callback)
-{
-  std::string login;
-  if (!validateSession(sessionId, "", login, true)) {
-    callback("unknown_id");
-    return;
-  }
-
-  if (login != "admin") {
-    callback("parent_select_not_allowed");
-    return;
-  }
-
-  if (!UsersCache_.count(credentials.Login)) {
-    callback("unknown_login");
-    return;
-  }
-
-  if (!UsersCache_.count(credentials.ParentUser)) {
-    callback("parent_not_exists");
-    return;
-  }
-
-  if (!updatePersonalFee(credentials.Login, credentials.ParentUser, credentials.DefaultFee, credentials.SpecificFee)) {
-    callback("personal_fee_loop_detected");
-    return;
-  }
-
-  callback("ok");
-  return;
 }
 
 void UserManager::updateFeePlanImpl(const std::string &sessionId, const UserFeePlanRecord &plan, Task::DefaultCb callback)
@@ -1169,20 +1045,14 @@ bool UserManager::validateSession(const std::string &id, const std::string &targ
       return true;
     }
   } else if (!targetLogin.empty()) {
-    // Check dependency in user personal fee tree
-    bool targetLoginIsChild = false;
-    intrusive_ptr<PersonalFeeTree> ref(PersonalFeeConfig_);
-    PersonalFeeTree *tree = ref.get();
-    PersonalFeeNode *node = tree->get(targetLogin);
-    while (node) {
-      if (node->UserId == resultLogin) {
-        targetLoginIsChild = true;
-        break;
-      }
-      node = node->Parent;
-    }
+    std::unordered_set<std::string> linkedFeePlans;
+    collectLinkedFeePlans(resultLogin, linkedFeePlans);
 
-    if (targetLoginIsChild && !needWriteAccess) {
+    decltype (UsersCache_)::const_accessor accessor;
+    if (!UsersCache_.find(accessor, targetLogin))
+      return false;
+
+    if (linkedFeePlans.count(accessor->second.FeePlanId) && !needWriteAccess) {
       resultLogin = targetLogin;
       return true;
     } else {
@@ -1262,6 +1132,8 @@ bool UserManager::enumerateFeePlan(const std::string &sessionId, std::string &st
 
   for (const auto &plan: FeePlanCache_)
     buildFeePlanRecord(plan.first, plan.second, result.emplace_back());
+
+  std::sort(result.begin(), result.end(), [](const UserFeePlanRecord &l, const UserFeePlanRecord &r) { return l.FeePlanId < r.FeePlanId; });
 
   status = "ok";
   return true;

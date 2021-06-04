@@ -332,7 +332,6 @@ void AccountingDb::addShare(const CShare &share)
     R->TotalShareValue = 0;
 
     {
-      intrusive_ptr<UserManager::PersonalFeeTree> personalFeeConfig(UserManager_.personalFeeConfig());
       int64_t acceptSharesTime = share.Time - 1800;
       mergeSorted(RecentStats_.begin(), RecentStats_.end(), CurrentScores_.begin(), CurrentScores_.end(),
         [](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, double> &scores) { return stats.UserId < scores.first; },
@@ -409,9 +408,16 @@ void AccountingDb::addShare(const CShare &share)
     mergeSorted(payouts.begin(), payouts.end(), feePayouts.begin(), feePayouts.end(),
       [](const PayoutDbRecord &l, const std::pair<std::string, int64_t> &r) { return l.UserId < r.first; },
       [](const std::pair<std::string, int64_t> &l, const PayoutDbRecord &r) { return l.first < r.UserId; },
-      [R](const PayoutDbRecord &record) { R->Payouts.emplace_back(record); },
-      [R](const std::pair<std::string, int64_t> &fee) { R->Payouts.emplace_back(fee.first, fee.second); },
-      [R](const PayoutDbRecord &record, const std::pair<std::string, int64_t> &fee) { R->Payouts.emplace_back(record.UserId, record.Value + fee.second); });
+      [R](const PayoutDbRecord &record) {
+        if (record.Value)
+          R->Payouts.emplace_back(record);
+      }, [R](const std::pair<std::string, int64_t> &fee) {
+        if (fee.second)
+          R->Payouts.emplace_back(fee.first, fee.second);
+      }, [R](const PayoutDbRecord &record, const std::pair<std::string, int64_t> &fee) {
+        if (record.Value + fee.second)
+          R->Payouts.emplace_back(record.UserId, record.Value + fee.second);
+      });
 
     // Correct payouts for use all available coins
     if (!R->Payouts.empty()) {
