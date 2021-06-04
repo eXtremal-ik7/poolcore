@@ -166,7 +166,7 @@ bool UsersRecord::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, IsActive);
     dbIoUnserialize(stream, IsReadOnly);
     dbIoUnserialize(stream, IsSuperUser);
-    if (!stream.eof()) {
+    if (stream.remaining()) {
       dbIoUnserialize(stream, FeePlanId);
     }
   }
