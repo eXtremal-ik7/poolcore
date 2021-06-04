@@ -1001,6 +1001,35 @@ void UserManager::updateFeePlanImpl(const std::string &sessionId, const UserFeeP
   callback(error.c_str());
 }
 
+void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback)
+{
+  std::string login;
+  if (!validateSession(sessionId, targetLogin, login, true)) {
+    callback("unknown_id");
+    return;
+  }
+
+  if (!FeePlanCache_.count(newFeePlan)) {
+    callback("fee_plan_not_exists");
+    return;
+  }
+
+  UsersRecord record;
+  {
+    decltype (UsersCache_)::accessor accessor;
+    if (!UsersCache_.find(accessor, login)) {
+      callback("unknown_login");
+      return;
+    }
+
+    accessor->second.FeePlanId = newFeePlan;
+    record = accessor->second;
+  }
+
+  UsersDb_.put(record);
+  callback("ok");
+}
+
 bool UserManager::checkUser(const std::string &login)
 {
   return UsersCache_.count(login);

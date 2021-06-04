@@ -316,13 +316,14 @@ void AccountingDb::addShare(const CShare &share)
       _foundBlocksDb.put(blk);
     }
 
+    int64_t rationalPartSize = CoinInfo_.RationalPartSize * CoinInfo_.ExtraMultiplier;
     int64_t generatedCoins = share.generatedCoins * CoinInfo_.ExtraMultiplier;
     if (!_cfg.poolZAddr.empty()) {
       // calculate miners fee for Z-Addr moving
       generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE * CoinInfo_.ExtraMultiplier);
     }
 
-    LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 "", (unsigned)share.height, share.hash.c_str(), generatedCoins);
+    LOG_F(INFO, " * block height: %u, hash: %s, value: %s", (unsigned)share.height, share.hash.c_str(), FormatMoney(generatedCoins, rationalPartSize).c_str());
 
     MiningRound *R = new MiningRound;
     R->Height = share.height;
@@ -362,15 +363,16 @@ void AccountingDb::addShare(const CShare &share)
     std::vector<PayoutDbRecord> payouts;
     std::map<std::string, int64_t> feePayouts;
     std::unordered_map<std::string, UserManager::UserFeeConfig> feePlans;
-    unsigned rationalPartSize = CoinInfo_.RationalPartSize + log10(CoinInfo_.ExtraMultiplier);
     for (const auto &record: R->UserShares) {
       // Calculate payout
       int64_t payoutValue = static_cast<int64_t>(R->AvailableCoins * (record.shareValue / R->TotalShareValue));
 
+      totalPayout += payoutValue;
+
       // get fee plan for user
       std::string feePlanId = UserManager_.getFeePlanId(record.userId);
       auto It = feePlans.find(feePlanId);
-      if (It != feePlans.end())
+      if (It == feePlans.end())
         It = feePlans.insert(It, std::make_pair(feePlanId, UserManager_.getFeeRecord(feePlanId, CoinInfo_.Name)));
 
       UserManager::UserFeeConfig &feeRecord = It->second;
@@ -402,7 +404,7 @@ void AccountingDb::addShare(const CShare &share)
       }
 
       payouts.emplace_back(record.userId, payoutValue);
-      LOG_F(INFO, " * %s %s -> %s, remaining %s", record.userId.c_str(), FormatMoney(payoutValue+feeValuesSum, rationalPartSize).c_str(), debugString.c_str(), FormatMoney(payoutValue, rationalPartSize).c_str());
+      LOG_F(INFO, " * %s %s -> %sremaining %s", record.userId.c_str(), FormatMoney(payoutValue+feeValuesSum, rationalPartSize).c_str(), debugString.c_str(), FormatMoney(payoutValue, rationalPartSize).c_str());
     }
 
     mergeSorted(payouts.begin(), payouts.end(), feePayouts.begin(), feePayouts.end(),
@@ -433,10 +435,10 @@ void AccountingDb::addShare(const CShare &share)
         if (i < mod)
           I->Value -= mv;
         totalPayout += I->Value;
-        LOG_F(INFO, "   * %s: payout: %" PRId64"", I->UserId.c_str(), I->Value);
+        LOG_F(INFO, "   * %s: payout: %s", I->UserId.c_str(), FormatMoney(I->Value, rationalPartSize).c_str());
       }
 
-      LOG_F(INFO, " * total payout (after correct): %" PRId64 "", totalPayout);
+      LOG_F(INFO, " * total payout (after correct): %s", FormatMoney(totalPayout, rationalPartSize).c_str());
     }
 
     // store round to DB and clear shares map

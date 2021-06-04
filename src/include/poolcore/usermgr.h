@@ -208,6 +208,18 @@ public:
     DefaultCb Callback_;
   };
 
+  class ChangeFeePlanTask : public Task {
+  public:
+    ChangeFeePlanTask(UserManager *userMgr, const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, DefaultCb callback) :
+      Task(userMgr), SessionId_(sessionId), TargetLogin_(targetLogin), NewFeePlan_(newFeePlan), Callback_(callback) {}
+    void run() final { UserMgr_->changeFeePlanImpl(SessionId_, TargetLogin_, NewFeePlan_, Callback_); }
+  private:
+    std::string SessionId_;
+    std::string TargetLogin_;
+    std::string NewFeePlan_;
+    DefaultCb Callback_;
+  };
+
 public:
   UserManager(const std::filesystem::path &dbPath);
   UserManager(const UserManager&) = delete;
@@ -301,6 +313,7 @@ public:
   void updateSettings(UserSettingsRecord &&settings, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), callback)); }
   void enumerateUsers(const std::string &sessionId, EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, sessionId, callback)); }
   void updateFeePlan(const std::string &sessionId, UserFeePlanRecord &&plan, Task::DefaultCb callback) { startAsyncTask(new UpdateFeePlanTask(this, sessionId, std::move(plan), callback)); }
+  void changeFeePlan(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback) { startAsyncTask(new ChangeFeePlanTask(this, sessionId, targetLogin, newFeePlan, callback)); }
 
   // Synchronous api
   bool checkUser(const std::string &login);
@@ -328,6 +341,7 @@ private:
   void updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback);
   void enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback);
   void updateFeePlanImpl(const std::string &sessionId, const UserFeePlanRecord &plan, Task::DefaultCb callback);
+  void changeFeePlanImpl(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback);
 
   void sessionAdd(const UserSessionRecord &sessionRecord) {
     LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
