@@ -68,56 +68,56 @@ struct DbIo<CoinSpecificFeeRecord> {
   }
 };
 
-void miningRound::serializeKey(xmstream &stream) const
+void MiningRound::serializeKey(xmstream &stream) const
 {
-  dbKeyIoSerialize(stream, height);
-  dbKeyIoSerialize(stream, blockHash);
+  dbKeyIoSerialize(stream, Height);
+  dbKeyIoSerialize(stream, BlockHash);
 }
 
-void miningRound::serializeValue(xmstream &stream) const
+void MiningRound::serializeValue(xmstream &stream) const
 {
   dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
-  dbIoSerialize(stream, height);
-  dbIoSerialize(stream, blockHash);
-  dbIoSerialize(stream, time);
-  dbIoSerialize(stream, totalShareValue);
-  dbIoSerialize(stream, availableCoins);
+  dbIoSerialize(stream, Height);
+  dbIoSerialize(stream, BlockHash);
+  dbIoSerialize(stream, Time);
+  dbIoSerialize(stream, TotalShareValue);
+  dbIoSerialize(stream, AvailableCoins);
   dbIoSerialize(stream, UserShares);
-  dbIoSerialize(stream, payouts);
+  dbIoSerialize(stream, Payouts);
 }
 
-bool miningRound::deserializeValue(const void *data, size_t size)
+bool MiningRound::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
 
   uint32_t version;
   dbIoUnserialize(stream, version);
   if (version >= 1) {
-    dbIoUnserialize(stream, height);
-    dbIoUnserialize(stream, blockHash);
-    dbIoUnserialize(stream, time);
-    dbIoUnserialize(stream, totalShareValue);
-    dbIoUnserialize(stream, availableCoins);
+    dbIoUnserialize(stream, Height);
+    dbIoUnserialize(stream, BlockHash);
+    dbIoUnserialize(stream, Time);
+    dbIoUnserialize(stream, TotalShareValue);
+    dbIoUnserialize(stream, AvailableCoins);
     dbIoUnserialize(stream, UserShares);
-    dbIoUnserialize(stream, payouts);
+    dbIoUnserialize(stream, Payouts);
   }
   
   return !stream.eof();
 }
 
-void miningRound::dump()
+void MiningRound::dump()
 {
-  fprintf(stderr, "height=%u\n", (unsigned)height);
-  fprintf(stderr, "blockhash=%s\n", blockHash.c_str());
-  fprintf(stderr, "time=%u\n", (unsigned)time);
-  fprintf(stderr, "totalShareValue=%.3lf\n", totalShareValue);
-  fprintf(stderr, "availableCoins=%" PRId64 "\n", availableCoins);
+  fprintf(stderr, "height=%u\n", (unsigned)Height);
+  fprintf(stderr, "blockhash=%s\n", BlockHash.c_str());
+  fprintf(stderr, "time=%u\n", (unsigned)Time);
+  fprintf(stderr, "totalShareValue=%.3lf\n", TotalShareValue);
+  fprintf(stderr, "availableCoins=%" PRId64 "\n", AvailableCoins);
   for (auto r: UserShares) {
     fprintf(stderr, " *** round element ***\n");
     fprintf(stderr, " * userId: %s\n", r.userId.c_str());
     fprintf(stderr, " * shareValue: %.3lf\n", r.shareValue);
   }
-  for (auto p: payouts) {
+  for (auto p: Payouts) {
     fprintf(stderr, " *** payout element ***\n");
     fprintf(stderr, " * userId: %s\n", p.UserId.c_str());
     fprintf(stderr, " * payoutValue: %" PRId64 "\n", p.Value);

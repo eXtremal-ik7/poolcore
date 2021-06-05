@@ -116,8 +116,8 @@ private:
   StatisticDb &StatisticDb_;
   
   std::map<std::string, UserBalanceRecord> _balanceMap;
-  std::deque<miningRound*> _allRounds;
-  std::set<miningRound*> _roundsWithPayouts;
+  std::deque<std::unique_ptr<MiningRound>> _allRounds;
+  std::set<MiningRound*> _roundsWithPayouts;
   std::list<PayoutDbRecord> _payoutQueue;
 
   int64_t LastBlockTime_ = 0;

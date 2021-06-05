@@ -124,24 +124,24 @@ struct shareInfo {
   int64_t count;
 };
 
-struct miningRound {
+struct MiningRound {
   static constexpr uint32_t CurrentRecordVersion = 1;
   
-  uint64_t height;
-  std::string blockHash;
-  time_t time;    
+  uint64_t Height;
+  std::string BlockHash;
+  time_t Time;
     
   // aggregated share and payment value
-  double totalShareValue;
-  int64_t availableCoins;
+  double TotalShareValue;
+  int64_t AvailableCoins;
     
   std::vector<UserShareValue> UserShares;
-  std::vector<PayoutDbRecord> payouts;
+  std::vector<PayoutDbRecord> Payouts;
     
-  miningRound() {}
-  miningRound(unsigned heightArg) : height(heightArg) {}
+  MiningRound() {}
+  MiningRound(unsigned heightArg) : Height(heightArg) {}
     
-  friend bool operator<(const miningRound &L, const miningRound &R) { return L.height < R.height; }
+  friend bool operator<(const MiningRound &L, const MiningRound &R) { return L.Height < R.Height; }
 
   std::string getPartitionId() const { return "default"; }
   bool deserializeValue(const void *data, size_t size);

@@ -189,11 +189,11 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
     std::unique_ptr<rocksdbBase::IteratorType> It(_roundsDb.iterator());
     It->seekFirst();
     for (; It->valid(); It->next()) {
-      miningRound *R = new miningRound;
+      MiningRound *R = new MiningRound;
       RawData data = It->value();
       if (R->deserializeValue(data.data, data.size)) {
-        _allRounds.push_back(R);
-        if (!R->payouts.empty())
+        _allRounds.emplace_back(R);
+        if (!R->Payouts.empty())
           _roundsWithPayouts.insert(R);
       } else {
         LOG_F(ERROR, "rounds db contains invalid record");
@@ -278,9 +278,10 @@ void AccountingDb::cleanupRounds()
   time_t timeLabel = time(0) - _cfg.KeepRoundTime;
   auto I = _allRounds.begin();
   while (I != _allRounds.end()) {
-    if ((*I)->time >= timeLabel || _roundsWithPayouts.count(*I) > 0)
+    MiningRound *round = I->get();
+    if (round->Time >= timeLabel || _roundsWithPayouts.count(round))
       break;
-    _roundsDb.deleteRow(**I);
+    _roundsDb.deleteRow(*round);
     ++I;
   }
 
@@ -395,12 +396,12 @@ void AccountingDb::addShare(const CShare &share)
     int64_t available = generatedCoins - feeValuesSum;
     LOG_F(INFO, " * block height: %u, hash: %s, value: %" PRId64 ", pool fee: %" PRIu64 ", available: %" PRIu64 "", (unsigned)share.height, share.hash.c_str(), generatedCoins, feeValuesSum, available);
 
-    miningRound *R = new miningRound;
-    R->height = share.height;
-    R->blockHash = share.hash.c_str();
-    R->time = share.Time;
-    R->availableCoins = available;
-    R->totalShareValue = 0;
+    MiningRound *R = new MiningRound;
+    R->Height = share.height;
+    R->BlockHash = share.hash.c_str();
+    R->Time = share.Time;
+    R->AvailableCoins = available;
+    R->TotalShareValue = 0;
 
     std::map<std::string, double> personalFeeMap;
     std::unordered_set<std::string> poolFeeAddrs;
@@ -437,17 +438,17 @@ void AccountingDb::addShare(const CShare &share)
 
     // Get total share value
     for (const auto &element: R->UserShares)
-      R->totalShareValue += element.shareValue;
+      R->TotalShareValue += element.shareValue;
     for (const auto &element: personalFeeMap)
-      R->totalShareValue += element.second;
+      R->TotalShareValue += element.second;
 
     // Calculate payments
     // Merge share value list with personal fee map
     int64_t totalPayout = 0;
     auto addPayout = [R, &totalPayout](const std::string &userId, double shareValue, std::unordered_set<std::string> &poolFeeAddrs) {
-      int64_t payoutValue = static_cast<int64_t>(R->availableCoins * (shareValue / R->totalShareValue));
+      int64_t payoutValue = static_cast<int64_t>(R->AvailableCoins * (shareValue / R->TotalShareValue));
       if (payoutValue || poolFeeAddrs.count(userId)) {
-        R->payouts.emplace_back(userId, payoutValue);
+        R->Payouts.emplace_back(userId, payoutValue);
         totalPayout += payoutValue;
       }
     };
@@ -468,8 +469,8 @@ void AccountingDb::addShare(const CShare &share)
       std::vector<PayoutDbRecord> extraPayouts;
       for (size_t i = 0, ie = _cfg.PoolFee.size(); i != ie; ++i) {
         PayoutDbRecord forSearch(_cfg.PoolFee[i].User, 0);
-        auto It = std::lower_bound(R->payouts.begin(), R->payouts.end(), forSearch, [](const PayoutDbRecord &l, const PayoutDbRecord &r) { return l.UserId < r.UserId; });
-        if (It != R->payouts.end() && It->UserId == _cfg.PoolFee[i].User) {
+        auto It = std::lower_bound(R->Payouts.begin(), R->Payouts.end(), forSearch, [](const PayoutDbRecord &l, const PayoutDbRecord &r) { return l.UserId < r.UserId; });
+        if (It != R->Payouts.end() && It->UserId == _cfg.PoolFee[i].User) {
           It->Value += feeValues[i];
           totalPayout += feeValues[i];
         }
@@ -477,15 +478,15 @@ void AccountingDb::addShare(const CShare &share)
     }
 
     // Correct payouts for use all available coins
-    if (!R->payouts.empty()) {
+    if (!R->Payouts.empty()) {
       int64_t diff = totalPayout - generatedCoins;
-      int64_t div = diff / (int64_t)R->payouts.size();
+      int64_t div = diff / (int64_t)R->Payouts.size();
       int64_t mv = diff >= 0 ? 1 : -1;
-      int64_t mod = (diff > 0 ? diff : -diff) % R->payouts.size();
+      int64_t mod = (diff > 0 ? diff : -diff) % R->Payouts.size();
 
       totalPayout = 0;
       int64_t i = 0;
-      for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I, ++i) {
+      for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I, ++i) {
         I->Value -= div;
         if (i < mod)
           I->Value -= mv;
@@ -497,7 +498,7 @@ void AccountingDb::addShare(const CShare &share)
     }
 
     // store round to DB and clear shares map
-    _allRounds.push_back(R);
+    _allRounds.emplace_back(R);
     _roundsDb.put(*R);
     _roundsWithPayouts.insert(R);
 
@@ -563,12 +564,12 @@ void AccountingDb::checkBlockConfirmations()
     return;
 
   LOG_F(INFO, "Checking %zu blocks for confirmations...", _roundsWithPayouts.size());
-  std::vector<miningRound*> rounds(_roundsWithPayouts.begin(), _roundsWithPayouts.end());
+  std::vector<MiningRound*> rounds(_roundsWithPayouts.begin(), _roundsWithPayouts.end());
 
   std::vector<CNetworkClient::GetBlockConfirmationsQuery> confirmationsQuery(rounds.size());
   for (size_t i = 0, ie = rounds.size(); i != ie; ++i) {
-    confirmationsQuery[i].Hash = rounds[i]->blockHash;
-    confirmationsQuery[i].Height = rounds[i]->height;
+    confirmationsQuery[i].Hash = rounds[i]->BlockHash;
+    confirmationsQuery[i].Height = rounds[i]->Height;
   }
 
   if (!ClientDispatcher_.ioGetBlockConfirmations(Base_, confirmationsQuery)) {
@@ -577,20 +578,20 @@ void AccountingDb::checkBlockConfirmations()
   }
 
   for (size_t i = 0; i < confirmationsQuery.size(); i++) {
-    miningRound *R = rounds[i];
+    MiningRound *R = rounds[i];
 
     if (confirmationsQuery[i].Confirmations == -1) {
-      LOG_F(INFO, "block %" PRIu64 "/%s marked as orphan, can't do any payout", R->height, confirmationsQuery[i].Hash.c_str());
-      R->payouts.clear();
+      LOG_F(INFO, "block %" PRIu64 "/%s marked as orphan, can't do any payout", R->Height, confirmationsQuery[i].Hash.c_str());
+      R->Payouts.clear();
       _roundsWithPayouts.erase(R);
       _roundsDb.put(*R);
     } else if (confirmationsQuery[i].Confirmations >= _cfg.RequiredConfirmations) {
-      LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R->height, R->blockHash.c_str());
-      for (auto I = R->payouts.begin(), IE = R->payouts.end(); I != IE; ++I) {
+      LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R->Height, R->BlockHash.c_str());
+      for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I) {
         requestPayout(I->UserId, I->Value);
       }
 
-      R->payouts.clear();
+      R->Payouts.clear();
 
       _roundsWithPayouts.erase(R);
       _roundsDb.put(*R);
@@ -928,7 +929,7 @@ void AccountingDb::checkBalance()
   }
 
   for (auto &roundIt: _roundsWithPayouts) {
-    for (auto &pIt: roundIt->payouts)
+    for (auto &pIt: roundIt->Payouts)
       queued += pIt.Value;
   }
   queued /= CoinInfo_.ExtraMultiplier;
@@ -1053,8 +1054,8 @@ void AccountingDb::queryBalanceImpl(const std::string &user, QueryBalanceCallbac
   // Calculate queued balance
   info.Queued = 0;
   for (const auto &It: _roundsWithPayouts) {
-    auto payout = std::lower_bound(It->payouts.begin(), It->payouts.end(), user, [](const PayoutDbRecord &record, const std::string &user) -> bool { return record.UserId < user; });
-    if (payout != It->payouts.end() && payout->UserId == user)
+    auto payout = std::lower_bound(It->Payouts.begin(), It->Payouts.end(), user, [](const PayoutDbRecord &record, const std::string &user) -> bool { return record.UserId < user; });
+    if (payout != It->Payouts.end() && payout->UserId == user)
       info.Queued += payout->Value;
   }
   info.Queued /= CoinInfo_.ExtraMultiplier;
