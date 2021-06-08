@@ -400,7 +400,8 @@ private:
         JSON::Object result(stream);
         if (msg.miningConfigure.ExtensionsField & StratumMiningConfigure::EVersionRolling) {
           bool versionRolling = false;
-          if (msg.miningConfigure.VersionRollingMask.has_value() && msg.miningConfigure.VersionRollingMask == 0xFFFFFFFF)
+          // Workaround about ASICs that not send "version-rolling.min-bit-count"
+          if (msg.miningConfigure.VersionRollingMask.has_value() && !msg.miningConfigure.VersionRollingMinBitCount.has_value())
             msg.miningConfigure.VersionRollingMinBitCount = 2;
           if (msg.miningConfigure.VersionRollingMask.has_value() && msg.miningConfigure.VersionRollingMinBitCount.has_value()) {
             // Calculate target bit mask
