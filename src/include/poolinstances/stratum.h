@@ -13,6 +13,9 @@
 #include <rapidjson/writer.h>
 #include <unordered_map>
 
+static constexpr unsigned UncheckedSendCount = 32;
+static constexpr uint64_t SendTimeout = 4000000;
+
 enum StratumErrorTy {
   StratumErrorInvalidShare = 20,
   StratumErrorJobNotFound = 21,
@@ -133,7 +136,12 @@ public:
 
   void acceptConnection(unsigned workerId, socketTy socketFd, HostAddress address) {
     ThreadData &data = Data_[workerId];
-    Connection *connection = new Connection(this, newSocketIo(data.WorkerBase, socketFd), workerId, address);
+    aioObject *socket = newSocketIo(data.WorkerBase, socketFd);
+    Connection *connection = new Connection(this, socket, workerId, address);
+    objectSetDestructorCb(aioObjectHandle(socket), [](aioObjectRoot*, void *arg) {
+      delete static_cast<Connection*>(arg);
+    }, connection);
+
     connection->WorkerConfig.initialize(data.ThreadCfg);
     if (isDebugInstanceStratumConnections())
       LOG_F(1, "%s: new connection from %s", Name_.c_str(), connection->AddressHr.c_str());
@@ -285,7 +293,13 @@ private:
       if (isDebugInstanceStratumConnections())
         LOG_F(1, "%s: disconnected from %s", Instance->Name_.c_str(), AddressHr.c_str());
       Instance->Data_[WorkerId].Connections_.erase(this);
-      deleteAioObject(Socket);
+    }
+
+    void close() {
+      if (Active) {
+        deleteAioObject(Socket);
+        Active = false;
+      }
     }
 
     bool Initialized = false;
@@ -295,6 +309,7 @@ private:
     unsigned WorkerId;
     HostAddress Address;
     std::string AddressHr;
+    unsigned SendCounter_ = 0;
     bool Active = true;
     bool IsCgMiner = false;
     bool IsNiceHash = false;
@@ -333,7 +348,18 @@ private:
       std::string msg(stream.data<char>(), stream.sizeOf());
       LOG_F(1, "%s(%s): outgoing message %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
     }
-    aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    if (++connection->SendCounter_ < UncheckedSendCount) {
+      aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
+    } else {
+      aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, SendTimeout, [](AsyncOpStatus status, aioObject*, size_t, void *arg) {
+        if (status != aosSuccess) {
+          Connection *connection = static_cast<Connection*>(arg);
+          LOG_F(1, "%s: send timeout to %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str());
+          connection->close();
+        }
+      }, connection);
+      connection->SendCounter_ = 0;
+    }
   }
 
   void onStratumSubscribe(Connection *connection, StratumMessage &msg) {
@@ -692,7 +718,7 @@ private:
       if (invalidSharedPercent >= 20) {
         if (isDebugInstanceStratumConnections())
           LOG_F(1, "%s: connection %s: too much errors, disconnecting...", Name_.c_str(), connection->AddressHr.c_str());
-        connection->Active = false;
+        connection->close();
         return;
       }
 
@@ -755,7 +781,7 @@ private:
 
   static void readCb(AsyncOpStatus status, aioObject*, size_t size, Connection *connection) {
     if (status != aosSuccess) {
-      delete connection;
+      connection->close();
       return;
     }
 
@@ -838,7 +864,7 @@ private:
       }
 
       if (!result) {
-        delete connection;
+        connection->close();
         return;
       }
 
@@ -852,7 +878,7 @@ private:
         struct in_addr addr;
         addr.s_addr = connection->Address.ipv4;
         LOG_F(ERROR, "%s: too long stratum message from %s", connection->Instance->Name_.c_str(), inet_ntoa(addr));
-        delete connection;
+        connection->close();
         return;
       }
 
@@ -863,8 +889,6 @@ private:
 
     if (connection->Active)
       aioRead(connection->Socket, connection->Buffer + connection->MsgTailSize, sizeof(connection->Buffer) - connection->MsgTailSize, afNone, 0, reinterpret_cast<aioCb*>(readCb), connection);
-    else
-      delete connection;
   }
 
   std::string workName(StratumWork *work) {
