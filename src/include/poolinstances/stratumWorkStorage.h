@@ -12,8 +12,11 @@
 template<typename X>
 class StratumWorkStorage {
 public:
-  using CSingleWorkSequence = std::deque<std::unique_ptr<StratumSingleWork>>;
-  using CMergedWorkSequence = std::deque<std::unique_ptr<StratumMergedWork>>;
+  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::WorkerConfig, typename X::Stratum::StratumMessage>;
+  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::WorkerConfig, typename X::Stratum::StratumMessage>;
+  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::WorkerConfig, typename X::Stratum::StratumMessage>;
+  using CSingleWorkSequence = std::deque<std::unique_ptr<CSingleWork>>;
+  using CMergedWorkSequence = std::deque<std::unique_ptr<CMergedWork>>;
   using CAcceptedShareSet = std::unordered_set<typename X::Proto::BlockHashTy>;
   using CWorkIndex = std::pair<size_t, size_t>;
 
@@ -42,33 +45,33 @@ public:
   }
 
   /// Returns work or nullptr if work not exists
-  StratumWork *currentWork() { return CurrentWork_; }
-  StratumWork *lastAcceptedWork() { return LastAcceptedWork_; }
-  void setCurrentWork(StratumWork *work) { CurrentWork_ = work; }
+  CWork *currentWork() { return CurrentWork_; }
+  CWork *lastAcceptedWork() { return LastAcceptedWork_; }
+  void setCurrentWork(CWork *work) { CurrentWork_ = work; }
 
-  StratumWork *workById(int64_t id) {
+  CWork *workById(int64_t id) {
     return WorkIdMap_[id];
   }
 
-  StratumSingleWork *singleWork(size_t index) {
+  CSingleWork *singleWork(size_t index) {
     CSingleWorkSequence &sequence = WorkStorage_[index];
     return !sequence.empty() ? sequence.back().get() : nullptr;
   }
 
-  StratumMergedWork *mergedWork(size_t i, size_t j) {
+  CMergedWork *mergedWork(size_t i, size_t j) {
     CMergedWorkSequence &sequence = MergedWorkStorage_[i * BackendsNum_ + j];
     return !sequence.empty() ? sequence.back().get() : nullptr;
   }
 
   /// Add work
-  bool createWork(rapidjson::Document &document, uint64_t uniqueWorkId, PoolBackend *backend, const std::string &ticker, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMsg, MiningConfig &miningConfig, const std::string &stratumInstanceName, bool *isNewBlock) {
+  bool createWork(rapidjson::Document &document, uint64_t uniqueWorkId, PoolBackend *backend, const std::string &ticker, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMsg, typename X::Stratum::MiningConfig &miningConfig, const std::string &stratumInstanceName, bool *isNewBlock) {
     auto It = BackendMap_.find(backend);
     if (It == BackendMap_.end())
       return false;
     size_t backendIdx = It->second;
 
     std::string error;
-    StratumSingleWork *work = newSingleWork(backend, backendIdx, uniqueWorkId, miningConfig, miningAddress, coinbaseMsg);
+    CSingleWork *work = newSingleWork(backend, backendIdx, uniqueWorkId, miningConfig, miningAddress, coinbaseMsg);
     if (!work->initialized()) {
       LOG_F(ERROR, "%s: work create impossible for %s", stratumInstanceName.c_str(), ticker.c_str());
       return false;
@@ -93,8 +96,8 @@ public:
         if (secondSequence.empty())
           continue;
 
-        StratumSingleWork *mainWork = isFirstBackend ? work : secondSequence.back().get();
-        StratumSingleWork *extraWork = isFirstBackend ? secondSequence.back().get() : work;
+        CSingleWork *mainWork = isFirstBackend ? work : secondSequence.back().get();
+        CSingleWork *extraWork = isFirstBackend ? secondSequence.back().get() : work;
         newMergedWork(firstIdx, secondIdx, mainWork, extraWork, miningConfig);
       }
     }
@@ -110,7 +113,7 @@ public:
     return true;
   }
 
-  bool isDuplicate(StratumWork *work, const typename X::Proto::BlockHashTy &shareHash) {
+  bool isDuplicate(CWork *work, const typename X::Proto::BlockHashTy &shareHash) {
     bool duplicate = false;
     for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i)
       duplicate |= !AcceptedShares_[work->backendId(i)].insert(shareHash).second;
@@ -119,22 +122,22 @@ public:
 
 private:
   size_t BackendsNum_ = 0;
-  StratumWork *CurrentWork_= nullptr;
-  StratumWork *LastAcceptedWork_ = nullptr;
+  CWork *CurrentWork_= nullptr;
+  CWork *LastAcceptedWork_ = nullptr;
   std::unordered_map<PoolBackend*, size_t> BackendMap_;
   std::unique_ptr<bool[]> FirstBackends_;
 
   std::unique_ptr<CSingleWorkSequence[]> WorkStorage_;
   std::unique_ptr<CMergedWorkSequence[]> MergedWorkStorage_;
   std::unique_ptr<CAcceptedShareSet[]> AcceptedShares_;
-  std::unordered_map<int64_t, StratumWork*> WorkIdMap_;
+  std::unordered_map<int64_t, CWork*> WorkIdMap_;
 
   int64_t lastStratumId = 0;
 
 private: 
-  StratumSingleWork *newSingleWork(PoolBackend *backend, size_t backendIdx, uint64_t uniqueId, const MiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) {
+  CSingleWork *newSingleWork(PoolBackend *backend, size_t backendIdx, uint64_t uniqueId, const typename X::Stratum::MiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) {
     lastStratumId = std::max(lastStratumId+1, static_cast<int64_t>(time(nullptr)));
-    StratumSingleWork *work;
+    CSingleWork *work;
     if (FirstBackends_[backendIdx])
       work = new typename X::Stratum::Work(lastStratumId, uniqueId, backend, backendIdx, miningCfg, miningAddress, coinbaseMessage);
     else
@@ -155,9 +158,9 @@ private:
     return work;
   }
 
-  void newMergedWork(size_t firstIdx, size_t secondIdx, StratumSingleWork *first, StratumSingleWork *second, MiningConfig &miningCfg) {
+  void newMergedWork(size_t firstIdx, size_t secondIdx, CSingleWork *first, CSingleWork *second, typename X::Stratum::MiningConfig &miningCfg) {
     lastStratumId = std::max(lastStratumId+1, static_cast<int64_t>(time(nullptr)));
-    StratumMergedWork *work = new typename X::Stratum::MergedWork(lastStratumId, first, second, miningCfg);
+    CMergedWork *work = new typename X::Stratum::MergedWork(lastStratumId, first, second, miningCfg);
     WorkIdMap_[lastStratumId] = work;
     LastAcceptedWork_ = work;
 

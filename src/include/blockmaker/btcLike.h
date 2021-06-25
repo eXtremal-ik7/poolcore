@@ -1,7 +1,11 @@
+#pragma once
 #include "merkleTree.h"
+#include "poolinstances/stratumMsg.h"
+#include "poolcommon/jsonSerializer.h"
 #include "stratumWork.h"
 #include "serialize.h"
 #include "loguru.hpp"
+#include <openssl/rand.h>
 #include <unordered_map>
 
 namespace BTC {
@@ -16,6 +20,122 @@ namespace Script {
     OP_CHECKSIG = 0xAC
   };
 }
+
+struct StratumMessage {
+  int64_t IntegerId;
+  std::string StringId;
+  EStratumMethodTy Method;
+
+  StratumMiningSubscribe Subscribe;
+  StratumAuthorize Authorize;
+  StratumSubmit Submit;
+  StratumMultiVersion MultiVersion;
+  StratumMiningConfigure MiningConfigure;
+  StratumMiningSuggestDifficulty MiningSuggestDifficulty;
+
+  std::string Error;
+
+  EStratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size);
+  void addId(JSON::Object &object) {
+    if (!StringId.empty())
+      object.addString("id", StringId);
+    else
+      object.addInt("id", IntegerId);
+  }
+};
+
+struct MiningConfig {
+  unsigned FixedExtraNonceSize = 4;
+  unsigned MutableExtraNonceSize = 4;
+  unsigned TxNumLimit = 0;
+
+  void initialize(rapidjson::Value &instanceCfg) {
+    if (instanceCfg.HasMember("fixedExtraNonceSize") && instanceCfg["fixedExtraNonceSize"].IsUint())
+      FixedExtraNonceSize = instanceCfg["fixedExtraNonceSize"].GetUint();
+    if (instanceCfg.HasMember("mutableExtraNonceSize") && instanceCfg["mutableExtraNonceSize"].IsUint())
+      MutableExtraNonceSize = instanceCfg["mutableExtraNonceSize"].GetUint();
+  }
+};
+
+struct CWorkerConfig {
+  std::string SetDifficultySession;
+  std::string NotifySession;
+  uint64_t ExtraNonceFixed;
+  bool AsicBoostEnabled = false;
+  uint32_t VersionMask = 0;
+
+  static inline void addId(JSON::Object &object, StratumMessage &msg) {
+    if (!msg.StringId.empty())
+      object.addString("id", msg.StringId);
+    else
+      object.addInt("id", msg.IntegerId);
+  }
+
+  void initialize(ThreadConfig &threadCfg) {
+    // Set fixed part of extra nonce
+    ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
+
+    // Set session names
+    uint8_t sessionId[16];
+    {
+      RAND_bytes(sessionId, sizeof(sessionId));
+      SetDifficultySession.resize(sizeof(sessionId)*2);
+      bin2hexLowerCase(sessionId, SetDifficultySession.data(), sizeof(sessionId));
+    }
+    {
+      RAND_bytes(sessionId, sizeof(sessionId));
+      NotifySession.resize(sizeof(sessionId)*2);
+      bin2hexLowerCase(sessionId, NotifySession.data(), sizeof(sessionId));
+    }
+
+    // Update thread config
+    threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
+  }
+
+  void setupVersionRolling(uint32_t versionMask) {
+    AsicBoostEnabled = true;
+    VersionMask = versionMask;
+  }
+
+  void onSubscribe(BTC::MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+    // Response format
+    // {"id": 1, "result": [ [ ["mining.set_difficulty", <setDifficultySession>:string(hex)], ["mining.notify", <notifySession>:string(hex)]], <uniqueExtraNonce>:string(hex), extraNonceSize:integer], "error": null}\n
+    {
+      JSON::Object object(out);
+      addId(object, msg);
+      object.addField("result");
+      {
+        JSON::Array result(out);
+        result.addField();
+        {
+          JSON::Array sessions(out);
+          sessions.addField();
+          {
+            JSON::Array setDifficultySession(out);
+            setDifficultySession.addString("mining.set_difficulty");
+            setDifficultySession.addString(SetDifficultySession);
+          }
+          sessions.addField();
+          {
+            JSON::Array notifySession(out);
+            notifySession.addString("mining.notify");
+            notifySession.addString(NotifySession);
+          }
+        }
+
+        // Unique extra nonce
+        result.addString(writeHexBE(ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
+        // Mutable part of extra nonce size
+        result.addInt(miningCfg.MutableExtraNonceSize);
+      }
+      object.addNull("error");
+    }
+
+    out.write('\n');
+    subscribeInfo = std::to_string(ExtraNonceFixed);
+  }
+
+};
 
 static inline double getDifficulty(uint32_t bits)
 {
@@ -136,36 +256,36 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
   return true;
 }
 
-template<typename Proto, typename TemplateLoaderTy, typename NotifyTy, typename PrepareForSubmitTy>
-class WorkTy : public StratumSingleWork {
+template<typename Proto, typename TemplateLoaderTy, typename NotifyTy, typename PrepareForSubmitTy, typename StratumMessageTy>
+class WorkTy : public StratumSingleWork<typename Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessageTy> {
 public:
   WorkTy(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const MiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) :
-    StratumSingleWork(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
+    StratumSingleWork<typename Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessageTy>(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
     CoinbaseMessage_ = coinbaseMessage;
-    Initialized_ = miningAddress.size() == sizeof(typename Proto::AddressTy);
-    if (Initialized_)
+    this->Initialized_ = miningAddress.size() == sizeof(typename Proto::AddressTy);
+    if (this->Initialized_)
       memcpy(MiningAddress_.begin(), &miningAddress[0], miningAddress.size());
   }
-  virtual void shareHash(void *data) override { *reinterpret_cast<typename Proto::BlockHashTy*>(data) = Header.GetHash(); }
+  virtual typename Proto::BlockHashTy shareHash() override { return Header.GetHash(); }
   virtual std::string blockHash(size_t) override { return Header.GetHash().ToString(); }
   virtual double expectedWork(size_t) override { return getDifficulty(Header.nBits); }
-  virtual bool ready() override { return Backend_ != nullptr; }
+  virtual bool ready() override { return this->Backend_ != nullptr; }
 
   virtual void buildBlock(size_t, xmstream &blockHexData) override { buildBlockImpl(Header, CBTxWitness_, blockHexData); }
 
   virtual void mutate() override {
     Header.nTime = static_cast<uint32_t>(time(nullptr));
-    buildNotifyMessageImpl(this, Header, JobVersion, CBTxLegacy_, MerklePath, MiningCfg_, true, NotifyMessage_);
+    buildNotifyMessageImpl(this, Header, JobVersion, CBTxLegacy_, MerklePath, this->MiningCfg_, true, this->NotifyMessage_);
   }
 
   virtual bool checkConsensus(size_t, double *shareDiff) override { return checkConsensusImpl(Header, shareDiff); }
 
   virtual void buildNotifyMessage(bool resetPreviousWork) override {
-    buildNotifyMessageImpl(this, Header, JobVersion, CBTxLegacy_, MerklePath, MiningCfg_, resetPreviousWork, NotifyMessage_);
+    buildNotifyMessageImpl(this, Header, JobVersion, CBTxLegacy_, MerklePath, this->MiningCfg_, resetPreviousWork, this->NotifyMessage_);
   }
 
-  virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage &msg) override {
-    return prepareForSubmitImpl(Header, JobVersion, CBTxLegacy_, CBTxWitness_, MerklePath, workerCfg, MiningCfg_, msg);
+  virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessageTy &msg) override {
+    return prepareForSubmitImpl(Header, JobVersion, CBTxLegacy_, CBTxWitness_, MerklePath, workerCfg, this->MiningCfg_, msg);
   }
 
   virtual bool loadFromTemplate(rapidjson::Value &document, const std::string &ticker, std::string &error) override {
@@ -212,28 +332,28 @@ public:
       return false;
     }
 
-    Height_ = height.GetUint64();
-    BlockReward_ = coinbaseValue.GetInt64();
+    this->Height_ = height.GetUint64();
+    this->BlockReward_ = coinbaseValue.GetInt64();
 
     // Check segwit enabled (compare txid and hash for all transactions)
     SegwitEnabled = isSegwitEnabled(transactions);
 
     // Checking/filtering transactions
-    bool txFilter = MiningCfg_.TxNumLimit && transactions.Size() > MiningCfg_.TxNumLimit;
+    bool txFilter = this->MiningCfg_.TxNumLimit && transactions.Size() > this->MiningCfg_.TxNumLimit;
     std::vector<TxData> processedTransactions;
     bool needSortByHash = (ticker == "BCHN" || ticker == "BCHABC");
     if (txFilter)
-      transactionFilter<Proto>(transactions, MiningCfg_.TxNumLimit, processedTransactions, &BlockReward_, needSortByHash);
+      transactionFilter<Proto>(transactions, this->MiningCfg_.TxNumLimit, processedTransactions, &this->BlockReward_, needSortByHash);
     else
       transactionChecker(transactions, processedTransactions);
 
     // "coinbasedevreward" (FreeCash/FCH)
     processCoinbaseDevReward(blockTemplate, &DevFee, DevScriptPubKey);
     // "minerfund" (BCHA)
-    processMinerFund(blockTemplate, &BlockReward_, &DevFee, DevScriptPubKey);
+    processMinerFund(blockTemplate, &this->BlockReward_, &DevFee, DevScriptPubKey);
 
     if (txFilter)
-      LOG_F(INFO, " * [txfilter] transactions num %zu -> %zu; coinbase value %" PRIi64 " -> %" PRIi64 "", static_cast<size_t>(transactions.Size()), processedTransactions.size(), coinbaseValue.GetInt64(), BlockReward_);
+      LOG_F(INFO, " * [txfilter] transactions num %zu -> %zu; coinbase value %" PRIi64 " -> %" PRIi64 "", static_cast<size_t>(transactions.Size()), processedTransactions.size(), coinbaseValue.GetInt64(), this->BlockReward_);
 
     // Calculate witness commitment
     if (SegwitEnabled) {
@@ -251,15 +371,15 @@ public:
     JobVersion = Header.nVersion;
 
     // Coinbase
-    buildCoinbaseTx(nullptr, 0, MiningCfg_, CBTxLegacy_, CBTxWitness_);
+    buildCoinbaseTx(nullptr, 0, this->MiningCfg_, CBTxLegacy_, CBTxWitness_);
 
     // Transactions
-    collectTransactions(processedTransactions, TxHexData, MerklePath, TxNum_);
+    collectTransactions(processedTransactions, TxHexData, MerklePath, this->TxNum_);
     return true;
   }
 
   virtual double getAbstractProfitValue(size_t, double price, double coeff) override {
-    return price * BlockReward_ / getDifficulty(Header.nBits) * coeff;
+    return price * this->BlockReward_ / getDifficulty(Header.nBits) * coeff;
   }
 
 public:
@@ -289,7 +409,7 @@ public:
       // scriptsig
       xmstream scriptsig;
       // Height
-      BTC::serializeForCoinbase(scriptsig, Height_);
+      BTC::serializeForCoinbase(scriptsig, this->Height_);
       size_t extraDataOffset = scriptsig.offsetOf();
       // Coinbase extra data
       if (coinbaseData)
@@ -310,7 +430,7 @@ public:
     // TxOut
     {
       typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
-      txOut.value = BlockReward_;
+      txOut.value = this->BlockReward_;
 
       // pkScript (use single P2PKH)
       txOut.pkScript.resize(sizeof(typename Proto::AddressTy) + 5);
@@ -349,11 +469,11 @@ public:
     return Proto::checkConsensus(header, ctx, params, shareDiff);
   }
 
-  static void buildNotifyMessageImpl(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
+  static void buildNotifyMessageImpl(StratumWork<typename Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
     NotifyTy::build(source, header, asicBoostData, legacy, merklePath, cfg, resetPreviousWork, notifyMessage);
   }
 
-  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg) {
+  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessageTy &msg) {
     return PrepareForSubmitTy::prepare(header, asicBoostData, legacy, witness, merklePath, workerCfg, miningCfg, msg);
   }
 
@@ -367,7 +487,7 @@ public:
       BTC::serialize(stream, header);
 
       // Transactions count
-      BTC::serializeVarSize(stream, TxNum_ + 1);
+      BTC::serializeVarSize(stream, this->TxNum_ + 1);
       bin2hexLowerCase(stream.data(), blockHexData.reserve<char>(stream.sizeOf()*2), stream.sizeOf());
     }
 

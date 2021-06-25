@@ -16,7 +16,7 @@ static uint32_t getExpectedIndex(uint32_t nNonce, int nChainId, unsigned h)
 
 namespace DOGE {
 
-Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, StratumSingleWork *second, MiningConfig &miningCfg) : StratumMergedWork(stratumWorkId, first, second, miningCfg)
+Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSingleWork *second, MiningConfig &miningCfg) : StratumMergedWork(stratumWorkId, first, second, miningCfg)
 {
   LTCHeader_ = ltcWork()->Header;
   LTCMerklePath_ = ltcWork()->MerklePath;
@@ -55,7 +55,7 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first
   ltcWork()->buildCoinbaseTx(coinbaseMsg.data(), coinbaseMsg.sizeOf(), miningCfg, LTCLegacy_, LTCWitness_);
 }
 
-bool Stratum::MergedWork::prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage &msg)
+bool Stratum::MergedWork::prepareForSubmit(const WorkerConfig &workerCfg, const StratumMessage &msg)
 {
   if (!LTC::Stratum::Work::prepareForSubmitImpl(LTCHeader_, LTCHeader_.nVersion, LTCLegacy_, LTCWitness_, LTCMerklePath_, workerCfg, MiningCfg_, msg))
     return false;

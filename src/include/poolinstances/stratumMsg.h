@@ -6,21 +6,21 @@
 #include "p2putils/strExtras.h"
 #include <optional>
 
-enum StratumMethodTy {
-  Subscribe = 0,
-  Authorize,
-  ExtraNonceSubscribe,
-  Submit,
-  MultiVersion,
-  MiningConfigure,
-  MiningSuggestDifficulty,
-  Last
+enum EStratumMethodTy {
+  ESubscribe = 0,
+  EAuthorize,
+  EExtraNonceSubscribe,
+  ESubmit,
+  EMultiVersion,
+  EMiningConfigure,
+  EMiningSuggestDifficulty,
+  ELast
 };
 
-enum StratumDecodeStatusTy {
-  Ok = 0,
-  JsonError,
-  FormatError
+enum EStratumDecodeStatusTy {
+  EStratumStatusOk = 0,
+  EStratumStatusJsonError,
+  EStratumStatusFormatError
 };
 
 struct StratumMiningSubscribe {
@@ -64,20 +64,3 @@ struct StratumMiningConfigure {
 struct StratumMiningSuggestDifficulty {
   double Difficulty;
 };
-
-struct StratumMessage {
-  int64_t integerId;
-  std::string stringId;
-  StratumMethodTy method;
-
-  StratumMiningSubscribe subscribe;
-  StratumAuthorize authorize;
-  StratumSubmit submit;
-  StratumMultiVersion multiVersion;
-  StratumMiningConfigure miningConfigure;
-  StratumMiningSuggestDifficulty miningSuggestDifficulty;
-
-  std::string error;
-};
-
-StratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size, StratumMessage *out);

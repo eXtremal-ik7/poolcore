@@ -191,21 +191,26 @@ template<typename T> struct Io<Proto::BlockTy<T>> {
 class Stratum {
 public:
   static constexpr double DifficultyFactor = 1.0;
+  using StratumMessage = BTC::StratumMessage;
+  using MiningConfig = BTC::MiningConfig;
+  using WorkerConfig = BTC::CWorkerConfig;
+
+  using CWork = StratumWork<Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessage>;
 
   // TODO: Use this for headers non-compatible with BTC
   struct TemplateLoader {};
 
   struct Notify {
-    static void build(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage);
+    static void build(CWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage);
   };
 
   struct Prepare {
     static bool prepare(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
   };
 
-  using Work = BTC::WorkTy<BTC::Proto, BTC::Stratum::TemplateLoader, BTC::Stratum::Notify, BTC::Stratum::Prepare>;
-  using SecondWork = StratumSingleWorkEmpty;
-  using MergedWork = StratumMergedWorkEmpty;
+  using Work = BTC::WorkTy<BTC::Proto, TemplateLoader, Notify, Prepare, StratumMessage>;
+  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessage>;
+  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessage>;
 
   static constexpr bool MergedMiningSupport = false;
   static bool isMainBackend(const std::string&) { return true; }

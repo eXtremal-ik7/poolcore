@@ -50,15 +50,20 @@ public:
 class Stratum {
 public:
   static constexpr double DifficultyFactor = 65536.0;
+  using MiningConfig = BTC::Stratum::MiningConfig;
+  using WorkerConfig = BTC::Stratum::WorkerConfig;
+  using StratumMessage = BTC::Stratum::StratumMessage;
+  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
+  using CMergedWork = StratumMergedWork<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
 
-  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::TemplateLoader, BTC::Stratum::Notify, BTC::Stratum::Prepare>;
+  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::TemplateLoader, BTC::Stratum::Notify, BTC::Stratum::Prepare, StratumMessage>;
   using SecondWork = LTC::Stratum::Work;
-  class MergedWork : public StratumMergedWork {
+  class MergedWork : public CMergedWork {
   public:
-    MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, StratumSingleWork *second, MiningConfig &miningCfg);
+    MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSingleWork *second, MiningConfig &miningCfg);
 
-    virtual void shareHash(void *data) override {
-      *reinterpret_cast<DOGE::Proto::BlockHashTy*>(data) = LTCHeader_.GetHash();
+    virtual Proto::BlockHashTy shareHash() override {
+      return LTCHeader_.GetHash();
     }
 
     virtual std::string blockHash(size_t workIdx) override {
@@ -79,7 +84,7 @@ public:
       LTC::Stratum::Work::buildNotifyMessageImpl(this, LTCHeader_, LTCHeader_.nVersion, LTCLegacy_, LTCMerklePath_, MiningCfg_, resetPreviousWork, NotifyMessage_);
     }
 
-    virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage &msg) override;
+    virtual bool prepareForSubmit(const WorkerConfig &workerCfg, const StratumMessage &msg) override;
 
     virtual void buildBlock(size_t workIdx, xmstream &blockHexData) override {
       if (workIdx == 0) {

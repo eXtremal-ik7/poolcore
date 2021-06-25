@@ -161,7 +161,7 @@ bool Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&,
   return true;
 }
 
-void Stratum::Notify::build(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage)
+void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage)
 {
   {
     notifyMessage.reset();
@@ -224,29 +224,29 @@ void Stratum::Notify::build(StratumWork *source, typename Proto::BlockHeader &he
 
 bool Stratum::Prepare::prepare(BTC::Proto::BlockHeader &header, uint32_t jobVersion, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg)
 {
-  if (msg.submit.MutableExtraNonce.size() != miningCfg.MutableExtraNonceSize)
+  if (msg.Submit.MutableExtraNonce.size() != miningCfg.MutableExtraNonceSize)
     return false;
-  if (workerCfg.AsicBoostEnabled && !msg.submit.VersionBits.has_value())
+  if (workerCfg.AsicBoostEnabled && !msg.Submit.VersionBits.has_value())
     return false;
 
   // Write target extra nonce to first txin
   {
     uint8_t *scriptSig = legacy.Data.data<uint8_t>() + legacy.ExtraNonceOffset;
     writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
-    memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.submit.MutableExtraNonce.data(), msg.submit.MutableExtraNonce.size());
+    memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.Submit.MutableExtraNonce.data(), msg.Submit.MutableExtraNonce.size());
   }
   {
     uint8_t *scriptSig = witness.Data.data<uint8_t>() + witness.ExtraNonceOffset;
     writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
-    memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.submit.MutableExtraNonce.data(), msg.submit.MutableExtraNonce.size());
+    memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.Submit.MutableExtraNonce.data(), msg.Submit.MutableExtraNonce.size());
   }
 
   // Calculate merkle root and build header
   header.hashMerkleRoot = calculateMerkleRoot(legacy.Data.data(), legacy.Data.sizeOf(), merklePath);
-  header.nTime = msg.submit.Time;
-  header.nNonce = msg.submit.Nonce;
+  header.nTime = msg.Submit.Time;
+  header.nNonce = msg.Submit.Nonce;
   if (workerCfg.AsicBoostEnabled)
-    header.nVersion = (jobVersion & ~workerCfg.VersionMask) | (msg.submit.VersionBits.value() & workerCfg.VersionMask);
+    header.nVersion = (jobVersion & ~workerCfg.VersionMask) | (msg.Submit.VersionBits.value() & workerCfg.VersionMask);
   else
     header.nVersion = jobVersion;
 
