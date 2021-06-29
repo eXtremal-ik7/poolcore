@@ -7,6 +7,7 @@
 #include "blockmaker/serializeJson.h"
 #include "poolcommon/arith_uint256.h"
 #include "poolcore/base58.h"
+#include "poolcommon/bech32.h"
 
 namespace BTC {
 
@@ -159,6 +160,182 @@ bool Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&,
     return false;
 
   return true;
+}
+
+static void processCoinbaseDevReward(rapidjson::Value &blockTemplate, int64_t *devFee, xmstream &devScriptPubKey)
+{
+  if (blockTemplate.HasMember("coinbasedevreward") && blockTemplate["coinbasedevreward"].IsObject()) {
+    rapidjson::Value &devReward = blockTemplate["coinbasedevreward"];
+    if (devReward.HasMember("value") && devReward["value"].IsInt64() &&
+        devReward.HasMember("scriptpubkey") && devReward["scriptpubkey"].IsString()) {
+      *devFee = devReward["value"].GetInt64();
+      size_t scriptPubKeyLength = devReward["scriptpubkey"].GetStringLength();
+      hex2bin(devReward["scriptpubkey"].GetString(), scriptPubKeyLength, devScriptPubKey.reserve<uint8_t>(scriptPubKeyLength/2));
+    }
+  }
+}
+
+static void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockReward, int64_t *devFee, xmstream &devScriptPubKey)
+{
+  if (blockTemplate.HasMember("coinbasetxn") && blockTemplate["coinbasetxn"].IsObject()) {
+    rapidjson::Value &coinbasetxn = blockTemplate["coinbasetxn"];
+    if (coinbasetxn.HasMember("minerfund") && coinbasetxn["minerfund"].IsObject()) {
+      rapidjson::Value &minerfund = coinbasetxn["minerfund"];
+      if (minerfund.HasMember("addresses") && minerfund["addresses"].IsArray() &&
+          minerfund.HasMember("minimumvalue") && minerfund["minimumvalue"].IsInt64()) {
+        rapidjson::Value &addresses = minerfund["addresses"];
+        rapidjson::Value &minimumvalue = minerfund["minimumvalue"];
+        if (addresses.Size() >= 1 && addresses[0].IsString() && strstr(addresses[0].GetString(), "bitcoincash:") == addresses[0]) {
+          // Decode bch bech32 address
+          auto feeAddr = bech32::DecodeCashAddrContent(addresses[0].GetString(), "bitcoincash");
+          if (feeAddr.type == bech32::SCRIPT_TYPE) {
+            *devFee = minimumvalue.GetInt64();
+            devScriptPubKey.write<uint8_t>(BTC::Script::OP_HASH160);
+            devScriptPubKey.write<uint8_t>(0x14);
+            devScriptPubKey.write(&feeAddr.hash[0], feeAddr.hash.size());
+            devScriptPubKey.write<uint8_t>(BTC::Script::OP_EQUAL);
+            *blockReward -= *devFee;
+          }
+        }
+      }
+    }
+  }
+}
+
+bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, rapidjson::Value &blockTemplate)
+{
+  // Check fields:
+  // header:
+  //   version
+  //   previousblockhash
+  //   curtime
+  //   bits
+  if (!blockTemplate.HasMember("version") ||
+      !blockTemplate.HasMember("previousblockhash") ||
+      !blockTemplate.HasMember("curtime") ||
+      !blockTemplate.HasMember("bits")) {
+    return false;
+  }
+
+  rapidjson::Value &version = blockTemplate["version"];
+  rapidjson::Value &hashPrevBlock = blockTemplate["previousblockhash"];
+  rapidjson::Value &curtime = blockTemplate["curtime"];
+  rapidjson::Value &bits = blockTemplate["bits"];
+
+  header.nVersion = version.GetUint();
+  header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
+  header.hashMerkleRoot.SetNull();
+  header.nTime = curtime.GetUint();
+  header.nBits = strtoul(bits.GetString(), nullptr, 16);
+  header.nNonce = 0;
+  *jobVersion = header.nVersion;
+  return true;
+}
+
+bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward,
+                                       int64_t *devFee,
+                                       xmstream &devScriptPubKey,
+                                       rapidjson::Value &blockTemplate)
+{
+  rapidjson::Value &coinbaseValue = blockTemplate["coinbasevalue"];
+  if (!coinbaseValue.IsInt64())
+    return false;
+
+  *blockReward = coinbaseValue.GetInt64();
+
+  // "coinbasedevreward" (FreeCash/FCH)
+  processCoinbaseDevReward(blockTemplate, devFee, devScriptPubKey);
+  // "minerfund" (BCHA)
+  processMinerFund(blockTemplate, blockReward, devFee, devScriptPubKey);
+}
+
+void Stratum::CoinbaseBuilder::build(int64_t height,
+                                     int64_t blockReward,
+                                     void *coinbaseData,
+                                     size_t coinbaseSize,
+                                     const std::string &coinbaseMessage,
+                                     const Proto::AddressTy &miningAddress,
+                                     const MiningConfig &miningCfg,
+                                     int64_t devFeeAmount,
+                                     const xmstream &devScriptPubKey,
+                                     bool segwitEnabled,
+                                     const xmstream &witnessCommitment,
+                                     CoinbaseTx &legacy,
+                                     CoinbaseTx &witness)
+{
+  BTC::Proto::Transaction coinbaseTx;
+
+  coinbaseTx.version = segwitEnabled ? 2 : 1;
+
+  // TxIn
+  {
+    coinbaseTx.txIn.resize(1);
+    typename Proto::TxIn &txIn = coinbaseTx.txIn[0];
+    txIn.previousOutputHash.SetNull();
+    txIn.previousOutputIndex = std::numeric_limits<uint32_t>::max();
+
+    if (segwitEnabled) {
+      // Witness nonce
+      // Use default: 0
+      txIn.witnessStack.resize(1);
+      txIn.witnessStack[0].resize(32);
+      memset(txIn.witnessStack[0].data(), 0, 32);
+    }
+
+    // scriptsig
+    xmstream scriptsig;
+    // Height
+    BTC::serializeForCoinbase(scriptsig, height);
+    size_t extraDataOffset = scriptsig.offsetOf();
+    // Coinbase extra data
+    if (coinbaseData)
+      scriptsig.write(coinbaseData, coinbaseSize);
+    // Coinbase message
+    scriptsig.write(coinbaseMessage.data(), coinbaseMessage.size());
+    // Extra nonce
+    legacy.ExtraNonceOffset = static_cast<unsigned>(scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset(false));
+    legacy.ExtraDataOffset = static_cast<unsigned>(extraDataOffset + coinbaseTx.getFirstScriptSigOffset(false));
+    witness.ExtraNonceOffset = static_cast<unsigned>(scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset(true));
+    witness.ExtraDataOffset = static_cast<unsigned>(extraDataOffset + coinbaseTx.getFirstScriptSigOffset(true));
+    scriptsig.reserve(miningCfg.FixedExtraNonceSize + miningCfg.MutableExtraNonceSize);
+
+    xvectorFromStream(std::move(scriptsig), txIn.scriptSig);
+    txIn.sequence = std::numeric_limits<uint32_t>::max();
+  }
+
+  // TxOut
+  {
+    typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
+    txOut.value = blockReward;
+
+    // pkScript (use single P2PKH)
+    txOut.pkScript.resize(sizeof(typename Proto::AddressTy) + 5);
+    xmstream p2pkh(txOut.pkScript.data(), txOut.pkScript.size());
+    p2pkh.write<uint8_t>(BTC::Script::OP_DUP);
+    p2pkh.write<uint8_t>(BTC::Script::OP_HASH160);
+    p2pkh.write<uint8_t>(sizeof(typename Proto::AddressTy));
+    p2pkh.write(miningAddress.begin(), miningAddress.size());
+    p2pkh.write<uint8_t>(BTC::Script::OP_EQUALVERIFY);
+    p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
+  }
+
+  if (devFeeAmount) {
+    typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
+    txOut.value = devFeeAmount;
+    txOut.pkScript.resize(devScriptPubKey.sizeOf());
+    memcpy(txOut.pkScript.begin(), devScriptPubKey.data(), devScriptPubKey.sizeOf());
+  }
+
+  if (segwitEnabled) {
+    typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
+    txOut.value = 0;
+    txOut.pkScript.resize(witnessCommitment.sizeOf());
+    memcpy(txOut.pkScript.data(), witnessCommitment.data(), witnessCommitment.sizeOf());
+  }
+
+  coinbaseTx.lockTime = 0;
+  BTC::Io<typename Proto::Transaction>::serialize(legacy.Data, coinbaseTx, false);
+  BTC::Io<typename Proto::Transaction>::serialize(witness.Data, coinbaseTx, true);
 }
 
 void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage)

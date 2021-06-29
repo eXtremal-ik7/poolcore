@@ -32,7 +32,7 @@ public:
   using MiningConfig = BTC::Stratum::MiningConfig;
   using WorkerConfig = BTC::Stratum::WorkerConfig;
   using StratumMessage = BTC::Stratum::StratumMessage;
-  using Work = BTC::WorkTy<DGB::Proto, BTC::Stratum::TemplateLoader, BTC::Stratum::Notify, BTC::Stratum::Prepare, StratumMessage>;
+  using Work = BTC::WorkTy<DGB::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, StratumMessage>;
   using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
   using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
 

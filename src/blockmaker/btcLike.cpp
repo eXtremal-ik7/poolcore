@@ -1,5 +1,4 @@
 #include "blockmaker/btcLike.h"
-#include "poolcommon/bech32.h"
 #include <openssl/sha.h>
 #include "poolinstances/stratumMsg.h"
 
@@ -202,46 +201,6 @@ bool isSegwitEnabled(rapidjson::Value::Array transactions)
   }
 
   return false;
-}
-
-void processCoinbaseDevReward(rapidjson::Value &blockTemplate, int64_t *devFee, xmstream &devScriptPubKey)
-{
-  if (blockTemplate.HasMember("coinbasedevreward") && blockTemplate["coinbasedevreward"].IsObject()) {
-    rapidjson::Value &devReward = blockTemplate["coinbasedevreward"];
-    if (devReward.HasMember("value") && devReward["value"].IsInt64() &&
-        devReward.HasMember("scriptpubkey") && devReward["scriptpubkey"].IsString()) {
-      *devFee = devReward["value"].GetInt64();
-      size_t scriptPubKeyLength = devReward["scriptpubkey"].GetStringLength();
-      hex2bin(devReward["scriptpubkey"].GetString(), scriptPubKeyLength, devScriptPubKey.reserve<uint8_t>(scriptPubKeyLength/2));
-    }
-  }
-}
-
-void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockReward, int64_t *devFee, xmstream &devScriptPubKey)
-{
-  if (blockTemplate.HasMember("coinbasetxn") && blockTemplate["coinbasetxn"].IsObject()) {
-    rapidjson::Value &coinbasetxn = blockTemplate["coinbasetxn"];
-    if (coinbasetxn.HasMember("minerfund") && coinbasetxn["minerfund"].IsObject()) {
-      rapidjson::Value &minerfund = coinbasetxn["minerfund"];
-      if (minerfund.HasMember("addresses") && minerfund["addresses"].IsArray() &&
-          minerfund.HasMember("minimumvalue") && minerfund["minimumvalue"].IsInt64()) {
-        rapidjson::Value &addresses = minerfund["addresses"];
-        rapidjson::Value &minimumvalue = minerfund["minimumvalue"];
-        if (addresses.Size() >= 1 && addresses[0].IsString() && strstr(addresses[0].GetString(), "bitcoincash:") == addresses[0]) {
-          // Decode bch bech32 address
-          auto feeAddr = bech32::DecodeCashAddrContent(addresses[0].GetString(), "bitcoincash");
-          if (feeAddr.type == bech32::SCRIPT_TYPE) {
-            *devFee = minimumvalue.GetInt64();
-            devScriptPubKey.write<uint8_t>(BTC::Script::OP_HASH160);
-            devScriptPubKey.write<uint8_t>(0x14);
-            devScriptPubKey.write(&feeAddr.hash[0], feeAddr.hash.size());
-            devScriptPubKey.write<uint8_t>(BTC::Script::OP_EQUAL);
-            *blockReward -= *devFee;
-          }
-        }
-      }
-    }
-  }
 }
 
 bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, bool txFilter, std::vector<TxData> &processedTransactions, xmstream &witnessCommitment, std::string &error)

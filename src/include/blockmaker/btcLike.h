@@ -180,8 +180,6 @@ struct TxTree {
 bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<TxData> &result, int64_t *blockReward);
 bool transactionChecker(rapidjson::Value::Array transactions, std::vector<TxData> &result);
 bool isSegwitEnabled(rapidjson::Value::Array transactions);
-void processCoinbaseDevReward(rapidjson::Value &blockTemplate, int64_t *devFee, xmstream &devScriptPubKey);
-void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockReward, int64_t *devFee, xmstream &devScriptPubKey);
 bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, bool txFilter, std::vector<TxData> &processedTransactions, xmstream &witnessCommitment, std::string &error);
 void collectTransactions(const std::vector<TxData> &processedTransactions, xmstream &txHexData, std::vector<uint256> &merklePath, size_t &txNum);
 
@@ -256,7 +254,7 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
   return true;
 }
 
-template<typename Proto, typename TemplateLoaderTy, typename NotifyTy, typename PrepareForSubmitTy, typename StratumMessageTy>
+template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy, typename StratumMessageTy>
 class WorkTy : public StratumSingleWork<typename Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessageTy> {
 public:
   WorkTy(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const MiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) :
@@ -298,62 +296,41 @@ public:
 
     // Check fields:
     // height
-    // header:
-    //   version
-    //   previousblockhash
-    //   curtime
-    //   bits
     // transactions
     if (!blockTemplate.HasMember("height") ||
-        !blockTemplate.HasMember("version") ||
-        !blockTemplate.HasMember("previousblockhash") ||
-        !blockTemplate.HasMember("curtime") ||
-        !blockTemplate.HasMember("bits") ||
-        !blockTemplate.HasMember("coinbasevalue") ||
         !blockTemplate.HasMember("transactions") || !blockTemplate["transactions"].IsArray()) {
       error = "missing data";
       return false;
     }
 
     rapidjson::Value &height = blockTemplate["height"];
-    rapidjson::Value &version = blockTemplate["version"];
-    rapidjson::Value &hashPrevBlock = blockTemplate["previousblockhash"];
-    rapidjson::Value &curtime = blockTemplate["curtime"];
-    rapidjson::Value &bits = blockTemplate["bits"];
-    rapidjson::Value &coinbaseValue = blockTemplate["coinbasevalue"];
     rapidjson::Value::Array transactions = blockTemplate["transactions"].GetArray();
-    if (!height.IsUint64() ||
-        !version.IsUint() ||
-        !hashPrevBlock.IsString() ||
-        !curtime.IsUint() ||
-        !bits.IsString() ||
-        !coinbaseValue.IsInt64()) {
-      error = "height or header data invalid format";
+    if (!height.IsUint64()) {
+      error = "missing height";
       return false;
     }
 
     this->Height_ = height.GetUint64();
-    this->BlockReward_ = coinbaseValue.GetInt64();
 
     // Check segwit enabled (compare txid and hash for all transactions)
     SegwitEnabled = isSegwitEnabled(transactions);
 
     // Checking/filtering transactions
+    int64_t blockRewardDelta = 0;
     bool txFilter = this->MiningCfg_.TxNumLimit && transactions.Size() > this->MiningCfg_.TxNumLimit;
     std::vector<TxData> processedTransactions;
     bool needSortByHash = (ticker == "BCHN" || ticker == "BCHABC");
     if (txFilter)
-      transactionFilter<Proto>(transactions, this->MiningCfg_.TxNumLimit, processedTransactions, &this->BlockReward_, needSortByHash);
+      transactionFilter<Proto>(transactions, this->MiningCfg_.TxNumLimit, processedTransactions, &blockRewardDelta, needSortByHash);
     else
       transactionChecker(transactions, processedTransactions);
 
-    // "coinbasedevreward" (FreeCash/FCH)
-    processCoinbaseDevReward(blockTemplate, &DevFee, DevScriptPubKey);
-    // "minerfund" (BCHA)
-    processMinerFund(blockTemplate, &this->BlockReward_, &DevFee, DevScriptPubKey);
+    CoinbaseBuilderTy::prepare(&this->BlockReward_, &this->DevFee, this->DevScriptPubKey, blockTemplate);
+
+    this->BlockReward_ -= blockRewardDelta;
 
     if (txFilter)
-      LOG_F(INFO, " * [txfilter] transactions num %zu -> %zu; coinbase value %" PRIi64 " -> %" PRIi64 "", static_cast<size_t>(transactions.Size()), processedTransactions.size(), coinbaseValue.GetInt64(), this->BlockReward_);
+      LOG_F(INFO, " * [txfilter] transactions num %zu -> %zu; coinbase value %" PRIi64 " -> %" PRIi64 "", static_cast<size_t>(transactions.Size()), processedTransactions.size(), this->BlockReward_+blockRewardDelta, this->BlockReward_);
 
     // Calculate witness commitment
     if (SegwitEnabled) {
@@ -362,13 +339,10 @@ public:
     }
 
     // Fill header
-    Header.nVersion = version.GetUint();
-    Header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
-    Header.hashMerkleRoot.SetNull();
-    Header.nTime = curtime.GetUint();
-    Header.nBits = strtoul(bits.GetString(), nullptr, 16);
-    Header.nNonce = 0;
-    JobVersion = Header.nVersion;
+    if (!HeaderBuilderTy::build(Header, &JobVersion, blockTemplate)) {
+      error = "missing header data";
+      return false;
+    }
 
     // Coinbase
     buildCoinbaseTx(nullptr, 0, this->MiningCfg_, CBTxLegacy_, CBTxWitness_);
@@ -384,82 +358,9 @@ public:
 
 public:
   // Implementation
-
   /// Build & serialize custom coinbase transaction
   void buildCoinbaseTx(void *coinbaseData, size_t coinbaseSize, const MiningConfig &miningCfg, CoinbaseTx &legacy, CoinbaseTx &witness) {
-    typename Proto::Transaction coinbaseTx;
-
-    coinbaseTx.version = SegwitEnabled ? 2 : 1;
-
-    // TxIn
-    {
-      coinbaseTx.txIn.resize(1);
-      typename Proto::TxIn &txIn = coinbaseTx.txIn[0];
-      txIn.previousOutputHash.SetNull();
-      txIn.previousOutputIndex = std::numeric_limits<uint32_t>::max();
-
-      if (SegwitEnabled) {
-        // Witness nonce
-        // Use default: 0
-        txIn.witnessStack.resize(1);
-        txIn.witnessStack[0].resize(32);
-        memset(txIn.witnessStack[0].data(), 0, 32);
-      }
-
-      // scriptsig
-      xmstream scriptsig;
-      // Height
-      BTC::serializeForCoinbase(scriptsig, this->Height_);
-      size_t extraDataOffset = scriptsig.offsetOf();
-      // Coinbase extra data
-      if (coinbaseData)
-        scriptsig.write(coinbaseData, coinbaseSize);
-      // Coinbase message
-      scriptsig.write(CoinbaseMessage_.data(), CoinbaseMessage_.size());
-      // Extra nonce
-      legacy.ExtraNonceOffset = static_cast<unsigned>(scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset(false));
-      legacy.ExtraDataOffset = static_cast<unsigned>(extraDataOffset + coinbaseTx.getFirstScriptSigOffset(false));
-      witness.ExtraNonceOffset = static_cast<unsigned>(scriptsig.offsetOf() + coinbaseTx.getFirstScriptSigOffset(true));
-      witness.ExtraDataOffset = static_cast<unsigned>(extraDataOffset + coinbaseTx.getFirstScriptSigOffset(true));
-      scriptsig.reserve(miningCfg.FixedExtraNonceSize + miningCfg.MutableExtraNonceSize);
-
-      xvectorFromStream(std::move(scriptsig), txIn.scriptSig);
-      txIn.sequence = std::numeric_limits<uint32_t>::max();
-    }
-
-    // TxOut
-    {
-      typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
-      txOut.value = this->BlockReward_;
-
-      // pkScript (use single P2PKH)
-      txOut.pkScript.resize(sizeof(typename Proto::AddressTy) + 5);
-      xmstream p2pkh(txOut.pkScript.data(), txOut.pkScript.size());
-      p2pkh.write<uint8_t>(BTC::Script::OP_DUP);
-      p2pkh.write<uint8_t>(BTC::Script::OP_HASH160);
-      p2pkh.write<uint8_t>(sizeof(typename Proto::AddressTy));
-      p2pkh.write(MiningAddress_.begin(), MiningAddress_.size());
-      p2pkh.write<uint8_t>(BTC::Script::OP_EQUALVERIFY);
-      p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
-    }
-
-    if (DevFee) {
-      typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
-      txOut.value = DevFee;
-      txOut.pkScript.resize(DevScriptPubKey.sizeOf());
-      memcpy(txOut.pkScript.begin(), DevScriptPubKey.data(), DevScriptPubKey.sizeOf());
-    }
-
-    if (SegwitEnabled) {
-      typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
-      txOut.value = 0;
-      txOut.pkScript.resize(WitnessCommitment.sizeOf());
-      memcpy(txOut.pkScript.data(), WitnessCommitment.data(), WitnessCommitment.sizeOf());
-    }
-
-    coinbaseTx.lockTime = 0;
-    BTC::Io<typename Proto::Transaction>::serialize(legacy.Data, coinbaseTx, false);
-    BTC::Io<typename Proto::Transaction>::serialize(witness.Data, coinbaseTx, true);
+    CoinbaseBuilderTy::build(this->Height_, this->BlockReward_, coinbaseData, coinbaseSize, this->CoinbaseMessage_, this->MiningAddress_, miningCfg, DevFee, DevScriptPubKey, SegwitEnabled, WitnessCommitment, legacy, witness);
   }
 
   static bool checkConsensusImpl(const typename Proto::BlockHeader &header, double *shareDiff) {

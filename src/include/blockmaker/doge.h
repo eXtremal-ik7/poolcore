@@ -56,7 +56,7 @@ public:
   using CSingleWork = StratumSingleWork<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
   using CMergedWork = StratumMergedWork<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
 
-  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::TemplateLoader, BTC::Stratum::Notify, BTC::Stratum::Prepare, StratumMessage>;
+  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, StratumMessage>;
   using SecondWork = LTC::Stratum::Work;
   class MergedWork : public CMergedWork {
   public:

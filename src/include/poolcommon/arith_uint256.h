@@ -14,8 +14,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
-
-class uint256;
+#include "uint256.h"
 
 class uint_error : public std::runtime_error {
 public:
