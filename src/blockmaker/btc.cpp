@@ -237,6 +237,9 @@ bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward,
                                        xmstream &devScriptPubKey,
                                        rapidjson::Value &blockTemplate)
 {
+  if (!blockTemplate.HasMember("coinbasevalue"))
+    return false;
+
   rapidjson::Value &coinbaseValue = blockTemplate["coinbasevalue"];
   if (!coinbaseValue.IsInt64())
     return false;
@@ -247,6 +250,7 @@ bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward,
   processCoinbaseDevReward(blockTemplate, devFee, devScriptPubKey);
   // "minerfund" (BCHA)
   processMinerFund(blockTemplate, blockReward, devFee, devScriptPubKey);
+  return true;
 }
 
 void Stratum::CoinbaseBuilder::build(int64_t height,
