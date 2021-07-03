@@ -254,11 +254,11 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
   return true;
 }
 
-template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy, typename StratumMessageTy>
-class WorkTy : public StratumSingleWork<typename Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessageTy> {
+template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy, typename MiningConfigTy, typename WorkerConfigTy, typename StratumMessageTy>
+class WorkTy : public StratumSingleWork<typename Proto::BlockHashTy, MiningConfigTy, WorkerConfigTy, StratumMessageTy> {
 public:
-  WorkTy(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const MiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) :
-    StratumSingleWork<typename Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessageTy>(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
+  WorkTy(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const MiningConfigTy &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) :
+    StratumSingleWork<typename Proto::BlockHashTy, MiningConfigTy, WorkerConfigTy, StratumMessageTy>(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
     CoinbaseMessage_ = coinbaseMessage;
     this->Initialized_ = miningAddress.size() == sizeof(typename Proto::AddressTy);
     if (this->Initialized_)
@@ -282,7 +282,7 @@ public:
     buildNotifyMessageImpl(this, Header, JobVersion, CBTxLegacy_, MerklePath, this->MiningCfg_, resetPreviousWork, this->NotifyMessage_);
   }
 
-  virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessageTy &msg) override {
+  virtual bool prepareForSubmit(const WorkerConfigTy &workerCfg, const StratumMessageTy &msg) override {
     return prepareForSubmitImpl(Header, JobVersion, CBTxLegacy_, CBTxWitness_, MerklePath, workerCfg, this->MiningCfg_, msg);
   }
 
@@ -325,7 +325,7 @@ public:
     else
       transactionChecker(transactions, processedTransactions);
 
-    CoinbaseBuilderTy::prepare(&this->BlockReward_, &this->DevFee, this->DevScriptPubKey, blockTemplate);
+    CoinbaseBuilder_.prepare(&this->BlockReward_, blockTemplate);
 
     this->BlockReward_ -= blockRewardDelta;
 
@@ -338,17 +338,18 @@ public:
         return false;
     }
 
-    // Fill header
-    if (!HeaderBuilderTy::build(Header, &JobVersion, blockTemplate)) {
-      error = "missing header data";
-      return false;
-    }
-
     // Coinbase
     buildCoinbaseTx(nullptr, 0, this->MiningCfg_, CBTxLegacy_, CBTxWitness_);
 
     // Transactions
     collectTransactions(processedTransactions, TxHexData, MerklePath, this->TxNum_);
+
+    // Fill header
+    if (!HeaderBuilderTy::build(Header, &JobVersion, CBTxLegacy_, MerklePath, blockTemplate)) {
+      error = "missing header data";
+      return false;
+    }
+
     return true;
   }
 
@@ -360,7 +361,7 @@ public:
   // Implementation
   /// Build & serialize custom coinbase transaction
   void buildCoinbaseTx(void *coinbaseData, size_t coinbaseSize, const MiningConfig &miningCfg, CoinbaseTx &legacy, CoinbaseTx &witness) {
-    CoinbaseBuilderTy::build(this->Height_, this->BlockReward_, coinbaseData, coinbaseSize, this->CoinbaseMessage_, this->MiningAddress_, miningCfg, DevFee, DevScriptPubKey, SegwitEnabled, WitnessCommitment, legacy, witness);
+    CoinbaseBuilder_.build(this->Height_, this->BlockReward_, coinbaseData, coinbaseSize, this->CoinbaseMessage_, this->MiningAddress_, miningCfg, SegwitEnabled, WitnessCommitment, legacy, witness);
   }
 
   static bool checkConsensusImpl(const typename Proto::BlockHeader &header, double *shareDiff) {
@@ -370,11 +371,11 @@ public:
     return Proto::checkConsensus(header, ctx, params, shareDiff);
   }
 
-  static void buildNotifyMessageImpl(StratumWork<typename Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
+  static void buildNotifyMessageImpl(StratumWork<typename Proto::BlockHashTy, MiningConfigTy, WorkerConfigTy, StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
     NotifyTy::build(source, header, asicBoostData, legacy, merklePath, cfg, resetPreviousWork, notifyMessage);
   }
 
-  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessageTy &msg) {
+  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const WorkerConfigTy &workerCfg, const MiningConfigTy &miningCfg, const StratumMessageTy &msg) {
     return PrepareForSubmitTy::prepare(header, asicBoostData, legacy, witness, merklePath, workerCfg, miningCfg, msg);
   }
 
@@ -410,8 +411,7 @@ public:
   // Coinbase data
   typename Proto::AddressTy MiningAddress_;
   std::string CoinbaseMessage_;
-  int64_t DevFee = 0;
-  xmstream DevScriptPubKey;
+  CoinbaseBuilderTy CoinbaseBuilder_;
   xmstream WitnessCommitment;
   CoinbaseTx CBTxLegacy_;
   CoinbaseTx CBTxWitness_;

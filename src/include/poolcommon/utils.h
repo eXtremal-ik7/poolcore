@@ -45,6 +45,19 @@ static inline void bin2hexLowerCase(const void *in, char *out, size_t size)
   }
 }
 
+template<typename T>
+std::string writeHexLE(T value, unsigned sizeInBytes)
+{
+  std::string result;
+  for (unsigned i = 0; i < sizeInBytes; i++) {
+    uint8_t byte = value & 0xFF;
+    result.push_back(bin2hexLowerCaseDigit(byte >> 4));
+    result.push_back(bin2hexLowerCaseDigit(byte & 0xF));
+    value >>= 8;
+  }
+
+  return result;
+}
 
 template<typename T>
 std::string writeHexBE(T value, unsigned sizeInBytes)

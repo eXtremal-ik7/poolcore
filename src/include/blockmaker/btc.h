@@ -199,28 +199,28 @@ public:
 
   // TODO: Use this for headers non-compatible with BTC
   struct HeaderBuilder {
-    static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, rapidjson::Value &blockTemplate);
+    static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, rapidjson::Value &blockTemplate);
   };
 
   struct CoinbaseBuilder {
-    static bool prepare(int64_t *blockReward,
-                        int64_t *devFee,
-                        xmstream &devScriptPubKey,
-                        rapidjson::Value &blockTemplate);
+  public:
+    bool prepare(int64_t *blockReward, rapidjson::Value &blockTemplate);
 
-    static void build(int64_t height,
-                      int64_t blockReward,
-                      void *coinbaseData,
-                      size_t coinbaseSize,
-                      const std::string &coinbaseMessage,
-                      const Proto::AddressTy &miningAddress,
-                      const MiningConfig &miningCfg,
-                      int64_t devFee,
-                      const xmstream &devScriptPubKey,
-                      bool segwitEnabled,
-                      const xmstream &witnessCommitment,
-                      BTC::CoinbaseTx &legacy,
-                      BTC::CoinbaseTx &witness);
+    void build(int64_t height,
+               int64_t blockReward,
+               void *coinbaseData,
+               size_t coinbaseSize,
+               const std::string &coinbaseMessage,
+               const Proto::AddressTy &miningAddress,
+               const MiningConfig &miningCfg,
+               bool segwitEnabled,
+               const xmstream &witnessCommitment,
+               BTC::CoinbaseTx &legacy,
+               BTC::CoinbaseTx &witness);
+
+  private:
+    int64_t DevFee = 0;
+    xmstream DevScriptPubKey;
   };
 
   struct Notify {
@@ -231,13 +231,27 @@ public:
     static bool prepare(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
   };
 
-  using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare, StratumMessage>;
+  using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare, MiningConfig, WorkerConfig, StratumMessage>;
   using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessage>;
   using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessage>;
 
   static constexpr bool MergedMiningSupport = false;
   static bool isMainBackend(const std::string&) { return true; }
   static bool keepOldWorkForBackend(const std::string&) { return false; }
+
+  static void buildSendTargetMessage(xmstream &stream, double difficulty) { buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
+
+public:
+  static void buildSendTargetMessageImpl(xmstream &stream, double difficulty, double factor) {
+    JSON::Object object(stream);
+    object.addString("method", "mining.set_difficulty");
+    object.addNull("id");
+    object.addField("params");
+    {
+      JSON::Array params(stream);
+      params.addDouble(difficulty * factor);
+    }
+  }
 };
 
 struct X {

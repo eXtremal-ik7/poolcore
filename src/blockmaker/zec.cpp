@@ -1,4 +1,62 @@
 #include "blockmaker/zec.h"
+#include "poolcommon/arith_uint256.h"
+
+#if ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))
+#define WANT_BUILTIN_BSWAP
+#else
+#define bswap_32(x) ((((x) << 24) & 0xff000000u) | (((x) << 8) & 0x00ff0000u) \
+                   | (((x) >> 8) & 0x0000ff00u) | (((x) >> 24) & 0x000000ffu))
+#define bswap_64(x) (((uint64_t) bswap_32((uint32_t)((x) & 0xffffffffu)) << 32) \
+                   | (uint64_t) bswap_32((uint32_t)((x) >> 32)))
+#endif
+
+static inline uint32_t swab32(uint32_t v)
+{
+#ifdef WANT_BUILTIN_BSWAP
+  return __builtin_bswap32(v);
+#else
+  return bswap_32(v);
+#endif
+}
+
+static void diff_to_target_equi(uint32_t *target, double diff)
+{
+  uint64_t m;
+  int k;
+
+  for (k = 6; k > 0 && diff > 1.0; k--)
+    diff /= 4294967296.0;
+  m = (uint64_t)(4294901760.0 / diff);
+  if (m == 0 && k == 6)
+    memset(target, 0xff, 32);
+  else {
+    memset(target, 0, 32);
+    target[k + 1] = (uint32_t)(m >> 8);
+    target[k + 2] = (uint32_t)(m >> 40);
+    for (k = 0; k < 28 && ((uint8_t*)target)[k] == 0; k++)
+      ((uint8_t*)target)[k] = 0xff;
+  }
+}
+
+double target_to_diff_equi(uint32_t* target)
+{
+  uint8_t* tgt = (uint8_t*) target;
+  uint64_t m =
+    (uint64_t)tgt[30] << 24 |
+    (uint64_t)tgt[29] << 16 |
+    (uint64_t)tgt[28] << 8  |
+    (uint64_t)tgt[27] << 0;
+
+  if (!m)
+    return 0.;
+  else
+    return (double)0xffff0000UL/m;
+}
+
+static inline double getDifficulty(uint256 *target)
+{
+  return target_to_diff_equi(reinterpret_cast<uint32_t*>(target->begin()));
+}
 
 void BTC::Io<ZEC::Proto::BlockHeader>::serialize(xmstream &dst, const ZEC::Proto::BlockHeader &data)
 {
@@ -249,14 +307,126 @@ void BTC::Io<ZEC::Proto::Transaction>::unserialize(xmstream &src, ZEC::Proto::Tr
 
 namespace ZEC {
 
-bool Proto::checkConsensus(const ZEC::Proto::BlockHeader&, CheckConsensusCtx&, ZEC::Proto::ChainParams&, double *shareDiff)
+EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char *in, size_t size)
 {
-  // TODO: implement
-  *shareDiff = 0;
-  return false;
+  rapidjson::Document document;
+  document.Parse(in, size);
+  if (document.HasParseError()) {
+    return EStratumStatusJsonError;
+  }
+
+  if (!(document.HasMember("id") && document.HasMember("method") && document.HasMember("params")))
+    return EStratumStatusFormatError;
+
+  // Some clients put null to 'params' field
+  if (document["params"].IsNull())
+    document["params"].SetArray();
+
+  if (!(document["method"].IsString() && document["params"].IsArray()))
+    return EStratumStatusFormatError;
+
+  if (document["id"].IsUint64())
+    IntegerId = document["id"].GetUint64();
+  else if (document["id"].IsString())
+    StringId = document["id"].GetString();
+  else
+    return EStratumStatusFormatError;
+
+  std::string method = document["method"].GetString();
+  const rapidjson::Value::Array &params = document["params"].GetArray();
+  if (method == "mining.subscribe") {
+    Method = ESubscribe;
+    if (params.Size() >= 1) {
+      if (params[0].IsString())
+        Subscribe.minerUserAgent = params[0].GetString();
+    }
+
+    if (params.Size() >= 2) {
+      if (params[1].IsString())
+        Subscribe.sessionId = params[1].GetString();
+    }
+
+    if (params.Size() >= 3) {
+      if (params[2].IsString())
+        Subscribe.connectHost = params[2].GetString();
+    }
+
+    if (params.Size() >= 4) {
+      if (params[3].IsUint())
+        Subscribe.connectPort = params[3].GetUint();
+    }
+  } else if (method == "mining.authorize" && params.Size() >= 2) {
+    Method = EAuthorize;
+    if (params[0].IsString() && params[1].IsString()) {
+      Authorize.login = params[0].GetString();
+      Authorize.password = params[1].GetString();
+    } else {
+      return EStratumStatusFormatError;
+    }
+  } else if (method == "mining.extranonce.subscribe") {
+    Method = EExtraNonceSubscribe;
+  } else if (method == "mining.submit" && params.Size() >= 5) {
+    if (params[0].IsString() &&
+        params[1].IsString() &&
+        params[2].IsString() && params[2].GetStringLength() == 8 &&
+        params[3].IsString() &&
+        params[4].IsString()) {
+      Method = ESubmit;
+      Submit.WorkerName = params[0].GetString();
+      Submit.JobId = params[1].GetString();
+      Submit.Time = readHexBE<uint32_t>(params[2].GetString(), 4);
+      Submit.Nonce = params[3].GetString();
+      Submit.Solution = params[4].GetString();
+    } else {
+      return EStratumStatusFormatError;
+    }
+  } else if (method == "mining.multi_version" && params.Size() >= 1) {
+    Method = EMultiVersion;
+    if (params[0].IsUint()) {
+      MultiVersion.Version = params[0].GetUint();
+    } else {
+      return EStratumStatusFormatError;
+    }
+  } else if (method == "mining.suggest_difficulty" && params.Size() >= 1) {
+    Method = EMiningSuggestDifficulty;
+    if (params[0].IsDouble()) {
+      MiningSuggestDifficulty.Difficulty = params[0].GetDouble();
+    } else if (params[0].IsUint64()) {
+      MiningSuggestDifficulty.Difficulty = static_cast<double>(params[0].GetUint64());
+    } else {
+      return EStratumStatusFormatError;
+    }
+  } else {
+    return EStratumStatusFormatError;
+  }
+
+  return EStratumStatusOk;
 }
 
-bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, rapidjson::Value &blockTemplate)
+bool Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx&, ZEC::Proto::ChainParams&, double *shareDiff)
+{
+  bool fNegative;
+  bool fOverflow;
+  arith_uint256 bnTarget;
+  bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
+
+  Proto::BlockHashTy hash256 = header.GetHash();
+
+  arith_uint256 hash = UintToArith256(hash256);
+  *shareDiff = getDifficulty(&hash256);
+
+  // Check range
+  if (fNegative || bnTarget == 0 || fOverflow)
+    return false;
+
+  // Check proof of work matches claimed amount
+  if (hash > bnTarget)
+    return false;
+
+  return true;
+}
+
+bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<uint256> &merklePath, rapidjson::Value &blockTemplate)
 {
   // Check fields:
   // header:
@@ -281,7 +451,7 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
   header.nVersion = version.GetUint();
   header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
   header.hashLightClientRoot.SetHex(finalSaplingRootHash.GetString());
-  header.hashMerkleRoot.SetNull();
+  header.hashMerkleRoot = calculateMerkleRoot(legacy.Data.data(), legacy.Data.sizeOf(), merklePath);
   header.nTime = curtime.GetUint();
   header.nBits = strtoul(bits.GetString(), nullptr, 16);
   header.nNonce.SetNull();
@@ -290,10 +460,7 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
   return true;
 }
 
-bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward,
-                                       int64_t *devFee,
-                                       xmstream &devScriptPubKey,
-                                       rapidjson::Value &blockTemplate)
+bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward, rapidjson::Value &blockTemplate)
 {
   if (!blockTemplate.HasMember("coinbasetxn") || !blockTemplate["coinbasetxn"].IsObject())
     return false;
@@ -308,23 +475,15 @@ bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward,
   stream.reset();
   hex2bin(data.GetString(), data.GetStringLength(), stream.reserve(data.GetStringLength()/2));
 
-  Proto::Transaction tx;
   stream.seekSet(0);
-  BTC::unserialize(stream, tx);
+  BTC::unserialize(stream, CoinbaseTx);
   if (stream.eof())
     return false;
 
-  if (tx.txOut.size() == 1) {
-    *blockReward = tx.txOut[0].value;
-    *devFee = 0;
-  } else if (tx.txOut.size() == 2) {
-    *blockReward = tx.txOut[0].value;
-    *devFee = tx.txOut[1].value;
-    devScriptPubKey.write(tx.txOut[1].pkScript.data(), tx.txOut[1].pkScript.size());
-  } else {
+  if (CoinbaseTx.txIn.empty() || CoinbaseTx.txOut.empty())
     return false;
-  }
 
+  *blockReward = CoinbaseTx.txOut[0].value;
   return true;
 }
 
@@ -334,25 +493,15 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
                                      size_t coinbaseSize,
                                      const std::string &coinbaseMessage,
                                      const Proto::AddressTy &miningAddress,
-                                     const MiningConfig &miningCfg,
-                                     int64_t devFeeAmount,
-                                     const xmstream &devScriptPubKey,
+                                     const MiningConfig&,
                                      bool,
                                      const xmstream&,
                                      BTC::CoinbaseTx &legacy,
                                      BTC::CoinbaseTx &witness)
 {
-  Proto::Transaction coinbaseTx;
-
-  coinbaseTx.version = 1;
-  coinbaseTx.fOverwintered = false;
-
   // TxIn
   {
-    coinbaseTx.txIn.resize(1);
-    typename Proto::TxIn &txIn = coinbaseTx.txIn[0];
-    txIn.previousOutputHash.SetNull();
-    txIn.previousOutputIndex = std::numeric_limits<uint32_t>::max();
+    typename Proto::TxIn &txIn = CoinbaseTx.txIn[0];
 
     // scriptsig
     xmstream scriptsig;
@@ -370,7 +519,8 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
 
   // TxOut
   {
-    typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
+    // Replace mining address and block reward
+    typename Proto::TxOut &txOut = CoinbaseTx.txOut[0];
     txOut.value = blockReward;
 
     // pkScript (use single P2PKH)
@@ -384,19 +534,11 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
     p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
   }
 
-  if (devFeeAmount) {
-    typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
-    txOut.value = devFeeAmount;
-    txOut.pkScript.resize(devScriptPubKey.sizeOf());
-    memcpy(txOut.pkScript.begin(), devScriptPubKey.data(), devScriptPubKey.sizeOf());
-  }
-
-  coinbaseTx.lockTime = 0;
-  BTC::Io<typename Proto::Transaction>::serialize(legacy.Data, coinbaseTx);
-  BTC::Io<typename Proto::Transaction>::serialize(witness.Data, coinbaseTx);
+  BTC::Io<typename Proto::Transaction>::serialize(legacy.Data, CoinbaseTx);
+  BTC::Io<typename Proto::Transaction>::serialize(witness.Data, CoinbaseTx);
 }
 
-void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, BTC::CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage)
+void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, const std::vector<uint256>&, const MiningConfig&, bool resetPreviousWork, xmstream &notifyMessage)
 {
   // {"id": null, "method": "mining.notify", "params": ["JOB_ID", "VERSION", "PREVHASH", "MERKLEROOT", "RESERVED", "TIME", "BITS", CLEAN_JOBS]}
 
@@ -417,7 +559,7 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
 
       {
         // Version
-        params.addString(writeHexBE(header.nVersion, sizeof(header.nVersion)));
+        params.addString(writeHexLE(header.nVersion, sizeof(header.nVersion)));
       }
 
       // Previous block
@@ -425,7 +567,7 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
         std::string hash;
         const uint32_t *data = reinterpret_cast<const uint32_t*>(header.hashPrevBlock.begin());
         for (unsigned i = 0; i < 8; i++) {
-          hash.append(writeHexBE(data[i], 4));
+          hash.append(writeHexLE(data[i], 4));
         }
         params.addString(hash);
       }
@@ -436,7 +578,7 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
         std::string hash;
         const uint32_t *data = reinterpret_cast<const uint32_t*>(header.hashMerkleRoot.begin());
         for (unsigned i = 0; i < 8; i++) {
-          hash.append(writeHexBE(data[i], 4));
+          hash.append(writeHexLE(data[i], 4));
         }
         params.addString(hash);
       }
@@ -446,14 +588,14 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
         std::string hash;
         const uint32_t *data = reinterpret_cast<const uint32_t*>(header.hashLightClientRoot.begin());
         for (unsigned i = 0; i < 8; i++) {
-          hash.append(writeHexBE(data[i], 4));
+          hash.append(writeHexLE(data[i], 4));
         }
         params.addString(hash);
       }
       // nTime
-      params.addString(writeHexBE(header.nTime, sizeof(header.nTime)));
+      params.addString(writeHexLE(header.nTime, sizeof(header.nTime)));
       // nBits
-      params.addString(writeHexBE(header.nBits, sizeof(header.nBits)));
+      params.addString(writeHexLE(header.nBits, sizeof(header.nBits)));
       // cleanup
       params.addBoolean(resetPreviousWork);
     }
@@ -462,9 +604,45 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
   notifyMessage.write('\n');
 }
 
-bool Stratum::Prepare::prepare(Proto::BlockHeader &header, uint32_t jobVersion, BTC::CoinbaseTx &legacy, BTC::CoinbaseTx &witness, const std::vector<uint256> &merklePath, const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg)
+bool Stratum::Prepare::prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, BTC::CoinbaseTx&, const std::vector<uint256>&, const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg)
 {
+  header.nTime = swab32(msg.Submit.Time);
 
+  if (msg.Submit.Nonce.size() == 64) {
+    hex2bin(msg.Submit.Nonce.data(), 64, header.nNonce.begin());
+  } else if (msg.Submit.Nonce.size() == (32-miningCfg.FixedExtraNonceSize)*2) {
+    writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, header.nNonce.begin());
+    hex2bin(msg.Submit.Nonce.data(), msg.Submit.Nonce.size(), header.nNonce.begin() + miningCfg.FixedExtraNonceSize);
+  } else {
+    return false;
+  }
+
+  header.nSolution.resize(1344);
+  if (msg.Submit.Solution.size() == 1344*2) {
+    hex2bin(msg.Submit.Solution.data(), msg.Submit.Solution.size(), header.nSolution.data());
+  } else if (msg.Submit.Solution.size() == 1347*2) {
+    hex2bin(msg.Submit.Solution.data() + 6, msg.Submit.Solution.size() - 6, header.nSolution.data());
+  } else {
+    return false;
+  }
+
+  return true;
+}
+
+void Stratum::buildSendTargetMessage(xmstream &stream, double difficulty)
+{
+  uint8_t target[32];
+  diff_to_target_equi(reinterpret_cast<uint32_t*>(target), difficulty);
+  std::reverse(target, target+sizeof(target));
+  {
+    JSON::Object object(stream);
+    object.addString("method", "mining.set_target");
+    object.addField("params");
+    {
+      JSON::Array params(stream);
+      params.addHex(target, 32);
+    }
+  }
 }
 
 }

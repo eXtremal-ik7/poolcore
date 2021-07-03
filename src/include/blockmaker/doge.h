@@ -56,7 +56,7 @@ public:
   using CSingleWork = StratumSingleWork<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
   using CMergedWork = StratumMergedWork<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
 
-  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, StratumMessage>;
+  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, MiningConfig, WorkerConfig, StratumMessage>;
   using SecondWork = LTC::Stratum::Work;
   class MergedWork : public CMergedWork {
   public:
@@ -120,6 +120,7 @@ public:
   static constexpr bool MergedMiningSupport = true;
   static bool isMainBackend(const std::string &ticker) { return ticker == "DOGE" || ticker == "DOGE.testnet" || ticker == "DOGE.regtest"; }
   static bool keepOldWorkForBackend(const std::string&) { return false; }
+  static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
 };
 
 struct X {

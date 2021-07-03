@@ -202,7 +202,7 @@ static void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockRewa
   }
 }
 
-bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, rapidjson::Value &blockTemplate)
+bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, CoinbaseTx&, const std::vector<uint256>&, rapidjson::Value &blockTemplate)
 {
   // Check fields:
   // header:
@@ -232,10 +232,7 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
   return true;
 }
 
-bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward,
-                                       int64_t *devFee,
-                                       xmstream &devScriptPubKey,
-                                       rapidjson::Value &blockTemplate)
+bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward, rapidjson::Value &blockTemplate)
 {
   if (!blockTemplate.HasMember("coinbasevalue"))
     return false;
@@ -247,9 +244,9 @@ bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward,
   *blockReward = coinbaseValue.GetInt64();
 
   // "coinbasedevreward" (FreeCash/FCH)
-  processCoinbaseDevReward(blockTemplate, devFee, devScriptPubKey);
+  processCoinbaseDevReward(blockTemplate, &DevFee, DevScriptPubKey);
   // "minerfund" (BCHA)
-  processMinerFund(blockTemplate, blockReward, devFee, devScriptPubKey);
+  processMinerFund(blockTemplate, blockReward, &DevFee, DevScriptPubKey);
   return true;
 }
 
@@ -260,8 +257,6 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
                                      const std::string &coinbaseMessage,
                                      const Proto::AddressTy &miningAddress,
                                      const MiningConfig &miningCfg,
-                                     int64_t devFeeAmount,
-                                     const xmstream &devScriptPubKey,
                                      bool segwitEnabled,
                                      const xmstream &witnessCommitment,
                                      CoinbaseTx &legacy,
@@ -323,11 +318,11 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
     p2pkh.write<uint8_t>(BTC::Script::OP_CHECKSIG);
   }
 
-  if (devFeeAmount) {
+  if (DevFee) {
     typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
-    txOut.value = devFeeAmount;
-    txOut.pkScript.resize(devScriptPubKey.sizeOf());
-    memcpy(txOut.pkScript.begin(), devScriptPubKey.data(), devScriptPubKey.sizeOf());
+    txOut.value = DevFee;
+    txOut.pkScript.resize(DevScriptPubKey.sizeOf());
+    memcpy(txOut.pkScript.begin(), DevScriptPubKey.data(), DevScriptPubKey.sizeOf());
   }
 
   if (segwitEnabled) {

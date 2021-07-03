@@ -750,17 +750,7 @@ private:
 
   void stratumSendTarget(Connection *connection) {
     xmstream stream;
-    {
-      JSON::Object object(stream);
-      object.addString("method", "mining.set_difficulty");
-      object.addNull("id");
-      object.addField("params");
-      {
-        JSON::Array params(stream);
-        params.addDouble(connection->ShareDifficulty * X::Stratum::DifficultyFactor);
-      }
-    }
-
+    X::Stratum::buildSendTargetMessage(stream, connection->ShareDifficulty);
     stream.write('\n');
     send(connection, stream);
   }
