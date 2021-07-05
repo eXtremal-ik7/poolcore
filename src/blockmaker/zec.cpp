@@ -1,5 +1,6 @@
 #include "blockmaker/zec.h"
 #include "poolcommon/arith_uint256.h"
+#include "sodium/crypto_generichash_blake2b.h"
 
 #if ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))
 #define WANT_BUILTIN_BSWAP
@@ -57,6 +58,269 @@ static inline double getDifficulty(uint256 *target)
 {
   return target_to_diff_equi(reinterpret_cast<uint32_t*>(target->begin()));
 }
+
+inline constexpr size_t equihash_solution_size(unsigned int N, unsigned int K) {
+    return (1 << K)*(N/(K+1)+1)/8;
+}
+
+typedef uint32_t eh_index;
+typedef uint8_t eh_trunc;
+typedef crypto_generichash_blake2b_state eh_HashState;
+
+static void EhIndexToArray(const eh_index i, unsigned char* array)
+{
+    eh_index bei = htobe32(i);
+    memcpy(array, &bei, sizeof(eh_index));
+}
+
+static void ExpandArray(const unsigned char* in, size_t in_len, unsigned char* out, size_t out_len, size_t bit_len, size_t byte_pad = 0)
+{
+    assert(bit_len >= 8);
+    assert(8*sizeof(uint32_t) >= 7+bit_len);
+
+    size_t out_width { (bit_len+7)/8 + byte_pad };
+    assert(out_len == 8*out_width*in_len/bit_len);
+
+    uint32_t bit_len_mask { ((uint32_t)1 << bit_len) - 1 };
+
+    // The acc_bits least-significant bits of acc_value represent a bit sequence
+    // in big-endian order.
+    size_t acc_bits = 0;
+    uint32_t acc_value = 0;
+
+    size_t j = 0;
+    for (size_t i = 0; i < in_len; i++) {
+        acc_value = (acc_value << 8) | in[i];
+        acc_bits += 8;
+
+        // When we have bit_len or more bits in the accumulator, write the next
+        // output element.
+        if (acc_bits >= bit_len) {
+            acc_bits -= bit_len;
+            for (size_t x = 0; x < byte_pad; x++) {
+                out[j+x] = 0;
+            }
+            for (size_t x = byte_pad; x < out_width; x++) {
+                out[j+x] = (
+                    // Big-endian
+                    acc_value >> (acc_bits+(8*(out_width-x-1)))
+                ) & (
+                    // Apply bit_len_mask across byte boundaries
+                    (bit_len_mask >> (8*(out_width-x-1))) & 0xFF
+                );
+            }
+            j += out_width;
+        }
+    }
+}
+
+
+template<size_t WIDTH>
+class StepRow
+{
+    template<size_t W>
+    friend class StepRow;
+    friend class CompareSR;
+
+protected:
+    unsigned char hash[WIDTH];
+
+public:
+    StepRow(const unsigned char* hashIn, size_t hInLen, size_t hLen, size_t cBitLen) {
+      assert(hLen <= WIDTH);
+      ExpandArray(hashIn, hInLen, hash, hLen, cBitLen);
+    }
+    ~StepRow() { }
+
+    template<size_t W>
+    StepRow(const StepRow<W>& a);
+
+    bool IsZero(size_t len) {
+      // This doesn't need to be constant time.
+      for (size_t i = 0; i < len; i++) {
+          if (hash[i] != 0)
+              return false;
+      }
+      return true;
+    }
+    std::string GetHex(size_t len) { return HexStr(hash, hash+len); }
+
+    template<size_t W>
+    friend bool HasCollision(StepRow<W>& a, StepRow<W>& b, int l);
+};
+
+template<size_t WIDTH>
+class FullStepRow : public StepRow<WIDTH>
+{
+    template<size_t W>
+    friend class FullStepRow;
+
+    using StepRow<WIDTH>::hash;
+
+public:
+    FullStepRow(const unsigned char* hashIn, size_t hInLen, size_t hLen, size_t cBitLen, eh_index i) : StepRow<WIDTH> {hashIn, hInLen, hLen, cBitLen} {
+      EhIndexToArray(i, hash+hLen);
+    }
+    ~FullStepRow() { }
+
+    FullStepRow(const FullStepRow<WIDTH>& a) : StepRow<WIDTH> {a} { }
+    template<size_t W>
+    FullStepRow(const FullStepRow<W>& a, const FullStepRow<W>& b, size_t len, size_t lenIndices, int trim) : StepRow<WIDTH> {a} {
+      assert(len+lenIndices <= W);
+      assert(len-trim+(2*lenIndices) <= WIDTH);
+      for (size_t i = trim; i < len; i++)
+          hash[i-trim] = a.hash[i] ^ b.hash[i];
+      if (a.IndicesBefore(b, len, lenIndices)) {
+          std::copy(a.hash+len, a.hash+len+lenIndices, hash+len-trim);
+          std::copy(b.hash+len, b.hash+len+lenIndices, hash+len-trim+lenIndices);
+      } else {
+          std::copy(b.hash+len, b.hash+len+lenIndices, hash+len-trim);
+          std::copy(a.hash+len, a.hash+len+lenIndices, hash+len-trim+lenIndices);
+      }
+    }
+    FullStepRow& operator=(const FullStepRow<WIDTH>& a) {
+      std::copy(a.hash, a.hash+WIDTH, hash);
+      return *this;
+    }
+
+    inline bool IndicesBefore(const FullStepRow<WIDTH>& a, size_t len, size_t lenIndices) const { return memcmp(hash+len, a.hash+len, lenIndices) < 0; }
+    std::vector<unsigned char> GetIndices(size_t len, size_t lenIndices,
+                                          size_t cBitLen) const;
+
+    template<size_t W>
+    friend bool DistinctIndices(const FullStepRow<W>& a, const FullStepRow<W>& b,
+                                size_t len, size_t lenIndices);
+    template<size_t W>
+    friend bool IsValidBranch(const FullStepRow<W>& a, const size_t len, const unsigned int ilen, const eh_trunc t);
+};
+
+template<size_t WIDTH>
+bool DistinctIndices(const FullStepRow<WIDTH>& a, const FullStepRow<WIDTH>& b, size_t len, size_t lenIndices)
+{
+    for(size_t i = 0; i < lenIndices; i += sizeof(eh_index)) {
+        for(size_t j = 0; j < lenIndices; j += sizeof(eh_index)) {
+            if (memcmp(a.hash+len+i, b.hash+len+j, sizeof(eh_index)) == 0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+inline constexpr  size_t max(const size_t A, const size_t B) { return A > B ? A : B; }
+
+static eh_index ArrayToEhIndex(const unsigned char* array)
+{
+    eh_index bei;
+    memcpy(&bei, array, sizeof(eh_index));
+    return be32toh(bei);
+}
+
+static void GenerateHash(const eh_HashState& base_state, eh_index g, unsigned char* hash, size_t hLen)
+{
+    eh_HashState state;
+    state = base_state;
+    eh_index lei = htole32(g);
+    crypto_generichash_blake2b_update(&state, (const unsigned char*) &lei,
+                                      sizeof(eh_index));
+    crypto_generichash_blake2b_final(&state, hash, hLen);
+}
+
+static std::vector<eh_index> GetIndicesFromMinimal(std::vector<unsigned char> minimal, size_t cBitLen)
+{
+    assert(((cBitLen+1)+7)/8 <= sizeof(eh_index));
+    size_t lenIndices { 8*sizeof(eh_index)*minimal.size()/(cBitLen+1) };
+    size_t bytePad { sizeof(eh_index) - ((cBitLen+1)+7)/8 };
+    std::vector<unsigned char> array(lenIndices);
+    ExpandArray(minimal.data(), minimal.size(),
+                array.data(), lenIndices, cBitLen+1, bytePad);
+    std::vector<eh_index> ret;
+    for (size_t i = 0; i < lenIndices; i += sizeof(eh_index)) {
+        ret.push_back(ArrayToEhIndex(array.data()+i));
+    }
+    return ret;
+}
+
+template<size_t WIDTH>
+bool HasCollision(StepRow<WIDTH>& a, StepRow<WIDTH>& b, int l)
+{
+    // This doesn't need to be constant time.
+    for (int j = 0; j < l; j++) {
+        if (a.hash[j] != b.hash[j])
+            return false;
+    }
+    return true;
+}
+
+template<unsigned int N, unsigned int K>
+class Equihash
+{
+public:
+    enum : size_t { IndicesPerHashOutput=512/N };
+    enum : size_t { HashOutput=IndicesPerHashOutput*N/8 };
+    enum : size_t { CollisionBitLength=N/(K+1) };
+    enum : size_t { CollisionByteLength=(CollisionBitLength+7)/8 };
+    enum : size_t { HashLength=(K+1)*CollisionByteLength };
+    enum : size_t { FullWidth=2*CollisionByteLength+sizeof(eh_index)*(1 << (K-1)) };
+    enum : size_t { FinalFullWidth=2*CollisionByteLength+sizeof(eh_index)*(1 << (K)) };
+    enum : size_t { TruncatedWidth=max(HashLength+sizeof(eh_trunc), 2*CollisionByteLength+sizeof(eh_trunc)*(1 << (K-1))) };
+    enum : size_t { FinalTruncatedWidth=max(HashLength+sizeof(eh_trunc), 2*CollisionByteLength+sizeof(eh_trunc)*(1 << (K))) };
+    enum : size_t { SolutionWidth=(1 << K)*(CollisionBitLength+1)/8 };
+
+    Equihash() { }
+
+    int InitialiseState(eh_HashState& base_state) {
+      uint32_t le_N = htole32(N);
+      uint32_t le_K = htole32(K);
+      unsigned char personalization[crypto_generichash_blake2b_PERSONALBYTES] = {};
+      memcpy(personalization, "ZcashPoW", 8);
+      memcpy(personalization+8,  &le_N, 4);
+      memcpy(personalization+12, &le_K, 4);
+      return crypto_generichash_blake2b_init_salt_personal(&base_state,
+                                                           NULL, 0, // No key.
+                                                           (512/N)*N/8,
+                                                           NULL,    // No salt.
+                                                           personalization);
+    }
+
+    bool IsValidSolution(const eh_HashState& base_state, std::vector<unsigned char> &soln) {
+      if (soln.size() != SolutionWidth) {
+          return false;
+      }
+
+      std::vector<FullStepRow<FinalFullWidth>> X;
+      X.reserve(1 << K);
+      unsigned char tmpHash[HashOutput];
+      for (eh_index i : GetIndicesFromMinimal(soln, CollisionBitLength)) {
+          GenerateHash(base_state, i/IndicesPerHashOutput, tmpHash, HashOutput);
+          X.emplace_back(tmpHash+((i % IndicesPerHashOutput) * N/8), N/8, HashLength, CollisionBitLength, i);
+      }
+
+      size_t hashLen = HashLength;
+      size_t lenIndices = sizeof(eh_index);
+      while (X.size() > 1) {
+          std::vector<FullStepRow<FinalFullWidth>> Xc;
+          for (size_t i = 0; i < X.size(); i += 2) {
+              if (!HasCollision(X[i], X[i+1], CollisionByteLength)) {
+                  return false;
+              }
+              if (X[i+1].IndicesBefore(X[i], hashLen, lenIndices)) {
+                  return false;
+              }
+              if (!DistinctIndices(X[i], X[i+1], hashLen, lenIndices)) {
+                  return false;
+              }
+              Xc.emplace_back(X[i], X[i+1], hashLen, lenIndices, CollisionByteLength);
+          }
+          X = Xc;
+          hashLen -= CollisionByteLength;
+          lenIndices *= 2;
+      }
+
+      assert(X.size() == 1);
+      return X[0].IsZero(hashLen);
+    }
+};
 
 void BTC::Io<ZEC::Proto::BlockHeader>::serialize(xmstream &dst, const ZEC::Proto::BlockHeader &data)
 {
@@ -403,13 +667,38 @@ EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char 
   return EStratumStatusOk;
 }
 
-bool Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx&, ZEC::Proto::ChainParams&, double *shareDiff)
+bool Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx &consensusCtx, ZEC::Proto::ChainParams&, double *shareDiff)
 {
+  static Equihash<200,9> Eh200_9;
+  static Equihash<48,5> Eh48_5;
+
+  // Check equihash solution
+  // Here used original code from ZCash repository, it causes high CPU load
+  // TODO: optimize it
+  *shareDiff = 0;
+  crypto_generichash_blake2b_state state;
+  if (consensusCtx.N == 200 && consensusCtx.K == 9) {
+    Eh200_9.InitialiseState(state);
+    crypto_generichash_blake2b_update(&state, reinterpret_cast<const uint8_t*>(&header), 4+32+32+32+4+4);
+    crypto_generichash_blake2b_update(&state, (const uint8_t*)header.nNonce.begin(), 32);
+    std::vector<uint8_t> proofForCheck(header.nSolution.begin(), header.nSolution.end());
+    if (!Eh200_9.IsValidSolution(state, proofForCheck))
+      return false;
+  } else if (consensusCtx.N == 48 && consensusCtx.K == 5) {
+    Eh48_5.InitialiseState(state);
+    crypto_generichash_blake2b_update(&state, reinterpret_cast<const uint8_t*>(&header), 4+32+32+32+4+4);
+    crypto_generichash_blake2b_update(&state, (const uint8_t*)header.nNonce.begin(), 32);
+    std::vector<uint8_t> proofForCheck(header.nSolution.begin(), header.nSolution.end());
+    if (!Eh48_5.IsValidSolution(state, proofForCheck))
+      return false;
+  } else {
+    return false;
+  }
+
   bool fNegative;
   bool fOverflow;
   arith_uint256 bnTarget;
   bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
-
   Proto::BlockHashTy hash256 = header.GetHash();
 
   arith_uint256 hash = UintToArith256(hash256);

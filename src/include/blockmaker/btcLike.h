@@ -276,7 +276,7 @@ public:
     buildNotifyMessageImpl(this, Header, JobVersion, CBTxLegacy_, MerklePath, this->MiningCfg_, true, this->NotifyMessage_);
   }
 
-  virtual bool checkConsensus(size_t, double *shareDiff) override { return checkConsensusImpl(Header, shareDiff); }
+  virtual bool checkConsensus(size_t, double *shareDiff) override { return checkConsensusImpl(Header, ConsensusCtx_, shareDiff); }
 
   virtual void buildNotifyMessage(bool resetPreviousWork) override {
     buildNotifyMessageImpl(this, Header, JobVersion, CBTxLegacy_, MerklePath, this->MiningCfg_, resetPreviousWork, this->NotifyMessage_);
@@ -350,6 +350,7 @@ public:
       return false;
     }
 
+    ConsensusCtx_.initialize(ticker);
     return true;
   }
 
@@ -364,11 +365,9 @@ public:
     CoinbaseBuilder_.build(this->Height_, this->BlockReward_, coinbaseData, coinbaseSize, this->CoinbaseMessage_, this->MiningAddress_, miningCfg, SegwitEnabled, WitnessCommitment, legacy, witness);
   }
 
-  static bool checkConsensusImpl(const typename Proto::BlockHeader &header, double *shareDiff) {
-    typename Proto::CheckConsensusCtx ctx;
+  static bool checkConsensusImpl(const typename Proto::BlockHeader &header, typename Proto::CheckConsensusCtx &consensusCtx, double *shareDiff) {
     typename Proto::ChainParams params;
-    Proto::checkConsensusInitialize(ctx);
-    return Proto::checkConsensus(header, ctx, params, shareDiff);
+    return Proto::checkConsensus(header, consensusCtx, params, shareDiff);
   }
 
   static void buildNotifyMessageImpl(StratumWork<typename Proto::BlockHashTy, MiningConfigTy, WorkerConfigTy, StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
@@ -417,6 +416,8 @@ public:
   CoinbaseTx CBTxWitness_;
   // Transaction data
   xmstream TxHexData;
+  // PoW check context
+  typename Proto::CheckConsensusCtx ConsensusCtx_;
 };
 
 }

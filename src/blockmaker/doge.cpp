@@ -53,6 +53,9 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSin
   coinbaseMsg.write<uint32_t>(1);
   coinbaseMsg.write<uint32_t>(0);
   ltcWork()->buildCoinbaseTx(coinbaseMsg.data(), coinbaseMsg.sizeOf(), miningCfg, LTCLegacy_, LTCWitness_);
+
+  LTCConsensusCtx_ = ltcWork()->ConsensusCtx_;
+  DOGEConsensusCtx_ = dogeWork()->ConsensusCtx_;
 }
 
 bool Stratum::MergedWork::prepareForSubmit(const WorkerConfig &workerCfg, const StratumMessage &msg)

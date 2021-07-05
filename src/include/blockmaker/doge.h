@@ -96,9 +96,9 @@ public:
 
     virtual bool checkConsensus(size_t workIdx, double *shareDiff) override {
       if (workIdx == 0)
-        return DOGE::Stratum::Work::checkConsensusImpl(DOGEHeader_, shareDiff);
+        return DOGE::Stratum::Work::checkConsensusImpl(DOGEHeader_, LTCConsensusCtx_, shareDiff);
       else if (workIdx == 1)
-        return LTC::Stratum::Work::checkConsensusImpl(LTCHeader_, shareDiff);
+        return LTC::Stratum::Work::checkConsensusImpl(LTCHeader_, DOGEConsensusCtx_, shareDiff);
       return false;
     }
 
@@ -111,10 +111,12 @@ public:
     BTC::CoinbaseTx LTCLegacy_;
     BTC::CoinbaseTx LTCWitness_;
     std::vector<uint256> LTCMerklePath_;
+    LTC::Proto::CheckConsensusCtx LTCConsensusCtx_;
 
     DOGE::Proto::BlockHeader DOGEHeader_;
     BTC::CoinbaseTx DOGELegacy_;
     BTC::CoinbaseTx DOGEWitness_;
+    DOGE::Proto::CheckConsensusCtx DOGEConsensusCtx_;
   };
 
   static constexpr bool MergedMiningSupport = true;

@@ -115,7 +115,10 @@ public:
   using MessageBlock = Block;
 
   // Consensus (PoW)
-  struct CheckConsensusCtx {};
+  struct CheckConsensusCtx {
+    void initialize(const std::string&) {}
+  };
+
   struct ChainParams {
     uint256 powLimit;
   };

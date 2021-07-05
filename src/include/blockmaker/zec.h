@@ -174,11 +174,27 @@ public:
   };
 
   using Block = BTC::Proto::BlockTy<ZEC::Proto>;
-  using CheckConsensusCtx = BTC::Proto::CheckConsensusCtx;
+  struct CheckConsensusCtx {
+  public:
+    void initialize(const std::string &ticker) {
+      if (ticker.find(".regtest") != ticker.npos) {
+        N = 48;
+        K = 5;
+      } else {
+        N = 200;
+        K = 9;
+      }
+    }
+
+  public:
+    unsigned N = 0;
+    unsigned K = 0;
+  };
+
   using ChainParams = BTC::Proto::ChainParams;
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static bool checkConsensus(const ZEC::Proto::BlockHeader&header, CheckConsensusCtx&, ZEC::Proto::ChainParams&, double *shareDiff);
+  static bool checkConsensus(const ZEC::Proto::BlockHeader&header, CheckConsensusCtx&consensusCtx, ZEC::Proto::ChainParams&, double *shareDiff);
   static bool checkConsensus(const ZEC::Proto::Block &block, CheckConsensusCtx &ctx, ZEC::Proto::ChainParams &chainParams, double *shareDiff) { return checkConsensus(block.header, ctx, chainParams, shareDiff); }
 };
 
