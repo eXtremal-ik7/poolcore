@@ -318,11 +318,6 @@ void AccountingDb::addShare(const CShare &share)
 
     int64_t rationalPartSize = CoinInfo_.RationalPartSize * CoinInfo_.ExtraMultiplier;
     int64_t generatedCoins = share.generatedCoins * CoinInfo_.ExtraMultiplier;
-    if (!_cfg.poolZAddr.empty()) {
-      // calculate miners fee for Z-Addr moving
-      generatedCoins -= (2*ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE * CoinInfo_.ExtraMultiplier);
-    }
-
     LOG_F(INFO, " * block height: %u, hash: %s, value: %s", (unsigned)share.height, share.hash.c_str(), FormatMoney(generatedCoins, rationalPartSize).c_str());
 
     MiningRound *R = new MiningRound;
@@ -764,46 +759,47 @@ void AccountingDb::makePayout()
 
   if (!_cfg.poolZAddr.empty() && !_cfg.poolTAddr.empty()) {
     // move all to Z-Addr
-    //    auto unspent = ioListUnspent(_client);
-    //    if (unspent && !unspent->outs.empty()) {
     CNetworkClient::ListUnspentResult unspent;
-    if (ClientDispatcher_.ioListUnspent(Base_, unspent) && !unspent.Outs.empty()) {
-
-      LOG_F(INFO, "Accounting: move %zu coinbase outs to Z-Addr", unspent.Outs.size());
+    if (ClientDispatcher_.ioListUnspent(Base_, unspent) == CNetworkClient::EStatusOk && !unspent.Outs.empty()) {
+      std::unordered_map<std::string, int64_t> coinbaseFunds;
       for (const auto &out: unspent.Outs) {
-        if (out.Address == _cfg.poolTAddr || out.Amount < ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE)
+        if (out.IsCoinbase)
+          coinbaseFunds[out.Address] += out.Amount;
+      }
+
+      for (const auto &out: coinbaseFunds) {
+        if (out.second < ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE)
           continue;
 
         CNetworkClient::ZSendMoneyResult zsendResult;
-        if (!ClientDispatcher_.ioZSendMoney(Base_, out.Address, _cfg.poolZAddr, out.Amount, "", zsendResult) || zsendResult.AsyncOperationId.empty()) {
+        CNetworkClient::EOperationStatus status = ClientDispatcher_.ioZSendMoney(Base_, out.first, _cfg.poolZAddr, out.second, "", 1, 0, zsendResult);
+        if (status == CNetworkClient::EStatusOk && !zsendResult.AsyncOperationId.empty()) {
           LOG_F(INFO,
-                "async operation start error %s: source=%s, destination=%s, amount=%li",
-                !zsendResult.Error.empty() ? zsendResult.Error.c_str() : "<unknown error>",
-                out.Address.c_str(),
+                " * moving %s coins from %s to %s started (%s)",
+                FormatMoney(out.second, CoinInfo_.RationalPartSize).c_str(),
+                out.first.c_str(),
                 _cfg.poolZAddr.c_str(),
-                (long)out.Amount);
-          continue;
+                zsendResult.AsyncOperationId.c_str());
+        } else {
+          LOG_F(INFO,
+                " * async operation start error %s: source=%s, destination=%s, amount=%s",
+                !zsendResult.Error.empty() ? zsendResult.Error.c_str() : "<unknown error>",
+                out.first.c_str(),
+                _cfg.poolZAddr.c_str(),
+                FormatMoney(out.second, CoinInfo_.RationalPartSize).c_str());
         }
-
-        LOG_F(INFO,
-              "moving %li coins from %s to %s started (%s)",
-              (long)out.Amount,
-              out.Address.c_str(),
-              _cfg.poolZAddr.c_str(),
-              zsendResult.AsyncOperationId.c_str());
       }
     }
 
     // move Z-Addr to T-Addr
     int64_t zbalance;
-    if (ClientDispatcher_.ioZGetBalance(Base_, &zbalance) && zbalance > 0) {
-
-      LOG_F(INFO, "<info> Accounting: move %.3lf coins to transparent address", zbalance/100000000.0);
+    if (ClientDispatcher_.ioZGetBalance(Base_, _cfg.poolZAddr, &zbalance) == CNetworkClient::EStatusOk && zbalance > 0) {
+      LOG_F(INFO, "Accounting: move %s coins to transparent address", FormatMoney(zbalance, CoinInfo_.RationalPartSize).c_str());
       CNetworkClient::ZSendMoneyResult zsendResult;
-      if (ClientDispatcher_.ioZSendMoney(Base_, _cfg.poolZAddr, _cfg.poolTAddr, zbalance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE, "", zsendResult)) {
+      if (ClientDispatcher_.ioZSendMoney(Base_, _cfg.poolZAddr, _cfg.poolTAddr, zbalance, "", 1, 0, zsendResult) == CNetworkClient::EStatusOk) {
         LOG_F(INFO,
-              "moving %li coins from %s to %s started (%s)",
-              (long)(zbalance - ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE),
+              "moving %s coins from %s to %s started (%s)",
+              FormatMoney(zbalance, CoinInfo_.RationalPartSize).c_str(),
               _cfg.poolZAddr.c_str(),
               _cfg.poolTAddr.c_str(),
               !zsendResult.AsyncOperationId.empty() ? zsendResult.AsyncOperationId.c_str() : "<none>");
@@ -845,7 +841,7 @@ void AccountingDb::checkBalance()
 
   int64_t zbalance = 0;
   if (!_cfg.poolZAddr.empty()) {
-    if (!ClientDispatcher_.ioZGetBalance(Base_, &zbalance)) {
+    if (ClientDispatcher_.ioZGetBalance(Base_, _cfg.poolZAddr, &zbalance) != CNetworkClient::EStatusOk) {
       LOG_F(ERROR, "can't get balance of Z-address %s", _cfg.poolZAddr.c_str());
       return;
     }

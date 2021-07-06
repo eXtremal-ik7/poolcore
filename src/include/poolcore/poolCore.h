@@ -46,6 +46,7 @@ struct CCoinInfo {
   std::string CoinGeckoName;
   double ProfitSwitchDefaultCoeff = 0.0;
   unsigned MinimalConfirmationsNumber = 6;
+  bool HasExtendedFundRawTransaction = true;
 
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;
@@ -99,6 +100,7 @@ public:
   struct ListUnspentElement {
     std::string Address;
     int64_t Amount;
+    bool IsCoinbase;
   };
 
   struct ListUnspentResult {
@@ -133,6 +135,9 @@ public:
   virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) = 0;
   virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error) = 0;
   virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error) = 0;
+  virtual EOperationStatus ioListUnspent(asyncBase *base, ListUnspentResult &result) = 0;
+  virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result) = 0;
+  virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, int64_t *balance) = 0;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, CSubmitBlockOperation *operation) = 0;
 
   virtual void poll() = 0;

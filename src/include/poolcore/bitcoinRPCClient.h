@@ -21,6 +21,9 @@ public:
   virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error) override;
   virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error) override;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation) override;
+  virtual EOperationStatus ioListUnspent(asyncBase *base, ListUnspentResult &result) override;
+  virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result) override;
+  virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, int64_t *balance) override;
   virtual void poll() override;
 
 private:

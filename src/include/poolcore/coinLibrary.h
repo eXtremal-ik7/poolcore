@@ -12,6 +12,10 @@ public:
       info.Name = "equihash.200.9";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 1;
+    } else if (strcmp(coinName, "equihash.48.5") == 0) {
+      info.Name = "equihash.48.5";
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
     } else if (strcmp(coinName, "sha256") == 0) {
       info.Name = "sha256";
       info.PowerUnitType = CCoinInfo::EHash;
@@ -289,6 +293,7 @@ public:
       info.CoinGeckoName = "komodo";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
+      info.HasExtendedFundRawTransaction = false;
     } else if (strcmp(coinName, "KMD.testnet") == 0) {
       info.Name = "KMD.testnet";
       info.FullName = "Komodo";
@@ -302,6 +307,7 @@ public:
       info.DefaultRpcPort = 17771;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
+      info.HasExtendedFundRawTransaction = false;
     } else if (strcmp(coinName, "KMD.regtest") == 0) {
       info.Name = "KMD.regtest";
       info.FullName = "Komodo";
@@ -314,7 +320,8 @@ public:
       info.ScriptAddressPrefix = {85};
       info.DefaultRpcPort = 18232;
       info.ProfitSwitchDefaultCoeff = 1.0;
-      info.Algorithm = "equihash.200.9";
+      info.Algorithm = "equihash.48.5";
+      info.HasExtendedFundRawTransaction = false;
     } else if (strcmp(coinName, "LCC") == 0) {
       info.Name = "LCC";
       info.FullName = "LitecoinCash";
@@ -413,6 +420,7 @@ public:
       info.CoinGeckoName = "zcash";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
+      info.HasExtendedFundRawTransaction = false;
     } else if (strcmp(coinName, "ZEC.testnet") == 0) {
       info.Name = "ZEC.testnet";
       info.FullName = "ZCash";
@@ -426,6 +434,7 @@ public:
       info.DefaultRpcPort = 18232;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
+      info.HasExtendedFundRawTransaction = false;
     } else if (strcmp(coinName, "ZEC.regtest") == 0) {
       info.Name = "ZEC.regtest";
       info.FullName = "ZCash";
@@ -438,7 +447,8 @@ public:
       info.ScriptAddressPrefix = {0x1C,0xBA};
       info.DefaultRpcPort = 18232;
       info.ProfitSwitchDefaultCoeff = 1.0;
-      info.Algorithm = "equihash.200.9";
+      info.Algorithm = "equihash.48.5";
+      info.HasExtendedFundRawTransaction = false;
     } else {
       info.Name.clear();
     }

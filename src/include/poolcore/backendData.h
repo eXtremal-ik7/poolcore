@@ -80,7 +80,7 @@ struct PoolBackendConfig {
   SelectorByWeight<std::string> MiningAddresses;
   std::string CoinBaseMsg;
 
-  // ZEC specify
+  // ZEC specific
   std::string poolTAddr;
   std::string poolZAddr;
 };

@@ -28,10 +28,19 @@ bool CNetworkClientDispatcher::ioGetBlockConfirmations(asyncBase *base, std::vec
   return false;
 }
 
-bool CNetworkClientDispatcher::ioListUnspent(asyncBase*, CNetworkClient::ListUnspentResult&)
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioListUnspent(asyncBase *base, CNetworkClient::ListUnspentResult &result)
 {
-  LOG_F(ERROR, "ioListUnspent api not implemented");
-  return false;
+  CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
+  unsigned threadId = GetGlobalThreadId();
+  size_t &currentClientIdx = CurrentClientIdx_[threadId];
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
+    status = RPCClients_[currentClientIdx]->ioListUnspent(base, result);
+    if (status == CNetworkClient::EStatusOk)
+      return CNetworkClient::EStatusOk;
+    currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
+  }
+
+  return status;
 }
 
 CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, CNetworkClient::BuildTransactionResult &result)
@@ -87,16 +96,34 @@ void CNetworkClientDispatcher::aioSubmitBlock(asyncBase *base, const void *data,
 }
 
 // ZEC specific
-bool CNetworkClientDispatcher::ioZGetBalance(asyncBase*, int64_t*)
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioZGetBalance(asyncBase *base, const std::string &address, int64_t *result)
 {
-  LOG_F(ERROR, "ioZGetBalance api not implemented");
-  return false;
+  CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
+  unsigned threadId = GetGlobalThreadId();
+  size_t &currentClientIdx = CurrentClientIdx_[threadId];
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
+    status = RPCClients_[currentClientIdx]->ioZGetBalance(base, address, result);
+    if (status == CNetworkClient::EStatusOk)
+      return CNetworkClient::EStatusOk;
+    currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
+  }
+
+  return status;
 }
 
-bool CNetworkClientDispatcher::ioZSendMoney(asyncBase*, const std::string&, const std::string&, int64_t, const std::string&, CNetworkClient::ZSendMoneyResult&)
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioZSendMoney(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result)
 {
-  LOG_F(ERROR, "ioZSendMoney api not implemented");
-  return false;
+  CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
+  unsigned threadId = GetGlobalThreadId();
+  size_t &currentClientIdx = CurrentClientIdx_[threadId];
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
+    status = RPCClients_[currentClientIdx]->ioZSendMany(base, source, destination, amount, memo, minConf, fee, result);
+    if (status == CNetworkClient::EStatusOk)
+      return CNetworkClient::EStatusOk;
+    currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
+  }
+
+  return status;
 }
 
 void CNetworkClientDispatcher::poll()

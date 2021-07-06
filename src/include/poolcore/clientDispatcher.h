@@ -28,15 +28,15 @@ public:
   // Common API
   bool ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result);
   bool ioGetBlockConfirmations(asyncBase *base, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &query);
-  bool ioListUnspent(asyncBase *base, CNetworkClient::ListUnspentResult &result);
   CNetworkClient::EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, CNetworkClient::BuildTransactionResult &result);
   CNetworkClient::EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error);
   CNetworkClient::EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error);
   void aioSubmitBlock(asyncBase *base, const void *data, size_t size, CNetworkClient::SumbitBlockCb callback);
 
   // ZEC specific
-  bool ioZGetBalance(asyncBase *base, int64_t *result);
-  bool ioZSendMoney(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, CNetworkClient::ZSendMoneyResult &result);
+  CNetworkClient::EOperationStatus ioListUnspent(asyncBase *base, CNetworkClient::ListUnspentResult &result);
+  CNetworkClient::EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, int64_t *result);
+  CNetworkClient::EOperationStatus ioZSendMoney(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result);
 
   void connectWith(CPoolInstance *instance) {
     LinkedInstances_.push_back(instance);
