@@ -119,6 +119,7 @@ private:
   std::deque<std::unique_ptr<MiningRound>> _allRounds;
   std::set<MiningRound*> _roundsWithPayouts;
   std::list<PayoutDbRecord> _payoutQueue;
+  std::unordered_set<std::string> KnownTransactions_;
 
   int64_t LastBlockTime_ = 0;
   std::deque<CAccountingFile> AccountingDiskStorage_;

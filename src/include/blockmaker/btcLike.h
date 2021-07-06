@@ -193,20 +193,26 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
   std::unordered_map<uint256, size_t> txidMap;
   for (size_t i = 0; i < txNum; i++) {
     rapidjson::Value &txSrc = transactions[i];
+
     if (!txSrc.HasMember("data") || !txSrc["data"].IsString())
       return false;
-    if (!txSrc.HasMember("txid") || !txSrc["txid"].IsString())
-      return false;
-    if (!txSrc.HasMember("fee") || !txSrc["fee"].IsInt64())
-      return false;
-
     txTree[i].Data.HexData = txSrc["data"].GetString();
     txTree[i].Data.HexDataSize = txSrc["data"].GetStringLength();
-    txTree[i].Data.TxId.SetHex(txSrc["txid"].GetString());
-    if (txSrc.HasMember("hash"))
-      txTree[i].Data.WitnessHash.SetHex(txSrc["hash"].GetString());
 
+    if (txSrc.HasMember("txid") && txSrc["txid"].IsString()) {
+      txTree[i].Data.TxId.SetHex(txSrc["txid"].GetString());
+      if (txSrc.HasMember("hash"))
+        txTree[i].Data.WitnessHash.SetHex(txSrc["hash"].GetString());
+    } else if (txSrc.HasMember("hash") && txSrc["hash"].IsString()) {
+      txTree[i].Data.TxId.SetHex(txSrc["hash"].GetString());
+    } else {
+      return false;
+    }
+
+    if (!txSrc.HasMember("fee") || !txSrc["fee"].IsInt64())
+      return false;
     txTree[i].Fee = txSrc["fee"].GetInt64();
+
     txidMap[txTree[i].Data.TxId] = i;
     *blockReward -= txTree[i].Fee;
   }
@@ -320,10 +326,16 @@ public:
     bool txFilter = this->MiningCfg_.TxNumLimit && transactions.Size() > this->MiningCfg_.TxNumLimit;
     std::vector<TxData> processedTransactions;
     bool needSortByHash = (ticker == "BCHN" || ticker == "BCHABC");
+
+    bool transactionCheckResult;
     if (txFilter)
-      transactionFilter<Proto>(transactions, this->MiningCfg_.TxNumLimit, processedTransactions, &blockRewardDelta, needSortByHash);
+      transactionCheckResult = transactionFilter<Proto>(transactions, this->MiningCfg_.TxNumLimit, processedTransactions, &blockRewardDelta, needSortByHash);
     else
-      transactionChecker(transactions, processedTransactions);
+      transactionCheckResult = transactionChecker(transactions, processedTransactions);
+    if (!transactionCheckResult) {
+      error = "template contains invalid transactions";
+      return false;
+    }
 
     CoinbaseBuilder_.prepare(&this->BlockReward_, blockTemplate);
 

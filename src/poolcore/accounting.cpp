@@ -177,6 +177,7 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
         if (!element.deserializeValue(stream))
           break;
         _payoutQueue.push_back(element);
+        KnownTransactions_.insert(element.TransactionId);
         payoutsNum++;
       }
     }
@@ -607,6 +608,11 @@ void AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
   }
 
   // Save transaction to database
+  if (!KnownTransactions_.insert(transaction.TxId).second) {
+    LOG_F(ERROR, "Node generated duplicate for transaction %s !!!", transaction.TxId.c_str());
+    return;
+  }
+
   payout.TransactionData = transaction.TxData;
   payout.TransactionId = transaction.TxId;
   payout.Time = time(nullptr);
@@ -748,10 +754,12 @@ void AccountingDb::makePayout()
 
     // Cleanup confirmed payouts
     for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
-      if (I->Status == PayoutDbRecord::ETxConfirmed)
+      if (I->Status == PayoutDbRecord::ETxConfirmed) {
+        KnownTransactions_.erase(I->TransactionId);
         _payoutQueue.erase(I++);
-      else
+      } else {
         ++I;
+      }
     }
 
     updatePayoutFile();

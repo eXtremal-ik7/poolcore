@@ -169,16 +169,21 @@ bool transactionChecker(rapidjson::Value::Array transactions, std::vector<TxData
   result.resize(transactions.Size());
   for (size_t i = 0, ie = transactions.Size(); i != ie; ++i) {
     rapidjson::Value &txSrc = transactions[i];
+
     if (!txSrc.HasMember("data") || !txSrc["data"].IsString())
       return false;
-    if (!txSrc.HasMember("txid") || !txSrc["txid"].IsString())
-      return false;
-
     result[i].HexData = txSrc["data"].GetString();
     result[i].HexDataSize = txSrc["data"].GetStringLength();
-    result[i].TxId.SetHex(txSrc["txid"].GetString());
-    if (txSrc.HasMember("hash"))
-      result[i].WitnessHash.SetHex(txSrc["hash"].GetString());
+
+    if (txSrc.HasMember("txid") && txSrc["txid"].IsString()) {
+      result[i].TxId.SetHex(txSrc["txid"].GetString());
+      if (txSrc.HasMember("hash"))
+        result[i].WitnessHash.SetHex(txSrc["hash"].GetString());
+    } else if (txSrc.HasMember("hash") && txSrc["hash"].IsString()) {
+      result[i].TxId.SetHex(txSrc["hash"].GetString());
+    } else {
+      return false;
+    }
   }
 
   return true;
