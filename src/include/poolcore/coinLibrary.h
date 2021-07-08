@@ -32,6 +32,49 @@ public:
       info.Name = "primecoin";
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = 1;
+    } else if (strcmp(coinName, "ARRR") == 0) {
+      info.Name = "ARRR";
+      info.FullName = "Pirate Chain";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 1;
+      info.PubkeyAddressPrefix = {60};
+      info.ScriptAddressPrefix = {85};
+      info.DefaultRpcPort = 7771;
+      info.CoinGeckoName = "pirate-chain";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.Algorithm = "equihash.200.9";
+      info.HasExtendedFundRawTransaction = false;
+    } else if (strcmp(coinName, "ARRR.testnet") == 0) {
+      info.Name = "ARRR.testnet";
+      info.FullName = "Pirate Chain";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 1;
+      info.PubkeyAddressPrefix = {0};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 17771;
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.Algorithm = "equihash.200.9";
+      info.HasExtendedFundRawTransaction = false;
+    } else if (strcmp(coinName, "ARRR.regtest") == 0) {
+      info.Name = "ARRR.regtest";
+      info.FullName = "Pirate Chain";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 1;
+      info.PubkeyAddressPrefix = {60};
+      info.ScriptAddressPrefix = {85};
+      info.DefaultRpcPort = 18232;
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.Algorithm = "equihash.48.5";
+      info.HasExtendedFundRawTransaction = false;
     } else if (strcmp(coinName, "BTC") == 0) {
       info.Name = "BTC";
       info.FullName = "Bitcoin";
