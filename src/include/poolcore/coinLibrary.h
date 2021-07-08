@@ -492,6 +492,49 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.48.5";
       info.HasExtendedFundRawTransaction = false;
+    } else if (strcmp(coinName, "ZEN") == 0) {
+      info.Name = "ZEN";
+      info.FullName = "Horizen";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 1;
+      info.PubkeyAddressPrefix = {0x20,0x89};
+      info.ScriptAddressPrefix = {0x20,0x96};
+      info.DefaultRpcPort = 8231;
+      info.CoinGeckoName = "zencash";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.Algorithm = "equihash.200.9";
+      info.HasExtendedFundRawTransaction = false;
+    } else if (strcmp(coinName, "ZEN.testnet") == 0) {
+      info.Name = "ZEN.testnet";
+      info.FullName = "Horizen";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 1;
+      info.PubkeyAddressPrefix = {0x20,0x98};
+      info.ScriptAddressPrefix = {0x20,0x92};
+      info.DefaultRpcPort = 18231;
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.Algorithm = "equihash.200.9";
+      info.HasExtendedFundRawTransaction = false;
+    } else if (strcmp(coinName, "ZEN.regtest") == 0) {
+      info.Name = "ZEN.regtest";
+      info.FullName = "Horizen";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 1;
+      info.PubkeyAddressPrefix = {0x20,0x89};
+      info.ScriptAddressPrefix = {0x20,0x96};
+      info.DefaultRpcPort = 18231;
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.Algorithm = "equihash.48.5";
+      info.HasExtendedFundRawTransaction = false;
     } else {
       info.Name.clear();
     }
