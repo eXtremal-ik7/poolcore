@@ -68,37 +68,31 @@ public:
 
   class UserActionTask : public Task {
   public:
-    UserActionTask(UserManager *userMgr, const uint512 &actionId, DefaultCb callback) : Task(userMgr), ActionId_(actionId), Callback_(callback) {}
-    void run() final { UserMgr_->actionImpl(ActionId_, Callback_); }
+    UserActionTask(UserManager *userMgr, const std::string &sessionId, const std::string &targetLogin, const uint512 &actionId, const std::string &newPassword, const std::string &totp, DefaultCb callback) :
+      Task(userMgr), SessionId_(sessionId), TargetLogin_(targetLogin), ActionId_(actionId), NewPassword_(newPassword), Totp_(totp), Callback_(callback) {}
+    void run() final { UserMgr_->actionImpl(SessionId_, TargetLogin_, ActionId_, NewPassword_, Totp_, Callback_); }
   private:
+    std::string SessionId_;
+    std::string TargetLogin_;
     uint512 ActionId_;
+    std::string NewPassword_;
+    std::string Totp_;
     DefaultCb Callback_;
   };
 
-  class UserInitiateActionTask : public Task {
+  class UserChangePasswordInitiateImplTask : public Task {
   public:
-    UserInitiateActionTask(UserManager *userMgr, const std::string &login, UserActionRecord::EType type, DefaultCb callback) : Task(userMgr), Login_(login), Type_(type), Callback_(callback) {}
+    UserChangePasswordInitiateImplTask(UserManager *userMgr, const std::string &login, DefaultCb callback) : Task(userMgr), Login_(login), Callback_(callback) {}
     void run() final {
       coroutineTy *coroutine = UserMgr_->newCoroutine([](void *arg) {
-        auto task = static_cast<UserInitiateActionTask*>(arg);
-        task->UserMgr_->actionInitiateImpl(task->Login_, task->Type_, task->Callback_);
+        auto task = static_cast<UserChangePasswordInitiateImplTask*>(arg);
+        task->UserMgr_->changePasswordInitiateImpl(task->Login_, task->Callback_);
       }, this, 0x10000);
 
       coroutineCall(coroutine);
     }
   private:
     std::string Login_;
-    UserActionRecord::EType Type_;
-    DefaultCb Callback_;
-  };
-
-  class UserChangePasswordTask : public Task {
-  public:
-    UserChangePasswordTask(UserManager *userMgr, const uint512 &actionId, std::string newPassword, DefaultCb callback) : Task(userMgr), ActionId_(actionId), NewPassword_(newPassword), Callback_(callback) {}
-    void run() final { UserMgr_->userChangePasswordImpl(ActionId_, NewPassword_, Callback_); }
-  private:
-    uint512 ActionId_;
-    std::string NewPassword_;
     DefaultCb Callback_;
   };
 
@@ -181,10 +175,11 @@ public:
 
   class UpdateSettingsTask: public Task {
   public:
-    UpdateSettingsTask(UserManager *userMgr, UserSettingsRecord &&settings, DefaultCb callback) : Task(userMgr), Settings_(settings), Callback_(callback) {}
-    void run() final { UserMgr_->updateSettingsImpl(Settings_, Callback_); }
+    UpdateSettingsTask(UserManager *userMgr, UserSettingsRecord &&settings, const std::string &totp, DefaultCb callback) : Task(userMgr), Settings_(settings), Totp_(totp), Callback_(callback) {}
+    void run() final { UserMgr_->updateSettingsImpl(Settings_, Totp_, Callback_); }
   private:
     UserSettingsRecord Settings_;
+    std::string Totp_;
     DefaultCb Callback_;
   };
 
@@ -220,6 +215,44 @@ public:
     DefaultCb Callback_;
   };
 
+  class Activate2faInitiateTask : public Task {
+  public:
+    using Cb = std::function<void(const char*, const char*)>;
+    Activate2faInitiateTask(UserManager *userMgr, const std::string &sessionId, const std::string &targetLogin, Cb callback) :
+      Task(userMgr), SessionId_(sessionId), TargetLogin_(targetLogin), Callback_(callback) {}
+    void run() final {
+      coroutineTy *coroutine = UserMgr_->newCoroutine([](void *arg) {
+        auto task = static_cast<Activate2faInitiateTask*>(arg);
+        task->UserMgr_->activate2faInitiateImpl(task->SessionId_, task->TargetLogin_, task->Callback_);
+      }, this, 0x10000);
+
+      coroutineCall(coroutine);
+    }
+
+  private:
+    std::string SessionId_;
+    std::string TargetLogin_;
+    Cb Callback_;
+  };
+
+  class Deactivate2faInitiateTask : public Task {
+  public:
+    Deactivate2faInitiateTask(UserManager *userMgr, const std::string &sessionId, const std::string &targetLogin, DefaultCb callback) :
+      Task(userMgr), SessionId_(sessionId), TargetLogin_(targetLogin), Callback_(callback) {}
+    void run() final {
+      coroutineTy *coroutine = UserMgr_->newCoroutine([](void *arg) {
+        auto task = static_cast<Deactivate2faInitiateTask*>(arg);
+        task->UserMgr_->deactivate2faInitiateImpl(task->SessionId_, task->TargetLogin_, task->Callback_);
+      }, this, 0x10000);
+
+      coroutineCall(coroutine);
+    }
+  private:
+    std::string SessionId_;
+    std::string TargetLogin_;
+    DefaultCb Callback_;
+  };
+
 public:
   UserManager(const std::filesystem::path &dbPath);
   UserManager(const UserManager&) = delete;
@@ -228,6 +261,9 @@ public:
   void stop();
 
   static uint256 generateHash(const std::string &login, const std::string &password);
+
+  bool sendMail(const std::string &login, const std::string &emailAddress, const std::string &emailTitlePrefix, const std::string &linkPrefix, const uint512 &actionId, const std::string &mainText, std::string &error);
+  bool check2fa(const std::string &secret, const std::string &receivedCode);
 
   void configAddCoin(const CCoinInfo &info, int64_t defaultMinimalPayout) {
     BackendParameters backendParameters;
@@ -241,12 +277,16 @@ public:
                   const std::string &poolHostProtocol,
                   const std::string &poolHostAddress,
                   const std::string &userActivateLinkPrefix,
-                  const std::string &userChangePasswordLinkPrefix) {
+                  const std::string &userChangePasswordLinkPrefix,
+                  const std::string &userActivate2faPrefix,
+                  const std::string &userDeactivate2faPrefix) {
     BaseCfg.PoolName = poolName;
     BaseCfg.PoolHostProtocol = poolHostProtocol;
     BaseCfg.PoolHostAddress = poolHostAddress;
     BaseCfg.ActivateLinkPrefix = userActivateLinkPrefix;
     BaseCfg.ChangePasswordLinkPrefix = userChangePasswordLinkPrefix;
+    BaseCfg.Activate2faLinkPrefix = userActivate2faPrefix;
+    BaseCfg.Deactivate2faLinkPrefix = userDeactivate2faPrefix;
   }
 
   void addSpecialUser(ESpecialUser type, const std::string &hash) {
@@ -301,19 +341,22 @@ public:
   }
 
   // Asynchronous api
-  void userAction(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserActionTask(this, uint512S(id), callback)); }
-  void userActionInitiate(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback) { startAsyncTask(new UserInitiateActionTask(this, login, type, callback)); }
-  void userChangePassword(const std::string &id, const std::string &newPassword, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordTask(this, uint512S(id), newPassword, callback)); }
+  void userAction(const std::string &sessionId, const std::string &targetLogin, const std::string &actionId, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback)
+    { startAsyncTask(new UserActionTask(this, sessionId, targetLogin, uint512S(actionId), newPassword, totp, callback)); }
+
+  void userChangePasswordInitiate(const std::string &login, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordInitiateImplTask(this, login, callback)); }
   void userChangePasswordForce(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordForceTask(this, sessionId, login, newPassword, callback)); }
   void userCreate(const std::string &login, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserCreateTask(this, login, std::move(credentials), callback)); }
   void userResendEmail(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserResendEmailTask(this, std::move(credentials), callback)); }
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
   void updateCredentials(const std::string &id, const std::string &targetLogin, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UpdateCredentialsTask(this, id, targetLogin, std::move(credentials), callback)); }
-  void updateSettings(UserSettingsRecord &&settings, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), callback)); }
+  void updateSettings(UserSettingsRecord &&settings, const std::string &totp, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), totp, callback)); }
   void enumerateUsers(const std::string &sessionId, EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, sessionId, callback)); }
   void updateFeePlan(const std::string &sessionId, UserFeePlanRecord &&plan, Task::DefaultCb callback) { startAsyncTask(new UpdateFeePlanTask(this, sessionId, std::move(plan), callback)); }
   void changeFeePlan(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback) { startAsyncTask(new ChangeFeePlanTask(this, sessionId, targetLogin, newFeePlan, callback)); }
+  void activate2faInitiate(const std::string &sessionId, const std::string &targetLogin, Activate2faInitiateTask::Cb callback) { startAsyncTask(new Activate2faInitiateTask(this, sessionId, targetLogin, callback)); }
+  void deactivate2faInitiate(const std::string &sessionId, const std::string &targetLogin, Task::DefaultCb callback) { startAsyncTask(new Deactivate2faInitiateTask(this, sessionId, targetLogin, callback)); }
 
   // Synchronous api
   bool checkUser(const std::string &login);
@@ -329,19 +372,20 @@ public:
 private:
   // Asynchronous api implementation
   void startAsyncTask(Task *task);
-  void actionImpl(const uint512 &id, Task::DefaultCb callback);
-  void actionInitiateImpl(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback);
-  void userChangePasswordImpl(const uint512 &id, const std::string &newPassword, Task::DefaultCb callback);
+  void actionImpl(const std::string &sessionId, const std::string &targetLogin, const uint512 &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback);
+  void changePasswordInitiateImpl(const std::string &login, Task::DefaultCb callback);
   void userChangePasswordForceImpl(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback);
   void userCreateImpl(const std::string &login, Credentials &credentials, Task::DefaultCb callback);
   void resendEmailImpl(Credentials &credentials, Task::DefaultCb callback);
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
   void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);
   void updateCredentialsImpl(const std::string &sessionId, const std::string &targetLogin, const Credentials &credentials, Task::DefaultCb callback);
-  void updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback);
+  void updateSettingsImpl(const UserSettingsRecord &settings, const std::string &totp, Task::DefaultCb callback);
   void enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback);
   void updateFeePlanImpl(const std::string &sessionId, const UserFeePlanRecord &plan, Task::DefaultCb callback);
   void changeFeePlanImpl(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback);
+  void activate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Activate2faInitiateTask::Cb callback);
+  void deactivate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Task::DefaultCb callback);
 
   void sessionAdd(const UserSessionRecord &sessionRecord) {
     LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
@@ -410,6 +454,8 @@ private:
     std::string PoolHostAddress;
     std::string ActivateLinkPrefix;
     std::string ChangePasswordLinkPrefix;
+    std::string Activate2faLinkPrefix;
+    std::string Deactivate2faLinkPrefix;
   } BaseCfg;
 
   // SMTP

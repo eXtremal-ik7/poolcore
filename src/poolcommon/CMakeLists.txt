@@ -5,6 +5,7 @@ add_library(poolcommon STATIC
   coroutineJoin.cpp
   file.cpp
   taskHandler.cpp
+  totp.cpp
   uint256.cpp
   utils.cpp
 )

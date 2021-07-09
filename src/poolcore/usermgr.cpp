@@ -1,4 +1,5 @@
 #include "poolcore/usermgr.h"
+#include "poolcommon/totp.h"
 #include "loguru.hpp"
 #include <openssl/rand.h>
 #include <openssl/sha.h>
@@ -41,6 +42,80 @@ uint256 UserManager::generateHash(const std::string &login, const std::string &p
   }
 
   return result;
+}
+
+bool UserManager::sendMail(const std::string &login, const std::string &emailAddress, const std::string &emailTitlePrefix, const std::string &linkPrefix, const uint512 &actionId, const std::string &mainText, std::string &error)
+{
+  HostAddress localAddress;
+  localAddress.ipv4 = INADDR_ANY;
+  localAddress.family = AF_INET;
+  localAddress.port = 0;
+  SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
+  if (!client) {
+    LOG_F(ERROR, "Can't create smtp client");
+    error = "smtp_client_create_error";
+    return false;
+  }
+
+  std::string EMailText;
+  std::string activationLink = BaseCfg.PoolHostProtocol + "://";
+    activationLink.append(BaseCfg.PoolHostAddress);
+    activationLink.append(linkPrefix);
+    activationLink.append(actionId.ToString());
+
+  EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
+  EMailText.append("This email generated automatically, please don't reply.\r\n");
+  EMailText.append(mainText);
+  EMailText.append(" visit <a href=\"");
+  EMailText.append(activationLink);
+  EMailText.append("\">");
+  EMailText.append(activationLink);
+  EMailText.append("</a>\r\n");
+
+  int result = ioSmtpSendMail(client,
+                              SMTP.ServerAddress,
+                              SMTP.UseStartTls,
+                              BaseCfg.PoolHostAddress.c_str(),
+                              SMTP.Login.c_str(),
+                              SMTP.Password.c_str(),
+                              SMTP.SenderAddress.c_str(),
+                              emailAddress.c_str(),
+                              (emailTitlePrefix + BaseCfg.PoolName).c_str(),
+                              EMailText.c_str(),
+                              afNone,
+                              16000000);
+  if (result != 0) {
+    if (result == -smtpError)
+      LOG_F(ERROR, "SMTP error; code: %u; text: %s", smtpClientGetResultCode(client), smtpClientGetResponse(client));
+    else
+      LOG_F(ERROR, "SMTP client error %u", -result);
+    smtpClientDelete(client);
+    error = "email_send_error";
+    return false;
+  }
+
+
+  smtpClientDelete(client);
+  LOG_F(INFO, "%s %s: %s", login.c_str(), emailTitlePrefix.c_str(), actionId.ToString().c_str());
+  return true;
+}
+
+bool UserManager::check2fa(const std::string &secret, const std::string &receivedCode)
+{
+  if (!secret.empty()) {
+    if (receivedCode.size() != 6)
+      return false;
+
+    int receivedCodeAsInt = atoi(receivedCode.c_str());
+    unsigned long currentTime = time(nullptr) / 30;
+    int prev = generateCode(secret.c_str(), currentTime-1);
+    int current = generateCode(secret.c_str(), currentTime);
+    int next = generateCode(secret.c_str(), currentTime+1);
+    if (receivedCodeAsInt != prev && receivedCodeAsInt != current && receivedCodeAsInt != next)
+      return false;
+  }
+
+  return true;
 }
 
 template<unsigned BITS>
@@ -343,8 +418,16 @@ void UserManager::startAsyncTask(Task *task)
   userEventActivate(TaskQueueEvent_);
 }
 
-void UserManager::actionImpl(const uint512 &id, Task::DefaultCb callback)
+void UserManager::actionImpl(const std::string &sessionId, const std::string &targetLogin, const uint512 &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback)
 {
+  std::string login;
+  if (!sessionId.empty()) {
+    if (!validateSession(sessionId, "", login, false)) {
+      callback("unknown_id");
+      return;
+    }
+  }
+
   auto It = ActionsCache_.find(id);
   if (It == ActionsCache_.end()) {
     callback("unknown_id");
@@ -362,9 +445,21 @@ void UserManager::actionImpl(const uint512 &id, Task::DefaultCb callback)
       return;
     }
 
+    if (!login.empty() && actionRecord.Login != login) {
+      callback("invalid_action");
+      return;
+    }
+
     userRecord = accessor->second;
   }
 
+  // Don't allow special users
+  if (actionRecord.Login == "admin" || actionRecord.Login == "observer") {
+    callback("unknown_login");
+    return;
+  }
+
+  bool actionNeedRemove = true;
   bool userRecordUpdated = false;
   const char *status = "";
   switch (actionRecord.Type) {
@@ -379,6 +474,49 @@ void UserManager::actionImpl(const uint512 &id, Task::DefaultCb callback)
 
       break;
     }
+
+    case UserActionRecord::UserChangePassword : {
+      // Check password format
+      if (newPassword.size() < 8 || newPassword.size() > 64) {
+        status = "password_format_invalid";
+        break;
+      }
+
+      userRecord.PasswordHash = generateHash(actionRecord.Login, newPassword);
+      userRecordUpdated = true;
+      status = "ok";
+      break;
+    }
+
+    case UserActionRecord::UserTwoFactorActivate : {
+      if (userRecord.TwoFactorAuthData.empty()) {
+        if (check2fa(actionRecord.TwoFactorKey, totp)) {
+          userRecord.TwoFactorAuthData = actionRecord.TwoFactorKey;
+          userRecordUpdated = true;
+          status = "ok";
+        } else {
+          status = "2fa_invalid";
+          actionNeedRemove = false;
+        }
+      } else {
+        status = "2fa_already_activated";
+      }
+
+      break;
+    }
+
+    case UserActionRecord::UserTwoFactorDeactivate : {
+      if (!userRecord.TwoFactorAuthData.empty()) {
+        userRecord.TwoFactorAuthData.clear();
+        userRecordUpdated = true;
+        status = "ok";
+      } else {
+        status = "2fa_not_activated";
+      }
+
+      break;
+    }
+
     default: {
       LOG_F(ERROR, "Action %s detected unknown type %u", id.ToString().c_str(), actionRecord.Type);
       status = "unknown_type";
@@ -396,11 +534,12 @@ void UserManager::actionImpl(const uint512 &id, Task::DefaultCb callback)
     UsersDb_.put(userRecord);
   }
 
-  actionRemove(actionRecord);
+  if (actionNeedRemove)
+    actionRemove(actionRecord);
   callback(status);
 }
 
-void UserManager::actionInitiateImpl(const std::string &login, UserActionRecord::EType type, Task::DefaultCb callback)
+void UserManager::changePasswordInitiateImpl(const std::string &login, Task::DefaultCb callback)
 {
   // Don't allow special users
   if (login == "admin" || login == "observer") {
@@ -408,10 +547,10 @@ void UserManager::actionInitiateImpl(const std::string &login, UserActionRecord:
     return;
   }
 
-  std::string email;
+  std::string emailAddress;
   decltype (UsersCache_)::const_accessor accessor;
   if (UsersCache_.find(accessor, login)) {
-    email = accessor->second.EMail;
+    emailAddress = accessor->second.EMail;
   } else {
     callback("unknown_login");
     return;
@@ -423,116 +562,14 @@ void UserManager::actionInitiateImpl(const std::string &login, UserActionRecord:
   actionRecord.Type = UserActionRecord::UserChangePassword;
   actionRecord.CreationDate = time(nullptr);
 
-  if (SMTP.Enabled) {
-    HostAddress localAddress;
-    localAddress.ipv4 = INADDR_ANY;
-    localAddress.family = AF_INET;
-    localAddress.port = 0;
-    SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
-    if (!client) {
-      LOG_F(ERROR, "Can't create smtp client");
-      callback("smtp_client_create_error");
-      return;
-    }
-
-    const char *emailTitlePrefix = "";
-    const char *linkPrefix = "";
-    if (type == UserActionRecord::UserChangePassword) {
-      emailTitlePrefix = "Change password at ";
-      linkPrefix = BaseCfg.ChangePasswordLinkPrefix.c_str();
-    }
-
-    std::string EMailText;
-    std::string activationLink = BaseCfg.PoolHostProtocol + "://";
-      activationLink.append(BaseCfg.PoolHostAddress);
-      activationLink.append(linkPrefix);
-      activationLink.append(actionRecord.Id.ToString());
-
-    EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
-    EMailText.append("This email generated automatically, please don't reply.\r\n");
-    EMailText.append("For change your password visit <a href=\"");
-    EMailText.append(activationLink);
-    EMailText.append("\">");
-    EMailText.append(activationLink);
-    EMailText.append("</a>\r\n");
-
-    int result = ioSmtpSendMail(client,
-                                SMTP.ServerAddress,
-                                SMTP.UseStartTls,
-                                BaseCfg.PoolHostAddress.c_str(),
-                                SMTP.Login.c_str(),
-                                SMTP.Password.c_str(),
-                                SMTP.SenderAddress.c_str(),
-                                email.c_str(),
-                                (emailTitlePrefix + BaseCfg.PoolName).c_str(),
-                                EMailText.c_str(),
-                                afNone,
-                                16000000);
-    if (result != 0) {
-      if (result == -smtpError)
-        LOG_F(ERROR, "SMTP error; code: %u; text: %s", smtpClientGetResultCode(client), smtpClientGetResponse(client));
-      else
-        LOG_F(ERROR, "SMTP client error %u", -result);
-      smtpClientDelete(client);
-      callback("email_send_error");
-      return;
-    }
-
-    smtpClientDelete(client);
+  // Send email
+  std::string emailSendError;
+  if (SMTP.Enabled && !sendMail(login, emailAddress, "Change password at ", BaseCfg.ChangePasswordLinkPrefix, actionRecord.Id, "For change your password", emailSendError)) {
+    callback(emailSendError.c_str());
+    return;
   }
 
   actionAdd(actionRecord);
-  callback("ok");
-}
-
-void UserManager::userChangePasswordImpl(const uint512 &id, const std::string &newPassword, Task::DefaultCb callback)
-{
-  auto It = ActionsCache_.find(id);
-  if (It == ActionsCache_.end()) {
-    callback("unknown_id");
-    return;
-  }
-
-  UserActionRecord &actionRecord = It->second;
-  if (actionRecord.Type != UserActionRecord::UserChangePassword) {
-    callback("unknown_id");
-    return;
-  }
-
-  // Don't allow special users
-  if (actionRecord.Login == "admin" || actionRecord.Login == "observer") {
-    callback("unknown_login");
-    return;
-  }
-
-  UsersRecord userRecord;
-
-  {
-    decltype(UsersCache_)::const_accessor accessor;
-    if (!UsersCache_.find(accessor, actionRecord.Login)) {
-      callback("unknown_login");
-      actionRemove(actionRecord);
-      return;
-    }
-
-    userRecord = accessor->second;
-  }
-
-  // Check password format
-  if (newPassword.size() < 8 || newPassword.size() > 64) {
-    callback("password_format_invalid");
-    return;
-  }
-
-  userRecord.PasswordHash = generateHash(actionRecord.Login, newPassword);
-  {
-    decltype(UsersCache_)::accessor accessor;
-    if (UsersCache_.find(accessor, actionRecord.Login))
-      accessor->second = userRecord;
-  }
-
-  UsersDb_.put(userRecord);
-  actionRemove(actionRecord);
   callback("ok");
 }
 
@@ -850,6 +887,12 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
       return;
     }
 
+    // Check 2fa
+    if (!check2fa(record.TwoFactorAuthData, credentials.TwoFactor)) {
+      callback("", "2fa_invalid", false);
+      return;
+    }
+
     // Check activation
     if (!record.IsActive) {
       callback("", "user_not_active", false);
@@ -917,8 +960,22 @@ void UserManager::updateCredentialsImpl(const std::string &sessionId, const std:
   callback("ok");
 }
 
-void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, Task::DefaultCb callback)
+void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, const std::string &totp, Task::DefaultCb callback)
 {
+  // check 2fa
+  {
+    decltype (UsersCache_)::accessor accessor;
+    if (!UsersCache_.find(accessor, settings.Login)) {
+      callback("unknown_login");
+      return;
+    }
+
+    if (!check2fa(accessor->second.TwoFactorAuthData, totp)) {
+      callback("2fa_invalid");
+      return;
+    }
+  }
+
   UserSettingsRecord oldSettings;
   std::string key = settings.Login;
   key.push_back('\0');
@@ -1027,6 +1084,111 @@ void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::str
   }
 
   UsersDb_.put(record);
+  callback("ok");
+}
+
+void UserManager::activate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Activate2faInitiateTask::Cb callback)
+{
+  std::string login;
+  if (!validateSession(sessionId, targetLogin, login, true)) {
+    callback("unknown_id", "");
+    return;
+  }
+
+  // Don't allow special users
+  if (login == "admin" || login == "observer") {
+    callback("unknown_login", "");
+    return;
+  }
+
+  // Check current 2fa status
+  std::string emailAddress;
+  {
+    decltype (UsersCache_)::accessor accessor;
+    if (!UsersCache_.find(accessor, login)) {
+      callback("unknown_login", "");
+      return;
+    }
+
+    if (!accessor->second.TwoFactorAuthData.empty()) {
+      callback("2fa_already_activated", "");
+      return;
+    }
+
+    emailAddress = accessor->second.EMail;
+  }
+
+  // Generate new 2fa key
+  uint8_t key[16];
+  char keyBase32[128] = {0};
+  RAND_bytes(key, sizeof(key));
+  base32_encode(key, sizeof(key), reinterpret_cast<uint8_t*>(keyBase32), sizeof(keyBase32));
+
+  // Create action
+  UserActionRecord actionRecord;
+  makeRandom(actionRecord.Id);
+  actionRecord.Login = login;
+  actionRecord.Type = UserActionRecord::UserTwoFactorActivate;
+  actionRecord.TwoFactorKey = keyBase32;
+  actionRecord.CreationDate = time(nullptr);
+
+  // Send email
+  std::string emailSendError;
+  if (SMTP.Enabled && !sendMail(login, emailAddress, "Activate two factor authentication at ", BaseCfg.Activate2faLinkPrefix, actionRecord.Id, "For enable two factor authentication", emailSendError)) {
+    callback(emailSendError.c_str(), "");
+    return;
+  }
+
+  actionAdd(actionRecord);
+  callback("ok", reinterpret_cast<const char*>(keyBase32));
+}
+
+void UserManager::deactivate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Task::DefaultCb callback)
+{
+  std::string login;
+  if (!validateSession(sessionId, targetLogin, login, true)) {
+    callback("unknown_id");
+    return;
+  }
+
+  // Don't allow special users
+  if (login == "admin" || login == "observer") {
+    callback("unknown_login");
+    return;
+  }
+
+  // Check current 2fa status
+  std::string emailAddress;
+  {
+    decltype (UsersCache_)::accessor accessor;
+    if (!UsersCache_.find(accessor, login)) {
+      callback("unknown_login");
+      return;
+    }
+
+    if (accessor->second.TwoFactorAuthData.empty()) {
+      callback("2fa_not_activated");
+      return;
+    }
+
+    emailAddress = accessor->second.EMail;
+  }
+
+  // Create action
+  UserActionRecord actionRecord;
+  makeRandom(actionRecord.Id);
+  actionRecord.Login = login;
+  actionRecord.Type = UserActionRecord::UserTwoFactorDeactivate;
+  actionRecord.CreationDate = time(nullptr);
+
+  // Send email
+  std::string emailSendError;
+  if (SMTP.Enabled && !sendMail(login, emailAddress, "Deactivate two factor authentication at ", BaseCfg.Activate2faLinkPrefix, actionRecord.Id, "For drop two factor authentication", emailSendError)) {
+    callback(emailSendError.c_str());
+    return;
+  }
+
+  actionAdd(actionRecord);
   callback("ok");
 }
 

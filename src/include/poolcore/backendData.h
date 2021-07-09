@@ -226,13 +226,16 @@ struct UserActionRecord {
   enum EType {
     UserActivate = 0,
     UserChangePassword,
-    UserChangeEmail
+    UserChangeEmail,
+    UserTwoFactorActivate,
+    UserTwoFactorDeactivate
   };
 
   uint512 Id;
   std::string Login;
   uint32_t Type;
   uint64_t CreationDate;
+  std::string TwoFactorKey;
 
   UserActionRecord() {}
   std::string getPartitionId() const { return "default"; }

@@ -295,6 +295,9 @@ bool UserActionRecord::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, Login);
     dbIoUnserialize(stream, Type);
     dbIoUnserialize(stream, CreationDate);
+    if (stream.remaining()) {
+      dbIoUnserialize(stream, TwoFactorKey);
+    }
   }
 
   return !stream.eof();
@@ -311,6 +314,7 @@ void UserActionRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Login);
   dbIoSerialize(stream, Type);
   dbIoSerialize(stream, CreationDate);
+  dbIoSerialize(stream, TwoFactorKey);
 }
 
 // UserSessionRecord
