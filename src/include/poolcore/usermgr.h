@@ -68,12 +68,10 @@ public:
 
   class UserActionTask : public Task {
   public:
-    UserActionTask(UserManager *userMgr, const std::string &sessionId, const std::string &targetLogin, const uint512 &actionId, const std::string &newPassword, const std::string &totp, DefaultCb callback) :
-      Task(userMgr), SessionId_(sessionId), TargetLogin_(targetLogin), ActionId_(actionId), NewPassword_(newPassword), Totp_(totp), Callback_(callback) {}
-    void run() final { UserMgr_->actionImpl(SessionId_, TargetLogin_, ActionId_, NewPassword_, Totp_, Callback_); }
+    UserActionTask(UserManager *userMgr, const uint512 &actionId, const std::string &newPassword, const std::string &totp, DefaultCb callback) :
+      Task(userMgr), ActionId_(actionId), NewPassword_(newPassword), Totp_(totp), Callback_(callback) {}
+    void run() final { UserMgr_->actionImpl(ActionId_, NewPassword_, Totp_, Callback_); }
   private:
-    std::string SessionId_;
-    std::string TargetLogin_;
     uint512 ActionId_;
     std::string NewPassword_;
     std::string Totp_;
@@ -341,8 +339,8 @@ public:
   }
 
   // Asynchronous api
-  void userAction(const std::string &sessionId, const std::string &targetLogin, const std::string &actionId, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback)
-    { startAsyncTask(new UserActionTask(this, sessionId, targetLogin, uint512S(actionId), newPassword, totp, callback)); }
+  void userAction(const std::string &actionId, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback)
+    { startAsyncTask(new UserActionTask(this, uint512S(actionId), newPassword, totp, callback)); }
 
   void userChangePasswordInitiate(const std::string &login, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordInitiateImplTask(this, login, callback)); }
   void userChangePasswordForce(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordForceTask(this, sessionId, login, newPassword, callback)); }
@@ -372,7 +370,7 @@ public:
 private:
   // Asynchronous api implementation
   void startAsyncTask(Task *task);
-  void actionImpl(const std::string &sessionId, const std::string &targetLogin, const uint512 &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback);
+  void actionImpl(const uint512 &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback);
   void changePasswordInitiateImpl(const std::string &login, Task::DefaultCb callback);
   void userChangePasswordForceImpl(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback);
   void userCreateImpl(const std::string &login, Credentials &credentials, Task::DefaultCb callback);

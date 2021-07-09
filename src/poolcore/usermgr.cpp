@@ -418,16 +418,8 @@ void UserManager::startAsyncTask(Task *task)
   userEventActivate(TaskQueueEvent_);
 }
 
-void UserManager::actionImpl(const std::string &sessionId, const std::string &targetLogin, const uint512 &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback)
+void UserManager::actionImpl(const uint512 &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback)
 {
-  std::string login;
-  if (!sessionId.empty()) {
-    if (!validateSession(sessionId, "", login, false)) {
-      callback("unknown_id");
-      return;
-    }
-  }
-
   auto It = ActionsCache_.find(id);
   if (It == ActionsCache_.end()) {
     callback("unknown_id");
@@ -442,11 +434,6 @@ void UserManager::actionImpl(const std::string &sessionId, const std::string &ta
     if (!UsersCache_.find(accessor, actionRecord.Login)) {
       callback("unknown_login");
       actionRemove(actionRecord);
-      return;
-    }
-
-    if (!login.empty() && actionRecord.Login != login) {
-      callback("invalid_action");
       return;
     }
 
