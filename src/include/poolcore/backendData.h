@@ -41,7 +41,10 @@ public:
   }
 
   size_t size() const { return Values.size(); }
-  const T &get() const { return ValueIndexes.size() ? Values[ValueIndexes[rand() % ValueIndexes.size()]] : T(); }
+  const T &get() const {
+    static T empty;
+    return ValueIndexes.size() ? Values[ValueIndexes[rand() % ValueIndexes.size()]] : empty;
+  }
   const T &getByIndex(size_t index) const { return Values[index]; }
 
 private:
