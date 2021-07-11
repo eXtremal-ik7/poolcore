@@ -1,10 +1,12 @@
 # Backend library
 add_library(poolcore STATIC
+  bitcoinRpcClient.cpp
+  ethereumRpcClient.cpp
+
   accounting.cpp
   backend.cpp
   backendData.cpp
   base58.cpp
-  bitcoinRpcClient.cpp
   clientDispatcher.cpp
   kvdb.cpp
   poolCore.cpp

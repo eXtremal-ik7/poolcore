@@ -12,6 +12,10 @@ public:
       info.Name = "equihash.200.9";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 1;
+    } else if (strcmp(coinName, "ethhash") == 0) {
+      info.Name = "ethhash";
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
     } else if (strcmp(coinName, "equihash.48.5") == 0) {
       info.Name = "equihash.48.5";
       info.PowerUnitType = CCoinInfo::EHash;
@@ -308,6 +312,29 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "primecoin";
+    } else if (strcmp(coinName, "ETH") == 0) {
+      info.Name = "ETH";
+      info.FullName = "Ethereum";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
+      info.RationalPartSize = 100000000;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 1;
+      info.DefaultRpcPort = 8545;
+      info.CoinGeckoName = "ethereum";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 64;
+      info.Algorithm = "ethhash";
+    } else if (strcmp(coinName, "ETH.ropsten") == 0) {
+      info.Name = "ETH.ropsten";
+      info.FullName = "Ethereum";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
+      info.RationalPartSize = 100000000;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 1;
+      info.DefaultRpcPort = 8545;
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 64;
+      info.Algorithm = "ethhash";
     } else if (strcmp(coinName, "FCH") == 0) {
       info.Name = "FCH";
       info.FullName = "FreeCash";

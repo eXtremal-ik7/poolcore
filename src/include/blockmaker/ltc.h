@@ -29,6 +29,7 @@ public:
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
   static bool checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams&, double *shareDiff) { return checkPow(header, header.nBits, shareDiff); }
   static bool checkConsensus(const LTC::Proto::Block &block, CheckConsensusCtx&, LTC::Proto::ChainParams&, double *shareDiff) { return checkPow(block.header, block.header.nBits, shareDiff); }
+  static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 
 class Stratum {

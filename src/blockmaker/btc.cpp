@@ -486,7 +486,7 @@ void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::Tr
 }
 
 
-bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &prefix, BTC::Proto::AddressTy &address)
+bool BTC::Proto::decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &prefix, BTC::Proto::AddressTy &address)
 {
   std::vector<uint8_t> data;
   if (!DecodeBase58(hrAddress.c_str(), data) ||

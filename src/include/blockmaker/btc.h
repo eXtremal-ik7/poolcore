@@ -126,6 +126,7 @@ public:
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
   static bool checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&, double *shareDiff);
   static bool checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, ChainParams &params, double *shareDiff) { return checkConsensus(block.header, ctx, params, shareDiff); }
+  static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address);
 };
 }
 
@@ -270,4 +271,3 @@ void serializeJsonInside(xmstream &stream, const BTC::Proto::BlockHeader &header
 void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::TxIn &txin);
 void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::TxOut &txout);
 void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::Transaction &data);
-bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, BTC::Proto::AddressTy &address);

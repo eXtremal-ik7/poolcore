@@ -160,7 +160,7 @@ public:
     auto &backendConfig = backend->getConfig();
     auto &coinInfo = backend->getCoinInfo();
     const std::string &addr = backendConfig.MiningAddresses.get();
-    if (!decodeHumanReadableAddress(addr, coinInfo.PubkeyAddressPrefix, miningAddress)) {
+    if (!X::Proto::decodeHumanReadableAddress(addr, coinInfo.PubkeyAddressPrefix, miningAddress)) {
       LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), addr.c_str());
       return;
     }
