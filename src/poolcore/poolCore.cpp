@@ -78,7 +78,6 @@ uint64_t CCoinInfo::calculateAveragePower(double work, uint64_t timeInterval) co
   switch (PowerUnitType) {
     case EHash :
       return static_cast<uint64_t>(work / timeInterval * (WorkMultiplier / pow(10.0, PowerMultLog10)));
-
     case ECPD :
       // TODO: implement
       return 0;

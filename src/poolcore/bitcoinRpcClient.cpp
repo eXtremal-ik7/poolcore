@@ -1,6 +1,6 @@
 #include "poolcore/bitcoinRPCClient.h"
 
-#include "blockmaker/btc.h"
+#include "poolcommon/arith_uint256.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcommon/utils.h"
 #include "poolcore/clientDispatcher.h"
@@ -30,15 +30,6 @@ static const std::string gGetWalletInfoQuery = R"json({"method": "getwalletinfo"
 static const std::string gGetBlockChainInfoQuery = R"json({"method": "getblockchaininfo", "params": [] })json";
 static const std::string gGetInfoQuery = R"json({"method": "getinfo", "params": []})json";
 
-static inline void jsonParseInt(const rapidjson::Value &value, const char *name, uint32_t *out, bool *validAcc) {
-  if (value.HasMember(name)) {
-    if (value[name].IsUint())
-      *out = value[name].GetUint();
-    else
-      *validAcc = false;
-  }
-}
-
 static inline void jsonParseInt(const rapidjson::Value &value, const char *name, int64_t *out, bool *validAcc) {
   if (value.HasMember(name)) {
     if (value[name].IsInt64())
@@ -52,17 +43,6 @@ static inline void jsonParseString(const rapidjson::Value &value, const char *na
   if (value.HasMember(name)) {
     if (value[name].IsString())
       out = value[name].GetString();
-    else
-      *validAcc = false;
-  } else if (required) {
-    *validAcc = false;
-  }
-}
-
-static inline void jsonParseFloat(const rapidjson::Value &value, const char *name, double *out, bool required, bool *validAcc) {
-  if (value.HasMember(name)) {
-    if (value[name].IsString())
-      *out = value[name].GetFloat();
     else
       *validAcc = false;
   } else if (required) {
@@ -916,7 +896,13 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   // Get unique work id
   uint64_t workId = blockTemplate->UniqueWorkId = readHexBE<uint64_t>(prevBlockHash.c_str(), 16);
 
-  double difficulty = BTC::getDifficulty(strtoul(bits.c_str(), nullptr, 16));
+  arith_uint256 powLimit = UintToArith256(CoinInfo_.PowLimit);
+  arith_uint256 target;
+  target.SetCompact(strtoul(bits.c_str(), nullptr, 16));
+  powLimit /= target;
+  double difficulty = powLimit.getdouble();
+
+//  double difficulty = BTC::getDifficulty(strtoul(bits.c_str(), nullptr, 16)) * 4294967296.0 / CoinInfo_.WorkMultiplier;
   blockTemplate->Difficulty = difficulty;
 
   // Check new work available

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "poolcommon/uint256.h"
 #include <string>
 #include <thread>
 #include <vector>
@@ -49,6 +50,7 @@ struct CCoinInfo {
   unsigned MinimalConfirmationsNumber = 6;
   bool HasExtendedFundRawTransaction = true;
   double WorkMultiplier = 4294967296.0;
+  uint256 PowLimit;
 
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;
