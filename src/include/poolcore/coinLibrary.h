@@ -12,6 +12,7 @@ public:
       info.Name = "equihash.200.9";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 1;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "ethhash") == 0) {
       info.Name = "ethhash";
       info.PowerUnitType = CCoinInfo::EHash;
@@ -20,6 +21,7 @@ public:
       info.Name = "equihash.48.5";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "sha256") == 0) {
       info.Name = "sha256";
       info.PowerUnitType = CCoinInfo::EHash;
@@ -51,6 +53,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "ARRR.testnet") == 0) {
       info.Name = "ARRR.testnet";
       info.FullName = "Pirate Chain";
@@ -65,6 +68,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "ARRR.regtest") == 0) {
       info.Name = "ARRR.regtest";
       info.FullName = "Pirate Chain";
@@ -79,6 +83,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.48.5";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "BTC") == 0) {
       info.Name = "BTC";
       info.FullName = "Bitcoin";
@@ -364,6 +369,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "KMD.testnet") == 0) {
       info.Name = "KMD.testnet";
       info.FullName = "Komodo";
@@ -378,6 +384,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "KMD.regtest") == 0) {
       info.Name = "KMD.regtest";
       info.FullName = "Komodo";
@@ -392,6 +399,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.48.5";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "LCC") == 0) {
       info.Name = "LCC";
       info.FullName = "LitecoinCash";
@@ -491,6 +499,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "ZEC.testnet") == 0) {
       info.Name = "ZEC.testnet";
       info.FullName = "ZCash";
@@ -505,6 +514,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "ZEC.regtest") == 0) {
       info.Name = "ZEC.regtest";
       info.FullName = "ZCash";
@@ -519,6 +529,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.48.5";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "ZEN") == 0) {
       info.Name = "ZEN";
       info.FullName = "Horizen";
@@ -534,6 +545,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "ZEN.testnet") == 0) {
       info.Name = "ZEN.testnet";
       info.FullName = "Horizen";
@@ -548,6 +560,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else if (strcmp(coinName, "ZEN.regtest") == 0) {
       info.Name = "ZEN.regtest";
       info.FullName = "Horizen";
@@ -562,6 +575,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.48.5";
       info.HasExtendedFundRawTransaction = false;
+      info.WorkMultiplier = 1.0;
     } else {
       info.Name.clear();
     }
