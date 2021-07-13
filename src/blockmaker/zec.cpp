@@ -725,7 +725,6 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
   //   bits
   if (!blockTemplate.HasMember("version") ||
       !blockTemplate.HasMember("previousblockhash") ||
-      !blockTemplate.HasMember("finalsaplingroothash") ||
       !blockTemplate.HasMember("curtime") ||
       !blockTemplate.HasMember("bits")) {
     return false;
@@ -733,18 +732,22 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
 
   rapidjson::Value &version = blockTemplate["version"];
   rapidjson::Value &hashPrevBlock = blockTemplate["previousblockhash"];
-  rapidjson::Value &finalSaplingRootHash = blockTemplate["finalsaplingroothash"];
   rapidjson::Value &curtime = blockTemplate["curtime"];
   rapidjson::Value &bits = blockTemplate["bits"];
 
   header.nVersion = version.GetUint();
   header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
-  header.hashLightClientRoot.SetHex(finalSaplingRootHash.GetString());
   header.hashMerkleRoot = calculateMerkleRoot(legacy.Data.data(), legacy.Data.sizeOf(), merklePath);
   header.nTime = curtime.GetUint();
   header.nBits = strtoul(bits.GetString(), nullptr, 16);
   header.nNonce.SetNull();
   header.nSolution.resize(0);
+
+  if (blockTemplate.HasMember("finalsaplingroothash") && blockTemplate["finalsaplingroothash"].IsString())
+    header.hashLightClientRoot.SetHex(blockTemplate["finalsaplingroothash"].GetString());
+  else
+    header.hashLightClientRoot.SetNull();
+
   *jobVersion = header.nVersion;
   return true;
 }

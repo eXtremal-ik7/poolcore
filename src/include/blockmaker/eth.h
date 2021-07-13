@@ -5,6 +5,7 @@
 #include "poolinstances/stratumMsg.h"
 #include "poolcommon/jsonSerializer.h"
 #include "rapidjson/document.h"
+#include <openssl/rand.h>
 
 namespace ETH {
 
@@ -17,6 +18,11 @@ public:
 
 class Stratum {
 public:
+  struct StratumMiningSubscribe {
+    std::string minerUserAgent;
+    std::string StratumVersion;
+  };
+
   struct StratumMessage {
     int64_t IntegerId;
     std::string StringId;
@@ -38,19 +44,42 @@ public:
   };
 
   struct MiningConfig {
-    void initialize(rapidjson::Value &instanceCfg) {
+    unsigned FixedExtraNonceSize = 3;
 
+    void initialize(rapidjson::Value &instanceCfg) {
+      if (instanceCfg.HasMember("fixedExtraNonceSize") && instanceCfg["fixedExtraNonceSize"].IsUint())
+        FixedExtraNonceSize = instanceCfg["fixedExtraNonceSize"].GetUint();
     }
   };
 
   struct WorkerConfig {
+    uint64_t ExtraNonceFixed;
+    std::string NotifySession;
+
+    static inline void addId(JSON::Object &object, StratumMessage &msg) {
+      if (!msg.StringId.empty())
+        object.addString("id", msg.StringId);
+      else
+        object.addInt("id", msg.IntegerId);
+    }
+
     void initialize(ThreadConfig &threadCfg) {
+      // Set fixed part of extra nonce
+      ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
 
+      // Set session names
+      uint8_t sessionId[16];
+      {
+        RAND_bytes(sessionId, sizeof(sessionId));
+        NotifySession.resize(sizeof(sessionId)*2);
+        bin2hexLowerCase(sessionId, NotifySession.data(), sizeof(sessionId));
+      }
+
+      // Update thread config
+      threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
     }
 
-    void onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
-
-    }
+    void onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo);
 
     // TODO: remove
     void setupVersionRolling(uint32_t) {}

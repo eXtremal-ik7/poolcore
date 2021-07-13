@@ -37,18 +37,9 @@ EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char 
 
     if (params.Size() >= 2) {
       if (params[1].IsString())
-        Subscribe.sessionId = params[1].GetString();
+        Subscribe.StratumVersion = params[1].GetString();
     }
 
-    if (params.Size() >= 3) {
-      if (params[2].IsString())
-        Subscribe.connectHost = params[2].GetString();
-    }
-
-    if (params.Size() >= 4) {
-      if (params[3].IsUint())
-        Subscribe.connectPort = params[3].GetUint();
-    }
   } else if (method == "mining.authorize" && params.Size() >= 2) {
     Method = EAuthorize;
     if (params[0].IsString() && params[1].IsString()) {
@@ -66,6 +57,38 @@ EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char 
   }
 
   return EStratumStatusOk;
+}
+
+void Stratum::WorkerConfig::onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo)
+{
+  // Response format
+  // {"id": 1, "result": [["mining.notify", "ae6812eb4cd7735a302a8a9dd95cf71f", "EthereumStratum/1.0.0"], "080c"],"error": null}
+
+  {
+    JSON::Object object(out);
+    addId(object, msg);
+    object.addField("result");
+    {
+      JSON::Array resultValue(out);
+      resultValue.addField();
+      {
+        JSON::Array sessions(out);
+        sessions.addField();
+        {
+          JSON::Array notifySession(out);
+          notifySession.addString("mining.notify");
+          notifySession.addString(NotifySession);
+        }
+      }
+
+      // Unique extra nonce
+      resultValue.addString(writeHexBE(ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
+    }
+    object.addNull("error");
+  }
+
+  out.write('\n');
+  subscribeInfo = std::to_string(ExtraNonceFixed);
 }
 
 bool Stratum::Work::loadFromTemplate(rapidjson::Value &document, const std::string &ticker, std::string &error)
