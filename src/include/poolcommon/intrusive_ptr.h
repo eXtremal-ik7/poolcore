@@ -206,10 +206,11 @@ public:
 
   intrusive_ptr &operator=(const intrusive_ptr &ptr) {
     if (ptr._ptr != nullptr)
-      object_addref(_ptr, atomic_intrusive_ptr<T, deleter, tagSize>::WeakRef);
+      object_addref(ptr._ptr, atomic_intrusive_ptr<T, deleter, tagSize>::WeakRef);
     if (_ptr)
       object_release(_ptr, atomic_intrusive_ptr<T, deleter, tagSize>::WeakRef);
     _ptr = ptr._ptr;
+    return *this;
   }
 
   intrusive_ptr &operator=(intrusive_ptr &&ptr) {

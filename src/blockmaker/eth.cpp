@@ -1,4 +1,25 @@
 #include "blockmaker/eth.h"
+#include "poolcommon/arith_uint256.h"
+
+static inline double getDifficulty(uint32_t bits)
+{
+    int nShift = (bits >> 24) & 0xff;
+    double dDiff =
+        (double)0x0000ffff / (double)(bits & 0x00ffffff);
+
+    while (nShift < 29)
+    {
+        dDiff *= 256.0;
+        nShift++;
+    }
+    while (nShift > 29)
+    {
+        dDiff /= 256.0;
+        nShift--;
+    }
+
+    return dDiff;
+}
 
 namespace ETH {
 EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char *in, size_t size)
@@ -50,8 +71,11 @@ EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char 
     }
   } else if (method == "mining.extranonce.subscribe") {
     Method = EExtraNonceSubscribe;
-  } else if (method == "mining.submit" && params.Size() >= 5) {
-    return EStratumStatusFormatError;
+  } else if (method == "mining.submit" && params.Size() == 3) {
+    Method = ESubmit;
+    Submit.WorkerName = params[0].GetString();
+    Submit.JobId = params[1].GetString();
+    Submit.Nonce = strtoul(params[2].GetString(), nullptr, 16);
   } else {
     return EStratumStatusFormatError;
   }
@@ -72,15 +96,11 @@ void Stratum::WorkerConfig::onSubscribe(MiningConfig &miningCfg, StratumMessage 
       JSON::Array resultValue(out);
       resultValue.addField();
       {
-        JSON::Array sessions(out);
-        sessions.addField();
-        {
-          JSON::Array notifySession(out);
-          notifySession.addString("mining.notify");
-          notifySession.addString(NotifySession);
-        }
+        JSON::Array notifySession(out);
+        notifySession.addString("mining.notify");
+        notifySession.addString(NotifySession);
+        notifySession.addString("EthereumStratum/1.0.0");
       }
-
       // Unique extra nonce
       resultValue.addString(writeHexBE(ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
     }
@@ -91,14 +111,14 @@ void Stratum::WorkerConfig::onSubscribe(MiningConfig &miningCfg, StratumMessage 
   subscribeInfo = std::to_string(ExtraNonceFixed);
 }
 
-bool Stratum::Work::loadFromTemplate(rapidjson::Value &document, const std::string &ticker, std::string &error)
+bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error)
 {
-  if (!document.HasMember("result") || !document["result"].IsArray()) {
+  if (!blockTemplate.Document.HasMember("result") || !blockTemplate.Document["result"].IsArray()) {
     error = "no result";
     return false;
   }
 
-  rapidjson::Value::Array resultValue = document["result"].GetArray();
+  rapidjson::Value::Array resultValue = blockTemplate.Document["result"].GetArray();
   if (resultValue.Size() != 4 ||
       !resultValue[0].IsString() || resultValue[0].GetStringLength() != 66 ||
       !resultValue[1].IsString() || resultValue[1].GetStringLength() != 66 ||
@@ -108,12 +128,65 @@ bool Stratum::Work::loadFromTemplate(rapidjson::Value &document, const std::stri
     return false;
   }
 
-  HeaderHash_ = resultValue[0].GetString() + 2;
-  SeedHash_ = resultValue[1].GetString() + 2;
+  HeaderHashHex_ = resultValue[0].GetString() + 2;
+  SeedHashHex_ = resultValue[1].GetString() + 2;
+  HeaderHash_.SetHex(HeaderHashHex_);
+  std::reverse(HeaderHash_.begin(), HeaderHash_.end());
+  Target_.SetHex(resultValue[2].GetString() + 2);
   this->Height_ = strtoul(resultValue[3].GetString()+2, nullptr, 16);
-  // TODO: calculate block reward
+  // Block reward can't be calculated at this moment
   this->BlockReward_ = 0;
+
+  // Copy reference to DAG file & check it
+  DagFile_ = blockTemplate.DagFile;
+  if (DagFile_.get() == nullptr) {
+    error = "DAG file is empty";
+    return false;
+  }
+
+  if (DagFile_.get()->dag()->EpochNumber != this->Height_ / 30000) {
+    error = "DAG file for another epoch";
+    return false;
+  }
+
   return true;
+}
+
+bool Stratum::Work::prepareForSubmit(const WorkerConfig &workerCfg, const StratumMessage &msg)
+{
+  Nonce_ = (workerCfg.ExtraNonceFixed << (64 - 8*MiningCfg_.FixedExtraNonceSize)) | msg.Submit.Nonce;
+  ethashCalculate(FinalHash_.begin(), MixHash_.begin(), HeaderHash_.begin(), Nonce_, DagFile_.get()->dag());
+  std::reverse(FinalHash_.begin(), FinalHash_.begin()+32);
+  return true;
+}
+
+void Stratum::Work::buildBlock(size_t, xmstream &blockHexData)
+{
+  blockHexData.reset();
+  BlockSubmitData *data = blockHexData.reserve<ETH::BlockSubmitData>(1);
+  // Nonce
+  std::string nonce = writeHexBE(Nonce_, 8);
+  data->Nonce[0] = '0';
+  data->Nonce[1] = 'x';
+  memcpy(&data->Nonce[2], nonce.data(), 16);
+  data->Nonce[16+2] = 0;
+  // Header hash
+  data->HeaderHash[0] = '0';
+  data->HeaderHash[1] = 'x';
+  memcpy(&data->HeaderHash[2], HeaderHashHex_.data(), 64);
+  data->HeaderHash[64+2] = 0;
+  // Mix hash
+  data->MixHash[0] = '0';
+  data->MixHash[1] = 'x';
+  bin2hexLowerCase(MixHash_.begin(), &data->MixHash[2], 32);
+  data->MixHash[64+2] = 0;
+}
+
+bool Stratum::Work::checkConsensus(size_t, double *shareDiff)
+{
+  // Get difficulty
+  *shareDiff = getDifficulty(FinalHash_.GetCompact());
+  return FinalHash_ <= Target_;
 }
 
 void Stratum::Work::buildNotifyMessage(bool resetPreviousWork)
@@ -133,9 +206,9 @@ void Stratum::Work::buildNotifyMessage(bool resetPreviousWork)
         params.addString(buffer);
       }
       // Seed hash
-      params.addString(SeedHash_);
+      params.addString(SeedHashHex_);
       // Header hash
-      params.addString(HeaderHash_);
+      params.addString(HeaderHashHex_);
 
     }
   }

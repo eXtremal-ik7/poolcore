@@ -1,9 +1,10 @@
 #include "poolcore/bitcoinRPCClient.h"
 
+#include "poolcore/blockTemplate.h"
+#include "poolcore/clientDispatcher.h"
 #include "poolcommon/arith_uint256.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcommon/utils.h"
-#include "poolcore/clientDispatcher.h"
 #include "asyncio/asyncio.h"
 #include "asyncio/base64.h"
 #include "asyncio/http.h"

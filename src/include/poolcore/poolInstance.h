@@ -3,27 +3,15 @@
 #include "poolcommon/intrusive_ptr.h"
 #include "poolcore/complexMiningStats.h"
 #include "asyncio/asyncio.h"
-#include "rapidjson/document.h"
 #include "tbb/concurrent_queue.h"
 #include <atomic>
 #include <thread>
 #include <vector>
 
+class CBlockTemplate;
 class PoolBackend;
 class StatisticServer;
 class UserManager;
-
-class CBlockTemplate {
-private:
-  mutable std::atomic<uintptr_t> Refs_ = 0;
-public:
-  // TODO: Don't send json document to stratum workers
-  rapidjson::Document Document;
-  uint64_t UniqueWorkId;
-  double Difficulty;
-  uintptr_t ref_fetch_add(uintptr_t count) const { return Refs_.fetch_add(count); }
-  uintptr_t ref_fetch_sub(uintptr_t count) const { return Refs_.fetch_sub(count); }
-};
 
 class CThreadPool {
 public:

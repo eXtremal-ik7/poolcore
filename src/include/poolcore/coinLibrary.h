@@ -336,6 +336,19 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "primecoin";
+    } else if (strcmp(coinName, "ETC") == 0) {
+      info.Name = "ETC";
+      info.FullName = "Ethereum Classic";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
+      info.RationalPartSize = 100000000;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.DefaultRpcPort = 8545;
+      info.CoinGeckoName = "ethereum-classic";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 64;
+      info.Algorithm = "ethhash";
+      info.HasDagFile = true;
     } else if (strcmp(coinName, "ETH") == 0) {
       info.Name = "ETH";
       info.FullName = "Ethereum";
@@ -348,6 +361,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 64;
       info.Algorithm = "ethhash";
+      info.HasDagFile = true;
     } else if (strcmp(coinName, "ETH.ropsten") == 0) {
       info.Name = "ETH.ropsten";
       info.FullName = "Ethereum";
@@ -359,6 +373,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 64;
       info.Algorithm = "ethhash";
+      info.HasDagFile = true;
     } else if (strcmp(coinName, "FCH") == 0) {
       info.Name = "FCH";
       info.FullName = "FreeCash";

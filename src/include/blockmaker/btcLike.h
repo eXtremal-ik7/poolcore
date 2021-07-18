@@ -292,25 +292,25 @@ public:
     return prepareForSubmitImpl(Header, JobVersion, CBTxLegacy_, CBTxWitness_, MerklePath, workerCfg, this->MiningCfg_, msg);
   }
 
-  virtual bool loadFromTemplate(rapidjson::Value &document, const std::string &ticker, std::string &error) override {
-    if (!document.HasMember("result") || !document["result"].IsObject()) {
+  virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error) override {
+    if (!blockTemplate.Document.HasMember("result") || !blockTemplate.Document["result"].IsObject()) {
       error = "no result";
       return false;
     }
 
-    rapidjson::Value &blockTemplate = document["result"];
+    rapidjson::Value &resultValue = blockTemplate.Document["result"];
 
     // Check fields:
     // height
     // transactions
-    if (!blockTemplate.HasMember("height") ||
-        !blockTemplate.HasMember("transactions") || !blockTemplate["transactions"].IsArray()) {
+    if (!resultValue.HasMember("height") ||
+        !resultValue.HasMember("transactions") || !resultValue["transactions"].IsArray()) {
       error = "missing data";
       return false;
     }
 
-    rapidjson::Value &height = blockTemplate["height"];
-    rapidjson::Value::Array transactions = blockTemplate["transactions"].GetArray();
+    rapidjson::Value &height = resultValue["height"];
+    rapidjson::Value::Array transactions = resultValue["transactions"].GetArray();
     if (!height.IsUint64()) {
       error = "missing height";
       return false;
@@ -337,7 +337,7 @@ public:
       return false;
     }
 
-    CoinbaseBuilder_.prepare(&this->BlockReward_, blockTemplate);
+    CoinbaseBuilder_.prepare(&this->BlockReward_, resultValue);
 
     this->BlockReward_ -= blockRewardDelta;
 
@@ -346,7 +346,7 @@ public:
 
     // Calculate witness commitment
     if (SegwitEnabled) {
-      if (!calculateWitnessCommitment(blockTemplate, txFilter, processedTransactions, WitnessCommitment, error))
+      if (!calculateWitnessCommitment(resultValue, txFilter, processedTransactions, WitnessCommitment, error))
         return false;
     }
 
@@ -357,7 +357,7 @@ public:
     collectTransactions(processedTransactions, TxHexData, MerklePath, this->TxNum_);
 
     // Fill header
-    if (!HeaderBuilderTy::build(Header, &JobVersion, CBTxLegacy_, MerklePath, blockTemplate)) {
+    if (!HeaderBuilderTy::build(Header, &JobVersion, CBTxLegacy_, MerklePath, resultValue)) {
       error = "missing header data";
       return false;
     }

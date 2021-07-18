@@ -51,6 +51,7 @@ struct CCoinInfo {
   bool HasExtendedFundRawTransaction = true;
   double WorkMultiplier = 4294967296.0;
   uint256 PowLimit;
+  bool HasDagFile = false;
 
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;

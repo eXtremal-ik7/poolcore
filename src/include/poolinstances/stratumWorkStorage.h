@@ -64,19 +64,19 @@ public:
   }
 
   /// Add work
-  bool createWork(rapidjson::Document &document, uint64_t uniqueWorkId, PoolBackend *backend, const std::string &ticker, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMsg, typename X::Stratum::MiningConfig &miningConfig, const std::string &stratumInstanceName, bool *isNewBlock) {
+  bool createWork(CBlockTemplate &blockTemplate, PoolBackend *backend, const std::string &ticker, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMsg, typename X::Stratum::MiningConfig &miningConfig, const std::string &stratumInstanceName, bool *isNewBlock) {
     auto It = BackendMap_.find(backend);
     if (It == BackendMap_.end())
       return false;
     size_t backendIdx = It->second;
 
     std::string error;
-    CSingleWork *work = newSingleWork(backend, backendIdx, uniqueWorkId, miningConfig, miningAddress, coinbaseMsg);
+    CSingleWork *work = newSingleWork(backend, backendIdx, blockTemplate.UniqueWorkId, miningConfig, miningAddress, coinbaseMsg);
     if (!work->initialized()) {
       LOG_F(ERROR, "%s: work create impossible for %s", stratumInstanceName.c_str(), ticker.c_str());
       return false;
     }
-    if (!work->loadFromTemplate(document, ticker, error)) {
+    if (!work->loadFromTemplate(blockTemplate, ticker, error)) {
       LOG_F(ERROR, "%s: can't process block template; error: %s", stratumInstanceName.c_str(), error.c_str());
       return false;
     }

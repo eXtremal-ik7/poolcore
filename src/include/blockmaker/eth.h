@@ -1,13 +1,19 @@
 #pragma once
 
 #include "stratumWork.h"
-#include "poolcommon/uint256.h"
+#include "poolcommon/arith_uint256.h"
 #include "poolinstances/stratumMsg.h"
 #include "poolcommon/jsonSerializer.h"
 #include "rapidjson/document.h"
 #include <openssl/rand.h>
 
 namespace ETH {
+
+struct BlockSubmitData {
+  char Nonce[16+2+1];
+  char HeaderHash[64+2+1];
+  char MixHash[64+2+1];
+};
 
 class Proto {
 public:
@@ -21,6 +27,14 @@ public:
   struct StratumMiningSubscribe {
     std::string minerUserAgent;
     std::string StratumVersion;
+  };
+
+  struct StratumSubmit {
+    std::string WorkerName;
+    std::string JobId;
+    uint64_t Nonce;
+    // TODO: remove
+    std::optional<uint32_t> VersionBits;
   };
 
   struct StratumMessage {
@@ -95,13 +109,14 @@ public:
     }
 
     virtual Proto::BlockHashTy shareHash() override {
-      // TODO: implement
-      return uint256();
+      uint256 hash;
+      memcpy(hash.begin(), FinalHash_.begin(), 32);
+      return hash;
     }
 
     virtual std::string blockHash(size_t) override {
-      // TODO: implement
-      return uint256().ToString();
+      // TODO: remove this temporary workaround
+      return MixHash_.ToString();
     }
 
     virtual double expectedWork(size_t) override {
@@ -113,25 +128,17 @@ public:
       return true;
     }
 
-    virtual void buildBlock(size_t, xmstream &blockHexData) override {
-      // TODO: implement
-    }
+    virtual void buildBlock(size_t, xmstream &blockHexData) override;
 
     virtual void mutate() override {}
 
-    virtual bool checkConsensus(size_t, double *shareDiff) override {
-      // TODO: implement
-      return false;
-    }
+    virtual bool checkConsensus(size_t, double *shareDiff) override;
 
     virtual void buildNotifyMessage(bool resetPreviousWork) override;
 
-    virtual bool loadFromTemplate(rapidjson::Value &document, const std::string &ticker, std::string &error) override;
+    virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error) override;
 
-    virtual bool prepareForSubmit(const WorkerConfig&, const StratumMessage&) override {
-      // TODO: implement
-      return false;
-    }
+    virtual bool prepareForSubmit(const WorkerConfig&workerCfg, const StratumMessage&msg) override;
 
     virtual double getAbstractProfitValue(size_t, double, double) override {
       // TODO: calculate real profit value
@@ -139,8 +146,14 @@ public:
     }
 
   private:
-    std::string SeedHash_;
-    std::string HeaderHash_;
+    std::string HeaderHashHex_;
+    std::string SeedHashHex_;
+    uint256 HeaderHash_;
+    arith_uint256 Target_;
+    uint64_t Nonce_ = 0;
+    arith_uint256 FinalHash_;
+    uint256 MixHash_;
+    intrusive_ptr<EthashDagWrapper> DagFile_;
   };
 
   static constexpr bool MergedMiningSupport = false;

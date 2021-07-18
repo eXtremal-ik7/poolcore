@@ -55,6 +55,10 @@ PoolBackend::PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CC
   ShareLog_.init(cfg.dbPath / "shares.log", info.Name, _base, _cfg.ShareLogFlushInterval, _cfg.ShareLogFileSizeLimit, shareLogConfig);
 
   ProfitSwitchCoeff_ = CoinInfo_.ProfitSwitchDefaultCoeff;
+
+  if (CoinInfo_.HasDagFile) {
+    EthDagFiles_ = new atomic_intrusive_ptr<EthashDagWrapper>[MaxEpochNum];
+  }
 }
 
 void PoolBackend::start()
@@ -143,6 +147,30 @@ void PoolBackend::onShare(CShare *share)
   ShareLog_.addShare(*share);
   _statistics->addShare(*share);
   _accounting->addShare(*share);
+}
+
+void PoolBackend::onUpdateDag(unsigned epochNumber)
+{
+  if (epochNumber+1 >= MaxEpochNum)
+    return;
+
+  if (EthDagFiles_[epochNumber].get() != nullptr && EthDagFiles_[epochNumber+1].get() != nullptr)
+    return;
+
+  if (epochNumber != 0 && EthDagFiles_[epochNumber-1].get() != nullptr) {
+    LOG_F(INFO, "%s: remove DAG for epoch %u", CoinInfo_.Name.c_str(), epochNumber-1);
+    EthDagFiles_[epochNumber-1].reset();
+  }
+
+  if (EthDagFiles_[epochNumber].get() == nullptr) {
+    LOG_F(INFO, "%s: generate DAG for epoch %u", CoinInfo_.Name.c_str(), epochNumber);
+    EthDagFiles_[epochNumber].reset(new EthashDagWrapper(epochNumber));
+  }
+
+  if (EthDagFiles_[epochNumber+1].get() == nullptr) {
+    LOG_F(INFO, "%s: generate DAG for epoch %u", CoinInfo_.Name.c_str(), epochNumber+1);
+    EthDagFiles_[epochNumber+1].reset(new EthashDagWrapper(epochNumber+1));
+  }
 }
 
 void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts)

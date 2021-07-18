@@ -3,6 +3,7 @@
 #include "poolcore/poolCore.h"
 #include "asyncio/http.h"
 #include "asyncio/socket.h"
+#include <rapidjson/document.h>
 #include "loguru.hpp"
 
 struct PoolBackendConfig;
@@ -11,7 +12,7 @@ class CEthereumRpcClient : public CNetworkClient {
 public:
   CEthereumRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, PoolBackendConfig &config);
 
-  virtual CPreparedQuery *prepareBlock(const void *data, size_t size) override;
+  virtual CPreparedQuery *prepareBlock(const void *data, size_t) override;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
   virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) override;
   virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) override;
@@ -53,6 +54,13 @@ private:
     std::string LastError;
   };
 
+  struct CPreparedSubmitBlock : public CPreparedQuery {
+    CPreparedSubmitBlock(CEthereumRpcClient *client) : CPreparedQuery(client) {}
+    asyncBase *Base;
+    CSubmitBlockOperation *Operation;
+    std::unique_ptr<CConnection> Connection;
+  };
+
   struct WorkFetcherContext {
     HTTPClient *Client;
     HTTPParseDefaultContext ParseCtx;
@@ -63,6 +71,55 @@ private:
   };
 
 private:
+  template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>
+  bool parseJson(CConnection &connection, rapidjson::Document &document) {
+    document.Parse<flag>(connection.ParseCtx.body.data, connection.ParseCtx.body.size);
+
+    if (connection.ParseCtx.resultCode != 200) {
+      if (!document.HasParseError()) {
+        if (document.HasMember("error") && document["error"].IsObject()) {
+          rapidjson::Value &value = document["error"];
+          if (value.HasMember("message") && value["message"].IsString())
+            connection.LastError = value["message"].GetString();
+        }
+      }
+
+      LOG_F(WARNING, "%s %s: http result code: %u, data: %s",
+            CoinInfo_.Name.c_str(),
+            FullHostName_.c_str(),
+            connection.ParseCtx.resultCode,
+            connection.ParseCtx.body.data ? connection.ParseCtx.body.data : "<null>");
+      return false;
+    }
+
+    if (document.HasParseError()) {
+      LOG_F(WARNING, "%s %s: JSON parse error", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      return false;
+    }
+
+    if (!document.HasMember("result")) {
+      LOG_F(WARNING, "%s %s: JSON: no 'result' object", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      return false;
+    }
+
+    return true;
+  }
+
+  void submitBlockRequestCb(CPreparedSubmitBlock *query) {
+    std::unique_ptr<CPreparedSubmitBlock> queryHolder(query);
+    bool result = false;
+    rapidjson::Document document;
+    if (parseJson(*query->Connection, document)) {
+      if (document["result"].IsTrue()) {
+        result = true;
+      } else {
+        query->Connection->LastError = "?";
+      }
+    }
+
+    query->Operation->accept(result, FullHostName_, query->Connection->LastError);
+  }
+
   void onWorkFetcherConnect(AsyncOpStatus status);
   void onWorkFetcherIncomingData(AsyncOpStatus status);
   void onWorkFetchTimeout();

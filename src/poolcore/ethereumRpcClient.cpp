@@ -1,4 +1,8 @@
 #include "poolcore/ethereumRPCClient.h"
+
+#include "blockmaker/eth.h"
+#include "poolcore/backend.h"
+#include "poolcore/blockTemplate.h"
 #include "poolcore/clientDispatcher.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcommon/arith_uint256.h"
@@ -97,9 +101,30 @@ CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, con
   }
 }
 
-CPreparedQuery *CEthereumRpcClient::prepareBlock(const void *data, size_t size)
+CPreparedQuery *CEthereumRpcClient::prepareBlock(const void *data, size_t)
 {
-  return nullptr;
+  const ETH::BlockSubmitData *blockSubmitData = reinterpret_cast<const ETH::BlockSubmitData*>(data);
+  char buffer[1024];
+  xmstream jsonStream(buffer, sizeof(buffer));
+  jsonStream.reset();
+  {
+    JSON::Object queryObject(jsonStream);
+    queryObject.addString("jsonrpc", "2.0");
+    queryObject.addString("method", "eth_submitWork");
+    queryObject.addField("params");
+    {
+      JSON::Array paramsArray(jsonStream);
+      paramsArray.addString(blockSubmitData->Nonce);
+      paramsArray.addString(blockSubmitData->HeaderHash);
+      paramsArray.addString(blockSubmitData->MixHash);
+    }
+    queryObject.addInt("id", -1);
+  }
+
+  CPreparedSubmitBlock *query = new CPreparedSubmitBlock(this);
+  query->stream().reset();
+  buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_, query->stream());
+  return query;
 }
 
 bool CEthereumRpcClient::ioGetBalance(asyncBase *base, GetBalanceResult &result)
@@ -129,6 +154,33 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncB
 
 void CEthereumRpcClient::aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation)
 {
+  CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(queryPtr);
+  query->Connection.reset(getConnection(base));
+  if (!query->Connection) {
+    operation->accept(false, FullHostName_, "Socket creation error");
+    return;
+  }
+  query->Operation = operation;
+  query->Base = base;
+  aioHttpConnect(query->Connection->Client, &Address_, nullptr, 10000000, [](AsyncOpStatus status, HTTPClient *httpClient, void *arg) {
+    CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(arg);
+    if (status != aosSuccess) {
+      query->Operation->accept(false, query->client<CEthereumRpcClient>()->FullHostName_, "http connection error");
+      delete query;
+      return;
+    }
+
+    aioHttpRequest(httpClient, query->stream().data<const char>(), query->stream().sizeOf(), 180000000, httpParseDefault, &query->Connection->ParseCtx, [](AsyncOpStatus status, HTTPClient *, void *arg) {
+      CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(arg);
+      if (status != aosSuccess) {
+        query->Operation->accept(false, query->client<CEthereumRpcClient>()->FullHostName_, "http request error");
+        delete query;
+        return;
+      }
+
+      query->client<CEthereumRpcClient>()->submitBlockRequestCb(query);
+    }, query);
+  }, query);
 }
 
 void CEthereumRpcClient::poll()
@@ -158,22 +210,6 @@ void CEthereumRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
   aioHttpRequest(WorkFetcher_.Client, EthGetWork_.data<const char>(), EthGetWork_.sizeOf(), 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
     static_cast<CEthereumRpcClient*>(arg)->onWorkFetcherIncomingData(status);
   }, this);
-}
-
-
-static double target_to_diff(uint32_t* target)
-{
-  uint8_t* tgt = (uint8_t*) target;
-  uint64_t m =
-    (uint64_t)tgt[30] << 24 |
-    (uint64_t)tgt[29] << 16 |
-    (uint64_t)tgt[28] << 8  |
-    (uint64_t)tgt[27] << 0;
-
-  if (!m)
-    return 0.;
-  else
-    return (double)0xffff0000UL/m;
 }
 
 void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
@@ -226,9 +262,17 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     arith_uint256 diff = twoPow255 / target;
     difficulty = diff.getdouble() * 2.0;
 
-    workId = headerHash.GetUint64(0);
     height = strtoul(resultValue[3].GetString()+2, nullptr, 16);
-    templateIsOk = true;
+    // Use height as unique block identifier
+    workId = height;
+
+    // Check DAG presence
+    unsigned epochNumber = height / 30000;
+    blockTemplate->DagFile = Dispatcher_->backend()->dagFile(epochNumber);
+    if (blockTemplate->DagFile.get() != nullptr)
+      templateIsOk = true;
+
+    Dispatcher_->backend()->updateDag(epochNumber);
     break;
   }
 
@@ -254,4 +298,17 @@ void CEthereumRpcClient::onWorkFetchTimeout()
   aioHttpRequest(WorkFetcher_.Client, EthGetWork_.data<const char>(), EthGetWork_.sizeOf(), 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
     static_cast<CEthereumRpcClient*>(arg)->onWorkFetcherIncomingData(status);
   }, this);
+}
+
+CEthereumRpcClient::CConnection *CEthereumRpcClient::getConnection(asyncBase *base)
+{
+  CConnection *connection = new CConnection;
+  connection->Socket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
+  // NOTE: Linux only
+  if (connection->Socket == -1) {
+    LOG_F(ERROR, "Can't create socket (open file descriptors limit is over?)");
+    return nullptr;
+  }
+  connection->Client = httpClientNew(base, newSocketIo(base, connection->Socket));
+  return connection;
 }

@@ -23,6 +23,7 @@ public:
     client->setDispatcher(this);
   }
 
+  PoolBackend *backend() { return Backend_; }
   void setBackend(PoolBackend *backend) { Backend_ = backend; }
 
   // Common API

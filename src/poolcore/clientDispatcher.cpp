@@ -1,4 +1,6 @@
 #include "poolcore/clientDispatcher.h"
+
+#include "poolcore/blockTemplate.h"
 #include "poolcore/thread.h"
 #include "loguru.hpp"
 

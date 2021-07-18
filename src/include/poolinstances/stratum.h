@@ -7,6 +7,7 @@
 #include "poolcommon/debug.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcore/backend.h"
+#include "poolcore/blockTemplate.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/poolInstance.h"
 #include <openssl/rand.h>
@@ -167,7 +168,7 @@ public:
 
     bool isNewBlock = false;
     std::vector<uint8_t> miningAddressData(miningAddress.begin(), miningAddress.end());
-    if (!data.WorkStorage.createWork(blockTemplate->Document, blockTemplate->UniqueWorkId, backend, coinInfo.Name, miningAddressData, backendConfig.CoinBaseMsg, MiningCfg_, Name_, &isNewBlock))
+    if (!data.WorkStorage.createWork(*blockTemplate, backend, coinInfo.Name, miningAddressData, backendConfig.CoinBaseMsg, MiningCfg_, Name_, &isNewBlock))
       return;
 
     CWork *work = nullptr;
@@ -803,9 +804,9 @@ private:
               break;
             case EStratumMethodTy::EAuthorize : {
               result = connection->Instance->onStratumAuthorize(connection, msg);
+              connection->Instance->stratumSendTarget(connection);
               CWork *currentWork = data.WorkStorage.currentWork();
               if (result && currentWork) {
-                connection->Instance->stratumSendTarget(connection);
                 connection->Instance->stratumSendWork(connection, currentWork, time(nullptr));
               }
               break;

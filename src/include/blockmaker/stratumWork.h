@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rapidjson/document.h"
+#include "poolcore/blockTemplate.h"
 #include "p2putils/xmstream.h"
 
 struct ThreadConfig {
@@ -64,7 +64,7 @@ public:
   virtual size_t txNum(size_t) final { return TxNum_; }
   virtual int64_t blockReward(size_t) final { return BlockReward_; }
 
-  virtual bool loadFromTemplate(rapidjson::Value &document, const std::string &ticker, std::string &error) = 0;
+  virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error) = 0;
 
   virtual ~StratumSingleWork() {
     for (auto work: LinkedWorks_)
@@ -152,7 +152,7 @@ public:
   virtual bool checkConsensus(size_t, double*) final { return false; }
   virtual void buildNotifyMessage(bool) final {}
   virtual bool prepareForSubmit(const WorkerConfig&, const StratumMessage&) final { return false; }
-  virtual bool loadFromTemplate(rapidjson::Value&, const std::string&, std::string&) final { return false; }
+  virtual bool loadFromTemplate(CBlockTemplate&, const std::string&, std::string&) final { return false; }
   virtual double getAbstractProfitValue(size_t, double, double) final { return 0.0; }
   virtual bool resetNotRecommended() final { return false; }
 };

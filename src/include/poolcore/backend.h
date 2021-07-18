@@ -2,10 +2,12 @@
 #define __BACKEND_H_
 
 #include "accounting.h"
+#include "blockTemplate.h"
 #include "priceFetcher.h"
 #include "shareLog.h"
 #include "statistics.h"
 #include "usermgr.h"
+#include "blockmaker/ethash.h"
 #include "asyncio/asyncio.h"
 #include "asyncio/device.h"
 #include <thread>
@@ -41,6 +43,10 @@ private:
 
 class PoolBackend {
 public:
+  // Ethash DAG files number
+  static constexpr size_t MaxEpochNum = 48000;
+
+public:
   using ManualPayoutCallback = std::function<void(bool)>;
   using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
   using QueryBalanceCallback = std::function<void(const UserBalanceRecord&)>;
@@ -55,6 +61,14 @@ private:
     void run(PoolBackend *backend) final { backend->onShare(Share_.get()); }
   private:
     std::unique_ptr<CShare> Share_;
+  };
+
+  class TaskUpdateDag : public Task<PoolBackend> {
+  public:
+    TaskUpdateDag(unsigned epochNumber) : EpochNumber_(epochNumber) {}
+    void run(PoolBackend *backend) final { backend->onUpdateDag(EpochNumber_); }
+  private:
+    unsigned EpochNumber_;
   };
 
 private:
@@ -83,12 +97,15 @@ private:
 
   double ProfitSwitchCoeff_ = 0.0;
 
+  atomic_intrusive_ptr<EthashDagWrapper> *EthDagFiles_;
+
   void backendMain();
   void checkConfirmationsHandler();
   void payoutHandler();
   void checkBalanceHandler();
   
-  void onShare(CShare *share); 
+  void onShare(CShare *share);
+  void onUpdateDag(unsigned epochNumber);
 
 public:
   PoolBackend(const PoolBackend&) = delete;
@@ -107,11 +124,14 @@ public:
   void start();
   void stop();
 
+  intrusive_ptr<EthashDagWrapper> dagFile(unsigned epochNumber) { return epochNumber < MaxEpochNum ? EthDagFiles_[epochNumber] : intrusive_ptr<EthashDagWrapper>(); }
+
   // Synchronous api
   void queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts);
 
   // Asynchronous api
   void sendShare(CShare *share) { TaskHandler_.push(new TaskShare(share)); }
+  void updateDag(unsigned epochNumber) { TaskHandler_.push(new TaskUpdateDag(epochNumber)); }
 
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }
