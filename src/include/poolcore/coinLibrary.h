@@ -355,7 +355,7 @@ public:
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
       info.RationalPartSize = 100000000;
       info.PowerUnitType = CCoinInfo::EHash;
-      info.PowerMultLog10 = 1;
+      info.PowerMultLog10 = 6;
       info.DefaultRpcPort = 8545;
       info.CoinGeckoName = "ethereum";
       info.ProfitSwitchDefaultCoeff = 1.0;
@@ -368,7 +368,7 @@ public:
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
       info.RationalPartSize = 100000000;
       info.PowerUnitType = CCoinInfo::EHash;
-      info.PowerMultLog10 = 1;
+      info.PowerMultLog10 = 6;
       info.DefaultRpcPort = 8545;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 64;
