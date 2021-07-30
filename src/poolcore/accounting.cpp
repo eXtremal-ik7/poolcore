@@ -995,6 +995,52 @@ void AccountingDb::queryFoundBlocksImpl(int64_t heightFrom, const std::string &h
   callback(foundBlocks, confirmationsQuery);
 }
 
+void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback)
+{
+  int64_t currentTime = time(nullptr);
+  std::vector<double> result;
+
+  auto &db = getFoundBlocksDb();
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
+  It->seekLast();
+
+  auto intervalIt = intervals.begin();
+  if (intervalIt == intervals.end()) {
+    callback(result);
+    return;
+  }
+
+  double acceptedWork = 0.0;
+  double expectedWork = 0.0;
+  for (const auto &score: CurrentScores_)
+    acceptedWork += score.second;
+
+  int64_t currentTimePoint = currentTime - *intervalIt;
+  while (It->valid()) {
+    FoundBlockRecord dbBlock;
+    RawData data = It->value();
+    if (!dbBlock.deserializeValue(data.data, data.size))
+      break;
+
+    if (dbBlock.Time < currentTimePoint) {
+      result.push_back(acceptedWork != 0.0 ? expectedWork / acceptedWork : 0.0);
+      if (++intervalIt == intervals.end()) {
+        callback(result);
+        return;
+      }
+
+      currentTimePoint = currentTime - *intervalIt;
+    }
+
+    acceptedWork += dbBlock.AccumulatedWork;
+    expectedWork += dbBlock.ExpectedWork;
+    It->prev();
+  }
+
+  result.push_back(acceptedWork != 0.0 ? expectedWork / acceptedWork : 0.0);
+  callback(result);
+}
+
 void AccountingDb::queryBalanceImpl(const std::string &user, QueryBalanceCallback callback)
 {
   UserBalanceInfo info;

@@ -46,6 +46,7 @@ private:
   using ManualPayoutCallback = std::function<void(bool)>;
   using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
   using QueryBalanceCallback = std::function<void(const UserBalanceInfo&)>;
+  using PoolLuckCallback = std::function<void(const std::vector<double>&)>;
 
   struct UserFeePair {
     std::string UserId;
@@ -105,6 +106,15 @@ private:
   private:
     std::string User_;
     QueryBalanceCallback Callback_;
+  };
+
+  class TaskPoolLuck : public Task<AccountingDb> {
+  public:
+    TaskPoolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) : Intervals_(intervals), Callback_(callback) {}
+    void run(AccountingDb *accounting) final { accounting->poolLuckImpl(Intervals_, Callback_); }
+  private:
+    std::vector<int64_t> Intervals_;
+    PoolLuckCallback Callback_;
   };
 
 private:
@@ -190,6 +200,7 @@ public:
   void manualPayout(const std::string &user, DefaultCb callback) { TaskHandler_.push(new TaskManualPayout(user, callback)); }
   void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { TaskHandler_.push(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { TaskHandler_.push(new TaskQueryBalance(user, callback)); }
+  void poolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) { TaskHandler_.push(new TaskPoolLuck(std::move(intervals), callback)); }
 
   // Asynchronous multi calls
   static void queryUserBalanceMulti(AccountingDb **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceInfo*, size_t)> callback) {
@@ -202,6 +213,7 @@ private:
   void manualPayoutImpl(const std::string &user, DefaultCb callback);
   void queryBalanceImpl(const std::string &user, QueryBalanceCallback callback);
   void queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
+  void poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback);
 };
 
 #endif //__ACCOUNTING_H_
