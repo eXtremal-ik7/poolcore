@@ -349,6 +349,7 @@ public:
       info.MinimalConfirmationsNumber = 64;
       info.Algorithm = "ethhash";
       info.HasDagFile = true;
+      info.BigEpoch = true;
     } else if (strcmp(coinName, "ETH") == 0) {
       info.Name = "ETH";
       info.FullName = "Ethereum";

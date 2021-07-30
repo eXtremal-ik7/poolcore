@@ -144,11 +144,6 @@ bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, const std::s
     return false;
   }
 
-  if (DagFile_.get()->dag()->EpochNumber != this->Height_ / 30000) {
-    error = "DAG file for another epoch";
-    return false;
-  }
-
   return true;
 }
 

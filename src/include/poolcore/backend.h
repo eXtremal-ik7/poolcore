@@ -65,10 +65,11 @@ private:
 
   class TaskUpdateDag : public Task<PoolBackend> {
   public:
-    TaskUpdateDag(unsigned epochNumber) : EpochNumber_(epochNumber) {}
-    void run(PoolBackend *backend) final { backend->onUpdateDag(EpochNumber_); }
+    TaskUpdateDag(unsigned epochNumber, bool bigEpoch) : EpochNumber_(epochNumber), BigEpoch_(bigEpoch) {}
+    void run(PoolBackend *backend) final { backend->onUpdateDag(EpochNumber_, BigEpoch_); }
   private:
     unsigned EpochNumber_;
+    bool BigEpoch_;
   };
 
 private:
@@ -105,7 +106,7 @@ private:
   void checkBalanceHandler();
   
   void onShare(CShare *share);
-  void onUpdateDag(unsigned epochNumber);
+  void onUpdateDag(unsigned epochNumber, bool bigEpoch);
 
 public:
   PoolBackend(const PoolBackend&) = delete;
@@ -131,7 +132,7 @@ public:
 
   // Asynchronous api
   void sendShare(CShare *share) { TaskHandler_.push(new TaskShare(share)); }
-  void updateDag(unsigned epochNumber) { TaskHandler_.push(new TaskUpdateDag(epochNumber)); }
+  void updateDag(unsigned epochNumber, bool bigEpoch) { TaskHandler_.push(new TaskUpdateDag(epochNumber, bigEpoch)); }
 
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }

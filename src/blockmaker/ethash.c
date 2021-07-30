@@ -11,6 +11,14 @@ static inline uint32_t xswapu32(uint32_t value) { return __builtin_bswap32(value
 static inline int32_t xswapu32(int32_t value) { return _byteswap_ulong(value); }
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+__thread uint8_t CachedSeed[32];
+__thread unsigned CachedEpochNumber;
+#elif defined(_MSC_VER)
+__declspec(thread) uint8_t CachedSeed[32];
+__declspec(thread) unsigned CachedEpochNumber;
+#endif
+
 #if (IS_BIGENDIAN == 1)
 static inline uint32_t xletohu32(uint32_t x) { return xswapu32(x); }
 #else
@@ -187,11 +195,34 @@ static void itemFinal(void *out, ItemState *item)
   sha3_final(out, &ctx, 1);
 }
 
-EthashDag *ethashCreateDag(int epoch_number)
+int ethashGetEpochNumber(void *seed)
+{
+  if (memcmp(seed, CachedSeed, 32) == 0)
+    return CachedEpochNumber;
+
+  uint8_t localSeed[32];
+  memset(localSeed, 0, 32);
+  for (unsigned i = 0; i < 65536; i++) {
+    if (memcmp(seed, localSeed, 32) == 0) {
+      memcpy(CachedSeed, localSeed, 32);
+      CachedEpochNumber = i;
+      return i;
+    }
+
+    sha3_ctx_t ctx;
+    sha3_init(&ctx, 32);
+    sha3_update(&ctx, localSeed, 32);
+    sha3_final(localSeed, &ctx, 1);
+  }
+
+  return -1;
+}
+
+EthashDag *ethashCreateDag(int epochNumber, int bigEpoch)
 {
   const size_t context_alloc_size = 512/8;
-  const int light_cache_num_items = calculateLightCacheNumItems(epoch_number);
-  const int full_dataset_num_items = calculateFullDatasetNumItems(epoch_number);
+  const int light_cache_num_items = calculateLightCacheNumItems(epochNumber);
+  const int full_dataset_num_items = calculateFullDatasetNumItems(epochNumber);
   const size_t light_cache_size = getLightCacheSize(light_cache_num_items);
   const size_t alloc_size = context_alloc_size + light_cache_size;
 
@@ -202,11 +233,11 @@ EthashDag *ethashCreateDag(int epoch_number)
   uint32_t *light_cache = (uint32_t*)(alloc_data + context_alloc_size);
 
   uint32_t epochSeed[8];
-  calculateEpochSeed(epochSeed, epoch_number);
+  calculateEpochSeed(epochSeed, !bigEpoch ? epochNumber : epochNumber*2);
   buildLightCache(light_cache, light_cache_num_items, epochSeed);
 
   EthashDag *dag = (EthashDag*)alloc_data;
-  dag->EpochNumber = epoch_number;
+  dag->EpochNumber = epochNumber;
   dag->LightCacheItemsNum = light_cache_num_items;
   dag->LightCache = light_cache;
   dag->FullDatasetItemsNum = full_dataset_num_items;

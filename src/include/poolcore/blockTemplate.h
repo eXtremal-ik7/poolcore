@@ -9,8 +9,8 @@ extern "C" {
 
 struct alignas(512) EthashDagWrapper {
 public:
-  EthashDagWrapper(unsigned epochNumber) {
-    Dag_ = ethashCreateDag(epochNumber);
+  EthashDagWrapper(unsigned epochNumber, bool bigEpoch) {
+    Dag_ = ethashCreateDag(epochNumber, bigEpoch);
   }
 
   EthashDag *dag() { return Dag_; }

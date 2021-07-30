@@ -149,7 +149,7 @@ void PoolBackend::onShare(CShare *share)
   _accounting->addShare(*share);
 }
 
-void PoolBackend::onUpdateDag(unsigned epochNumber)
+void PoolBackend::onUpdateDag(unsigned epochNumber, bool bigEpoch)
 {
   if (epochNumber+1 >= MaxEpochNum)
     return;
@@ -164,12 +164,12 @@ void PoolBackend::onUpdateDag(unsigned epochNumber)
 
   if (EthDagFiles_[epochNumber].get() == nullptr) {
     LOG_F(INFO, "%s: generate DAG for epoch %u", CoinInfo_.Name.c_str(), epochNumber);
-    EthDagFiles_[epochNumber].reset(new EthashDagWrapper(epochNumber));
+    EthDagFiles_[epochNumber].reset(new EthashDagWrapper(epochNumber, bigEpoch));
   }
 
   if (EthDagFiles_[epochNumber+1].get() == nullptr) {
     LOG_F(INFO, "%s: generate DAG for epoch %u", CoinInfo_.Name.c_str(), epochNumber+1);
-    EthDagFiles_[epochNumber+1].reset(new EthashDagWrapper(epochNumber+1));
+    EthDagFiles_[epochNumber+1].reset(new EthashDagWrapper(epochNumber+1, bigEpoch));
   }
 }
 
