@@ -1023,7 +1023,7 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
       break;
 
     if (dbBlock.Time < currentTimePoint) {
-      result.push_back(acceptedWork != 0.0 ? expectedWork / acceptedWork : 0.0);
+      result.push_back(expectedWork != 0.0 ? acceptedWork / expectedWork : 0.0);
       if (++intervalIt == intervals.end()) {
         callback(result);
         return;
@@ -1037,7 +1037,7 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
     It->prev();
   }
 
-  result.push_back(acceptedWork != 0.0 ? expectedWork / acceptedWork : 0.0);
+  result.push_back(expectedWork != 0.0 ? acceptedWork / expectedWork : 0.0);
   callback(result);
 }
 
