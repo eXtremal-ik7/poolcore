@@ -279,7 +279,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
-      info.PowLimit = uint256S("0x00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "DOGE.testnet") == 0) {
       info.Name = "DOGE.testnet";
       info.FullName = "Dogecoin";
@@ -293,7 +293,7 @@ public:
       info.DefaultRpcPort = 44555;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
-      info.PowLimit = uint256S("0x00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "DOGE.regtest") == 0) {
       info.Name = "DOGE.regtest";
       info.FullName = "Dogecoin";
@@ -307,7 +307,7 @@ public:
       info.DefaultRpcPort = 18332;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
-      info.PowLimit = uint256S("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.PowLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "DTC") == 0) {
       info.Name = "DTC";
       info.FullName = "Datacoin";

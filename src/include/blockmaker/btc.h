@@ -7,6 +7,25 @@ struct PoolBackendConfig;
 class PoolBackend;
 
 namespace BTC {
+static inline double difficultyFromBits(uint32_t bits, unsigned shiftCount) {
+    unsigned nShift = (bits >> 24) & 0xff;
+    double dDiff =
+        (double)0x0000ffff / (double)(bits & 0x00ffffff);
+
+    while (nShift < shiftCount)
+    {
+        dDiff *= 256.0;
+        nShift++;
+    }
+    while (nShift > shiftCount)
+    {
+        dDiff /= 256.0;
+        nShift--;
+    }
+
+    return dDiff;
+}
+
 class Proto {
 public:
   static constexpr const char *TickerName = "BTC";
@@ -126,6 +145,7 @@ public:
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
   static bool checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&, double *shareDiff);
   static bool checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, ChainParams &params, double *shareDiff) { return checkConsensus(block.header, ctx, params, shareDiff); }
+  static double getDifficulty(const Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 29); }
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address);
 };
 }

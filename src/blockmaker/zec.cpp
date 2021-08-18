@@ -54,7 +54,7 @@ double target_to_diff_equi(uint32_t* target)
     return (double)0xffff0000UL/m;
 }
 
-static inline double getDifficulty(uint256 *target)
+static inline double targetToDiff(uint256 *target)
 {
   return target_to_diff_equi(reinterpret_cast<uint32_t*>(target->begin()));
 }
@@ -702,7 +702,7 @@ bool Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensus
   Proto::BlockHashTy hash256 = header.GetHash();
 
   arith_uint256 hash = UintToArith256(hash256);
-  *shareDiff = getDifficulty(&hash256);
+  *shareDiff = targetToDiff(&hash256);
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)

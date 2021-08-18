@@ -194,8 +194,9 @@ public:
   using ChainParams = BTC::Proto::ChainParams;
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static bool checkConsensus(const ZEC::Proto::BlockHeader&header, CheckConsensusCtx&consensusCtx, ZEC::Proto::ChainParams&, double *shareDiff);
+  static bool checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx&consensusCtx, ZEC::Proto::ChainParams&, double *shareDiff);
   static bool checkConsensus(const ZEC::Proto::Block &block, CheckConsensusCtx &ctx, ZEC::Proto::ChainParams &chainParams, double *shareDiff) { return checkConsensus(block.header, ctx, chainParams, shareDiff); }
+  static double getDifficulty(const ZEC::Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 32); }
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 

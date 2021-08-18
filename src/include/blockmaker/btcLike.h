@@ -137,26 +137,6 @@ struct CWorkerConfig {
 
 };
 
-static inline double getDifficulty(uint32_t bits)
-{
-    int nShift = (bits >> 24) & 0xff;
-    double dDiff =
-        (double)0x0000ffff / (double)(bits & 0x00ffffff);
-
-    while (nShift < 29)
-    {
-        dDiff *= 256.0;
-        nShift++;
-    }
-    while (nShift > 29)
-    {
-        dDiff /= 256.0;
-        nShift--;
-    }
-
-    return dDiff;
-}
-
 struct CoinbaseTx {
   xmstream Data;
   unsigned ExtraDataOffset;
@@ -272,7 +252,7 @@ public:
   }
   virtual typename Proto::BlockHashTy shareHash() override { return Header.GetHash(); }
   virtual std::string blockHash(size_t) override { return Header.GetHash().ToString(); }
-  virtual double expectedWork(size_t) override { return getDifficulty(Header.nBits); }
+  virtual double expectedWork(size_t) override { return Proto::getDifficulty(Header); }
   virtual bool ready() override { return this->Backend_ != nullptr; }
 
   virtual void buildBlock(size_t, xmstream &blockHexData) override { buildBlockImpl(Header, CBTxWitness_, blockHexData); }
@@ -367,7 +347,7 @@ public:
   }
 
   virtual double getAbstractProfitValue(size_t, double price, double coeff) override {
-    return price * this->BlockReward_ / getDifficulty(Header.nBits) * coeff;
+    return price * this->BlockReward_ / Proto::getDifficulty(Header) * coeff;
   }
 
 public:

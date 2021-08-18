@@ -1037,7 +1037,8 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
     It->prev();
   }
 
-  result.push_back(expectedWork != 0.0 ? acceptedWork / expectedWork : 0.0);
+  while (intervalIt++ != intervals.end())
+    result.push_back(expectedWork != 0.0 ? acceptedWork / expectedWork : 0.0);
   callback(result);
 }
 

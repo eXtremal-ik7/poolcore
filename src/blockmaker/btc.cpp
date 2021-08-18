@@ -149,7 +149,7 @@ bool Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&,
   bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
 
   arith_uint256 hash = UintToArith256(header.GetHash());
-  *shareDiff = getDifficulty(hash.GetCompact());
+  *shareDiff = difficultyFromBits(hash.GetCompact(), 29);
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)
