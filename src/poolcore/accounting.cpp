@@ -1022,7 +1022,7 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
     if (!dbBlock.deserializeValue(data.data, data.size))
       break;
 
-    if (dbBlock.Time < currentTimePoint) {
+    while (dbBlock.Time < currentTimePoint) {
       result.push_back(expectedWork != 0.0 ? acceptedWork / expectedWork : 0.0);
       if (++intervalIt == intervals.end()) {
         callback(result);
