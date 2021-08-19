@@ -1250,6 +1250,7 @@ bool UserManager::getUserCredentials(const std::string &login, Credentials &out)
     out.RegistrationDate = accessor->second.RegistrationDate;
     out.IsActive = accessor->second.IsActive;
     out.IsReadOnly = accessor->second.IsReadOnly;
+    out.HasTwoFactor = !accessor->second.TwoFactorAuthData.empty();
     return true;
   } else {
     return false;

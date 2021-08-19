@@ -31,6 +31,7 @@ public:
     int64_t RegistrationDate;
     bool IsActive;
     bool IsReadOnly;
+    bool HasTwoFactor;
     // Personal fee
     std::string FeePlan;
   };
