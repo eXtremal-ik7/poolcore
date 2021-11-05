@@ -1170,7 +1170,7 @@ void UserManager::deactivate2faInitiateImpl(const std::string &sessionId, const 
 
   // Send email
   std::string emailSendError;
-  if (SMTP.Enabled && !sendMail(login, emailAddress, "Deactivate two factor authentication at ", BaseCfg.Activate2faLinkPrefix, actionRecord.Id, "For drop two factor authentication", emailSendError)) {
+  if (SMTP.Enabled && !sendMail(login, emailAddress, "Deactivate two factor authentication at ", BaseCfg.Deactivate2faLinkPrefix, actionRecord.Id, "For drop two factor authentication", emailSendError)) {
     callback(emailSendError.c_str());
     return;
   }
