@@ -485,7 +485,7 @@ public:
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
       info.DefaultRpcPort = 8332;
-      info.CoinGeckoName = "bitcoin-cash-abc-2";
+      info.CoinGeckoName = "ecash";
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "XEC.testnet") == 0) {

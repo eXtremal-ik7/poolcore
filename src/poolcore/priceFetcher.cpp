@@ -52,9 +52,9 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase, const CCoinInfo &coinInfo) 
   }
 
   {
-    std::string query = "/api/v3/simple/price?ids=";
+    std::string query = "/api/v3/simple/price?ids=bitcoin,";
     query.append(coinInfo.CoinGeckoName);
-    query.append("&vs_currencies=BTC");
+    query.append("&vs_currencies=USD");
     buildGetQuery(query, "api.coingecko.com", PreparedQuery_);
   }
 
@@ -107,18 +107,24 @@ bool CPriceFetcher::processRequest(const char *data, size_t size)
 {
   rapidjson::Document document;
   document.Parse(data, size);
-  if (document.HasParseError() || !document.HasMember(CoinInfo_.CoinGeckoName.c_str()) || !document[CoinInfo_.CoinGeckoName.c_str()].IsObject()) {
+  if (document.HasParseError() ||
+      !document.HasMember(CoinInfo_.CoinGeckoName.c_str()) ||
+      !document.HasMember("bitcoin"),
+      !document[CoinInfo_.CoinGeckoName.c_str()].IsObject()) {
     LOG_F(ERROR, "PriceFetcher(%s) invalid response %s", CoinInfo_.Name.c_str(), data);
     return false;
   }
 
-  rapidjson::Value &result = document[CoinInfo_.CoinGeckoName.c_str()];
-  if (!result.HasMember("btc") || !result["btc"].IsFloat()) {
+
+  rapidjson::Value &btcPrice = document["bitcoin"];
+  rapidjson::Value &coinPrice = document[CoinInfo_.CoinGeckoName.c_str()];
+  if (!btcPrice.HasMember("usd") || !btcPrice["usd"].IsNumber() ||
+      !coinPrice.HasMember("usd") || !coinPrice["usd"].IsNumber()) {
     LOG_F(ERROR, "PriceFetcher(%s) invalid response %s", CoinInfo_.Name.c_str(), data);
     return false;
   }
 
-  CurrentPrice_.store(result["btc"].GetDouble());
-  LOG_F(INFO, "%s: new price %.8lf", CoinInfo_.Name.c_str(), CurrentPrice_.load());
+  CurrentPrice_.store(coinPrice["usd"].GetDouble() / btcPrice["usd"].GetDouble());
+  LOG_F(INFO, "%s: new price %.12lf", CoinInfo_.Name.c_str(), CurrentPrice_.load());
   return true;
 }
