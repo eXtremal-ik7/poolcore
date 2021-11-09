@@ -20,8 +20,9 @@ struct CCoinInfo {
     EPS2H = 2,
     EBech32 = 4,
     EBCH = 8,
-    EZAddr = 16,
-    EEth = 32
+    EECash = 16,
+    EZAddr = 32,
+    EEth = 64
   };
 
   enum EPowerUnitType {

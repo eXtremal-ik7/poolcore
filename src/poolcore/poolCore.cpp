@@ -60,6 +60,12 @@ bool CCoinInfo::checkAddress(const std::string &address, EAddressType type) cons
       return true;
   }
 
+  if (type & EECash) {
+    auto addr = bech32::DecodeCashAddrContent(address, "ecash");
+    if (!addr.hash.empty())
+      return true;
+  }
+
   return false;
 }
 

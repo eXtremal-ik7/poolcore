@@ -132,33 +132,6 @@ public:
       info.DefaultRpcPort = 18443;
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-    } else if (strcmp(coinName, "BCHABC") == 0) {
-      info.Name = "BCHABC";
-      info.FullName = "Bitcoin Cash ABC";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EBCH);
-      info.RationalPartSize = 100000000;
-      info.SegwitEnabled = false;
-      info.PowerUnitType = CCoinInfo::EHash;
-      info.PowerMultLog10 = 6;
-      info.PubkeyAddressPrefix = {0};
-      info.ScriptAddressPrefix = {5};
-      info.DefaultRpcPort = 8332;
-      info.CoinGeckoName = "bitcoin-cash-abc-2";
-      info.Algorithm = "sha256";
-      info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-    } else if (strcmp(coinName, "BCHABC.testnet") == 0) {
-      info.FullName = "Bitcoin Cash ABC testnet";
-      info.Name = "BCHABC.testnet";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EBCH);
-      info.RationalPartSize = 100000000;
-      info.SegwitEnabled = false;
-      info.PowerUnitType = CCoinInfo::EHash;
-      info.PowerMultLog10 = 6;
-      info.PubkeyAddressPrefix = {111};
-      info.ScriptAddressPrefix = {196};
-      info.DefaultRpcPort = 18332;
-      info.Algorithm = "sha256";
-      info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "BCHN") == 0) {
       info.Name = "BCHN";
       info.FullName = "Bitcoin Cash Node";
@@ -501,6 +474,33 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "XEC") == 0) {
+      info.Name = "XEC";
+      info.FullName = "eCash";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EECash);
+      info.RationalPartSize = 100;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {0};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 8332;
+      info.CoinGeckoName = "bitcoin-cash-abc-2";
+      info.Algorithm = "sha256";
+      info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "XEC.testnet") == 0) {
+      info.FullName = "eCash testnet";
+      info.Name = "XEC.testnet";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EECash);
+      info.RationalPartSize = 100;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {111};
+      info.ScriptAddressPrefix = {196};
+      info.DefaultRpcPort = 18332;
+      info.Algorithm = "sha256";
+      info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "XPM") == 0) {
       info.Name = "XPM";
       info.FullName = "Primecoin";

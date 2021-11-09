@@ -185,16 +185,25 @@ static void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockRewa
           minerfund.HasMember("minimumvalue") && minerfund["minimumvalue"].IsInt64()) {
         rapidjson::Value &addresses = minerfund["addresses"];
         rapidjson::Value &minimumvalue = minerfund["minimumvalue"];
-        if (addresses.Size() >= 1 && addresses[0].IsString() && strstr(addresses[0].GetString(), "bitcoincash:") == addresses[0]) {
-          // Decode bch bech32 address
-          auto feeAddr = bech32::DecodeCashAddrContent(addresses[0].GetString(), "bitcoincash");
-          if (feeAddr.type == bech32::SCRIPT_TYPE) {
-            *devFee = minimumvalue.GetInt64();
-            devScriptPubKey.write<uint8_t>(BTC::Script::OP_HASH160);
-            devScriptPubKey.write<uint8_t>(0x14);
-            devScriptPubKey.write(&feeAddr.hash[0], feeAddr.hash.size());
-            devScriptPubKey.write<uint8_t>(BTC::Script::OP_EQUAL);
-            *blockReward -= *devFee;
+
+        const char *addrPrefix = nullptr;
+        if (addresses.Size() >= 1 && addresses[0].IsString()) {
+          if (strstr(addresses[0].GetString(), "bitcoincash:") == addresses[0].GetString())
+            addrPrefix = "bitcoincash";
+          else if (strstr(addresses[0].GetString(), "ecash:") == addresses[0].GetString())
+            addrPrefix = "ecash";
+
+          if (addrPrefix != nullptr) {
+            // Decode bch bech32 address
+            auto feeAddr = bech32::DecodeCashAddrContent(addresses[0].GetString(), addrPrefix);
+            if (feeAddr.type == bech32::SCRIPT_TYPE) {
+              *devFee = minimumvalue.GetInt64();
+              devScriptPubKey.write<uint8_t>(BTC::Script::OP_HASH160);
+              devScriptPubKey.write<uint8_t>(0x14);
+              devScriptPubKey.write(&feeAddr.hash[0], feeAddr.hash.size());
+              devScriptPubKey.write<uint8_t>(BTC::Script::OP_EQUAL);
+              *blockReward -= *devFee;
+            }
           }
         }
       }
