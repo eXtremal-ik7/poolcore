@@ -98,13 +98,6 @@ void PoolBackend::backendMain()
   coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->payoutHandler(); }, this, 0x100000, coroutineFinishCb, &PayoutHandlerFinished_));
 
   LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
-  if (!_cfg.PoolFee.empty()) {
-    for (const auto &poolFeeEntry: _cfg.PoolFee)
-      LOG_F(INFO, "  Pool fee of %.2f to %s", poolFeeEntry.Percentage, poolFeeEntry.User.c_str());
-  } else {
-    LOG_F(INFO, "  Pool fee disabled");
-  }
-
   checkConsistency(_accounting.get());
   asyncLoop(_base);
 }

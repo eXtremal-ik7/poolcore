@@ -494,6 +494,25 @@ void serializeJson(xmstream &stream, const char *fieldName, const BTC::Proto::Tr
   stream.write('}');
 }
 
+std::string BTC::Proto::makeHumanReadableAddress(uint8_t pubkeyAddressPrefix, const BTC::Proto::AddressTy &address)
+{
+  uint8_t data[sizeof(BTC::Proto::AddressTy) + 5];
+  data[0] = pubkeyAddressPrefix;
+  memcpy(&data[1], address.begin(), sizeof(BTC::Proto::AddressTy));
+
+  uint8_t sha256[32];
+  SHA256_CTX ctx;
+  SHA256_Init(&ctx);
+  SHA256_Update(&ctx, &data[0], sizeof(data) - 4);
+  SHA256_Final(sha256, &ctx);
+
+  SHA256_Init(&ctx);
+  SHA256_Update(&ctx, sha256, sizeof(sha256));
+  SHA256_Final(sha256, &ctx);
+
+  memcpy(data+1+sizeof(BTC::Proto::AddressTy), sha256, 4);
+  return EncodeBase58(data, data+sizeof(data));
+}
 
 bool BTC::Proto::decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &prefix, BTC::Proto::AddressTy &address)
 {
@@ -522,5 +541,42 @@ bool BTC::Proto::decodeHumanReadableAddress(const std::string &hrAddress, const 
     return false;
 
   memcpy(address.begin(), &data[prefix.size()], sizeof(BTC::Proto::AddressTy));
+  return true;
+}
+
+bool BTC::Proto::decodeWIF(const std::string &privateKey, const std::vector<uint8_t> &prefix, uint8_t *result)
+{
+  std::vector<uint8_t> data;
+  if (!DecodeBase58(privateKey.c_str(), data) || data.size() < prefix.size())
+    return false;
+  if (memcmp(&data[0], &prefix[0], prefix.size()) != 0)
+    return false;
+
+  uint32_t addrHash;
+  size_t hashDataSize;
+  if (data.size() == prefix.size() + 32 + 4) {
+    memcpy(&addrHash, &data[prefix.size() + 32], 4);
+    hashDataSize = prefix.size() + 32;
+  } else if (data.size() == prefix.size() + 32 + 1 +4 ) {
+    memcpy(&addrHash, &data[prefix.size() + 32 + 1], 4);
+    hashDataSize = prefix.size() + 32 + 1;
+  } else {
+    return false;
+  }
+
+  uint8_t sha256[32];
+  SHA256_CTX ctx;
+  SHA256_Init(&ctx);
+  SHA256_Update(&ctx, &data[0], hashDataSize);
+  SHA256_Final(sha256, &ctx);
+
+  SHA256_Init(&ctx);
+  SHA256_Update(&ctx, sha256, sizeof(sha256));
+  SHA256_Final(sha256, &ctx);
+
+  if (reinterpret_cast<uint32_t*>(sha256)[0] != addrHash)
+    return false;
+
+  memcpy(result, &data[prefix.size()], 32);
   return true;
 }

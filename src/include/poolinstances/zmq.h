@@ -333,7 +333,7 @@ private:
     auto &backendConfig = backend->getConfig();
     auto &coinInfo = backend->getCoinInfo();
     typename X::Proto::AddressTy miningAddress;
-    const std::string &addr = backendConfig.MiningAddresses.get();
+    const std::string &addr = backendConfig.MiningAddresses.get().MiningAddress;
     if (!X::Proto::decodeHumanReadableAddress(addr, coinInfo.PubkeyAddressPrefix, miningAddress)) {
       LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), addr.c_str());
       return;

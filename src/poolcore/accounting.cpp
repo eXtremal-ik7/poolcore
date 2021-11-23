@@ -575,7 +575,7 @@ void AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
   // For bitcoin-based API it's sequential call of createrawtransaction, fundrawtransaction and signrawtransaction
   CNetworkClient::BuildTransactionResult transaction;
   CNetworkClient::EOperationStatus status =
-    ClientDispatcher_.ioBuildTransaction(Base_, settings.Address.c_str(), _cfg.MiningAddresses.get(), payout.Value, transaction);
+    ClientDispatcher_.ioBuildTransaction(Base_, settings.Address.c_str(), _cfg.MiningAddresses.get().MiningAddress, payout.Value, transaction);
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusInsufficientFunds) {

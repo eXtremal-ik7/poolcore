@@ -55,6 +55,7 @@ hunter_add_package(RapidJSON)
 hunter_add_package(Protobuf)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectLibp2p.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectMPIR.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectSecp256k1.cmake)
 
 add_definitions(-DGOOGLE_PROTOBUF_NO_RTTI)
 find_package(libsodium CONFIG REQUIRED)

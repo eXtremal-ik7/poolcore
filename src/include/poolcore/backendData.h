@@ -27,9 +27,11 @@ struct CShare {
   double ExpectedWork = 0.0;
 };
 
-struct PoolFeeEntry {
-  std::string User;
-  double Percentage;
+struct CMiningAddress {
+  std::string MiningAddress;
+  std::string PrivateKey;
+  CMiningAddress() {}
+  CMiningAddress(const std::string &miningAddress, const std::string &privateKey) : MiningAddress(miningAddress), PrivateKey(privateKey) {}
 };
 
 template<typename T>
@@ -64,7 +66,6 @@ struct PoolBackendConfig {
   std::chrono::seconds ShareLogFlushInterval = std::chrono::seconds(3);
   uint64_t ShareLogFileSizeLimit = 4194304;
 
-  std::vector<PoolFeeEntry> PoolFee;
   unsigned RequiredConfirmations;
   int64_t DefaultPayoutThreshold;
   int64_t MinimalAllowedPayout;
@@ -80,7 +81,7 @@ struct PoolBackendConfig {
   std::chrono::minutes StatisticPoolAggregateTime = std::chrono::minutes(1);
   std::chrono::hours StatisticKeepWorkerNamesTime = std::chrono::hours(24);
 
-  SelectorByWeight<std::string> MiningAddresses;
+  SelectorByWeight<CMiningAddress> MiningAddresses;
   std::string CoinBaseMsg;
 
   // ZEC specific
