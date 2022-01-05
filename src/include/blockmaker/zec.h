@@ -1,6 +1,7 @@
 #pragma once
 
 #include "btc.h"
+#include <array>
 
 namespace ZEC {
 class Proto {

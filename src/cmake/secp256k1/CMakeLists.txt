@@ -126,8 +126,10 @@ endif()
 
 # Main static library
 add_library(secp256k1 STATIC ${CMAKE_CURRENT_SOURCE_DIR}/src/secp256k1.c)
-if (NOT MSVC)
-  target_compile_definitions(secp256k1 PRIVATE -DVALGRIND)
+if (ENABLE_TESTS)
+  if (NOT MSVC)
+    target_compile_definitions(secp256k1 PRIVATE -DVALGRIND)
+  endif()
 endif()
 target_compile_options(secp256k1 PRIVATE ${DEFAULT_COMPILE_OPTIONS})
 add_dependencies(secp256k1 ecmult_static_context)

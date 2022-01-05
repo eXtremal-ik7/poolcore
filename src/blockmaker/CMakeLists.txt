@@ -15,8 +15,12 @@ add_library(blockmaker STATIC
   zec.cpp
 )
 
-target_link_libraries(blockmaker ${MPIR_LIBRARIES})
-
-add_dependencies(blockmaker
-  mpir
+target_link_libraries(blockmaker
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  libsodium::libsodium
+  ${BIGNUM_LIBRARIES}
+  poolinstances
 )
+
+target_include_directories(blockmaker PUBLIC ${RAPIDJSON_INCLUDE_DIRECTORY})

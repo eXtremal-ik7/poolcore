@@ -133,7 +133,7 @@ struct MiningRound {
   
   uint64_t Height;
   std::string BlockHash;
-  time_t Time;
+  int64_t Time;
     
   // aggregated share and payment value
   double TotalShareValue;

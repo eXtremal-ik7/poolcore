@@ -69,7 +69,7 @@ typedef crypto_generichash_blake2b_state eh_HashState;
 
 static void EhIndexToArray(const eh_index i, unsigned char* array)
 {
-    eh_index bei = htobe32(i);
+    eh_index bei = xhtobe<uint32_t>(i);
     memcpy(array, &bei, sizeof(eh_index));
 }
 
@@ -213,14 +213,14 @@ static eh_index ArrayToEhIndex(const unsigned char* array)
 {
     eh_index bei;
     memcpy(&bei, array, sizeof(eh_index));
-    return be32toh(bei);
+    return xbetoh<uint32_t>(bei);
 }
 
 static void GenerateHash(const eh_HashState& base_state, eh_index g, unsigned char* hash, size_t hLen)
 {
     eh_HashState state;
     state = base_state;
-    eh_index lei = htole32(g);
+    eh_index lei = xhtole<uint32_t>(g);
     crypto_generichash_blake2b_update(&state, (const unsigned char*) &lei,
                                       sizeof(eh_index));
     crypto_generichash_blake2b_final(&state, hash, hLen);
@@ -270,8 +270,8 @@ public:
     Equihash() { }
 
     int InitialiseState(eh_HashState& base_state) {
-      uint32_t le_N = htole32(N);
-      uint32_t le_K = htole32(K);
+      uint32_t le_N = xhtole<uint32_t>(N);
+      uint32_t le_K = xhtole<uint32_t>(K);
       unsigned char personalization[crypto_generichash_blake2b_PERSONALBYTES] = {};
       memcpy(personalization, "ZcashPoW", 8);
       memcpy(personalization+8,  &le_N, 4);

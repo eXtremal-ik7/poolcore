@@ -10,8 +10,8 @@ add_library(poolcommon STATIC
   utils.cpp
 )
 
-target_link_libraries(poolcommon ${MPIR_LIBRARIES})
-
-add_dependencies(poolcommon
-  mpir
+target_link_libraries(poolcommon
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  ${BIGNUM_LIBRARIES}
 )

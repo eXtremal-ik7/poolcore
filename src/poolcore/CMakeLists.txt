@@ -19,4 +19,11 @@ add_library(poolcore STATIC
   usermgr.cpp
 )
 
-target_link_libraries(poolcore ${TBB_IMPORTED_TARGETS})
+target_include_directories(poolcore PUBLIC ${RAPIDJSON_INCLUDE_DIRECTORY})
+
+target_link_libraries(poolcore
+  TBB::tbb
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  RocksDB::rocksdb
+)

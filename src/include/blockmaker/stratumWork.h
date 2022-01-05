@@ -2,6 +2,8 @@
 
 #include "poolcore/blockTemplate.h"
 #include "p2putils/xmstream.h"
+#include <string>
+#include <vector>
 
 struct ThreadConfig {
   uint64_t ExtraNonceCurrent;

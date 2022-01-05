@@ -11,6 +11,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+static_assert(sizeof(off_t) == 8, "off_t is 32 bit");
+
 FileDescriptor::FileDescriptor()
 {
   Fd_ = -1;
@@ -39,7 +41,7 @@ size_t FileDescriptor::size()
 
 size_t FileDescriptor::seekSet(size_t position)
 {
-  return lseek64(Fd_, position, SEEK_SET);
+  return lseek(Fd_, position, SEEK_SET);
 }
 
 ssize_t FileDescriptor::read(void *data, size_t offset, size_t size)
@@ -97,7 +99,7 @@ ssize_t FileDescriptor::write(const void *data, size_t offset, size_t size)
 
 bool FileDescriptor::truncate(size_t size)
 {
-  return ftruncate64(Fd_, size) == 0;
+  return ftruncate(Fd_, size) == 0;
 }
 
 bool FileDescriptor::isOpened()
