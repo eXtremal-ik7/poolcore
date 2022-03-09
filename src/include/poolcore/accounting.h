@@ -127,7 +127,7 @@ private:
   
   std::map<std::string, UserBalanceRecord> _balanceMap;
   std::deque<std::unique_ptr<MiningRound>> _allRounds;
-  std::set<MiningRound*> _roundsWithPayouts;
+  std::set<MiningRound*> UnpayedRounds_;
   std::list<PayoutDbRecord> _payoutQueue;
   std::unordered_set<std::string> KnownTransactions_;
 
@@ -177,11 +177,14 @@ public:
   
   bool requestPayout(const std::string &address, int64_t value, bool force = false);
 
+  bool hasUnknownReward();
+  void calculatePayments(MiningRound *R, int64_t generatedCoins);
   void addShare(const CShare &share);
   void replayShare(const CShare &share);
   void initializationFinish(int64_t timeLabel);
   void mergeRound(const Round *round);
   void checkBlockConfirmations();
+  void checkBlockExtraInfo();
   void buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout);
   bool sendTransaction(PayoutDbRecord &payout);
   bool checkTxConfirmations(PayoutDbRecord &payout);

@@ -66,6 +66,11 @@ bool CCoinInfo::checkAddress(const std::string &address, EAddressType type) cons
       return true;
   }
 
+  if (type & EEth) {
+    if (address.size() == 42 && address[0] == '0' && address[1] == 'x')
+      return true;
+  }
+
   return false;
 }
 

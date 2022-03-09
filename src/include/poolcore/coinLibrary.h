@@ -313,7 +313,8 @@ public:
       info.Name = "ETC";
       info.FullName = "Ethereum Classic";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
-      info.RationalPartSize = 100000000;
+      info.RationalPartSize = 1000000000;
+      info.ExtraMultiplier = 1;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
       info.DefaultRpcPort = 8545;
@@ -327,7 +328,8 @@ public:
       info.Name = "ETH";
       info.FullName = "Ethereum";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
-      info.RationalPartSize = 100000000;
+      info.RationalPartSize = 1000000000;
+      info.ExtraMultiplier = 1;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
       info.DefaultRpcPort = 8545;
@@ -340,7 +342,8 @@ public:
       info.Name = "ETH.ropsten";
       info.FullName = "Ethereum";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
-      info.RationalPartSize = 100000000;
+      info.RationalPartSize = 1000000000;
+      info.ExtraMultiplier = 1;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
       info.DefaultRpcPort = 8545;

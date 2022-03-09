@@ -110,6 +110,10 @@ void MiningRound::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, AvailableCoins);
   dbIoSerialize(stream, UserShares);
   dbIoSerialize(stream, Payouts);
+  dbIoSerialize(stream, FoundBy);
+  dbIoSerialize(stream, ExpectedWork);
+  dbIoSerialize(stream, AccumulatedWork);
+  dbIoSerialize(stream, TxFee);
 }
 
 bool MiningRound::deserializeValue(const void *data, size_t size)
@@ -126,6 +130,12 @@ bool MiningRound::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, AvailableCoins);
     dbIoUnserialize(stream, UserShares);
     dbIoUnserialize(stream, Payouts);
+    if (stream.remaining()) {
+      dbIoUnserialize(stream, FoundBy);
+      dbIoUnserialize(stream, ExpectedWork);
+      dbIoUnserialize(stream, AccumulatedWork);
+      dbIoUnserialize(stream, TxFee);
+    }
   }
   
   return !stream.eof();
@@ -397,6 +407,9 @@ bool FoundBlockRecord::deserializeValue(const void *data, size_t size)
     if (stream.remaining()) {
       dbIoUnserialize(stream, ExpectedWork);
       dbIoUnserialize(stream, AccumulatedWork);
+      if (stream.remaining()) {
+        dbIoUnserialize(stream, PublicHash);
+      }
     }
   }
   
@@ -420,6 +433,7 @@ void FoundBlockRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, FoundBy);
   dbIoSerialize(stream, ExpectedWork);
   dbIoSerialize(stream, AccumulatedWork);
+  dbIoSerialize(stream, PublicHash);
 }
 
 // ====================== PoolBalance ======================

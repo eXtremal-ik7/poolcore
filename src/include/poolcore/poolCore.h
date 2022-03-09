@@ -81,8 +81,25 @@ public:
     std::string Hash;
     uint64_t Height;
     int64_t Confirmations;
+
     GetBlockConfirmationsQuery() {}
     GetBlockConfirmationsQuery(const std::string &hash, uint64_t height) : Hash(hash), Height(height) {}
+  };
+
+  struct GetBlockExtraInfoQuery {
+    // Input
+    std::string Hash;
+    uint64_t Height;
+    // Input & output
+    int64_t TxFee;
+    int64_t BlockReward;
+    // Output
+    int64_t Confirmations;
+    std::string PublicHash;
+
+    GetBlockExtraInfoQuery() {}
+    GetBlockExtraInfoQuery(const std::string &hash, uint64_t height, int64_t txFee, int64_t lastKnownBlockReward) :
+      Hash(hash), Height(height), TxFee(txFee), BlockReward(lastKnownBlockReward) {}
   };
 
   struct GetBalanceResult {
@@ -138,6 +155,7 @@ public:
 
   virtual CPreparedQuery *prepareBlock(const void *data, size_t size) = 0;
   virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) = 0;
+  virtual bool ioGetBlockExtraInfo(asyncBase *base, std::vector<GetBlockExtraInfoQuery> &query) = 0;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
   virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) = 0;
   virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error) = 0;

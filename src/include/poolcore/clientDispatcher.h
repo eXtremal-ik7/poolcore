@@ -29,6 +29,7 @@ public:
   // Common API
   bool ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result);
   bool ioGetBlockConfirmations(asyncBase *base, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &query);
+  bool ioGetBlockExtraInfo(asyncBase *base, std::vector<CNetworkClient::GetBlockExtraInfoQuery> &query);
   CNetworkClient::EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, CNetworkClient::BuildTransactionResult &result);
   CNetworkClient::EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error);
   CNetworkClient::EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error);

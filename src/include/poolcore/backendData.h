@@ -138,7 +138,13 @@ struct MiningRound {
   // aggregated share and payment value
   double TotalShareValue;
   int64_t AvailableCoins;
-    
+
+  // ETH specific
+  std::string FoundBy;
+  double ExpectedWork;
+  double AccumulatedWork;
+  int64_t TxFee = 0;
+
   std::vector<UserShareValue> UserShares;
   std::vector<PayoutDbRecord> Payouts;
     
@@ -332,6 +338,7 @@ struct FoundBlockRecord {
   std::string FoundBy;
   double ExpectedWork = 0.0;
   double AccumulatedWork = 0.0;
+  std::string PublicHash;
   
   std::string getPartitionId() const { return partByHeight(Height); }
   bool deserializeValue(const void *data, size_t size);

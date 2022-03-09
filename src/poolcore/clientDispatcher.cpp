@@ -30,6 +30,19 @@ bool CNetworkClientDispatcher::ioGetBlockConfirmations(asyncBase *base, std::vec
   return false;
 }
 
+bool CNetworkClientDispatcher::ioGetBlockExtraInfo(asyncBase *base, std::vector<CNetworkClient::GetBlockExtraInfoQuery> &query)
+{
+  unsigned threadId = GetGlobalThreadId();
+  size_t &currentClientIdx = CurrentClientIdx_[threadId];
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
+    if (RPCClients_[currentClientIdx]->ioGetBlockExtraInfo(base, query))
+      return true;
+    currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
+  }
+
+  return false;
+}
+
 CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioListUnspent(asyncBase *base, CNetworkClient::ListUnspentResult &result)
 {
   CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;

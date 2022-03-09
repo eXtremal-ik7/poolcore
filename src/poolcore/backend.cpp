@@ -109,7 +109,10 @@ void PoolBackend::checkConfirmationsHandler()
     if (ShutdownRequested_)
       break;
     _accounting->cleanupRounds();
-    _accounting->checkBlockConfirmations();
+    if (_accounting->hasUnknownReward())
+      _accounting->checkBlockExtraInfo();
+    else
+      _accounting->checkBlockConfirmations();
   }
 }
 

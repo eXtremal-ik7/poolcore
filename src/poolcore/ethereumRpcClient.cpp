@@ -17,6 +17,31 @@
 #include <netdb.h>
 #endif
 
+static constexpr int64_t ByzantiumHeight = 4370000;
+static constexpr int64_t ConstantinopleHeight = 7280000;
+
+static std::string buildPostQuery(const std::string address, const char *data, size_t size, const std::string &host)
+{
+  char dataLength[16];
+  xitoa(size, dataLength);
+
+  std::string query = "POST ";
+    query.append(address);
+    query.append(" HTTP/1.1\r\n");
+    query.append("Host: ");
+      query.append(host);
+      query.append("\r\n");
+    query.append("Connection: keep-alive\r\n");
+    query.append("Content-Length: ");
+      query.append(static_cast<const char*>(dataLength));
+      query.append("\r\n");
+    query.append("Content-Type: application/json\r\n");
+    query.append("\r\n");
+  if (data)
+    query.append(data, size);
+  return query;
+}
+
 static void buildPostQuery(const std::string address, const char *data, size_t size, const std::string &host, xmstream &out)
 {
   char dataLength[16];
@@ -38,7 +63,7 @@ static void buildPostQuery(const std::string address, const char *data, size_t s
     out.write(data, size);
 }
 
-CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, PoolBackendConfig&) : CNetworkClient(threadsNum),
+CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, PoolBackendConfig &config) : CNetworkClient(threadsNum),
   WorkFetcherBase_(base), ThreadsNum_(threadsNum), CoinInfo_(coinInfo)
 {
   WorkFetcher_.Client = nullptr;
@@ -81,6 +106,13 @@ CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, con
   }
 
   FullHostName_ = HostName_ + ":" + std::to_string(port);
+
+  if (config.MiningAddresses.size() != 1) {
+    LOG_F(ERROR, "ERROR: ethereum-based backends support working with only one mining address\n");
+    exit(1);
+  }
+
+  MiningAddress_ = config.MiningAddresses.getByIndex(0).MiningAddress;
 
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -130,12 +162,297 @@ CPreparedQuery *CEthereumRpcClient::prepareBlock(const void *data, size_t)
 
 bool CEthereumRpcClient::ioGetBalance(asyncBase *base, GetBalanceResult &result)
 {
-  return false;
+  char buffer[1024];
+  xmstream jsonStream(buffer, sizeof(buffer));
+
+  std::unique_ptr<CConnection> connection(getConnection(base));
+  if (!connection)
+    return false;
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+    return false;
+
+
+  jsonStream.reset();
+  {
+    JSON::Object queryObject(jsonStream);
+    queryObject.addString("jsonrpc", "2.0");
+    queryObject.addString("method", "eth_getBalance");
+    queryObject.addField("params");
+    {
+      JSON::Array paramsArray(jsonStream);
+      paramsArray.addString(MiningAddress_);
+      paramsArray.addString("latest");
+    }
+    queryObject.addInt("id", -1);
+  }
+
+  rapidjson::Document document;
+  if (ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000) != EStatusOk)
+    return false;
+
+  if (!document.HasMember("result") ||
+      !document["result"].IsString() ||
+      document["result"].GetStringLength() <= 2)
+    return false;
+
+  arith_uint256 balance;
+  arith_uint256 gwei(static_cast<uint64_t>(1000000000ULL));
+  balance.SetHex(document["result"].GetString());
+  balance /= gwei;
+  result.Balance = balance.GetLow64();
+  result.Immatured = 0;
+  return true;
 }
 
-bool CEthereumRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query)
+bool CEthereumRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &queries)
 {
-  return false;
+  char buffer[1024];
+  xmstream jsonStream(buffer, sizeof(buffer));
+
+  for (auto &It: queries)
+    It.Confirmations = -2;
+
+  std::unique_ptr<CConnection> connection(getConnection(base));
+  if (!connection)
+    return false;
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+    return false;
+
+  // First, get best chain height
+  int64_t bestBlockHeight = 0;
+  {
+    jsonStream.reset();
+    {
+      JSON::Object queryObject(jsonStream);
+      queryObject.addString("jsonrpc", "2.0");
+      queryObject.addString("method", "eth_blockNumber");
+      queryObject.addField("params");
+      {
+        JSON::Array paramsArray(jsonStream);
+      }
+      queryObject.addInt("id", -1);
+    }
+
+    rapidjson::Document document;
+    if (ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000) != EStatusOk)
+      return false;
+
+    if (!document.HasMember("result") ||
+        !document["result"].IsString() ||
+        document["result"].GetStringLength() <= 2)
+      return false;
+
+    bestBlockHeight = strtoul(document["result"].GetString() + 2, nullptr, 16);
+  }
+
+  LOG_F(WARNING, "best block: %lli\n", bestBlockHeight);
+
+  for (auto &query: queries) {
+    // Process each block separately
+    jsonStream.reset();
+    {
+      JSON::Object queryObject(jsonStream);
+      queryObject.addString("jsonrpc", "2.0");
+      queryObject.addString("method", "eth_getBlockByNumber");
+      queryObject.addField("params");
+      {
+        char hex[64];
+        snprintf(hex, sizeof(hex), "0x%" PRIx64 "", query.Height);
+        JSON::Array paramsArray(jsonStream);
+        paramsArray.addString(hex);
+        paramsArray.addBoolean(true);
+      }
+      queryObject.addInt("id", -1);
+    }
+
+    rapidjson::Document document;
+    if (ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000) != EStatusOk)
+      return false;
+
+    if (!document.HasMember("result") || !document["result"].IsObject()) {
+      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      return false;
+    }
+    rapidjson::Value &resultObject = document["result"].GetObject();
+
+    // Check mix hash
+    if (!resultObject.HasMember("mixHash") || !resultObject["mixHash"].IsString() || resultObject["mixHash"].GetStringLength() != 66 ||
+        !resultObject.HasMember("hash") || !resultObject["hash"].IsString() || resultObject["hash"].GetStringLength() != 66) {
+      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      return false;
+    }
+
+    char mixHashBin[32];
+    char mixHashHexReversed[72] = {0};
+    const char *mixHash = resultObject["mixHash"].GetString() + 2;
+    const char *hash = resultObject["hash"].GetString() + 2;
+    hex2bin(mixHash, 64*2, mixHashBin);
+    std::reverse(mixHashBin, mixHashBin+32);
+    bin2hexLowerCase(mixHashBin, mixHashHexReversed, 32);
+
+    if (query.Hash != mixHashHexReversed) {
+      // TODO: check uncle blocks
+      query.Confirmations = -1;
+      continue;
+    }
+
+    query.Confirmations = bestBlockHeight - query.Height;
+  }
+
+  return true;
+}
+
+bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, std::vector<GetBlockExtraInfoQuery> &queries)
+{
+  char buffer[1024];
+  xmstream jsonStream(buffer, sizeof(buffer));
+
+  for (auto &It: queries)
+    It.Confirmations = -2;
+
+  std::unique_ptr<CConnection> connection(getConnection(base));
+  if (!connection)
+    return false;
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+    return false;
+
+  // First, get best chain height
+  int64_t bestBlockHeight = 0;
+  {
+    jsonStream.reset();
+    {
+      JSON::Object queryObject(jsonStream);
+      queryObject.addString("jsonrpc", "2.0");
+      queryObject.addString("method", "eth_blockNumber");
+      queryObject.addField("params");
+      {
+        JSON::Array paramsArray(jsonStream);
+      }
+      queryObject.addInt("id", -1);
+    }
+
+    rapidjson::Document document;
+    if (ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000) != EStatusOk)
+      return false;
+
+    if (!document.HasMember("result") ||
+        !document["result"].IsString() ||
+        document["result"].GetStringLength() <= 2)
+      return false;
+
+    bestBlockHeight = strtoul(document["result"].GetString() + 2, nullptr, 16);
+  }
+
+  LOG_F(WARNING, "best block: %lli\n", bestBlockHeight);
+
+
+  for (auto &query: queries) {
+    // Process each block separately
+    jsonStream.reset();
+    {
+      JSON::Object queryObject(jsonStream);
+      queryObject.addString("jsonrpc", "2.0");
+      queryObject.addString("method", "eth_getBlockByNumber");
+      queryObject.addField("params");
+      {
+        char hex[64];
+        snprintf(hex, sizeof(hex), "0x%" PRIx64 "", query.Height);
+        JSON::Array paramsArray(jsonStream);
+        paramsArray.addString(hex);
+        paramsArray.addBoolean(true);
+      }
+      queryObject.addInt("id", -1);
+    }
+
+    rapidjson::Document document;
+    if (ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000) != EStatusOk)
+      return false;
+
+    if (!document.HasMember("result") || !document["result"].IsObject()) {
+      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      return false;
+    }
+    rapidjson::Value &resultObject = document["result"].GetObject();
+
+    // Check mix hash
+    if (!resultObject.HasMember("mixHash") || !resultObject["mixHash"].IsString() || resultObject["mixHash"].GetStringLength() != 66 ||
+        !resultObject.HasMember("hash") || !resultObject["hash"].IsString() || resultObject["hash"].GetStringLength() != 66) {
+      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      return false;
+    }
+
+    char mixHashBin[32];
+    char mixHashHexReversed[72] = {0};
+    const char *mixHash = resultObject["mixHash"].GetString() + 2;
+    const char *hash = resultObject["hash"].GetString() + 2;
+    hex2bin(mixHash, 64*2, mixHashBin);
+    std::reverse(mixHashBin, mixHashBin+32);
+    bin2hexLowerCase(mixHashBin, mixHashHexReversed, 32);
+
+    if (query.Hash != mixHashHexReversed) {
+      // TODO: check uncle blocks
+      query.Confirmations = -1;
+      continue;
+    }
+
+    query.PublicHash = hash;
+
+    // Get block reward
+    int64_t constReward = getConstBlockReward(query.Height);
+    LOG_F(WARNING, "const reward: %lli\n", constReward);
+
+    // Get tx fee
+    int64_t totalTxFee = query.TxFee;
+    if (totalTxFee == 0) {
+      if (!resultObject.HasMember("transactions") || !resultObject["transactions"].IsArray()) {
+        LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+        return false;
+      }
+
+      const auto &transactionsArray = resultObject["transactions"].GetArray();
+
+      for (const auto &txObject: transactionsArray) {
+        // Here we need hash and gas price
+        if (!txObject.HasMember("gasPrice") || !txObject["gasPrice"].IsString() || txObject["gasPrice"].GetStringLength() <= 2 ||
+            !txObject.HasMember("hash") || !txObject["hash"].IsString() || txObject["hash"].GetStringLength() != 66) {
+          LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+          return false;
+        }
+
+        // use gwei for transaction fee
+        int64_t txFee = 0;
+        int64_t gasPrice = strtoll(txObject["gasPrice"].GetString() + 2, nullptr, 16);
+        if (!getTxFee(connection.get(), txObject["hash"].GetString(), gasPrice, &txFee))
+          return false;
+
+        totalTxFee += txFee;
+      }
+
+      LOG_F(WARNING, "all tx fee: %lli\n", totalTxFee);
+    }
+
+    // Get uncles reward
+    int64_t unclesReward = 0;
+    if (resultObject.HasMember("uncles") && resultObject["uncles"].IsArray())
+      unclesReward = (constReward / 32) * resultObject["uncles"].GetArray().Size();
+
+    // Get gas fee
+    int64_t gasFee = 0;
+    if (resultObject.HasMember("gasUsed") && resultObject["gasUsed"].IsString() && resultObject["gasUsed"].GetStringLength() >= 3 &&
+        resultObject.HasMember("baseFeePerGas") && resultObject["baseFeePerGas"].IsString() && resultObject["baseFeePerGas"].GetStringLength() >= 3) {
+      int64_t gasUsed = strtoll(resultObject["gasUsed"].GetString() + 2, nullptr, 16);
+      int64_t baseFeePerGas = strtoll(resultObject["baseFeePerGas"].GetString() + 2, nullptr, 16);
+      gasFee = gasUsed * baseFeePerGas / 1000000000LL;
+    }
+
+    int64_t blockReward = constReward + unclesReward + totalTxFee - gasFee;
+    query.TxFee = totalTxFee;
+    query.BlockReward = blockReward;
+    query.Confirmations = bestBlockHeight - query.Height;
+    LOG_F(WARNING, "height %lli; hash: %s; reward: %s; confirmations: %lli\n", query.Height, query.PublicHash.c_str(), FormatMoney(blockReward, 1000000000LL).c_str(), query.Confirmations);
+  }
+
+  return true;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result)
@@ -323,4 +640,53 @@ CEthereumRpcClient::CConnection *CEthereumRpcClient::getConnection(asyncBase *ba
   }
   connection->Client = httpClientNew(base, newSocketIo(base, connection->Socket));
   return connection;
+}
+
+int64_t CEthereumRpcClient::getConstBlockReward(int64_t height)
+{
+  if (height < ByzantiumHeight)
+    return 5 * 1000000000LL;
+  else if (height < ConstantinopleHeight)
+    return 3 * 1000000000LL;
+  else
+    return 2 * 1000000000LL;
+}
+
+bool CEthereumRpcClient::getTxFee(CEthereumRpcClient::CConnection *connection, const char *txid, int64_t gasPrice, int64_t *result)
+{
+  char buffer[1024];
+  xmstream jsonStream(buffer, sizeof(buffer));
+
+  jsonStream.reset();
+  {
+    JSON::Object queryObject(jsonStream);
+    queryObject.addString("jsonrpc", "2.0");
+    queryObject.addString("method", "eth_getTransactionReceipt");
+    queryObject.addField("params");
+    {
+      JSON::Array paramsArray(jsonStream);
+      paramsArray.addString(txid);
+    }
+    queryObject.addInt("id", -1);
+  }
+
+  rapidjson::Document document;
+  if (ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000) != EStatusOk)
+    return false;
+
+  if (!document.HasMember("result") || !document["result"].IsObject()) {
+    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    return false;
+  }
+
+  const auto &resultValue = document["result"];
+  if (!resultValue.HasMember("gasUsed") || !resultValue["gasUsed"].IsString() || resultValue["gasUsed"].GetStringLength() <= 2) {
+    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    return false;
+  }
+
+  int64_t gasUsed = strtoll(resultValue["gasUsed"].GetString() + 2, nullptr, 16);
+  *result = gasUsed * gasPrice / 1000000000LL;
+  LOG_F(WARNING, "hash: %s fee: %lli\n", txid, *result);
+  return true;
 }
