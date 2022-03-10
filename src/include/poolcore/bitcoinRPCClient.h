@@ -16,7 +16,7 @@ public:
 
   virtual CPreparedQuery *prepareBlock(const void *data, size_t size) override;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
-  virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) override;
+  virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &query) override;
   virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) override;
   virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error) override;
   virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error) override;
@@ -25,7 +25,7 @@ public:
   virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result) override;
   virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, int64_t *balance) override;
 
-  virtual bool ioGetBlockExtraInfo(asyncBase*, std::vector<GetBlockExtraInfoQuery>&) override {
+  virtual bool ioGetBlockExtraInfo(asyncBase*, int64_t, std::vector<GetBlockExtraInfoQuery>&) override {
     return false;
   }
   virtual void poll() override;

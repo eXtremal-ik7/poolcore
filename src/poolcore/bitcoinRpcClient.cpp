@@ -347,7 +347,7 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
   return false;
 }
 
-bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query)
+bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &query)
 {
   for (auto &It: query)
     It.Confirmations = -2;
@@ -392,7 +392,7 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<Get
 
     if (value["result"].IsNull()) {
       HasGetBlockChainInfo_ = false;
-      return ioGetBlockConfirmations(base, query);
+      return ioGetBlockConfirmations(base, orphanAgeLimit, query);
     }
 
     value = value["result"];

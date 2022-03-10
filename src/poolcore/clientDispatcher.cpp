@@ -17,12 +17,12 @@ bool CNetworkClientDispatcher::ioGetBalance(asyncBase *base, CNetworkClient::Get
   return false;
 }
 
-bool CNetworkClientDispatcher::ioGetBlockConfirmations(asyncBase *base, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &query)
+bool CNetworkClientDispatcher::ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &query)
 {
   unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
   for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
-    if (RPCClients_[currentClientIdx]->ioGetBlockConfirmations(base, query))
+    if (RPCClients_[currentClientIdx]->ioGetBlockConfirmations(base, orphanAgeLimit, query))
       return true;
     currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
   }
@@ -30,12 +30,12 @@ bool CNetworkClientDispatcher::ioGetBlockConfirmations(asyncBase *base, std::vec
   return false;
 }
 
-bool CNetworkClientDispatcher::ioGetBlockExtraInfo(asyncBase *base, std::vector<CNetworkClient::GetBlockExtraInfoQuery> &query)
+bool CNetworkClientDispatcher::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockExtraInfoQuery> &query)
 {
   unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
   for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
-    if (RPCClients_[currentClientIdx]->ioGetBlockExtraInfo(base, query))
+    if (RPCClients_[currentClientIdx]->ioGetBlockExtraInfo(base, orphanAgeLimit, query))
       return true;
     currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
   }

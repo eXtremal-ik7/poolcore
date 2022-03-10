@@ -154,8 +154,8 @@ public:
   virtual ~CNetworkClient() {}
 
   virtual CPreparedQuery *prepareBlock(const void *data, size_t size) = 0;
-  virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &query) = 0;
-  virtual bool ioGetBlockExtraInfo(asyncBase *base, std::vector<GetBlockExtraInfoQuery> &query) = 0;
+  virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &query) = 0;
+  virtual bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &query) = 0;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
   virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) = 0;
   virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error) = 0;

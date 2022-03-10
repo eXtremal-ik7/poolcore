@@ -534,7 +534,7 @@ void AccountingDb::checkBlockConfirmations()
     confirmationsQuery[i].Height = rounds[i]->Height;
   }
 
-  if (!ClientDispatcher_.ioGetBlockConfirmations(Base_, confirmationsQuery)) {
+  if (!ClientDispatcher_.ioGetBlockConfirmations(Base_, _cfg.RequiredConfirmations, confirmationsQuery)) {
     LOG_F(ERROR, "ioGetBlockConfirmations api call failed");
     return;
   }
@@ -575,7 +575,7 @@ void AccountingDb::checkBlockExtraInfo()
   for (const auto &round: unpayedRounds)
     confirmationsQuery.emplace_back(round->BlockHash, round->Height, round->TxFee, round->AvailableCoins);
 
-  if (!ClientDispatcher_.ioGetBlockExtraInfo(Base_, confirmationsQuery)) {
+  if (!ClientDispatcher_.ioGetBlockExtraInfo(Base_, _cfg.RequiredConfirmations, confirmationsQuery)) {
     LOG_F(ERROR, "ioGetBlockExtraInfo api call failed");
     return;
   }
@@ -1072,7 +1072,7 @@ void AccountingDb::queryFoundBlocksImpl(int64_t heightFrom, const std::string &h
 
   // query confirmations
   if (count)
-    ClientDispatcher_.ioGetBlockConfirmations(Base_, confirmationsQuery);
+    ClientDispatcher_.ioGetBlockConfirmations(Base_, _cfg.RequiredConfirmations, confirmationsQuery);
 
   callback(foundBlocks, confirmationsQuery);
 }

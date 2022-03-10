@@ -204,7 +204,7 @@ bool CEthereumRpcClient::ioGetBalance(asyncBase *base, GetBalanceResult &result)
   return true;
 }
 
-bool CEthereumRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &queries)
+bool CEthereumRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &queries)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -273,36 +273,28 @@ bool CEthereumRpcClient::ioGetBlockConfirmations(asyncBase *base, std::vector<Ge
       LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
       return false;
     }
-    rapidjson::Value &resultObject = document["result"].GetObject();
+    rapidjson::Value &blockObject = document["result"].GetObject();
 
-    // Check mix hash
-    if (!resultObject.HasMember("mixHash") || !resultObject["mixHash"].IsString() || resultObject["mixHash"].GetStringLength() != 66 ||
-        !resultObject.HasMember("hash") || !resultObject["hash"].IsString() || resultObject["hash"].GetStringLength() != 66) {
-      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
-      return false;
+    std::string publicHash;
+    if (matchBlock(blockObject, query.Hash, publicHash)) {
+      query.Confirmations = bestBlockHeight - query.Height;
+    } else {
+      std::string publicHash;
+      int64_t uncleHeight = ioSearchUncle(connection.get(), query.Height, query.Hash, bestBlockHeight, publicHash);
+      if (uncleHeight) {
+        query.Confirmations = bestBlockHeight - uncleHeight;
+      } else if (bestBlockHeight - query.Height < orphanAgeLimit) {
+        query.Confirmations = -3;
+      } else {
+        query.Confirmations = -1;
+      }
     }
-
-    char mixHashBin[32];
-    char mixHashHexReversed[72] = {0};
-    const char *mixHash = resultObject["mixHash"].GetString() + 2;
-    const char *hash = resultObject["hash"].GetString() + 2;
-    hex2bin(mixHash, 64*2, mixHashBin);
-    std::reverse(mixHashBin, mixHashBin+32);
-    bin2hexLowerCase(mixHashBin, mixHashHexReversed, 32);
-
-    if (query.Hash != mixHashHexReversed) {
-      // TODO: check uncle blocks
-      query.Confirmations = -1;
-      continue;
-    }
-
-    query.Confirmations = bestBlockHeight - query.Height;
   }
 
   return true;
 }
 
-bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, std::vector<GetBlockExtraInfoQuery> &queries)
+bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &queries)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -372,30 +364,24 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, std::vector<GetBlo
       LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
       return false;
     }
-    rapidjson::Value &resultObject = document["result"].GetObject();
 
-    // Check mix hash
-    if (!resultObject.HasMember("mixHash") || !resultObject["mixHash"].IsString() || resultObject["mixHash"].GetStringLength() != 66 ||
-        !resultObject.HasMember("hash") || !resultObject["hash"].IsString() || resultObject["hash"].GetStringLength() != 66) {
-      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
-      return false;
-    }
+    rapidjson::Value &blockObject = document["result"].GetObject();
 
-    char mixHashBin[32];
-    char mixHashHexReversed[72] = {0};
-    const char *mixHash = resultObject["mixHash"].GetString() + 2;
-    const char *hash = resultObject["hash"].GetString() + 2;
-    hex2bin(mixHash, 64*2, mixHashBin);
-    std::reverse(mixHashBin, mixHashBin+32);
-    bin2hexLowerCase(mixHashBin, mixHashHexReversed, 32);
+    if (!matchBlock(blockObject, query.Hash, query.PublicHash)) {
+      std::string publicHash;
+      int64_t uncleHeight = ioSearchUncle(connection.get(), query.Height, query.Hash, bestBlockHeight, query.PublicHash);
+      if (uncleHeight) {
+        query.Confirmations = bestBlockHeight - uncleHeight;
+        query.BlockReward = getConstBlockReward(uncleHeight) * (8 - (uncleHeight-query.Height))/8;
+      } else if (bestBlockHeight - query.Height < orphanAgeLimit) {
+        query.Confirmations = -3;
+      } else {
+        query.Confirmations = -1;
+      }
 
-    if (query.Hash != mixHashHexReversed) {
-      // TODO: check uncle blocks
-      query.Confirmations = -1;
+      LOG_F(WARNING, "height %lli; hash: %s; reward: %s; confirmations: %lli\n", query.Height, query.PublicHash.c_str(), FormatMoney(query.BlockReward, 1000000000LL).c_str(), query.Confirmations);
       continue;
     }
-
-    query.PublicHash = hash;
 
     // Get block reward
     int64_t constReward = getConstBlockReward(query.Height);
@@ -404,12 +390,12 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, std::vector<GetBlo
     // Get tx fee
     int64_t totalTxFee = query.TxFee;
     if (totalTxFee == 0) {
-      if (!resultObject.HasMember("transactions") || !resultObject["transactions"].IsArray()) {
+      if (!blockObject.HasMember("transactions") || !blockObject["transactions"].IsArray()) {
         LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
         return false;
       }
 
-      const auto &transactionsArray = resultObject["transactions"].GetArray();
+      const auto &transactionsArray = blockObject["transactions"].GetArray();
 
       for (const auto &txObject: transactionsArray) {
         // Here we need hash and gas price
@@ -433,15 +419,15 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, std::vector<GetBlo
 
     // Get uncles reward
     int64_t unclesReward = 0;
-    if (resultObject.HasMember("uncles") && resultObject["uncles"].IsArray())
-      unclesReward = (constReward / 32) * resultObject["uncles"].GetArray().Size();
+    if (blockObject.HasMember("uncles") && blockObject["uncles"].IsArray())
+      unclesReward = (constReward / 32) * blockObject["uncles"].GetArray().Size();
 
     // Get gas fee
     int64_t gasFee = 0;
-    if (resultObject.HasMember("gasUsed") && resultObject["gasUsed"].IsString() && resultObject["gasUsed"].GetStringLength() >= 3 &&
-        resultObject.HasMember("baseFeePerGas") && resultObject["baseFeePerGas"].IsString() && resultObject["baseFeePerGas"].GetStringLength() >= 3) {
-      int64_t gasUsed = strtoll(resultObject["gasUsed"].GetString() + 2, nullptr, 16);
-      int64_t baseFeePerGas = strtoll(resultObject["baseFeePerGas"].GetString() + 2, nullptr, 16);
+    if (blockObject.HasMember("gasUsed") && blockObject["gasUsed"].IsString() && blockObject["gasUsed"].GetStringLength() >= 3 &&
+        blockObject.HasMember("baseFeePerGas") && blockObject["baseFeePerGas"].IsString() && blockObject["baseFeePerGas"].GetStringLength() >= 3) {
+      int64_t gasUsed = strtoll(blockObject["gasUsed"].GetString() + 2, nullptr, 16);
+      int64_t baseFeePerGas = strtoll(blockObject["baseFeePerGas"].GetString() + 2, nullptr, 16);
       gasFee = gasUsed * baseFeePerGas / 1000000000LL;
     }
 
@@ -640,6 +626,107 @@ CEthereumRpcClient::CConnection *CEthereumRpcClient::getConnection(asyncBase *ba
   }
   connection->Client = httpClientNew(base, newSocketIo(base, connection->Socket));
   return connection;
+}
+
+bool CEthereumRpcClient::matchBlock(const rapidjson::Value &block, const std::string &expectedMixHash, std::string &publicHash)
+{
+  // Check mix hash
+  if (!block.HasMember("mixHash") || !block["mixHash"].IsString() || block["mixHash"].GetStringLength() != 66 ||
+      !block.HasMember("hash") || !block["hash"].IsString() || block["hash"].GetStringLength() != 66) {
+    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    return false;
+  }
+
+  char mixHashBin[32];
+  char mixHashHexReversed[72] = {0};
+  const char *blockMixHash = block["mixHash"].GetString() + 2;
+  const char *blockHash = block["hash"].GetString() + 2;
+  hex2bin(blockMixHash, 64*2, mixHashBin);
+  std::reverse(mixHashBin, mixHashBin+32);
+  bin2hexLowerCase(mixHashBin, mixHashHexReversed, 32);
+
+  if (expectedMixHash == mixHashHexReversed) {
+    publicHash = blockHash;
+    return true;
+  } else {
+    return false;
+  }
+}
+
+int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t height, const std::string &mixHash, int64_t bestBlockHeight, std::string &publicHash)
+{
+  char buffer[1024];
+  xmstream jsonStream(buffer, sizeof(buffer));
+  int64_t maxHeight = std::min(height + 16, bestBlockHeight);
+
+  for (int64_t currentHeight = height; currentHeight <= maxHeight; currentHeight++) {
+    jsonStream.reset();
+    {
+      JSON::Object queryObject(jsonStream);
+      queryObject.addString("jsonrpc", "2.0");
+      queryObject.addString("method", "eth_getBlockByNumber");
+      queryObject.addField("params");
+      {
+        char hex[64];
+        snprintf(hex, sizeof(hex), "0x%" PRIx64 "", currentHeight);
+        JSON::Array paramsArray(jsonStream);
+        paramsArray.addString(hex);
+        paramsArray.addBoolean(false);
+      }
+      queryObject.addInt("id", -1);
+    }
+
+    rapidjson::Document document;
+    if (ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000) != EStatusOk)
+      return false;
+
+    if (!document.HasMember("result") || !document["result"].IsObject()) {
+      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      return false;
+    }
+
+    rapidjson::Value &resultObject = document["result"].GetObject();
+    if (!resultObject.HasMember("uncles") || !resultObject["uncles"].IsArray()) {
+      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      return 0;
+    }
+
+    unsigned unclesNum = resultObject["uncles"].GetArray().Size();
+    for (unsigned uncleIdx = 0; uncleIdx < unclesNum; uncleIdx++) {
+      jsonStream.reset();
+      {
+        JSON::Object queryObject(jsonStream);
+        queryObject.addString("jsonrpc", "2.0");
+        queryObject.addString("method", "eth_getUncleByBlockNumberAndIndex");
+        queryObject.addField("params");
+        {
+          char hex1[64];
+          char hex2[64];
+          snprintf(hex1, sizeof(hex1), "0x%" PRIx64 "", currentHeight);
+          snprintf(hex2, sizeof(hex2), "0x%X", uncleIdx);
+          JSON::Array paramsArray(jsonStream);
+          paramsArray.addString(hex1);
+          paramsArray.addString(hex2);
+        }
+        queryObject.addInt("id", -1);
+      }
+
+      rapidjson::Document uncleDocument;
+      if (ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), uncleDocument, 5*1000000) != EStatusOk)
+        return false;
+      if (!uncleDocument.HasMember("result") || !uncleDocument["result"].IsObject()) {
+        LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+        return false;
+      }
+
+      if (matchBlock(uncleDocument["result"].GetObject(), mixHash, publicHash)) {
+        LOG_F(WARNING, "Uncle height: %lli, new height: %lli, public hash: %s\n", height, currentHeight, publicHash.c_str());
+        return currentHeight;
+      }
+    }
+  }
+
+  return 0;
 }
 
 int64_t CEthereumRpcClient::getConstBlockReward(int64_t height)

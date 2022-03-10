@@ -14,8 +14,8 @@ public:
 
   virtual CPreparedQuery *prepareBlock(const void *data, size_t) override;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
-  virtual bool ioGetBlockConfirmations(asyncBase *base, std::vector<GetBlockConfirmationsQuery> &queries) override;
-  virtual bool ioGetBlockExtraInfo(asyncBase *base, std::vector<GetBlockExtraInfoQuery> &queries) override;
+  virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &queries) override;
+  virtual bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &queries) override;
   virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) override;
   virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error) override;
   virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error) override;
@@ -171,6 +171,8 @@ private:
 
   CConnection *getConnection(asyncBase *base);
 
+  bool matchBlock(const rapidjson::Value &block, const std::string &mixHash, std::string &publicHash);
+  int64_t ioSearchUncle(CConnection *connection, int64_t height, const std::string &hash, int64_t bestBlockHeight, std::string &publicHash);
   int64_t getConstBlockReward(int64_t height);
   bool getTxFee(CEthereumRpcClient::CConnection *connection, const char *txid, int64_t gasPrice, int64_t *result);
 
