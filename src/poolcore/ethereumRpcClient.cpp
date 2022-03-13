@@ -441,7 +441,7 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
   return true;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string&, const int64_t value, BuildTransactionResult &result)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -511,7 +511,6 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
     if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() <= 2)
       return CNetworkClient::EStatusProtocolError;
     maxPriorityFeePerGas = strtoll(document["result"].GetString() + 2, nullptr, 16);
-    LOG_F(WARNING, "maxPriorityFeePerGas=%lli\n", maxPriorityFeePerGas);
   }
 
   baseFeePerGas = gasPrice - maxPriorityFeePerGas;
@@ -661,7 +660,47 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error)
 {
-  return CNetworkClient::EStatusUnknownError;
+  char buffer[4096];
+  xmstream jsonStream(buffer, sizeof(buffer));
+
+  std::unique_ptr<CConnection> connection(getConnection(base));
+  if (!connection)
+    return CNetworkClient::EStatusNetworkError;
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+    return CNetworkClient::EStatusNetworkError;
+
+  {
+    JSON::Object queryObject(jsonStream);
+    queryObject.addString("jsonrpc", "2.0");
+    queryObject.addString("method", "eth_sendRawTransaction");
+    queryObject.addField("params");
+    {
+      JSON::Array paramsArray(jsonStream);
+      paramsArray.addString("0x" + txData);
+    }
+    queryObject.addInt("id", -1);
+  }
+
+  rapidjson::Document document;
+  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 180*1000000);
+  if (status != CNetworkClient::EStatusOk) {
+    constexpr int RPC_INVALID_INPUT = -32000;
+
+    error = connection->LastError;
+    if (connection->LastErrorCode == RPC_INVALID_INPUT) {
+      if (connection->LastError == "already known")
+        return CNetworkClient::EStatusOk;
+      else
+        return EStatusVerifyRejected;
+    }
+
+    return status;
+  }
+
+  if (!document.HasMember("result") || !document["result"].IsString())
+    return CNetworkClient::EStatusProtocolError;
+
+  return CNetworkClient::EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error)
