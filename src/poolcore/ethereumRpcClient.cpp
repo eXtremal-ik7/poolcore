@@ -780,10 +780,14 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncB
     CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 180*1000000);
     if (status != CNetworkClient::EStatusOk) {
       error = connection->LastError;
-      return EStatusInvalidAddressOrKey;
+      return status;
     }
 
-    if (!document.HasMember("result") || !document["result"].IsObject())
+    if (!document.HasMember("result"))
+      return CNetworkClient::EStatusProtocolError;
+    if (document["result"].IsNull())
+      return EStatusInvalidAddressOrKey;
+    else if (!document["result"].IsObject())
       return CNetworkClient::EStatusProtocolError;
     const auto &resultObject = document["result"];
 
@@ -1145,10 +1149,10 @@ bool CEthereumRpcClient::getTxStatus(CEthereumRpcClient::CConnection *connection
       !resultObject.HasMember("blockNumber") || !resultObject["blockNumber"].IsString() || resultObject["blockNumber"].GetStringLength() < 4)
     return CNetworkClient::EStatusProtocolError;
 
-  arith_uint256 txFee256(strtoull(resultObject["gasUsed"].GetString() + 2, nullptr, 16));
+  arith_uint256 txFee256(static_cast<uint64_t>(strtoull(resultObject["gasUsed"].GetString() + 2, nullptr, 16)));
   arith_uint256 gasPrice256(static_cast<uint64_t>(gasPrice));
   txFee256 *= gasPrice256;
-  txFee256 /= 1000000000ULL;
+  txFee256 /= static_cast<uint64_t>(1000000000U);
 
   *txFee = txFee256.GetLow64();
   *blockHeight = strtoll(resultObject["blockNumber"].GetString() + 2, nullptr, 16);
