@@ -88,13 +88,13 @@ CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioSendTransaction(asy
   return status;
 }
 
-CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error)
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error)
 {
   CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
   unsigned threadId = GetGlobalThreadId();
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
   for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
-    status = RPCClients_[currentClientIdx]->ioGetTxConfirmations(base, txId, confirmations, error);
+    status = RPCClients_[currentClientIdx]->ioGetTxConfirmations(base, txId, confirmations, txFee, error);
     if (status == CNetworkClient::EStatusOk)
       return CNetworkClient::EStatusOk;
     currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();

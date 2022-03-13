@@ -407,8 +407,9 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
 
         // use gwei for transaction fee
         int64_t txFee = 0;
+        int64_t heightUnUsed = 0;
         int64_t gasPrice = strtoll(txObject["gasPrice"].GetString() + 2, nullptr, 16);
-        if (!getTxFee(connection.get(), txObject["hash"].GetString(), gasPrice, &txFee))
+        if (!getTxStatus(connection.get(), txObject["hash"].GetString(), gasPrice, &txFee, &heightUnUsed))
           return false;
 
         totalTxFee += txFee;
@@ -740,9 +741,86 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioSendTransaction(asyncBase
   return CNetworkClient::EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error)
 {
-  return CNetworkClient::EStatusUnknownError;
+  char buffer[1024];
+  xmstream jsonStream(buffer, sizeof(buffer));
+
+  std::unique_ptr<CConnection> connection(getConnection(base));
+  if (!connection)
+    return CNetworkClient::EStatusNetworkError;
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+    return CNetworkClient::EStatusNetworkError;
+
+  int64_t gasPrice = 0;
+  int64_t blockHeight = 0;
+
+  {
+    // eth_getTransaction - get actual gas price
+    {
+      JSON::Object queryObject(jsonStream);
+      queryObject.addString("jsonrpc", "2.0");
+      queryObject.addString("method", "eth_getTransactionByHash");
+      queryObject.addField("params");
+      {
+        JSON::Array paramsArray(jsonStream);
+        paramsArray.addString("0x" + txId);
+      }
+      queryObject.addInt("id", -1);
+    }
+
+    rapidjson::Document document;
+    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 180*1000000);
+    if (status != CNetworkClient::EStatusOk) {
+      error = connection->LastError;
+      return EStatusInvalidAddressOrKey;
+    }
+
+    if (!document.HasMember("result") || !document["result"].IsObject())
+      return CNetworkClient::EStatusProtocolError;
+    const auto &resultObject = document["result"];
+
+    if (!resultObject.HasMember("gasPrice") || !resultObject["gasPrice"].IsString() || resultObject["gasPrice"].GetStringLength() < 4)
+      return CNetworkClient::EStatusProtocolError;
+
+    gasPrice = strtoll(resultObject["gasPrice"].GetString() + 2, nullptr, 16);
+  }
+
+  if (!getTxStatus(connection.get(), ("0x" + txId).c_str(), gasPrice, txFee, &blockHeight)) {
+    error = connection->LastError;
+    return EStatusInvalidAddressOrKey;
+  }
+
+  // get pending block
+  int64_t bestBlockHeight = 0;
+  {
+    jsonStream.reset();
+    {
+      JSON::Object queryObject(jsonStream);
+      queryObject.addString("jsonrpc", "2.0");
+      queryObject.addString("method", "eth_blockNumber");
+      queryObject.addField("params");
+      {
+        JSON::Array paramsArray(jsonStream);
+      }
+      queryObject.addInt("id", -1);
+    }
+
+    rapidjson::Document document;
+    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+    if (status != CNetworkClient::EStatusOk) {
+      error = connection->LastError;
+      return status;
+    }
+
+    if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() < 4)
+      return CNetworkClient::EStatusProtocolError;
+
+    bestBlockHeight = strtoul(document["result"].GetString() + 2, nullptr, 16);
+  }
+
+  *confirmations = bestBlockHeight - blockHeight;
+  return CNetworkClient::EStatusOk;
 }
 
 void CEthereumRpcClient::aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation)
@@ -1028,7 +1106,7 @@ int64_t CEthereumRpcClient::getConstBlockReward(int64_t height)
     return 2 * 1000000000LL;
 }
 
-bool CEthereumRpcClient::getTxFee(CEthereumRpcClient::CConnection *connection, const char *txid, int64_t gasPrice, int64_t *result)
+bool CEthereumRpcClient::getTxStatus(CEthereumRpcClient::CConnection *connection, const char *txid, int64_t gasPrice, int64_t *txFee, int64_t *blockHeight)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -1055,14 +1133,17 @@ bool CEthereumRpcClient::getTxFee(CEthereumRpcClient::CConnection *connection, c
     return false;
   }
 
-  const auto &resultValue = document["result"];
-  if (!resultValue.HasMember("gasUsed") || !resultValue["gasUsed"].IsString() || resultValue["gasUsed"].GetStringLength() <= 2) {
-    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
-    return false;
-  }
+  const auto &resultObject = document["result"];
+  if (!resultObject.HasMember("gasUsed") || !resultObject["gasUsed"].IsString() || resultObject["gasUsed"].GetStringLength() < 4 ||
+      !resultObject.HasMember("blockNumber") || !resultObject["blockNumber"].IsString() || resultObject["blockNumber"].GetStringLength() < 4)
+    return CNetworkClient::EStatusProtocolError;
 
-  int64_t gasUsed = strtoll(resultValue["gasUsed"].GetString() + 2, nullptr, 16);
-  *result = gasUsed * gasPrice / 1000000000LL;
-  LOG_F(WARNING, "hash: %s fee: %lli\n", txid, *result);
+  arith_uint256 txFee256(strtoull(resultObject["gasUsed"].GetString() + 2, nullptr, 16));
+  arith_uint256 gasPrice256(static_cast<uint64_t>(gasPrice));
+  txFee256 *= gasPrice256;
+  txFee256 /= 1000000000ULL;
+
+  *txFee = txFee256.GetLow64();
+  *blockHeight = strtoll(resultObject["blockNumber"].GetString() + 2, nullptr, 16);
   return true;
 }

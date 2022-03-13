@@ -39,6 +39,7 @@ struct DbIo<PayoutDbRecord> {
     dbIoSerialize(stream, data.TransactionId);
     dbIoSerialize(stream, data.TransactionData);
     dbIoSerialize(stream, data.Status);
+    dbIoSerialize(stream, data.TxFee);
   }
 
   static inline void unserialize(xmstream &stream, PayoutDbRecord &data) {
@@ -51,6 +52,9 @@ struct DbIo<PayoutDbRecord> {
       dbIoUnserialize(stream, data.TransactionId);
       dbIoUnserialize(stream, data.TransactionData);
       dbIoUnserialize(stream, data.Status);
+      if (version >= 2) {
+        dbIoUnserialize(stream, data.TxFee);
+      }
     }
   }
 };

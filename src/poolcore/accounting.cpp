@@ -737,7 +737,7 @@ bool AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
 {
   int64_t confirmations = 0;
   std::string error;
-  CNetworkClient::EOperationStatus status = ClientDispatcher_.ioGetTxConfirmations(Base_, payout.TransactionId, &confirmations, error);
+  CNetworkClient::EOperationStatus status = ClientDispatcher_.ioGetTxConfirmations(Base_, payout.TransactionId, &confirmations, &payout.TxFee, error);
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusInvalidAddressOrKey) {
@@ -761,7 +761,7 @@ bool AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
     }
 
     UserBalanceRecord &balance = It->second;
-    balance.Balance.subRational(payout.Value, CoinInfo_.ExtraMultiplier);
+    balance.Balance.subRational(payout.Value + payout.TxFee, CoinInfo_.ExtraMultiplier);
     balance.Requested -= payout.Value;
     balance.Paid += payout.Value;
     _balanceDb.put(balance);
@@ -955,7 +955,7 @@ void AccountingDb::checkBalance()
   for (auto &p: _payoutQueue) {
     requestedInQueue += p.Value;
     if (p.Status == PayoutDbRecord::ETxSent)
-      confirmationWait += p.Value;
+      confirmationWait += p.Value + p.TxFee;
   }
 
   for (auto &roundIt: UnpayedRounds_) {

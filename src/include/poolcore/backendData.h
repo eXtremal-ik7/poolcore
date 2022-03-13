@@ -97,7 +97,7 @@ struct UserShareValue {
 };
 
 struct PayoutDbRecord {
-  enum { CurrentRecordVersion = 1 };
+  enum { CurrentRecordVersion = 2 };
   enum EStatus {
     EInitialized = 0,
     ETxCreated,
@@ -112,6 +112,8 @@ struct PayoutDbRecord {
   std::string TransactionId;
   std::string TransactionData;
   uint32_t Status = EInitialized;
+  // Version 2
+  int64_t TxFee = 0;
 
   std::string getPartitionId() const { return partByTime(Time); }
   bool deserializeValue(const void *data, size_t size);

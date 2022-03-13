@@ -602,8 +602,11 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioSendTransaction(asyncBase 
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CBitcoinRpcClient::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, std::string &error)
+CNetworkClient::EOperationStatus CBitcoinRpcClient::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error)
 {
+  // Not used here
+  *txFee = 0;
+
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return CNetworkClient::EStatusNetworkError;
