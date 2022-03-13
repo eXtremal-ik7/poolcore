@@ -688,6 +688,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
     auto txId = txObject["hash"].GetString() + 2;
 
     // Can't determine fee at this moment
+    result.Value = value;
     result.Fee = 0;
     result.TxData = txData;
     result.TxId = txId;
