@@ -452,6 +452,43 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
   if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
     return CNetworkClient::EStatusNetworkError;
 
+  // Check balance first
+  // We require payout value + 5% at balance
+  {
+    jsonStream.reset();
+    {
+      JSON::Object queryObject(jsonStream);
+      queryObject.addString("jsonrpc", "2.0");
+      queryObject.addString("method", "eth_getBalance");
+      queryObject.addField("params");
+      {
+        JSON::Array paramsArray(jsonStream);
+        paramsArray.addString(MiningAddress_);
+        paramsArray.addString("latest");
+      }
+      queryObject.addInt("id", -1);
+    }
+
+    rapidjson::Document document;
+    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 180*1000000);
+    if (status != CNetworkClient::EStatusOk) {
+      result.Error = connection->LastError;
+      return status;
+    }
+
+    if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() < 4)
+      return CNetworkClient::EStatusProtocolError;
+
+    arith_uint256 balance;
+    arith_uint256 gwei(static_cast<uint64_t>(1000000000ULL));
+    balance.SetHex(document["result"].GetString());
+    balance /= gwei;
+    int64_t balanceGwei = balance.GetLow64();
+    if (balanceGwei < (value+value/20)) {
+      return CNetworkClient::EStatusInsufficientFunds;
+    }
+  }
+
   // We need those values:
   //   * base fee per gas (eth.maxPriorityFeePerGas - eth.gasPrice)
   //   * max priority fee per gas (eth.maxPriorityFeePerGas)
