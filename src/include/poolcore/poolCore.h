@@ -158,7 +158,7 @@ public:
   virtual bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &query) = 0;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
   virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) = 0;
-  virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error) = 0;
+  virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string &txId, std::string &error) = 0;
   virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error) = 0;
   virtual EOperationStatus ioListUnspent(asyncBase *base, ListUnspentResult &result) = 0;
   virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result) = 0;

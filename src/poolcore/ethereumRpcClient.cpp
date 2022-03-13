@@ -696,7 +696,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
   return CNetworkClient::EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ioSendTransaction(asyncBase *base, const std::string &txData, const std::string &txId, std::string &error)
 {
   char buffer[4096];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -726,10 +726,17 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioSendTransaction(asyncBase
 
     error = connection->LastError;
     if (connection->LastErrorCode == RPC_INVALID_INPUT) {
-      if (connection->LastError == "already known")
+      if (connection->LastError == "already known") {
         return CNetworkClient::EStatusOk;
-      else
+      } else if (connection->LastError == "nonce too low") {
+        int64_t txFee;
+        int64_t blockHeight;
+        if (!getTxStatus(connection.get(), ("0x" + txId).c_str(), 0, &txFee, &blockHeight))
+          return CNetworkClient::EStatusProtocolError;
+        return CNetworkClient::EStatusOk;
+      } else {
         return EStatusVerifyRejected;
+      }
     }
 
     return status;

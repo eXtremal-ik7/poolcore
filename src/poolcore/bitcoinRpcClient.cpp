@@ -560,7 +560,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CBitcoinRpcClient::ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error)
+CNetworkClient::EOperationStatus CBitcoinRpcClient::ioSendTransaction(asyncBase *base, const std::string &txData, const std::string&, std::string &error)
 {
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)

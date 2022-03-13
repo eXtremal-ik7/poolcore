@@ -18,7 +18,7 @@ public:
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
   virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &query) override;
   virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) override;
-  virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, std::string &error) override;
+  virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string&, std::string &error) override;
   virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error) override;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation) override;
   virtual EOperationStatus ioListUnspent(asyncBase *base, ListUnspentResult &result) override;

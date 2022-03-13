@@ -707,7 +707,7 @@ bool AccountingDb::sendTransaction(PayoutDbRecord &payout)
   // Send transaction and change it status to 'Sent'
   // For bitcoin-based API it's 'sendrawtransaction'
   std::string error;
-  CNetworkClient::EOperationStatus status = ClientDispatcher_.ioSendTransaction(Base_, payout.TransactionData, error);
+  CNetworkClient::EOperationStatus status = ClientDispatcher_.ioSendTransaction(Base_, payout.TransactionData, payout.TransactionId, error);
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusVerifyRejected) {
