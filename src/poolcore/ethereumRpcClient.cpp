@@ -1110,6 +1110,9 @@ int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t heigh
 
 int64_t CEthereumRpcClient::getConstBlockReward(int64_t height)
 {
+  if (CoinInfo_.Name == "ETC")
+    return 3200000000LL;
+
   if (height < ByzantiumHeight)
     return 5 * 1000000000LL;
   else if (height < ConstantinopleHeight)
