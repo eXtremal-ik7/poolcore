@@ -1,6 +1,7 @@
 #pragma once
 
 #include "poolcore/poolCore.h"
+#include "poolcommon/uint.h"
 #include "asyncio/http.h"
 #include "asyncio/socket.h"
 #include <rapidjson/document.h>
@@ -171,10 +172,58 @@ private:
 
   CConnection *getConnection(asyncBase *base);
 
-  bool matchBlock(const rapidjson::Value &block, const std::string &mixHash, std::string &publicHash);
+  // Raw Ethereum API - structures
+  struct ETHTransaction {
+    UInt<128> GasPrice;
+    UInt<256> Hash;
+  };
+
+  struct ETHTransactionReceipt {
+    uint64_t BlockNumber;
+    UInt<128> GasUsed;
+  };
+
+  struct ETHBlock {
+    UInt<256> MixHash;
+    UInt<256> Hash;
+    UInt<128> GasUsed;
+    UInt<128> BaseFeePerGas = 0u;
+    std::vector<ETHTransaction> Transactions;
+    std::vector<UInt<256>> Uncles;
+  };
+
   int64_t ioSearchUncle(CConnection *connection, int64_t height, const std::string &hash, int64_t bestBlockHeight, std::string &publicHash);
-  int64_t getConstBlockReward(int64_t height);
-  bool getTxStatus(CEthereumRpcClient::CConnection *connection, const char *txid, int64_t gasPrice, int64_t *txFee, int64_t *blockHeight);
+  UInt<128> getConstBlockReward(int64_t height);
+//  bool getTxStatus(CEthereumRpcClient::CConnection *connection, const char *txid, int64_t gasPrice, int64_t *txFee, int64_t *blockHeight);
+//  bool getTxStatus2(CEthereumRpcClient::CConnection *connection, const UInt<256> &txid, UInt<128> gasPrice, UInt<128> *txFee, uint64_t *blockHeight);
+
+  uint64_t gwei(UInt<128> value) { return (value / 1000000000U).low64(); }
+
+  // Raw Ethereum API - methods
+  CNetworkClient::EOperationStatus ethGetBalance(CConnection *connection, const std::string &address, UInt<128> *balance);
+  CNetworkClient::EOperationStatus ethGasPrice(CConnection *connection, UInt<128> *gasPrice);
+  CNetworkClient::EOperationStatus ethMaxPriorityFeePerGas(CConnection *connection, UInt<128> *maxPriorityFeePerGas);
+  CNetworkClient::EOperationStatus ethGetTransactionCount(CConnection *connection, const std::string &address, uint64_t *count);
+  CNetworkClient::EOperationStatus ethBlockNumber(CConnection *connection, uint64_t *blockNumber);
+  CNetworkClient::EOperationStatus ethGetBlockByNumber(CConnection *connection, uint64_t height, ETHBlock &block);
+  CNetworkClient::EOperationStatus ethGetUncleByBlockNumberAndIndex(CConnection *connection, uint64_t height, unsigned uncleIndex, ETHBlock &block);
+  CNetworkClient::EOperationStatus ethGetTransactionByHash(CConnection *connection, const UInt<256> &txid, ETHTransaction &tx);
+  CNetworkClient::EOperationStatus ethGetTransactionReceipt(CConnection *connection, const UInt<256> &txid, ETHTransactionReceipt &receipt);
+
+  CNetworkClient::EOperationStatus ethSignTransaction(CConnection *connection,
+                                                      const std::string &from,
+                                                      const std::string &to,
+                                                      UInt<128> value,
+                                                      UInt<128> gas,
+                                                      UInt<128> maxPriorityFeePerGas,
+                                                      UInt<128> maxFeePerGas,
+                                                      uint64_t nonce,
+                                                      std::string &txData,
+                                                      std::string &txId);
+
+  CNetworkClient::EOperationStatus ethSendRawTransaction(CConnection *connection, const std::string &txData);
+
+  CNetworkClient::EOperationStatus personalUnlockAccount(CConnection *connection, const std::string &address, const std::string &passPhrase, unsigned seconds);
 
 private:
   asyncBase *WorkFetcherBase_ = nullptr;

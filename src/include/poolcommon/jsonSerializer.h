@@ -5,9 +5,9 @@
 
 namespace JSON {
 
-static inline char bin2hexLowerCaseDigit(uint8_t b)
+static inline char bin2hexLowerCaseDigit(uint8_t b, bool upperCase)
 {
-  return b < 10 ? '0'+b : 'a'+b-10;
+  return b < 10 ? '0'+b : (upperCase ? 'A' : 'a') + b - 10;
 }
 
 class Object {
@@ -24,6 +24,16 @@ public:
     char *out = Stream_.reserve<char>(24);
     size_t size = xitoa(number, out);
     Stream_.seek(size-24);
+  }
+
+  template<typename T>
+  void addIntHex(const char *name, T number, bool leadingZeroes = true, bool zeroxPrefix = false, bool upperCase = false) {
+    addField(name);
+    Stream_.write('\"');
+    char *out = Stream_.reserve<char>(24);
+    size_t size = xitoah(number, out, leadingZeroes, zeroxPrefix, upperCase);
+    Stream_.seek(size-24);
+    Stream_.write('\"');
   }
 
   void addDouble(const char *name, double number) {
@@ -55,15 +65,17 @@ public:
     Stream_.write('\"');
   }
 
-  void addHex(const char *name, const void *data, size_t size) {
+  void addHex(const char *name, const void *data, size_t size, bool zeroxPrefix = false, bool upperCase = false) {
     addField(name);
     Stream_.write('\"');
+    if (zeroxPrefix)
+      Stream_.write("0x");
 
     char *out = Stream_.reserve<char>(size*2);
     const uint8_t *pIn = static_cast<const uint8_t*>(data);
     for (size_t i = 0, ie = size; i != ie; ++i) {
-      out[i*2] = bin2hexLowerCaseDigit(pIn[i] >> 4);
-      out[i*2+1] = bin2hexLowerCaseDigit(pIn[i] & 0xF);
+      out[i*2] = bin2hexLowerCaseDigit(pIn[i] >> 4, upperCase);
+      out[i*2+1] = bin2hexLowerCaseDigit(pIn[i] & 0xF, upperCase);
     }
 
     Stream_.write('\"');
@@ -120,6 +132,16 @@ public:
     Stream_.seek(size-24);
   }
 
+  template<typename T>
+  void addIntHex(T number, bool leadingZeroes = true, bool zeroxPrefix = false, bool upperCase = false) {
+    addField();
+    Stream_.write('\"');
+    char *out = Stream_.reserve<char>(24);
+    size_t size = xitoah(number, out, leadingZeroes, zeroxPrefix, upperCase);
+    Stream_.seek(size-24);
+    Stream_.write('\"');
+  }
+
   void addDouble(double number) {
     addField();
 
@@ -149,15 +171,17 @@ public:
     Stream_.write('\"');
   }
 
-  void addHex(const void *data, size_t size) {
+  void addHex(const void *data, size_t size, bool zeroxPrefix = false, bool upperCase = false) {
     addField();
     Stream_.write('\"');
+    if (zeroxPrefix)
+      Stream_.write("0x");
 
     char *out = Stream_.reserve<char>(size*2);
     const uint8_t *pIn = static_cast<const uint8_t*>(data);
     for (size_t i = 0, ie = size; i != ie; ++i) {
-      out[i*2] = bin2hexLowerCaseDigit(pIn[i] >> 4);
-      out[i*2+1] = bin2hexLowerCaseDigit(pIn[i] & 0xF);
+      out[i*2] = bin2hexLowerCaseDigit(pIn[i] >> 4, upperCase);
+      out[i*2+1] = bin2hexLowerCaseDigit(pIn[i] & 0xF, upperCase);
     }
 
     Stream_.write('\"');

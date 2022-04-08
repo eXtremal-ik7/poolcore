@@ -115,8 +115,9 @@ public:
     }
 
     virtual std::string blockHash(size_t) override {
-      // TODO: remove this temporary workaround
-      return MixHash_.ToString();
+      uint256 hash(MixHash_);
+      std::reverse(hash.begin(), hash.end());
+      return hash.ToString();
     }
 
     virtual double expectedWork(size_t) override {
