@@ -269,6 +269,9 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
 
         totalTxFee += txObject.GasPrice * receipt.GasUsed;
       }
+
+      // TODO: use 128 bit integer everywhere for accounting
+      totalTxFee = fromGWei(gwei(totalTxFee));
     }
 
     UInt<128> unclesReward = (constReward / 32u) * static_cast<uint32_t>(block.Uncles.size());
