@@ -252,7 +252,6 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
         query.Confirmations = -1;
       }
 
-      LOG_F(WARNING, "height %lli; hash: %s; reward: %s; confirmations: %lli\n", query.Height, query.PublicHash.c_str(), FormatMoney(query.BlockReward, 1000000000LL).c_str(), query.Confirmations);
       continue;
     } else {
       query.PublicHash = uint2Hex(block.Hash);
@@ -279,7 +278,6 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
     query.TxFee = (totalTxFee / 1000000000U).low64();
     query.BlockReward = (blockReward / 1000000000U).low64();
     query.Confirmations = bestBlockHeight - query.Height;
-    LOG_F(WARNING, "height %lli; hash: %s; reward: %s; confirmations: %lli\n", query.Height, query.PublicHash.c_str(), FormatMoney(query.BlockReward, 1000000000LL).c_str(), query.Confirmations);
   }
 
   return true;
@@ -610,7 +608,6 @@ int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t heigh
 
       if (uncleBlock.MixHash == UInt<256>::fromHex(mixHash.c_str())) {
         publicHash = uint2Hex(uncleBlock.Hash);
-        LOG_F(WARNING, "Uncle height: %lli, new height: %lli, public hash: %s\n", height, currentHeight, publicHash.c_str());
         return currentHeight;
       }
     }
@@ -623,14 +620,14 @@ UInt<128> CEthereumRpcClient::getConstBlockReward(int64_t height)
 {
   const UInt<128> gwei = 1000000000U;
   if (CoinInfo_.Name == "ETC")
-    return 3200000000ULL * gwei;
+    return gwei * static_cast<uint64_t>(3200000000ULL);
 
   if (height < ByzantiumHeight)
-    return 5 * 1000000000ULL * gwei;
+    return gwei * static_cast<uint64_t>(5 * 1000000000ULL);
   else if (height < ConstantinopleHeight)
-    return 3 * 1000000000ULL * gwei;
+    return gwei * static_cast<uint64_t>(3 * 1000000000ULL);
   else
-    return 2 * 1000000000ULL * gwei;
+    return gwei * static_cast<uint64_t>(2 * 1000000000ULL);
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(CConnection *connection, const std::string &address, UInt<128> *balance)
