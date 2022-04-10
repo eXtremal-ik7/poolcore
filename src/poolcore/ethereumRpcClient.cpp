@@ -172,7 +172,7 @@ bool CEthereumRpcClient::ioGetBalance(asyncBase *base, GetBalanceResult &result)
   if (ethGetBalance(connection.get(), MiningAddress_, &balance) != EStatusOk)
     return false;
 
-  result.Balance = (balance / 1000000000u).low64();
+  result.Balance = gwei(balance);
   result.Immatured = 0;
   return true;
 }
@@ -244,7 +244,7 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
       if (uncleHeight) {
         UInt<128> reward = getConstBlockReward(uncleHeight) * (8 - (uncleHeight-query.Height)) / 8u;
         query.Confirmations = bestBlockHeight - uncleHeight;
-        query.BlockReward = (reward / 1000000000u).low64();
+        query.BlockReward = gwei(reward);
       // TODO: remove static_cast
       } else if (bestBlockHeight - query.Height < static_cast<uint64_t>(orphanAgeLimit)) {
         query.Confirmations = -3;
@@ -259,7 +259,7 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
 
     // Get block reward
     UInt<128> constReward = getConstBlockReward(query.Height);
-    UInt<128> totalTxFee = static_cast<uint64_t>(query.TxFee);
+    UInt<128> totalTxFee = fromGWei(query.TxFee);
     if (totalTxFee == 0u) {
       for (const auto &txObject: block.Transactions) {
         // Get receipt for each transaction
@@ -275,8 +275,8 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
     UInt<128> gasFee = block.GasUsed * block.BaseFeePerGas;
     UInt<128> blockReward = constReward + unclesReward + totalTxFee - gasFee;
 
-    query.TxFee = (totalTxFee / 1000000000U).low64();
-    query.BlockReward = (blockReward / 1000000000U).low64();
+    query.TxFee = gwei(totalTxFee);
+    query.BlockReward = gwei(blockReward);
     query.Confirmations = bestBlockHeight - query.Height;
   }
 
@@ -325,13 +325,10 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
   baseFeePerGas = gasPrice - maxPriorityFeePerGas;
   maxFeePerGas = maxPriorityFeePerGas + 2u*baseFeePerGas;
 
-  UInt<128> valueInWei = static_cast<uint64_t>(value);
-    valueInWei *= 1000000000U;
-
   if ((status = ethSignTransaction(connection.get(),
                                    MiningAddress_,
                                    address,
-                                   valueInWei,
+                                   fromGWei(value),
                                    21000u,
                                    maxPriorityFeePerGas,
                                    maxFeePerGas,
@@ -618,16 +615,15 @@ int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t heigh
 
 UInt<128> CEthereumRpcClient::getConstBlockReward(int64_t height)
 {
-  const UInt<128> gwei = 1000000000U;
   if (CoinInfo_.Name == "ETC")
-    return gwei * static_cast<uint64_t>(3200000000ULL);
+    return fromGWei(3200000000ULL);
 
   if (height < ByzantiumHeight)
-    return gwei * static_cast<uint64_t>(5 * 1000000000ULL);
+    return fromGWei(5 * 1000000000ULL);
   else if (height < ConstantinopleHeight)
-    return gwei * static_cast<uint64_t>(3 * 1000000000ULL);
+    return fromGWei(3 * 1000000000ULL);
   else
-    return gwei * static_cast<uint64_t>(2 * 1000000000ULL);
+    return fromGWei(2 * 1000000000ULL);
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(CConnection *connection, const std::string &address, UInt<128> *balance)

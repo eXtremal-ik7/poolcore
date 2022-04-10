@@ -194,10 +194,9 @@ private:
 
   int64_t ioSearchUncle(CConnection *connection, int64_t height, const std::string &hash, int64_t bestBlockHeight, std::string &publicHash);
   UInt<128> getConstBlockReward(int64_t height);
-//  bool getTxStatus(CEthereumRpcClient::CConnection *connection, const char *txid, int64_t gasPrice, int64_t *txFee, int64_t *blockHeight);
-//  bool getTxStatus2(CEthereumRpcClient::CConnection *connection, const UInt<256> &txid, UInt<128> gasPrice, UInt<128> *txFee, uint64_t *blockHeight);
 
   uint64_t gwei(UInt<128> value) { return (value / 1000000000U).low64(); }
+  UInt<128> fromGWei(uint64_t value) { return UInt<128>(value) * 1000000000U; }
 
   // Raw Ethereum API - methods
   CNetworkClient::EOperationStatus ethGetBalance(CConnection *connection, const std::string &address, UInt<128> *balance);
