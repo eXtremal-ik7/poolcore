@@ -209,16 +209,26 @@ private:
   CNetworkClient::EOperationStatus ethGetTransactionByHash(CConnection *connection, const UInt<256> &txid, ETHTransaction &tx);
   CNetworkClient::EOperationStatus ethGetTransactionReceipt(CConnection *connection, const UInt<256> &txid, ETHTransactionReceipt &receipt);
 
-  CNetworkClient::EOperationStatus ethSignTransaction(CConnection *connection,
-                                                      const std::string &from,
-                                                      const std::string &to,
-                                                      UInt<128> value,
-                                                      UInt<128> gas,
-                                                      UInt<128> maxPriorityFeePerGas,
-                                                      UInt<128> maxFeePerGas,
-                                                      uint64_t nonce,
-                                                      std::string &txData,
-                                                      std::string &txId);
+  CNetworkClient::EOperationStatus ethSignTransactionOld(CConnection *connection,
+                                                         const std::string &from,
+                                                         const std::string &to,
+                                                         UInt<128> value,
+                                                         UInt<128> gas,
+                                                         UInt<128> gasPrice,
+                                                         uint64_t nonce,
+                                                         std::string &txData,
+                                                         std::string &txId);
+
+  CNetworkClient::EOperationStatus ethSignTransaction1559(CConnection *connection,
+                                                          const std::string &from,
+                                                          const std::string &to,
+                                                          UInt<128> value,
+                                                          UInt<128> gas,
+                                                          UInt<128> maxPriorityFeePerGas,
+                                                          UInt<128> maxFeePerGas,
+                                                          uint64_t nonce,
+                                                          std::string &txData,
+                                                          std::string &txId);
 
   CNetworkClient::EOperationStatus ethSendRawTransaction(CConnection *connection, const std::string &txData);
 

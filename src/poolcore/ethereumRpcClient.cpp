@@ -328,16 +328,30 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
   baseFeePerGas = gasPrice - maxPriorityFeePerGas;
   maxFeePerGas = maxPriorityFeePerGas + 2u*baseFeePerGas;
 
-  if ((status = ethSignTransaction(connection.get(),
+  if (CoinInfo_.Name != "ETC") {
+    status = ethSignTransaction1559(connection.get(),
+                                    MiningAddress_,
+                                    address,
+                                    fromGWei(value),
+                                    21000u,
+                                    maxPriorityFeePerGas,
+                                    maxFeePerGas,
+                                    nonce,
+                                    result.TxData,
+                                    result.TxId);
+  } else {
+    status = ethSignTransactionOld(connection.get(),
                                    MiningAddress_,
                                    address,
                                    fromGWei(value),
                                    21000u,
-                                   maxPriorityFeePerGas,
-                                   maxFeePerGas,
+                                   gasPrice,
                                    nonce,
                                    result.TxData,
-                                   result.TxId)) != EStatusOk) {
+                                   result.TxId);
+  }
+
+  if (status != EStatusOk) {
     result.Error = connection->LastError;
     return status;
   }
@@ -995,16 +1009,77 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionReceipt(CC
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction(CConnection *connection,
-                                                                        const std::string &from,
-                                                                        const std::string &to,
-                                                                        UInt<128> value,
-                                                                        UInt<128> gas,
-                                                                        UInt<128> maxPriorityFeePerGas,
-                                                                        UInt<128> maxFeePerGas,
-                                                                        uint64_t nonce,
-                                                                        std::string &txData,
-                                                                        std::string &txId)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(CConnection *connection,
+                                                                           const std::string &from,
+                                                                           const std::string &to,
+                                                                           UInt<128> value,
+                                                                           UInt<128> gas,
+                                                                           UInt<128> gasPrice,
+                                                                           uint64_t nonce,
+                                                                           std::string &txData,
+                                                                           std::string &txId)
+{
+  char buffer[1024];
+  xmstream jsonStream(buffer, sizeof(buffer));
+
+  jsonStream.reset();
+  {
+    JSON::Object queryObject(jsonStream);
+    queryObject.addString("jsonrpc", "2.0");
+    queryObject.addString("method", "eth_signTransaction");
+    queryObject.addField("params");
+    {
+      JSON::Array paramsArray(jsonStream);
+      paramsArray.addField();
+      {
+        JSON::Object transaction(jsonStream);
+        transaction.addString("from", from);
+        transaction.addString("to", to);
+        transaction.addString("value", uint2Hex(value, false, true));
+        transaction.addString("gas", uint2Hex(gas, false, true));
+        transaction.addString("gasPrice", uint2Hex(gasPrice, false, true));
+        transaction.addIntHex("nonce", nonce, false, true);
+      }
+    }
+    queryObject.addInt("id", -1);
+  }
+
+  rapidjson::Document document;
+  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  if (status != EStatusOk)
+    return status;
+
+  if (!document.HasMember("result") || !document["result"].IsObject())
+    return CNetworkClient::EStatusProtocolError;
+
+  // get raw transaction
+  const auto &resultObject = document["result"];
+  if (!resultObject.HasMember("raw") || !resultObject["raw"].IsString() || resultObject["raw"].GetStringLength() < 4)
+    return CNetworkClient::EStatusProtocolError;
+  txData = resultObject["raw"].GetString() + 2;
+
+  // get txid
+  if (!resultObject.HasMember("tx") || !resultObject["tx"].IsObject())
+    return CNetworkClient::EStatusProtocolError;
+  const auto &txObject = resultObject["tx"];
+
+  if (!txObject.HasMember("hash") || !txObject["hash"].IsString() || txObject["hash"].GetStringLength() < 4)
+    return CNetworkClient::EStatusProtocolError;
+  txId = txObject["hash"].GetString() + 2;
+
+  return EStatusOk;
+}
+
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction1559(CConnection *connection,
+                                                                            const std::string &from,
+                                                                            const std::string &to,
+                                                                            UInt<128> value,
+                                                                            UInt<128> gas,
+                                                                            UInt<128> maxPriorityFeePerGas,
+                                                                            UInt<128> maxFeePerGas,
+                                                                            uint64_t nonce,
+                                                                            std::string &txData,
+                                                                            std::string &txId)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
