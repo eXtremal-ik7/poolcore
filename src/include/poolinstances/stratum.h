@@ -751,6 +751,19 @@ private:
     send(connection, stream);
   }
 
+  void onStratumSubmitHashrate(Connection *connection, typename X::Stratum::StratumMessage &message) {
+    xmstream stream;
+    {
+      JSON::Object object(stream);
+      message.addId(object);
+      object.addBoolean("result", true);
+      object.addNull("error");
+    }
+
+    stream.write('\n');
+    send(connection, stream);
+  }
+
   void stratumSendTarget(Connection *connection) {
     xmstream stream;
     X::Stratum::buildSendTargetMessage(stream, connection->ShareDifficulty);
@@ -825,6 +838,9 @@ private:
               break;
             case EStratumMethodTy::EMultiVersion :
               connection->Instance->onStratumMultiVersion(connection, msg);
+              break;
+            case EStratumMethodTy::ESubmitHashrate :
+              connection->Instance->onStratumSubmitHashrate(connection, msg);
               break;
             default : {
               // unknown method

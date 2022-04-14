@@ -14,6 +14,7 @@ enum EStratumMethodTy {
   EMultiVersion,
   EMiningConfigure,
   EMiningSuggestDifficulty,
+  ESubmitHashrate,
   ELast
 };
 

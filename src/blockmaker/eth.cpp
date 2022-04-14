@@ -76,6 +76,8 @@ EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char 
     Submit.WorkerName = params[0].GetString();
     Submit.JobId = params[1].GetString();
     Submit.Nonce = strtoul(params[2].GetString(), nullptr, 16);
+  } else if (method == "eth_submitHashrate") {
+    Method = ESubmitHashrate;
   } else {
     return EStratumStatusFormatError;
   }
