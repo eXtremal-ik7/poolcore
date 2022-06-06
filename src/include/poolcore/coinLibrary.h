@@ -9,8 +9,12 @@ public:
   static CCoinInfo get(const char *coinName) {
     CCoinInfo info;
     // PoW algorithms
-    if (strcmp(coinName, "ethhash") == 0) {
-      info.Name = "ethhash";
+    if (strcmp(coinName, "ethash") == 0) {
+      info.Name = "ethash";
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+    } else if (strcmp(coinName, "etchash") == 0) {
+      info.Name = "etchash";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
     } else if (strcmp(coinName, "equihash.200.9") == 0) {
@@ -321,7 +325,7 @@ public:
       info.CoinGeckoName = "ethereum-classic";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 64;
-      info.Algorithm = "ethhash";
+      info.Algorithm = "etchash";
       info.HasDagFile = true;
       info.BigEpoch = true;
     } else if (strcmp(coinName, "ETH") == 0) {
@@ -336,7 +340,7 @@ public:
       info.CoinGeckoName = "ethereum";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 64;
-      info.Algorithm = "ethhash";
+      info.Algorithm = "ethash";
       info.HasDagFile = true;
     } else if (strcmp(coinName, "ETH.ropsten") == 0) {
       info.Name = "ETH.ropsten";
@@ -349,7 +353,7 @@ public:
       info.DefaultRpcPort = 8545;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 64;
-      info.Algorithm = "ethhash";
+      info.Algorithm = "ethash";
       info.HasDagFile = true;
     } else if (strcmp(coinName, "FCH") == 0) {
       info.Name = "FCH";

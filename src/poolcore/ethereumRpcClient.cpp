@@ -19,6 +19,7 @@
 
 static constexpr int64_t ByzantiumHeight = 4370000;
 static constexpr int64_t ConstantinopleHeight = 7280000;
+static constexpr int64_t ETC256Height = 15000001;
 
 static std::string buildPostQuery(const std::string address, const char *data, size_t size, const std::string &host)
 {
@@ -632,8 +633,12 @@ int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t heigh
 
 UInt<128> CEthereumRpcClient::getConstBlockReward(int64_t height)
 {
-  if (CoinInfo_.Name == "ETC")
-    return fromGWei(3200000000ULL);
+  if (CoinInfo_.Name == "ETC") {
+    if (height < ETC256Height)
+      return fromGWei(3200000000ULL);
+    else
+      return fromGWei(2560000000ULL);
+  }
 
   if (height < ByzantiumHeight)
     return fromGWei(5 * 1000000000ULL);
