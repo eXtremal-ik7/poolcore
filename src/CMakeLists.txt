@@ -1,7 +1,7 @@
 include("cmake/cxx-pm.cmake")
 cxxpm_initialize(
-  https://github.com/eXtremal-ik7/cxx-pm/archive/refs/tags/0.0.2.tar.gz
-  4ce6e345818642a18b134c8c2926dfa33cc23a42ce2b26d2a4b61394fdf5c60c
+  https://github.com/eXtremal-ik7/cxx-pm/archive/refs/tags/0.0.3.tar.gz
+  c7a00b89700cdaaf5f4fd9efadd19a4259d9e281cdc37e03c728aed38ee18387
 )
 
 cmake_minimum_required(VERSION 3.11)
