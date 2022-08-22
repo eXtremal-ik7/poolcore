@@ -36,6 +36,7 @@ struct CCoinInfo {
   int64_t ExtraMultiplier = 100;
   EAddressType PayoutAddressType;
   bool SegwitEnabled;
+  bool MWebEnabled = false;
   EPowerUnitType PowerUnitType;
   int32_t PowerMultLog10;
 

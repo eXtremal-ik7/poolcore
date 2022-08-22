@@ -440,6 +440,7 @@ public:
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
+      info.MWebEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {48};
@@ -457,6 +458,7 @@ public:
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
+      info.MWebEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {111};
@@ -472,6 +474,7 @@ public:
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
+      info.MWebEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {111};

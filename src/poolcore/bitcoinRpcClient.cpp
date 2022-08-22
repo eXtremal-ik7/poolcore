@@ -94,33 +94,46 @@ static void buildPostQuery(const char *data, size_t size, const std::string &hos
     out.write(data, size);
 }
 
-static std::string buildGetBlockTemplate(const std::string &longPollId, bool segwitEnabled)
+static std::string buildGetBlockTemplate(const std::string &longPollId, bool segwitEnabled, bool mwebEnabled)
 {
-  std::string longPollParam;
-  std::string rules;
-  if (!longPollId.empty()) {
-    longPollParam = "\"longpollid\": \"";
-    longPollParam.append(longPollId);
-    longPollParam.append("\"");
+  char buffer[2048];
+  xmstream stream(buffer, sizeof(buffer));
+  stream.reset();
+  {
+    JSON::Object query1(stream);
+    query1.addString("jsonrpc", "1.0");
+    query1.addString("method", "getblocktemplate");
+    query1.addField("params");
+    {
+      JSON::Array paramsArray(stream);
+      {
+        JSON::Object paramsObjectObject(stream);
+        paramsObjectObject.addField("capabilities");
+        {
+          JSON::Array capabilitesArray(stream);
+          capabilitesArray.addString("coinbasetxn");
+          capabilitesArray.addString("workid");
+          capabilitesArray.addString("coinbase/append");
+        }
+
+        if (!longPollId.empty())
+          paramsObjectObject.addString("longpollid", longPollId);
+
+        if (segwitEnabled || mwebEnabled) {
+          paramsObjectObject.addField("rules");
+          {
+            JSON::Array rulesArray(stream);
+            if (segwitEnabled)
+              rulesArray.addString("segwit");
+            if (mwebEnabled)
+              rulesArray.addString("mweb");
+          }
+        }
+      }
+    }
   }
 
-  if (segwitEnabled) {
-    rules = R"json("rules": ["segwit"])json";
-  }
-
-  std::string query = R"json({"jsonrpc": "1.0", "method": "getblocktemplate", "params": [{"capabilities": ["coinbasetxn", "workid", "coinbase/append"])json";
-  if (!longPollParam.empty()) {
-    query.push_back(',');
-    query.append(longPollParam);
-  }
-
-  if (!rules.empty()) {
-    query.push_back(',');
-    query.append(rules);
-  }
-
-  query.append(R"json(}] })json");
-  return query;
+  return std::string(stream.data<char>(), stream.sizeOf());
 }
 
 std::string CBitcoinRpcClient::buildSendToAddress(const std::string &destination, int64_t amount)
@@ -835,7 +848,7 @@ void CBitcoinRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
     return;
   }
 
-  std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled);
+  std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled, CoinInfo_.MWebEnabled);
   std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, BasicAuth_);
   aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), 60000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherIncomingData(status);
@@ -931,7 +944,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   // Send next request
   if (!WorkFetcher_.LongPollId.empty()) {
     // With long polling send new request immediately
-    std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled);
+    std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled, CoinInfo_.MWebEnabled);
     std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, BasicAuth_);
     aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), !WorkFetcher_.LongPollId.empty() ? 0 : 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
       static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherIncomingData(status);
@@ -944,7 +957,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 
 void CBitcoinRpcClient::onWorkFetchTimeout()
 {
-  std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled);
+  std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled, CoinInfo_.MWebEnabled);
   std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, BasicAuth_);
   aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), !WorkFetcher_.LongPollId.empty() ? 0 : 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherIncomingData(status);
