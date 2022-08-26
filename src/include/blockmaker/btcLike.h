@@ -336,6 +336,11 @@ public:
     // Transactions
     collectTransactions(processedTransactions, TxHexData, MerklePath, this->TxNum_);
 
+    // Mimble wimble data
+    MimbleWimbleData.reset();
+    if (resultValue.HasMember("mweb") && resultValue["mweb"].IsString())
+      MimbleWimbleData.write(resultValue["mweb"].GetString(), resultValue["mweb"].GetStringLength());
+
     // Fill header
     if (!HeaderBuilderTy::build(Header, &JobVersion, CBTxLegacy_, MerklePath, resultValue)) {
       error = "missing header data";
@@ -389,6 +394,12 @@ public:
 
     // Transactions
     blockHexData.write(TxHexData.data(), TxHexData.sizeOf());
+
+    // Mimble wimble
+    if (MimbleWimbleData.sizeOf()) {
+      blockHexData.write("01");
+      blockHexData.write(MimbleWimbleData.data(), MimbleWimbleData.sizeOf());
+    }
   }
 
 public:
@@ -408,6 +419,8 @@ public:
   CoinbaseTx CBTxWitness_;
   // Transaction data
   xmstream TxHexData;
+  // mweb data
+  xmstream MimbleWimbleData;
   // PoW check context
   typename Proto::CheckConsensusCtx ConsensusCtx_;
 };
