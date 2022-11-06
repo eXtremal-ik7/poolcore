@@ -22,6 +22,11 @@ public:
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
       info.WorkMultiplier = 256.0;
+    } else if (strcmp(coinName, "equihash.184.7") == 0) {
+      info.Name = "equihash.184.7";
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 0;
+      info.WorkMultiplier = 256.0;
     } else if (strcmp(coinName, "equihash.48.5") == 0) {
       info.Name = "equihash.48.5";
       info.PowerUnitType = CCoinInfo::EHash;

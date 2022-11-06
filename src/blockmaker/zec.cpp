@@ -39,7 +39,7 @@ static void diff_to_target_equi(uint32_t *target, double diff)
   }
 }
 
-double target_to_diff_equi(uint32_t* target)
+static double target_to_diff_equi(uint32_t* target)
 {
   uint8_t* tgt = (uint8_t*) target;
   uint64_t m =
