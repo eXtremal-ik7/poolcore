@@ -63,12 +63,20 @@ public:
       SharesNum = 0;
       SharesWork = 0.0;
     }
+
+
   };
 
   struct CStatsAccumulator {
     std::deque<CStatsElement> Recent;
     CStatsElement Current;
     int64_t LastShareTime = 0;
+
+    void addShare(double workValue, int64_t time) {
+      Current.SharesNum++;
+      Current.SharesWork += workValue;
+      LastShareTime = time;
+    }
   };
 
   struct CStatsExportData {
@@ -196,7 +204,7 @@ public:
   void stop();
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
 
-  void addShare(const CShare &share);
+  void addShare(const CShare &share, bool updateWorkerAndUserStats, bool updatePoolStats);
 
   uint64_t lastAggregatedShareId() {
     uint64_t workersLastId = !WorkersStatsCache_.empty() ? WorkersStatsCache_.back().LastShareId : 0;

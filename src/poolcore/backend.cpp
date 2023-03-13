@@ -141,7 +141,7 @@ void PoolBackend::checkBalanceHandler()
 void PoolBackend::onShare(CShare *share)
 {
   ShareLog_.addShare(*share);
-  _statistics->addShare(*share);
+  _statistics->addShare(*share, true, true);
   _accounting->addShare(*share);
 }
 

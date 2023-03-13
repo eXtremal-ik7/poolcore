@@ -201,46 +201,29 @@ void StatisticDb::writeStatsToCache(const std::string &loginId, const std::strin
   record.serializeValue(statsFileData);
 }
 
-void StatisticDb::addShare(const CShare &share)
+void StatisticDb::addShare(const CShare &share, bool updateWorkerAndUserStats, bool updatePoolStats)
 {
-  // Update worker stats
-  auto &acc = LastWorkerStats_[share.userId][share.workerId];
-  acc.Current.SharesNum++;
-  acc.Current.SharesWork += share.WorkValue;
-  acc.LastShareTime = share.Time;
-  // Update user stats
-  auto &userAcc = LastUserStats_[share.userId];
-  userAcc.Current.SharesNum++;
-  userAcc.Current.SharesWork += share.WorkValue;
-  userAcc.LastShareTime = share.Time;
-  // Update pool stats
-  PoolStatsAcc_.Current.SharesNum++;
-  PoolStatsAcc_.Current.SharesWork += share.WorkValue;
-  PoolStatsCached_.LastShareTime = PoolStatsAcc_.LastShareTime = share.Time;
+
+  if (updateWorkerAndUserStats) {
+    // Update worker stats
+    LastWorkerStats_[share.userId][share.workerId].addShare(share.WorkValue, share.Time);
+    // Update user stats
+    LastUserStats_[share.userId].addShare(share.WorkValue, share.Time);
+  }
+  if (updatePoolStats) {
+    // Update pool stats
+    PoolStatsAcc_.addShare(share.WorkValue, share.Time);
+    PoolStatsCached_.LastShareTime = share.Time;
+  }
   LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
 }
 
 void StatisticDb::replayShare(const CShare &share)
 {
-  if (share.UniqueShareId > WorkersFlushInfo_.ShareId) {
-    auto &acc = LastWorkerStats_[share.userId][share.workerId];
-    acc.Current.SharesNum++;
-    acc.Current.SharesWork += share.WorkValue;
-    acc.LastShareTime = share.Time;
+  addShare(share,
+           share.UniqueShareId > WorkersFlushInfo_.ShareId,
+           share.UniqueShareId > PoolFlushInfo_.ShareId);
 
-    auto &userAcc = LastUserStats_[share.userId];
-    userAcc.Current.SharesNum++;
-    userAcc.Current.SharesWork += share.WorkValue;
-    userAcc.LastShareTime = share.Time;
-  }
-
-  if (share.UniqueShareId > PoolFlushInfo_.ShareId) {
-    PoolStatsAcc_.Current.SharesNum++;
-    PoolStatsAcc_.Current.SharesWork += share.WorkValue;
-    PoolStatsCached_.LastShareTime = PoolStatsAcc_.LastShareTime = share.Time;
-  }
-
-  LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
   if (isDebugStatistic()) {
     Dbg_.MinShareId = std::min(Dbg_.MinShareId, share.UniqueShareId);
     Dbg_.MaxShareId = std::max(Dbg_.MaxShareId, share.UniqueShareId);
@@ -704,5 +687,5 @@ void StatisticServer::statisticServerMain()
 void StatisticServer::onShare(CShare *share)
 {
   ShareLog_.addShare(*share);
-  Statistics_->addShare(*share);
+  Statistics_->addShare(*share, true, true);
 }
