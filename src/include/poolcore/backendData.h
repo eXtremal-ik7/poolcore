@@ -373,22 +373,10 @@ struct StatsRecord {
   int64_t Time;
   uint64_t ShareCount;
   double ShareWork;
+  std::vector<uint64_t> PrimePOWShareCount;
   
   std::string getPartitionId() const { return partByTime(Time); }
   bool deserializeValue(xmstream &stream);
-  bool deserializeValue(const void *data, size_t size);
-  void serializeKey(xmstream &stream) const;
-  void serializeValue(xmstream &stream) const;
-};
-
-struct ShareStatsRecord {
-  enum { CurrentRecordVersion = 1 };
-
-  int64_t Time;
-  int64_t Total;
-  std::vector<shareInfo> Info;
-  
-  std::string getPartitionId() const { return partByTime(Time); }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;

@@ -59,9 +59,11 @@ public:
     uint32_t SharesNum = 0;
     double SharesWork = 0.0;
     int64_t TimeLabel = 0;
+    std::vector<uint32_t> PrimePOWSharesNum;
     void reset() {
       SharesNum = 0;
       SharesWork = 0.0;
+      PrimePOWSharesNum.clear();
     }
 
 
@@ -72,9 +74,15 @@ public:
     CStatsElement Current;
     int64_t LastShareTime = 0;
 
-    void addShare(double workValue, int64_t time) {
+    void addShare(double workValue, int64_t time, bool isPrimePOW) {
       Current.SharesNum++;
       Current.SharesWork += workValue;
+      if (isPrimePOW) {
+        unsigned chainLength = std::min(static_cast<unsigned>(workValue), 1024u);
+        if (chainLength >= Current.PrimePOWSharesNum.size())
+          Current.PrimePOWSharesNum.resize(chainLength + 1);
+        Current.PrimePOWSharesNum[chainLength]++;
+      }
       LastShareTime = time;
     }
   };
@@ -192,8 +200,8 @@ private:
   void writeStatsToCache(const std::string &loginId, const std::string &workerId, const CStatsElement &element, int64_t lastShareTime, xmstream &statsFileData);
 
   void updateStatsDiskCache(const char *name, std::deque<CStatsFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size);
-  void updateWorkersStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) { updateStatsDiskCache("stats.workers.cache", WorkersStatsCache_, timeLabel, shareId, data, size); }
-  void updatePoolStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) { updateStatsDiskCache("stats.pool.cache", PoolStatsCache_, timeLabel, shareId, data, size); }
+  void updateWorkersStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) { updateStatsDiskCache("stats.workers.cache.2", WorkersStatsCache_, timeLabel, shareId, data, size); }
+  void updatePoolStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) { updateStatsDiskCache("stats.pool.cache.2", PoolStatsCache_, timeLabel, shareId, data, size); }
 
 public:
   // Initialization
@@ -266,12 +274,14 @@ struct DbIo<StatisticDb::CStatsElement> {
     DbIo<decltype(data.SharesNum)>::serialize(out, data.SharesNum);
     DbIo<decltype(data.SharesWork)>::serialize(out, data.SharesWork);
     DbIo<decltype(data.TimeLabel)>::serialize(out, data.TimeLabel);
+    DbIo<decltype(data.PrimePOWSharesNum)>::serialize(out, data.PrimePOWSharesNum);
   }
 
   static inline void unserialize(xmstream &in, StatisticDb::CStatsElement &data) {
     DbIo<decltype(data.SharesNum)>::unserialize(in, data.SharesNum);
     DbIo<decltype(data.SharesWork)>::unserialize(in, data.SharesWork);
     DbIo<decltype(data.TimeLabel)>::unserialize(in, data.TimeLabel);
+    DbIo<decltype(data.PrimePOWSharesNum)>::unserialize(in, data.PrimePOWSharesNum);
   }
 };
 

@@ -58,7 +58,7 @@ struct CCoinInfo {
 
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;
-  uint64_t calculateAveragePower(double work, uint64_t timeInterval) const;
+  uint64_t calculateAveragePower(double work, uint64_t timeInterval, const std::vector<uint32_t> &primePOWShares) const;
 };
 
 class CNetworkClient {

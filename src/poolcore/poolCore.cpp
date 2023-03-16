@@ -84,14 +84,49 @@ const char *CCoinInfo::getPowerUnitName() const
   return "???";
 }
 
-uint64_t CCoinInfo::calculateAveragePower(double work, uint64_t timeInterval) const
+uint64_t CCoinInfo::calculateAveragePower(double work, uint64_t timeInterval, const std::vector<uint32_t> &primePOWShares) const
 {
   switch (PowerUnitType) {
     case EHash :
       return static_cast<uint64_t>(work / timeInterval * (WorkMultiplier / pow(10.0, PowerMultLog10)));
-    case ECPD :
-      // TODO: implement
-      return 0;
+    case ECPD : {
+      std::vector<uint32_t> primePOWSum;
+      size_t shareLengthCount = primePOWShares.size();
+      primePOWSum.resize(shareLengthCount);
+      uint32_t sum = 0;
+      uint32_t minShare = shareLengthCount;
+      for (size_t i = 0, ie = shareLengthCount; i != ie; ++i) {
+        sum += primePOWShares[shareLengthCount - i - 1];
+        primePOWSum[shareLengthCount - i - 1] = sum;
+        if (primePOWShares[shareLengthCount - i - 1])
+          minShare = shareLengthCount - i - 1;
+      }
+
+      // Check possibility of CPD calculation
+      // TODO: pass real target
+      unsigned target = 10;
+      if (minShare+1 < shareLengthCount && minShare < target && primePOWSum[minShare] > 0 && primePOWSum[minShare+1] > 0) {
+        unsigned targetDiff = target - minShare;
+        double primeProb = static_cast<double>(primePOWSum[minShare + 1]) / static_cast<double>(primePOWSum[minShare]);
+        // TODO: remove it
+        fprintf(stderr, "Shares: ");
+        for (unsigned i = 0; i < shareLengthCount; i++)
+          fprintf(stderr, "%u, ", primePOWShares[i]);
+        fprintf(stderr, "\n");
+
+        fprintf(stderr, "Sum: ");
+        for (unsigned i = 0; i < shareLengthCount; i++)
+          fprintf(stderr, "%u, ", primePOWSum[i]);
+        fprintf(stderr, "\n");
+
+        fprintf(stderr, "minShares=%u\n", primePOWSum[minShare]);
+        fprintf(stderr, "primeProb=%.4lf\n", primeProb);
+        fprintf(stderr, "interval=%u\n", (unsigned)timeInterval);
+        return static_cast<double>(primePOWSum[minShare]) / static_cast<double>(timeInterval) * 24.0 * 3600.0 * pow(primeProb, targetDiff) * 1000.0;
+      } else {
+        return 0;
+      }
+    }
   }
 
   return 0;

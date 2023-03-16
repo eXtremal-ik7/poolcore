@@ -226,7 +226,7 @@ private:
       std::string user = share.addr();
       int64_t generatedCoins = work.blockReward();
       CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData().data(), work.blockHexData().sizeOf(), [height, user, blockHash, generatedCoins, backend, &data](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+      dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData().data(), work.blockHexData().sizeOf(), [height, user, blockHash, generatedCoins, backend, &data, shareSize](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
           if (successNum == 1) {
@@ -235,7 +235,7 @@ private:
             backendShare->Time = time(nullptr);
             backendShare->userId = user;
             backendShare->height = height;
-            backendShare->WorkValue = 1.0;
+            backendShare->WorkValue = shareSize;
             backendShare->isBlock = true;
             backendShare->hash = blockHash.ToString();
             backendShare->generatedCoins = generatedCoins;
@@ -251,7 +251,7 @@ private:
       backendShare->Time = time(nullptr);
       backendShare->userId = share.addr();
       backendShare->height = height;
-      backendShare->WorkValue = 1.0;
+      backendShare->WorkValue = shareSize;
       backendShare->isBlock = false;
       backend->sendShare(backendShare);
     }
