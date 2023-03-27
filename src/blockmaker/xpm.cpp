@@ -10,6 +10,8 @@
 #include "poolcore/backendData.h"
 #include "blockmaker/merkleTree.h"
 
+CDivisionChecker XPM::Zmq::DivisionChecker_;
+
 namespace BTC {
 
 void Io<mpz_class>::serialize(xmstream &dst, const mpz_class &data)
@@ -258,7 +260,11 @@ void Proto::checkConsensusInitialize(Proto::CheckConsensusCtx &ctx)
   mpz_set_ui(ctx.two, 2);
 }
 
-bool Proto::checkConsensus(const Proto::BlockHeader &header, Proto::CheckConsensusCtx &ctx, Proto::ChainParams &chainParams, uint64_t *shareSize)
+bool Proto::checkConsensus(const Proto::BlockHeader &header,
+                           Proto::CheckConsensusCtx &ctx,
+                           Proto::ChainParams &chainParams,
+                           double *shareSize,
+                           EChainType *chainType)
 {
   // Check target
   *shareSize = 0;
@@ -290,7 +296,14 @@ bool Proto::checkConsensus(const Proto::BlockHeader &header, Proto::CheckConsens
   uint32_t lbitwin = bitwinLength(l1, l2);
   chainLength = std::max(l1, l2);
   chainLength = std::max(chainLength, lbitwin);
-  *shareSize = TargetGetLength(chainLength);
+
+  *shareSize = getPrimeDifficulty(chainLength);
+  if (chainLength == l1)
+    *chainType = ECunninghamChain1;
+  else if (chainLength == l2)
+    *chainType = ECunninghamChain2;
+  else
+    *chainType = EBiTwin;
 
   if (!(l1 >= header.nBits || l2 >= header.nBits || lbitwin >= header.nBits))
     return false;
@@ -559,6 +572,104 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   dumpMerkleTree(txHashes, work.MerklePath);
   work.TransactionsNum = transactions.Size() + 1;
   return true;
+}
+
+double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
+                            double shareDiff,
+                            double shareTarget,
+                            const CExtraInfo &info,
+                            WorkerContext &workerContext)
+{
+  XPM::Proto::BlockHashTy hash = Header.GetOriginalHeaderHash();
+  uint256ToBN(ctx.bnPrimeChainOrigin, hash);
+  mpz_mul(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, Header.bnPrimeChainMultiplier.get_mpz_t());
+  unsigned bnPrimeChainOriginBitSize = mpz_sizeinbase(ctx.bnPrimeChainOrigin, 2);
+  unsigned headerChainLength = TargetGetLength(Header.nBits);
+
+  unsigned divisor = workerContext.LowestDivisorIndex;
+  unsigned chainLength = static_cast<unsigned>(shareDiff);
+
+  if (info.ChainType == Proto::ECunninghamChain1) {
+    mpz_sub_ui(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+    unsigned i = 0;
+    for (; i < chainLength; i++) {
+      mpz_mul_2exp(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+      mpz_add_ui(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+    }
+    for (; i < headerChainLength; i++) {
+      divisor = std::min(Zmq::DivisionChecker_.lastDivisor(ctx.bnPrimeChainOrigin, divisor), divisor);
+      mpz_mul_2exp(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+      mpz_add_ui(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+    }
+  } else if (info.ChainType == Proto::ECunninghamChain2) {
+    mpz_add_ui(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+    unsigned i = 0;
+    for (; i < chainLength; i++) {
+      mpz_mul_2exp(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+      mpz_sub_ui(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+    }
+    for (; i < headerChainLength; i++) {
+      divisor = std::min(Zmq::DivisionChecker_.lastDivisor(ctx.bnPrimeChainOrigin, divisor), divisor);
+      mpz_mul_2exp(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+      mpz_sub_ui(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, 1);
+    }
+  } else {
+    unsigned c1ChainLength = chainLength/2 + (chainLength % 2);
+    unsigned c2ChainLength = chainLength/2;
+    unsigned c1Target = headerChainLength/2 + (headerChainLength % 2);
+    unsigned c2Target = headerChainLength/2;
+    {
+      mpz_t n;
+      mpz_init(n);
+      mpz_set(n, ctx.bnPrimeChainOrigin);
+      mpz_sub_ui(n, n, 1);
+      unsigned i = 0;
+      for (; i < c1ChainLength; i++) {
+        mpz_mul_2exp(n, n, 1);
+        mpz_add_ui(n, n, 1);
+      }
+      for (; i < c1Target; i++) {
+        divisor = std::min(Zmq::DivisionChecker_.lastDivisor(n, divisor), divisor);
+        mpz_mul_2exp(n, n, 1);
+        mpz_add_ui(n, n, 1);
+      }
+    }
+    {
+      mpz_t n;
+      mpz_init(n);
+      mpz_set(n, ctx.bnPrimeChainOrigin);
+      mpz_add_ui(n, n, 1);
+      unsigned i = 0;
+      for (; i < c2ChainLength; i++) {
+        mpz_mul_2exp(n, n, 1);
+        mpz_sub_ui(n, n, 1);
+      }
+      for (; i < c2Target; i++) {
+        divisor = std::min(Zmq::DivisionChecker_.lastDivisor(n, divisor), divisor);
+        mpz_mul_2exp(n, n, 1);
+        mpz_sub_ui(n, n, 1);
+      }
+    }
+  }
+
+  workerContext.TotalShares++;
+  // DEBUG
+  // if (divisor != workerContext.LowestDivisorIndex) {
+  //  char s[4096];
+  //  XPM::Proto::BlockHashTy hash = Header.GetOriginalHeaderHash();
+  //  uint256ToBN(ctx.bnPrimeChainOrigin, hash);
+  //  mpz_mul(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, Header.bnPrimeChainMultiplier.get_mpz_t());
+  //  LOG_F(WARNING, "divisor update: %u(%u)", divisor, Zmq::DivisionChecker_.prime(divisor));
+  //  LOG_F(WARNING, "share %uch base=%s type=%u", chainLength, mpz_get_str(s, 10, ctx.bnPrimeChainOrigin), info.ChainType);
+  // }
+  workerContext.LowestDivisorIndex = divisor;
+  if (workerContext.TotalShares < 48 || divisor == -1U)
+    divisor = 2048;
+
+  double d = log(Zmq::DivisionChecker_.prime(divisor));
+  double primeProb = (1.8694 * (d - log(2))) / (bnPrimeChainOriginBitSize * log(2));
+  double shareValue = pow(primeProb / 0.1, headerChainLength - 7) * pow(primeProb, 7 - floor(shareTarget));
+  return shareValue;
 }
 }
 

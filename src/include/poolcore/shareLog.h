@@ -56,7 +56,7 @@ public:
       std::string fileName = I->path().filename().generic_string();
       auto dotDatPos = fileName.find(".dat");
       if (dotDatPos == fileName.npos) {
-        LOG_F(ERROR, "Invalid statitic cache file name format: %s", fileName.c_str());
+        LOG_F(WARNING, "Ignore shares file: %s", I->path().u8string().c_str());
         continue;
       }
 

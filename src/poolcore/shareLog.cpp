@@ -2,6 +2,7 @@
 
 void ShareLogIo<CShare>::serialize(xmstream &out, const CShare &data)
 {
+  out.writele<uint32_t>(data.CurrentRecordVersion);
   out.writele<uint64_t>(data.UniqueShareId);
   DbIo<std::string>::serialize(out, data.userId);
   DbIo<std::string>::serialize(out, data.workerId);
@@ -11,6 +12,8 @@ void ShareLogIo<CShare>::serialize(xmstream &out, const CShare &data)
 
 void ShareLogIo<CShare>::unserialize(xmstream &out, CShare &data)
 {
+  uint32_t version;
+  version = out.readle<uint32_t>();
   data.UniqueShareId = out.readle<uint64_t>();
   DbIo<std::string>::unserialize(out, data.userId);
   DbIo<std::string>::unserialize(out, data.workerId);

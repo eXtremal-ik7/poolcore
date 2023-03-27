@@ -6,6 +6,7 @@
 #pragma once
 
 #include "blockmaker/btc.h"
+#include "blockmaker/divisionChecker.h"
 #include "poolcommon/bigNum.h"
 #include "poolinstances/protocol.pb.h"
 
@@ -85,15 +86,33 @@ public:
     uint32_t minimalChainLength;
   };
 
+  enum EChainType {
+    ECunninghamChain1 = 1,
+    ECunninghamChain2 = 2,
+    EBiTwin = 3
+  };
 
   static void checkConsensusInitialize(CheckConsensusCtx &ctx);
-  static bool checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx &ctx, ChainParams &chainParams, uint64_t *shareSize);
+
+  static bool checkConsensus(const Proto::BlockHeader &header,
+                             CheckConsensusCtx &ctx,
+                             ChainParams &chainParams,
+                             double *shareSize,
+                             EChainType *chainType);
+
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 
 struct Zmq {
+  struct WorkerContext;
+
 public:
   class Work {
+  public:
+    struct CExtraInfo {
+      Proto::EChainType ChainType;
+    };
+
   public:
     uint64_t Height = 0;
     PoolBackend *Backend = nullptr;
@@ -117,11 +136,13 @@ public:
     int64_t blockReward() { return BlockReward; }
     const xmstream &blockHexData() { return BlockHexData; }
 
-    bool checkConsensus(Proto::CheckConsensusCtx &ctx, uint64_t *shareDiff) {
+    bool checkConsensus(Proto::CheckConsensusCtx &ctx, double *shareDiff, CExtraInfo *info) {
       Proto::ChainParams params;
       params.minimalChainLength = 2;
-      return XPM::Proto::checkConsensus(Header, ctx, params, shareDiff);
+      return XPM::Proto::checkConsensus(Header, ctx, params, shareDiff, &info->ChainType);
     }
+
+    double shareWork(Proto::CheckConsensusCtx &ctx, double shareDiff, double shareTarget, const CExtraInfo &info, WorkerContext &workerContext);
   };
 
   struct MiningConfig {
@@ -139,7 +160,13 @@ public:
     uint64_t ExtraNonceFixed;
   };
 
+  struct WorkerContext {
+    uint64_t TotalShares = 0;
+    unsigned LowestDivisorIndex = -1U;
+  };
+
 public:
+  static void initialize() { DivisionChecker_.init(); }
   static void initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg);
   static void initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum);
   static void resetThreadConfig(ThreadConfig &cfg);
@@ -150,6 +177,9 @@ public:
   static bool loadFromTemplate(Work &work, rapidjson::Value &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string&, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error);
   static void generateNewWork(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg);
   static bool prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Request &req, pool::proto::Reply &rep);
+
+public:
+  static CDivisionChecker DivisionChecker_;
 };
 
 struct X {

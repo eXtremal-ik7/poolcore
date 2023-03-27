@@ -15,6 +15,7 @@ std::string partByTime(time_t time);
 typedef bool CheckAddressProcTy(const char*);
 
 struct CShare {
+  enum { CurrentRecordVersion = 1 };
   uint64_t UniqueShareId = 0;
   std::string userId;
   std::string workerId;
@@ -25,6 +26,7 @@ struct CShare {
   int64_t generatedCoins;
   int64_t Time;
   double ExpectedWork = 0.0;
+  uint32_t ChainLength;
 };
 
 struct CMiningAddress {

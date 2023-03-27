@@ -36,6 +36,7 @@ public:
   ZmqInstance(asyncBase *monitorBase, UserManager &userMgr, const std::vector<PoolBackend*>&, CThreadPool &threadPool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool) {
     Name_ = (std::string)X::Proto::TickerName + ".zmq";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
+    X::Zmq::initialize();
 
     unsigned totalInstancesNum = instancesNum * threadPool.threadsNum();
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
@@ -112,6 +113,7 @@ private:
     zmtpStream Stream;
     zmtpUserMsgTy MsgType;
     typename X::Zmq::WorkerConfig WorkerConfig;
+    typename X::Zmq::WorkerContext WorkerContext;
   };
 
   struct ThreadData {
@@ -157,10 +159,12 @@ private:
     }
   }
 
-  void onShare(ThreadData &data, pool::proto::Request &req, pool::proto::Reply &rep) {
+  void onShare(Connection *connection, ThreadData &data, pool::proto::Request &req, pool::proto::Reply &rep) {
+    bool shareAccepted = false;
     typename X::Zmq::Work &work = data.Work;
     uint64_t height = work.height();
     PoolBackend *backend = work.backend();
+    std::vector<bool> foundBlockMask(LinkedBackends_.size(), false);
 
     if (!data.HasWork) {
       rep.set_error(pool::proto::Reply::INVALID);
@@ -212,13 +216,18 @@ private:
       return;
     }
 
+    shareAccepted = true;
+
     // check proof of work
-    uint64_t shareSize;
-    bool isBlock = work.checkConsensus(data.CheckConsensusCtx, &shareSize);
-    if (shareSize < MiningCfg_.MinShareLength) {
+    double shareDiff;
+    typename X::Zmq::Work::CExtraInfo info;
+    bool isBlock = work.checkConsensus(data.CheckConsensusCtx, &shareDiff, &info);
+    if (shareDiff < MiningCfg_.MinShareLength) {
       rep.set_error(pool::proto::Reply::INVALID);
       return;
     }
+
+    double shareWork = work.shareWork(data.CheckConsensusCtx, shareDiff, MiningCfg_.MinShareLength, info, connection->WorkerContext);
 
     if (isBlock) {
       LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.ToString().c_str(), data.Work.txNum());
@@ -226,7 +235,7 @@ private:
       std::string user = share.addr();
       int64_t generatedCoins = work.blockReward();
       CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData().data(), work.blockHexData().sizeOf(), [height, user, blockHash, generatedCoins, backend, &data, shareSize](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+      dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData().data(), work.blockHexData().sizeOf(), [height, user, blockHash, generatedCoins, backend, &data, shareWork, shareDiff](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
           if (successNum == 1) {
@@ -235,25 +244,54 @@ private:
             backendShare->Time = time(nullptr);
             backendShare->userId = user;
             backendShare->height = height;
-            backendShare->WorkValue = shareSize;
+            backendShare->WorkValue = shareWork;
             backendShare->isBlock = true;
             backendShare->hash = blockHash.ToString();
             backendShare->generatedCoins = generatedCoins;
+            backendShare->ChainLength = shareDiff;
             backend->sendShare(backendShare);
           }
         } else {
           LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.ToString().c_str(), height, hostName.c_str(), error.c_str());
         }
       });
+
+      for (size_t i = 0, ie = LinkedBackends_.size(); i != ie; ++i) {
+        if (LinkedBackends_[i] == backend) {
+          foundBlockMask[i] = true;
+          break;
+        }
+      }
     } else {
       // Send share to backend
       CShare *backendShare = new CShare;
       backendShare->Time = time(nullptr);
       backendShare->userId = share.addr();
+      backendShare->workerId = share.name();
       backendShare->height = height;
-      backendShare->WorkValue = shareSize;
+      backendShare->WorkValue = shareWork;
       backendShare->isBlock = false;
+      backendShare->ChainLength = shareDiff;
       backend->sendShare(backendShare);
+    }
+
+    if (shareAccepted && (AlgoMetaStatistic_ || true)) {
+      CShare *backendShare = new CShare;
+      backendShare->Time = time(nullptr);
+      backendShare->userId = share.addr();
+      backendShare->workerId = share.name();
+      backendShare->height = height;
+      backendShare->WorkValue = shareWork;
+      backendShare->isBlock = false;
+      if (AlgoMetaStatistic_)
+        AlgoMetaStatistic_->sendShare(backendShare);
+
+      // Disabled now
+      // Share
+      // All affected coins by this share
+      // Difficulty of all affected coins
+      // if (MiningStats_)
+      //  MiningStats_->onShare(shareDiff, connection->ShareDifficulty, LinkedBackends_, foundBlockMask, shareHash);
     }
   }
 
@@ -425,7 +463,7 @@ private:
     if (requestType == pool::proto::Request::GETWORK) {
       onGetWork(data, connection, req, rep);
     } else if (requestType == pool::proto::Request::SHARE) {
-      onShare(data, req, rep);
+      onShare(connection, data, req, rep);
     } else if (requestType == pool::proto::Request::STATS) {
       onStats(data, req, rep);
     }

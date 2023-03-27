@@ -215,13 +215,13 @@ void StatisticDb::addShare(const CShare &share, bool updateWorkerAndUserStats, b
 
   if (updateWorkerAndUserStats) {
     // Update worker stats
-    LastWorkerStats_[share.userId][share.workerId].addShare(share.WorkValue, share.Time, CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
+    LastWorkerStats_[share.userId][share.workerId].addShare(share.WorkValue, share.Time, share.ChainLength, CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
     // Update user stats
-    LastUserStats_[share.userId].addShare(share.WorkValue, share.Time, CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
+    LastUserStats_[share.userId].addShare(share.WorkValue, share.Time, share.ChainLength, CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
   }
   if (updatePoolStats) {
     // Update pool stats
-    PoolStatsAcc_.addShare(share.WorkValue, share.Time, CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
+    PoolStatsAcc_.addShare(share.WorkValue, share.Time, share.ChainLength, CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
     PoolStatsCached_.LastShareTime = share.Time;
   }
   LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
@@ -668,7 +668,7 @@ StatisticServer::StatisticServer(asyncBase *base, const PoolBackendConfig &confi
 {
   Statistics_.reset(new StatisticDb(Base_, config, CoinInfo_));
   StatisticShareLogConfig shareLogConfig(Statistics_.get());
-  ShareLog_.init(config.dbPath / "shares.log", coinInfo.Name, Base_, config.ShareLogFlushInterval, config.ShareLogFileSizeLimit, shareLogConfig);
+  ShareLog_.init(config.dbPath / "shares.log.v1", coinInfo.Name, Base_, config.ShareLogFlushInterval, config.ShareLogFileSizeLimit, shareLogConfig);
 }
 
 void StatisticServer::start()

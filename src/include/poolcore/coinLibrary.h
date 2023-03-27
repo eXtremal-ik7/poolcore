@@ -44,10 +44,10 @@ public:
       info.Name = "sha3.shake256.16";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
-    } else if (strcmp(coinName, "primecoin") == 0) {
-      info.Name = "primecoin";
+    } else if (strcmp(coinName, "PrimePOW") == 0) {
+      info.Name = "PrimePOW";
       info.PowerUnitType = CCoinInfo::ECPD;
-      info.PowerMultLog10 = 1;
+      info.PowerMultLog10 = -3;
     } else if (strcmp(coinName, "ARRR") == 0) {
       info.Name = "ARRR";
       info.FullName = "Pirate Chain";
@@ -303,7 +303,7 @@ public:
       info.CoinGeckoName = "datacoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
-      info.Algorithm = "primecoin";
+      info.Algorithm = "PrimePOW";
     } else if (strcmp(coinName, "DTC.testnet") == 0) {
       info.Name = "DTC";
       info.FullName = "Datacoin";
@@ -317,7 +317,7 @@ public:
       info.CoinGeckoName = "datacoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
-      info.Algorithm = "primecoin";
+      info.Algorithm = "PrimePOW";
     } else if (strcmp(coinName, "ETC") == 0) {
       info.Name = "ETC";
       info.FullName = "Ethereum Classic";
@@ -542,7 +542,7 @@ public:
       info.CoinGeckoName = "primecoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
-      info.Algorithm = "primecoin";
+      info.Algorithm = "PrimePOW";
     } else if (strcmp(coinName, "XPM.testnet") == 0) {
       info.Name = "XPM.testnet";
       info.FullName = "Primecoin";
@@ -554,7 +554,7 @@ public:
       info.PubkeyAddressPrefix = {111};
       info.DefaultRpcPort = 9914;
       info.MinimalConfirmationsNumber = 12;
-      info.Algorithm = "primecoin";
+      info.Algorithm = "PrimePOW";
     } else if (strcmp(coinName, "ZEC") == 0) {
       info.Name = "ZEC";
       info.FullName = "ZCash";

@@ -74,11 +74,11 @@ public:
     CStatsElement Current;
     int64_t LastShareTime = 0;
 
-    void addShare(double workValue, int64_t time, bool isPrimePOW) {
+    void addShare(double workValue, int64_t time, unsigned chainLength, bool isPrimePOW) {
       Current.SharesNum++;
       Current.SharesWork += workValue;
       if (isPrimePOW) {
-        unsigned chainLength = std::min(static_cast<unsigned>(workValue), 1024u);
+        chainLength = std::min(chainLength, 1024u);
         if (chainLength >= Current.PrimePOWSharesNum.size())
           Current.PrimePOWSharesNum.resize(chainLength + 1);
         Current.PrimePOWSharesNum[chainLength]++;
