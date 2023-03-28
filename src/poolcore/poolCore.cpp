@@ -84,15 +84,16 @@ const char *CCoinInfo::getPowerUnitName() const
   return "???";
 }
 
-uint64_t CCoinInfo::calculateAveragePower(double work, uint64_t timeInterval, const std::vector<uint32_t> &primePOWShares) const
+uint64_t CCoinInfo::calculateAveragePower(double work, uint64_t timeInterval, unsigned int primePOWTarget) const
 {
   switch (PowerUnitType) {
     case EHash :
       return static_cast<uint64_t>(work / timeInterval * (WorkMultiplier / pow(10.0, PowerMultLog10)));
     case ECPD : {
-      // TODO: pass through arguments
-      constexpr unsigned target = 10;
-      return 1000.0 * (work / timeInterval * pow(0.1, target - 7) * 24*3600);
+      if (primePOWTarget == -1U)
+        return 0;
+      else
+        return 1000.0 * (work / timeInterval * pow(0.1, primePOWTarget - 7) * 24*3600);
     }
   }
 

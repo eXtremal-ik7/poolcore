@@ -219,7 +219,11 @@ private:
     shareAccepted = true;
 
     // check proof of work
-    double shareDiff;
+    double shareDiff = 0.0;
+    double shareWork = 0.0;
+    uint32_t primePOWTarget = 0;
+
+
     typename X::Zmq::Work::CExtraInfo info;
     bool isBlock = work.checkConsensus(data.CheckConsensusCtx, &shareDiff, &info);
     if (shareDiff < MiningCfg_.MinShareLength) {
@@ -227,7 +231,9 @@ private:
       return;
     }
 
-    double shareWork = work.shareWork(data.CheckConsensusCtx, shareDiff, MiningCfg_.MinShareLength, info, connection->WorkerContext);
+    primePOWTarget = work.primePOWTarget();
+
+    shareWork = work.shareWork(data.CheckConsensusCtx, shareDiff, MiningCfg_.MinShareLength, info, connection->WorkerContext);
 
     if (isBlock) {
       LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.ToString().c_str(), data.Work.txNum());
@@ -235,7 +241,10 @@ private:
       std::string user = share.addr();
       int64_t generatedCoins = work.blockReward();
       CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase, work.blockHexData().data(), work.blockHexData().sizeOf(), [height, user, blockHash, generatedCoins, backend, &data, shareWork, shareDiff](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+      dispatcher.aioSubmitBlock(data.WorkerBase,
+                                work.blockHexData().data(),
+                                work.blockHexData().sizeOf(),
+                                [height, user, blockHash, generatedCoins, backend, &data, shareWork, shareDiff, primePOWTarget](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
           if (successNum == 1) {
@@ -249,6 +258,7 @@ private:
             backendShare->hash = blockHash.ToString();
             backendShare->generatedCoins = generatedCoins;
             backendShare->ChainLength = shareDiff;
+            backendShare->PrimePOWTarget = primePOWTarget;
             backend->sendShare(backendShare);
           }
         } else {
@@ -272,6 +282,7 @@ private:
       backendShare->WorkValue = shareWork;
       backendShare->isBlock = false;
       backendShare->ChainLength = shareDiff;
+      backendShare->PrimePOWTarget = primePOWTarget;
       backend->sendShare(backendShare);
     }
 
@@ -283,6 +294,8 @@ private:
       backendShare->height = height;
       backendShare->WorkValue = shareWork;
       backendShare->isBlock = false;
+      backendShare->ChainLength = shareDiff;
+      backendShare->PrimePOWTarget = primePOWTarget;
       if (AlgoMetaStatistic_)
         AlgoMetaStatistic_->sendShare(backendShare);
 

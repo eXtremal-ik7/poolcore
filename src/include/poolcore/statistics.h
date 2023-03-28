@@ -59,14 +59,14 @@ public:
     uint32_t SharesNum = 0;
     double SharesWork = 0.0;
     int64_t TimeLabel = 0;
+    uint32_t PrimePOWTarget = -1U;
     std::vector<uint32_t> PrimePOWSharesNum;
     void reset() {
       SharesNum = 0;
       SharesWork = 0.0;
+      PrimePOWTarget = -1U;
       PrimePOWSharesNum.clear();
     }
-
-
   };
 
   struct CStatsAccumulator {
@@ -74,14 +74,15 @@ public:
     CStatsElement Current;
     int64_t LastShareTime = 0;
 
-    void addShare(double workValue, int64_t time, unsigned chainLength, bool isPrimePOW) {
+    void addShare(double workValue, int64_t time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
       Current.SharesNum++;
       Current.SharesWork += workValue;
       if (isPrimePOW) {
-        chainLength = std::min(chainLength, 1024u);
-        if (chainLength >= Current.PrimePOWSharesNum.size())
-          Current.PrimePOWSharesNum.resize(chainLength + 1);
-        Current.PrimePOWSharesNum[chainLength]++;
+        Current.PrimePOWTarget = std::min(Current.PrimePOWTarget, primePOWTarget);
+        primeChainLength = std::min(primeChainLength, 1024u);
+        if (primeChainLength >= Current.PrimePOWSharesNum.size())
+          Current.PrimePOWSharesNum.resize(primeChainLength + 1);
+        Current.PrimePOWSharesNum[primeChainLength]++;
       }
       LastShareTime = time;
     }

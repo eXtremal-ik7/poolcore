@@ -27,6 +27,7 @@ struct CShare {
   int64_t Time;
   double ExpectedWork = 0.0;
   uint32_t ChainLength;
+  uint32_t PrimePOWTarget;
 };
 
 struct CMiningAddress {
@@ -375,6 +376,7 @@ struct StatsRecord {
   int64_t Time;
   uint64_t ShareCount;
   double ShareWork;
+  uint32_t PrimePOWTarget;
   std::vector<uint64_t> PrimePOWShareCount;
   
   std::string getPartitionId() const { return partByTime(Time); }

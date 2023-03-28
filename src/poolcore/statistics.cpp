@@ -146,9 +146,9 @@ void StatisticDb::updateAcc(const std::string &login, const std::string &workerI
 void StatisticDb::calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, std::chrono::seconds calculateInterval, std::chrono::seconds aggregateTime, CStats &result)
 {
   // Calculate sum of shares number and work for last N minutes (interval usually defined in config)
+  uint32_t primePOWTarget = acc.Current.PrimePOWTarget;
   uint32_t workerSharesNum = acc.Current.SharesNum;
   double workerSharesWork = acc.Current.SharesWork;
-  std::vector<uint32_t> primePOWShares(acc.Current.PrimePOWSharesNum.begin(), acc.Current.PrimePOWSharesNum.end());
 
   int64_t startTimePoint = time(nullptr);
   int64_t stopTimePoint = startTimePoint - calculateInterval.count();
@@ -161,12 +161,7 @@ void StatisticDb::calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, 
     lastTimePoint = statsIt->TimeLabel - aggregateTime.count();
     workerSharesNum += statsIt->SharesNum;
     workerSharesWork += statsIt->SharesWork;
-
-    if (primePOWShares.size() < statsIt->PrimePOWSharesNum.size())
-      primePOWShares.resize(statsIt->PrimePOWSharesNum.size() + 1);
-    for (size_t i = 0, ie = statsIt->PrimePOWSharesNum.size(); i != ie; ++i)
-      primePOWShares[i] += statsIt->PrimePOWSharesNum[i];
-
+    primePOWTarget = std::min(primePOWTarget, statsIt->PrimePOWTarget);
     counter++;
   }
 
@@ -175,7 +170,7 @@ void StatisticDb::calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, 
     LOG_F(1, "  * use %u statistic rounds; interval: %" PRIi64 "; shares num: %u; shares work: %.3lf", counter, timeInterval, workerSharesNum, workerSharesWork);
 
   result.SharesPerSecond = (double)workerSharesNum / timeInterval;
-  result.AveragePower = CoinInfo_.calculateAveragePower(workerSharesWork, timeInterval, primePOWShares);
+  result.AveragePower = CoinInfo_.calculateAveragePower(workerSharesWork, timeInterval, primePOWTarget);
   result.SharesWork = workerSharesWork;
   result.LastShareTime = acc.LastShareTime;
 }
@@ -207,6 +202,7 @@ void StatisticDb::writeStatsToCache(const std::string &loginId, const std::strin
   record.Time = lastShareTime;
   record.ShareCount = element.SharesNum;
   record.ShareWork = element.SharesWork;
+  record.PrimePOWShareCount.assign(element.PrimePOWSharesNum.begin(), element.PrimePOWSharesNum.end());
   record.serializeValue(statsFileData);
 }
 
@@ -215,13 +211,25 @@ void StatisticDb::addShare(const CShare &share, bool updateWorkerAndUserStats, b
 
   if (updateWorkerAndUserStats) {
     // Update worker stats
-    LastWorkerStats_[share.userId][share.workerId].addShare(share.WorkValue, share.Time, share.ChainLength, CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
+    LastWorkerStats_[share.userId][share.workerId].addShare(share.WorkValue,
+                                                            share.Time,
+                                                            share.ChainLength,
+                                                            share.PrimePOWTarget,
+                                                            CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
     // Update user stats
-    LastUserStats_[share.userId].addShare(share.WorkValue, share.Time, share.ChainLength, CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
+    LastUserStats_[share.userId].addShare(share.WorkValue,
+                                          share.Time,
+                                          share.ChainLength,
+                                          share.PrimePOWTarget,
+                                          CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
   }
   if (updatePoolStats) {
     // Update pool stats
-    PoolStatsAcc_.addShare(share.WorkValue, share.Time, share.ChainLength, CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
+    PoolStatsAcc_.addShare(share.WorkValue,
+                           share.Time,
+                           share.ChainLength,
+                           share.PrimePOWTarget,
+                           CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
     PoolStatsCached_.LastShareTime = share.Time;
   }
   LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
@@ -536,6 +544,7 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
       CStatsElement &current = stats[index];
       current.SharesNum += static_cast<uint32_t>(valueRecord.ShareCount);
       current.SharesWork += valueRecord.ShareWork;
+      current.PrimePOWTarget = std::min(current.PrimePOWTarget, valueRecord.PrimePOWTarget);
       if (current.PrimePOWSharesNum.size() < valueRecord.PrimePOWShareCount.size())
         current.PrimePOWSharesNum.resize(valueRecord.PrimePOWShareCount.size() + 1);
       for (size_t i = 0, ie = valueRecord.PrimePOWShareCount.size(); i != ie; ++i)
@@ -549,7 +558,7 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
   for (size_t i = 0, ie = stats.size(); i != ie; ++i) {
     history[i].Time = stats[i].TimeLabel;
     history[i].SharesPerSecond = static_cast<double>(stats[i].SharesNum) / groupByInterval;
-    history[i].AveragePower = CoinInfo_.calculateAveragePower(stats[i].SharesWork, groupByInterval, stats[i].PrimePOWSharesNum);
+    history[i].AveragePower = CoinInfo_.calculateAveragePower(stats[i].SharesWork, groupByInterval, stats[i].PrimePOWTarget);
     history[i].SharesWork = stats[i].SharesWork;
   }
 }

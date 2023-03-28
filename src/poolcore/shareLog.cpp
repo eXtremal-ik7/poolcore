@@ -8,6 +8,8 @@ void ShareLogIo<CShare>::serialize(xmstream &out, const CShare &data)
   DbIo<std::string>::serialize(out, data.workerId);
   out.write<double>(data.WorkValue);
   DbIo<int64_t>::serialize(out, data.Time);
+  DbIo<uint32_t>::serialize(out, data.ChainLength);
+  DbIo<uint32_t>::serialize(out, data.PrimePOWTarget);
 }
 
 void ShareLogIo<CShare>::unserialize(xmstream &out, CShare &data)
@@ -19,4 +21,6 @@ void ShareLogIo<CShare>::unserialize(xmstream &out, CShare &data)
   DbIo<std::string>::unserialize(out, data.workerId);
   data.WorkValue = out.read<double>();
   DbIo<int64_t>::unserialize(out, data.Time);
+  DbIo<uint32_t>::unserialize(out, data.ChainLength);
+  DbIo<uint32_t>::unserialize(out, data.PrimePOWTarget);
 }

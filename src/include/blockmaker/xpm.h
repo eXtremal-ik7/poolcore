@@ -143,6 +143,7 @@ public:
     }
 
     double shareWork(Proto::CheckConsensusCtx &ctx, double shareDiff, double shareTarget, const CExtraInfo &info, WorkerContext &workerContext);
+    uint32_t primePOWTarget();
   };
 
   struct MiningConfig {

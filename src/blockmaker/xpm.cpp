@@ -671,6 +671,11 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
   double shareValue = pow(primeProb / 0.1, headerChainLength - 7) * pow(primeProb, 7 - floor(shareTarget));
   return shareValue;
 }
+
+uint32_t Zmq::Work::primePOWTarget()
+{
+  return TargetGetLength(Header.nBits);
+}
 }
 
 void serializeJsonInside(xmstream &stream, const XPM::Proto::BlockHeader &header)
