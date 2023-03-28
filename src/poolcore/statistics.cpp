@@ -45,6 +45,7 @@ inline void StatisticDb::parseStatsCacheFile(CStatsFile &file, std::function<CSt
     stats.SharesNum = static_cast<uint32_t>(record.ShareCount);
     stats.SharesWork = record.ShareWork;
     stats.TimeLabel = file.TimeLabel;
+    stats.PrimePOWTarget = record.PrimePOWTarget;
     stats.PrimePOWSharesNum.assign(record.PrimePOWShareCount.begin(), record.PrimePOWShareCount.end());
     if (isDebugStatistic()) {
       LOG_F(1, "Loaded data from statistic cache: %s/%s shares: %" PRIu64 " work: %.3lf",
@@ -184,6 +185,7 @@ void StatisticDb::writeStatsToDb(const std::string &loginId, const std::string &
   record.Time = element.TimeLabel;
   record.ShareCount = element.SharesNum;
   record.ShareWork = element.SharesWork;
+  record.PrimePOWTarget = element.PrimePOWTarget;
   record.PrimePOWShareCount.assign(element.PrimePOWSharesNum.begin(), element.PrimePOWSharesNum.end());
   if (!loginId.empty())
     WorkerStatsDb_.put(record);
@@ -202,6 +204,7 @@ void StatisticDb::writeStatsToCache(const std::string &loginId, const std::strin
   record.Time = lastShareTime;
   record.ShareCount = element.SharesNum;
   record.ShareWork = element.SharesWork;
+  record.PrimePOWTarget = element.PrimePOWTarget;
   record.PrimePOWShareCount.assign(element.PrimePOWSharesNum.begin(), element.PrimePOWSharesNum.end());
   record.serializeValue(statsFileData);
 }
