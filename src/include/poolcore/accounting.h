@@ -41,6 +41,16 @@ public:
     int64_t Queued;
   };
 
+  // +file serialization
+  struct CAccountingFileData {
+    enum { CurrentRecordVersion = 1 };
+
+    uint64_t LastShareId;
+    int64_t LastBlockTime;
+    std::vector<StatisticDb::CStatsExportData> Recent;
+    std::map<std::string, double> CurrentScores;
+  };
+
 private:
   using DefaultCb = std::function<void(const char*)>;
   using ManualPayoutCallback = std::function<void(bool)>;
@@ -63,6 +73,8 @@ private:
   struct CAccountingFile {
     int64_t TimeLabel = 0;
     uint64_t LastShareId = 0;
+    // TEMPORARY
+    bool IsOldFormat = false;
     std::filesystem::path Path;
   };
 
@@ -169,7 +181,7 @@ public:
   uint64_t lastAggregatedShareId() { return !AccountingDiskStorage_.empty() ? AccountingDiskStorage_.back().LastShareId : 0; }
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
-  void enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory);
+  void enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory, bool isOldFormat);
   void start();
   void stop();
   void updatePayoutFile();
@@ -217,6 +229,22 @@ private:
   void queryBalanceImpl(const std::string &user, QueryBalanceCallback callback);
   void queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
   void poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback);
+};
+
+template<>
+struct DbIo<AccountingDb::CAccountingFileData> {
+  static inline void unserialize(xmstream &in, AccountingDb::CAccountingFileData &data) {
+    uint32_t version;
+    DbIo<uint32_t>::unserialize(in, version);
+    if (version == 1) {
+      DbIo<decltype(data.LastShareId)>::unserialize(in, data.LastShareId);
+      DbIo<decltype(data.LastBlockTime)>::unserialize(in, data.LastBlockTime);
+      DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
+      DbIo<decltype(data.CurrentScores)>::unserialize(in, data.CurrentScores);
+    } else {
+      in.seekEnd(0, true);
+    }
+  }
 };
 
 #endif //__ACCOUNTING_H_

@@ -52,7 +52,7 @@ PoolBackend::PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CC
   _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, *_statistics.get()));
 
   ShareLogConfig shareLogConfig(_accounting.get(), _statistics.get());
-  ShareLog_.init(cfg.dbPath / "shares.log.v1", info.Name, _base, _cfg.ShareLogFlushInterval, _cfg.ShareLogFileSizeLimit, shareLogConfig);
+  ShareLog_.init(cfg.dbPath / "shares.log.v1", cfg.dbPath / "shares.log", info.Name, _base, _cfg.ShareLogFlushInterval, _cfg.ShareLogFileSizeLimit, shareLogConfig);
 
   ProfitSwitchCoeff_ = CoinInfo_.ProfitSwitchDefaultCoeff;
 

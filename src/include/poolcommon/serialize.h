@@ -3,6 +3,7 @@
 #include "poolcommon/uint256.h"
 #include "p2putils/xmstream.h"
 #include <list>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -179,6 +180,34 @@ template<typename T> struct DbIo<std::list<T>> {
     for (uint64_t i = 0; i < size.Size; i++) {
       T &element = data.emplace_back();
       DbIo<T>::unserialize(src, element);
+    }
+  }
+};
+
+// std::map
+template<typename K, typename V> struct DbIo<std::map<K, V>> {
+  static inline void serialize(xmstream &dst, const std::map<K, V> &data) {
+    DbIo<VarSize>::serialize(dst, data.size());
+    for (const auto &v: data) {
+      DbIo<K>::serialize(dst, v.first);
+      DbIo<V>::serialize(dst, v.second);
+    }
+  }
+
+  static inline void unserialize(xmstream &src, std::map<K, V> &data) {
+    VarSize size = 0;
+    DbIo<VarSize>::unserialize(src, size);
+    if (size.Size > src.remaining()) {
+      src.seekEnd(0, true);
+      return;
+    }
+
+    for (uint64_t i = 0; i < size.Size; i++) {
+      K key;
+      V value;
+      DbIo<K>::unserialize(src, key);
+      DbIo<V>::unserialize(src, value);
+      data.insert(std::make_pair(key, value));
     }
   }
 };

@@ -32,11 +32,14 @@ private:
     uint64_t FirstId;
     uint64_t LastId;
     FileDescriptor Fd;
+    // TEMPORARY
+    bool IsOldFormat = false;
   };
 
 public:
   ShareLog() {}
   void init(const std::filesystem::path &path,
+            const std::filesystem::path &oldPath,
             const std::string &backendName,
             asyncBase *base,
             std::chrono::seconds shareLogFlushInterval,
@@ -49,22 +52,49 @@ public:
     ShareLogFileSizeLimit_ = shareLogFileSizeLimit;
     Config_ = config;
 
-    std::error_code errc;
-    std::filesystem::path directory(path);
-    std::filesystem::create_directories(directory, errc);
-    for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
-      std::string fileName = I->path().filename().generic_string();
-      auto dotDatPos = fileName.find(".dat");
-      if (dotDatPos == fileName.npos) {
-        LOG_F(WARNING, "Ignore shares file: %s", I->path().u8string().c_str());
-        continue;
-      }
+    {
+      // TEMPORARY: load shares in old format
+      // TODO: remove this code
+      std::error_code errc;
+      std::filesystem::path directory(oldPath);
+      if (std::filesystem::exists(directory)) {
+        for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
+          std::string fileName = I->path().filename().generic_string();
+          auto dotDatPos = fileName.find(".dat");
+          if (dotDatPos == fileName.npos) {
+            LOG_F(WARNING, "Ignore shares file: %s", I->path().u8string().c_str());
+            continue;
+          }
 
-      fileName.resize(dotDatPos);
-      auto &file = ShareLog_.emplace_back();
-      file.Path = *I;
-      file.FirstId = xatoi<uint64_t>(fileName.c_str());
-      file.LastId = 0;
+          fileName.resize(dotDatPos);
+          auto &file = ShareLog_.emplace_back();
+          file.Path = *I;
+          file.FirstId = xatoi<uint64_t>(fileName.c_str());
+          file.LastId = 0;
+          file.IsOldFormat = true;
+        }
+      }
+    }
+
+    {
+      std::error_code errc;
+      std::filesystem::path directory(path);
+      std::filesystem::create_directories(directory, errc);
+      for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
+        std::string fileName = I->path().filename().generic_string();
+        auto dotDatPos = fileName.find(".dat");
+        if (dotDatPos == fileName.npos) {
+          LOG_F(WARNING, "Ignore shares file: %s", I->path().u8string().c_str());
+          continue;
+        }
+
+        fileName.resize(dotDatPos);
+        auto &file = ShareLog_.emplace_back();
+        file.Path = *I;
+        file.FirstId = xatoi<uint64_t>(fileName.c_str());
+        file.LastId = 0;
+        file.IsOldFormat = false;
+      }
     }
 
     std::sort(ShareLog_.begin(), ShareLog_.end(), [](const CShareLogFile &l, const CShareLogFile &r) { return l.FirstId < r.FirstId; });
@@ -158,7 +188,17 @@ private:
     stream.seekSet(0);
     while (stream.remaining()) {
       CShare share;
-      ShareLogIo<CShare>::unserialize(stream, share);
+      if (file.IsOldFormat) {
+        // TEMPORARY
+        // TODO: Remove this code
+        share.UniqueShareId = stream.readle<uint64_t>();
+        DbIo<std::string>::unserialize(stream, share.userId);
+        DbIo<std::string>::unserialize(stream, share.workerId);
+        share.WorkValue = stream.read<double>();
+        DbIo<int64_t>::unserialize(stream, share.Time);
+      } else {
+        ShareLogIo<CShare>::unserialize(stream, share);
+      }
       if (stream.eof()) {
         LOG_F(ERROR, "Corrupted file %s", file.Path.u8string().c_str());
         break;

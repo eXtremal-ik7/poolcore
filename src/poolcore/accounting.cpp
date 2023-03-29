@@ -12,6 +12,34 @@
 
 #define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
 
+struct CSharesWorkWithTimeOld {
+  int64_t TimeLabel;
+  double SharesWork;
+};
+
+struct CStatsExportDataOld {
+  std::string UserId;
+  std::vector<CSharesWorkWithTimeOld> Recent;
+};
+
+template<>
+struct DbIo<CSharesWorkWithTimeOld> {
+  static inline void unserialize(xmstream &in, CSharesWorkWithTimeOld &data) {
+    uint32_t sharesNum;
+    DbIo<decltype(sharesNum)>::unserialize(in, sharesNum);
+    DbIo<decltype(data.SharesWork)>::unserialize(in, data.SharesWork);
+    DbIo<decltype(data.TimeLabel)>::unserialize(in, data.TimeLabel);
+  }
+};
+
+template<>
+struct DbIo<CStatsExportDataOld> {
+  static inline void unserialize(xmstream &in, CStatsExportDataOld &data) {
+    DbIo<decltype(data.UserId)>::unserialize(in, data.UserId);
+    DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
+  }
+};
+
 void AccountingDb::printRecentStatistic()
 {
   if (RecentStats_.empty()) {
@@ -37,6 +65,11 @@ void AccountingDb::printRecentStatistic()
 
 bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
 {
+  LastKnownShareId_ = 0;
+  LastBlockTime_ = 0;
+  RecentStats_.clear();
+  CurrentScores_.clear();
+
   FileDescriptor fd;
   if (!fd.open(file.Path.u8string().c_str())) {
     LOG_F(ERROR, "AccountingDb: can't open file %s", file.Path.u8string().c_str());
@@ -53,28 +86,51 @@ bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
   }
 
   stream.seekSet(0);
-  file.LastShareId = stream.readle<uint64_t>();
-  LastBlockTime_ = stream.readle<uint64_t>();
+  CAccountingFileData fileData;
 
-  // Load statistics
-  RecentStats_.clear();
-  DbIo<decltype(RecentStats_)>::unserialize(stream, RecentStats_);
+  if (file.IsOldFormat) {
+    // Unserialize, we need read:
+    //   * LastShareId (file.LastShareId)
+    //   * LastBlockTime
+    //   * RecentStats
+    //   * Scores
+    DbIo<decltype(fileData.LastShareId)>::unserialize(stream, fileData.LastShareId);
+    DbIo<decltype(fileData.LastBlockTime)>::unserialize(stream, fileData.LastBlockTime);
+    {
+      std::vector<CStatsExportDataOld> recentStatsOld;
+      DbIo<decltype(recentStatsOld)>::unserialize(stream, recentStatsOld);
+      fileData.Recent.resize(recentStatsOld.size());
+      for (size_t i = 0; i < recentStatsOld.size(); i++) {
+        fileData.Recent[i].UserId = std::move(recentStatsOld[i].UserId);
+        fileData.Recent[i].Recent.resize(recentStatsOld[i].Recent.size());
+        for (size_t j = 0; j < recentStatsOld[i].Recent.size(); j++) {
+          fileData.Recent[i].Recent[j].SharesWork = recentStatsOld[i].Recent[j].SharesWork;
+          fileData.Recent[i].Recent[j].TimeLabel = recentStatsOld[i].Recent[j].TimeLabel;
+        }
+      }
+    }
 
-  // Load current round aggregated data
-  CurrentScores_.clear();
-  size_t scoresCount = stream.readle<uint64_t>();
-  for (size_t i = 0; i < scoresCount; i++) {
-    std::string userId;
-    double score = 0.0;
-    DbIo<std::string>::unserialize(stream, userId);
-    DbIo<double>::unserialize(stream, score);
-    if (stream.eof())
-      break;
-    CurrentScores_[userId] = score;
+    {
+      uint64_t size;
+      DbIo<decltype(size)>::unserialize(stream, size);
+      for (uint64_t i = 0; i < size; i++) {
+        std::string userId;
+        double score;
+        DbIo<std::string>::unserialize(stream, userId);
+        DbIo<double>::unserialize(stream, score);
+        fileData.CurrentScores[userId] = score;
+      }
+    }
+  } else {
+    DbIo<CAccountingFileData>::unserialize(stream, fileData);
   }
 
+  file.LastShareId = fileData.LastShareId;
   if (!stream.remaining() && !stream.eof()) {
-    LastKnownShareId_ = file.LastShareId;
+    LastKnownShareId_ = fileData.LastShareId;
+    LastBlockTime_ = fileData.LastBlockTime;
+    RecentStats_ = std::move(fileData.Recent);
+    CurrentScores_ = std::move(fileData.CurrentScores);
     return true;
   } else {
     LastKnownShareId_ = 0;
@@ -89,7 +145,7 @@ bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
 void AccountingDb::flushAccountingStorageFile(int64_t timeLabel)
 {
   CAccountingFile &file = AccountingDiskStorage_.emplace_back();
-  file.Path = _cfg.dbPath / "accounting.storage" / (std::to_string(timeLabel) + ".dat");
+  file.Path = _cfg.dbPath / "accounting.storage.2" / (std::to_string(timeLabel) + ".dat");
   file.LastShareId = LastKnownShareId_;
   file.TimeLabel = timeLabel;
 
@@ -100,19 +156,13 @@ void AccountingDb::flushAccountingStorageFile(int64_t timeLabel)
   }
 
   xmstream stream;
-  // Last share id and last block time
-  stream.writele(LastKnownShareId_);
-  stream.writele(LastBlockTime_);
-
+  DbIo<uint32_t>::serialize(stream, CAccountingFileData::CurrentRecordVersion);
+  DbIo<decltype(LastKnownShareId_)>::serialize(stream, LastKnownShareId_);
+  DbIo<decltype(LastBlockTime_)>::serialize(stream, LastBlockTime_);
   // Statistics
-  DbIo<decltype (RecentStats_)>::serialize(stream, RecentStats_);
-
+  DbIo<decltype(RecentStats_)>::serialize(stream, RecentStats_);
   // Current round aggregated data
-  stream.writele<uint64_t>(CurrentScores_.size());
-  for (const auto &score: CurrentScores_) {
-    DbIo<std::string>::serialize(stream, score.first);
-    DbIo<double>::serialize(stream, score.second);
-  }
+  DbIo<decltype(CurrentScores_)>::serialize(stream, CurrentScores_);
 
   fd.write(stream.data(), stream.sizeOf());
   fd.close();
@@ -146,7 +196,13 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
   int64_t currentTime = time(nullptr);
   FlushInfo_.Time = currentTime;
   FlushInfo_.ShareId = 0;
-  enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / "accounting.storage");
+
+  {
+    // TEMPORARY
+    enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / "accounting.storage", true);
+  }
+  enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / "accounting.storage.2", false);
+
   while (!AccountingDiskStorage_.empty()) {
     auto &file = AccountingDiskStorage_.back();
     if (parseAccoutingStorageFile(file)) {
@@ -220,7 +276,7 @@ AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, con
   }
 }
 
-void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory)
+void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory, bool isOldFormat)
 {
   std::error_code errc;
   std::filesystem::create_directories(directory, errc);
@@ -237,6 +293,7 @@ void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const
     cache.emplace_back();
     cache.back().Path = *I;
     cache.back().TimeLabel = xatoi<uint64_t>(fileName.c_str());
+    cache.back().IsOldFormat = isOldFormat;
   }
 
   std::sort(cache.begin(), cache.end(), [](const CAccountingFile &l, const CAccountingFile &r){ return l.TimeLabel < r.TimeLabel; });
