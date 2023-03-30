@@ -661,6 +661,15 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   return true;
 }
 
+double Zmq::Work::expectedWork()
+{
+  int headerChainLength = TargetGetLength(Header.nBits);
+  double difficulty = getPrimeDifficulty(Header.nBits);
+  double fracDiff = difficulty - floor(difficulty);
+  double expectedWork = pow(10, headerChainLength - 7) / (0.97 * (1 - fracDiff) + 0.03);
+  return expectedWork;
+}
+
 double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
                             double shareDiff,
                             double shareTarget,

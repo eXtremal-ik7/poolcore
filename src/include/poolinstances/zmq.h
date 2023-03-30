@@ -223,7 +223,6 @@ private:
     double shareWork = 0.0;
     uint32_t primePOWTarget = 0;
 
-
     typename X::Zmq::Work::CExtraInfo info;
     bool isBlock = work.checkConsensus(data.CheckConsensusCtx, &shareDiff, &info);
     if (shareDiff < MiningCfg_.MinShareLength) {
@@ -232,19 +231,20 @@ private:
     }
 
     primePOWTarget = work.primePOWTarget();
-
     shareWork = work.shareWork(data.CheckConsensusCtx, shareDiff, MiningCfg_.MinShareLength, info, connection->WorkerContext);
 
     if (isBlock) {
       LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.ToString().c_str(), data.Work.txNum());
       // Submit to nodes
+      double expectedWork = work.expectedWork();
+
       std::string user = share.addr();
       int64_t generatedCoins = work.blockReward();
       CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
       dispatcher.aioSubmitBlock(data.WorkerBase,
                                 work.blockHexData().data(),
                                 work.blockHexData().sizeOf(),
-                                [height, user, blockHash, generatedCoins, backend, &data, shareWork, shareDiff, primePOWTarget](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+                                [height, user, blockHash, generatedCoins, backend, &data, shareWork, shareDiff, expectedWork, primePOWTarget](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
           if (successNum == 1) {
@@ -257,6 +257,7 @@ private:
             backendShare->isBlock = true;
             backendShare->hash = blockHash.ToString();
             backendShare->generatedCoins = generatedCoins;
+            backendShare->ExpectedWork = expectedWork;
             backendShare->ChainLength = shareDiff;
             backendShare->PrimePOWTarget = primePOWTarget;
             backend->sendShare(backendShare);

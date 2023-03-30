@@ -135,6 +135,7 @@ public:
     size_t txNum() { return TransactionsNum; }
     int64_t blockReward() { return BlockReward; }
     const xmstream &blockHexData() { return BlockHexData; }
+    double expectedWork();
 
     bool checkConsensus(Proto::CheckConsensusCtx &ctx, double *shareDiff, CExtraInfo *info) {
       Proto::ChainParams params;
