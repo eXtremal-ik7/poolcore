@@ -188,6 +188,11 @@ private:
       return;
     }
 
+    if (share.name().empty()) {
+      rep.set_errstr("Worker can't be empty");
+      rep.set_error(pool::proto::Reply::INVALID);
+    }
+
     // block height
     if (share.height() != height) {
       rep.set_error(pool::proto::Reply::STALE);
@@ -219,6 +224,7 @@ private:
     shareAccepted = true;
 
     // check proof of work
+    std::string workerId = share.name();
     double shareDiff = 0.0;
     double shareWork = 0.0;
     uint32_t primePOWTarget = 0;
@@ -244,7 +250,7 @@ private:
       dispatcher.aioSubmitBlock(data.WorkerBase,
                                 work.blockHexData().data(),
                                 work.blockHexData().sizeOf(),
-                                [height, user, blockHash, generatedCoins, backend, &data, shareWork, shareDiff, expectedWork, primePOWTarget](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+                                [height, user, workerId, blockHash, generatedCoins, backend, &data, shareWork, shareDiff, expectedWork, primePOWTarget](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
           if (successNum == 1) {
@@ -252,6 +258,7 @@ private:
             CShare *backendShare = new CShare;
             backendShare->Time = time(nullptr);
             backendShare->userId = user;
+            backendShare->workerId = workerId;
             backendShare->height = height;
             backendShare->WorkValue = shareWork;
             backendShare->isBlock = true;
@@ -278,7 +285,7 @@ private:
       CShare *backendShare = new CShare;
       backendShare->Time = time(nullptr);
       backendShare->userId = share.addr();
-      backendShare->workerId = share.name();
+      backendShare->workerId = workerId;
       backendShare->height = height;
       backendShare->WorkValue = shareWork;
       backendShare->isBlock = false;
@@ -291,7 +298,7 @@ private:
       CShare *backendShare = new CShare;
       backendShare->Time = time(nullptr);
       backendShare->userId = share.addr();
-      backendShare->workerId = share.name();
+      backendShare->workerId = workerId;
       backendShare->height = height;
       backendShare->WorkValue = shareWork;
       backendShare->isBlock = false;
