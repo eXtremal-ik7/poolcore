@@ -1171,8 +1171,11 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
       currentTimePoint = currentTime - *intervalIt;
     }
 
-    acceptedWork += dbBlock.AccumulatedWork;
-    expectedWork += dbBlock.ExpectedWork;
+    if (dbBlock.ExpectedWork != 0.0) {
+      acceptedWork += dbBlock.AccumulatedWork;
+      expectedWork += dbBlock.ExpectedWork;
+    }
+
     It->prev();
   }
 
