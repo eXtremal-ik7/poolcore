@@ -800,6 +800,19 @@ bool AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
   } else if (status == CNetworkClient::EStatusInvalidAddressOrKey) {
     // Wallet don't know about this transaction
     payout.Status = PayoutDbRecord::ETxCreated;
+  } else if (status == CNetworkClient::EStatusVerifyRejected) {
+    // Sending failed, transaction is rejected
+    LOG_F(ERROR, "Transaction %s to %s marked as rejected, removing from database...", payout.TransactionId.c_str(), payout.UserId.c_str());
+
+    // Update transaction in database
+    payout.Status = PayoutDbRecord::ETxRejected;
+    _payoutDb.put(payout);
+
+    // Clear all data and re-schedule payout
+    payout.TransactionId.clear();
+    payout.TransactionData.clear();
+    payout.Status = PayoutDbRecord::EInitialized;
+    return false;
   } else {
     LOG_F(WARNING, "Checking transaction %s to %s error \"%s\", will do it later...", payout.TransactionId.c_str(), payout.UserId.c_str(), error.c_str());
     return false;
