@@ -354,6 +354,9 @@ private:
   void newWorkerConnection(socketTy fd, HostAddress) {
     ThreadData &data = Data_[GetLocalThreadId()];
     Connection *connection = new Connection(this, zmtpSocketNew(data.WorkerBase, newSocketIo(data.WorkerBase, fd), zmtpSocketROUTER), GetLocalThreadId(), false);
+
+    connection->WorkerConfig.initialize(data.ThreadCfg);
+
     aioZmtpAccept(connection->Socket, afNone, 5000000, [](AsyncOpStatus status, zmtpSocket*, void *arg) {
       Connection *connection = static_cast<Connection*>(arg);
       if (status == aosSuccess) {
@@ -368,6 +371,9 @@ private:
   void newSignalsConnection(socketTy fd) {
     ThreadData &data = Data_[GetLocalThreadId()];
     Connection *connection = new Connection(this, zmtpSocketNew(data.WorkerBase, newSocketIo(data.WorkerBase, fd), zmtpSocketPUB), GetLocalThreadId(), true);
+
+    connection->WorkerConfig.initialize(data.ThreadCfg);
+
     aioZmtpAccept(connection->Socket, afNone, 5000000, [](AsyncOpStatus status, zmtpSocket*, void *arg) {
       Connection *connection = static_cast<Connection*>(arg);
       if (status == aosSuccess) {

@@ -452,9 +452,6 @@ void Zmq::generateNewWork(Work &work, WorkerConfig &workerCfg, ThreadConfig &thr
 {
   Proto::BlockHeader &header = work.Header;
 
-  // Update extra nonce
-  workerCfg.ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
-
   // Write target extra nonce to first txin
   uint8_t *scriptSig = work.CoinbaseTx.data<uint8_t>() + work.TxExtraNonceOffset;
   writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
@@ -464,7 +461,6 @@ void Zmq::generateNewWork(Work &work, WorkerConfig &workerCfg, ThreadConfig &thr
 
   // Update thread config
   threadCfg.ExtraNonceMap[work.Header.hashMerkleRoot] = workerCfg.ExtraNonceFixed;
-  threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
 }
 
 bool Zmq::prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Request &req, pool::proto::Reply &rep)

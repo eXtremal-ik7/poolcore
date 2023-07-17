@@ -160,6 +160,15 @@ public:
 
   struct WorkerConfig {
     uint64_t ExtraNonceFixed;
+
+    void initialize(ThreadConfig &threadCfg) {
+      // Set fixed part of extra nonce
+      ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
+      // Update thread config
+      threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
+
+      LOG_F(WARNING, "initialize workerCfg.ExtraNonceFixed=%u", (unsigned)ExtraNonceFixed);
+    }
   };
 
   struct WorkerContext {
