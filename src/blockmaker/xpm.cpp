@@ -249,7 +249,7 @@ static inline uint32_t bitwinLength(uint32_t l1, uint32_t l2)
     (l1 + TargetFromInt(TargetGetLength(l1)));
 }
 
-static unsigned getSmallestDivisor(const CDivisionChecker &checker,
+static unsigned getSmallestDivisor(const CDivisionChecker &checker32,
                                    mpz_t origin,
                                    Proto::EChainType type,
                                    unsigned chainLength,
@@ -257,66 +257,108 @@ static unsigned getSmallestDivisor(const CDivisionChecker &checker,
                                    unsigned rangeBegin,
                                    unsigned rangeEnd)
 {
+  mpz_class localOrigin(origin);
+
   unsigned divisor = -1U;
+  size_t limbsNumber;
+  uint32_t limbs[2048 / 32];
+  mpz_export(limbs, &limbsNumber, -1, 4, 0, 0, origin);
+
+  unsigned lastPrimeIndex = rangeEnd == -1U ? 131072 : rangeEnd;
   if (type == Proto::ECunninghamChain1) {
-    mpz_sub_ui(origin, origin, 1);
-    unsigned i = 0;
-    for (; i < chainLength; i++) {
-      mpz_mul_2exp(origin, origin, 1);
-      mpz_add_ui(origin, origin, 1);
-    }
-    for (; i < target; i++) {
-      divisor = std::min(checker.lastDivisor(origin, rangeBegin, rangeEnd), divisor);
-      mpz_mul_2exp(origin, origin, 1);
-      mpz_add_ui(origin, origin, 1);
+    for (unsigned primeIdx = rangeBegin; primeIdx < lastPrimeIndex; primeIdx++) {
+      int prime = checker32.prime(primeIdx);
+      int remainder = checker32.mod32(limbs, limbsNumber, primeIdx);
+
+      remainder--;
+      if (remainder < 0)
+        remainder = prime - 1;
+
+      bool isDivisor = false;
+      for (unsigned i = 0; i < target; i++) {
+        if (remainder == 0) {
+          isDivisor = true;
+          break;
+        }
+        remainder = remainder * 2 + 1;
+        if (remainder >= prime)
+          remainder -= prime;
+      }
+
+      if (isDivisor) {
+        divisor = primeIdx;
+        break;
+      }
     }
   } else if (type == Proto::ECunninghamChain2) {
-    mpz_add_ui(origin, origin, 1);
-    unsigned i = 0;
-    for (; i < chainLength; i++) {
-      mpz_mul_2exp(origin, origin, 1);
-      mpz_sub_ui(origin, origin, 1);
-    }
-    for (; i < target; i++) {
-      divisor = std::min(checker.lastDivisor(origin, rangeBegin, rangeEnd), divisor);
-      mpz_mul_2exp(origin, origin, 1);
-      mpz_sub_ui(origin, origin, 1);
+    for (unsigned primeIdx = rangeBegin; primeIdx < lastPrimeIndex; primeIdx++) {
+      int prime = checker32.prime(primeIdx);
+      int remainder = checker32.mod32(limbs, limbsNumber, primeIdx);
+
+      remainder++;
+      if (remainder >= prime)
+        remainder -= prime;
+
+      bool isDivisor = false;
+      for (unsigned i = 0; i < target; i++) {
+        if (remainder == 0) {
+          isDivisor = true;
+          break;
+        }
+        remainder = remainder * 2 - 1;
+        if (remainder >= prime)
+          remainder -= prime;
+      }
+
+      if (isDivisor) {
+        divisor = primeIdx;
+        break;
+      }
     }
   } else {
-    unsigned c1ChainLength = chainLength/2 + (chainLength % 2);
-    unsigned c2ChainLength = chainLength/2;
-    unsigned c1Target = target/2 + (target % 2);
-    unsigned c2Target = target/2;
-    {
-      mpz_t n;
-      mpz_init(n);
-      mpz_set(n, origin);
-      mpz_sub_ui(n, n, 1);
-      unsigned i = 0;
-      for (; i < c1ChainLength; i++) {
-        mpz_mul_2exp(n, n, 1);
-        mpz_add_ui(n, n, 1);
+    for (unsigned primeIdx = rangeBegin; primeIdx < lastPrimeIndex; primeIdx++) {
+      unsigned c1Target = target/2 + (target % 2);
+      unsigned c2Target = target/2;
+      int prime = checker32.prime(primeIdx);
+      int remOrigin = checker32.mod32(limbs, limbsNumber, primeIdx);
+      bool isDivisor = false;
+      {
+        int remainder = remOrigin - 1;
+        if (remainder < 0)
+          remainder = prime - 1;
+        for (unsigned i = 0; i < c1Target; i++) {
+          if (remainder == 0) {
+            isDivisor = true;
+            break;
+          }
+          remainder = remainder * 2 + 1;
+          if (remainder >= prime)
+            remainder -= prime;
+        }
+
+        if (isDivisor) {
+          divisor = primeIdx;
+          break;
+        }
       }
-      for (; i < c1Target; i++) {
-        divisor = std::min(checker.lastDivisor(n, rangeBegin, rangeEnd), divisor);
-        mpz_mul_2exp(n, n, 1);
-        mpz_add_ui(n, n, 1);
-      }
-    }
-    {
-      mpz_t n;
-      mpz_init(n);
-      mpz_set(n, origin);
-      mpz_add_ui(n, n, 1);
-      unsigned i = 0;
-      for (; i < c2ChainLength; i++) {
-        mpz_mul_2exp(n, n, 1);
-        mpz_sub_ui(n, n, 1);
-      }
-      for (; i < c2Target; i++) {
-        divisor = std::min(checker.lastDivisor(n, rangeBegin, rangeEnd), divisor);
-        mpz_mul_2exp(n, n, 1);
-        mpz_sub_ui(n, n, 1);
+      {
+        int remainder = remOrigin + 1;
+        if (remainder >= prime)
+          remainder -= prime;
+        for (unsigned i = 0; i < c2Target; i++) {
+          if (remainder == 0) {
+            isDivisor = true;
+            break;
+          }
+          remainder = remainder * 2 - 1;
+          if (remainder >= prime)
+            remainder -= prime;
+        }
+
+        if (isDivisor) {
+          divisor = primeIdx;
+          break;
+        }
       }
     }
   }
@@ -672,12 +714,23 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
                             const CExtraInfo &info,
                             WorkerContext &workerContext)
 {
+  constexpr unsigned warmUpShares = 64;
+
   XPM::Proto::BlockHashTy hash = Header.GetOriginalHeaderHash();
   uint256ToBN(ctx.bnPrimeChainOrigin, hash);
   mpz_mul(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, Header.bnPrimeChainMultiplier.get_mpz_t());
   unsigned bnPrimeChainOriginBitSize = mpz_sizeinbase(ctx.bnPrimeChainOrigin, 2);
   unsigned headerChainLength = TargetGetLength(Header.nBits);
   unsigned chainLength = static_cast<unsigned>(shareDiff);
+
+  workerContext.SharesBitSize.push_back(bnPrimeChainOriginBitSize);
+  if (workerContext.SharesBitSize.size() >= warmUpShares * 2)
+    workerContext.SharesBitSize.pop_front();
+
+  double bnPrimeChainOriginBitSizeAvg = 0.0;
+  for (unsigned i = 0; i < workerContext.SharesBitSize.size(); i++)
+    bnPrimeChainOriginBitSizeAvg += workerContext.SharesBitSize[i];
+  bnPrimeChainOriginBitSizeAvg /= workerContext.SharesBitSize.size();
 
   unsigned smallestDivisor = getSmallestDivisor(Zmq::DivisionChecker_,
                                                 ctx.bnPrimeChainOrigin,
@@ -701,11 +754,11 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
   workerContext.TotalShares++;
 
   unsigned divisorIndexForPPCalc = workerContext.LowestDivisorIndex;
-  if (workerContext.TotalShares < 48 || workerContext.LowestDivisorIndex == -1U)
+  if (workerContext.TotalShares < warmUpShares || workerContext.LowestDivisorIndex == -1U)
     divisorIndexForPPCalc = 2048;
 
   double d = log(Zmq::DivisionChecker_.prime(divisorIndexForPPCalc));
-  double primeProb = (1.8694 * (d - log(2))) / (bnPrimeChainOriginBitSize * log(2));
+  double primeProb = (1.8554 * (d - log(2))) / (bnPrimeChainOriginBitSizeAvg * log(2));
   double shareValue = pow(primeProb / 0.1, headerChainLength - 7) * pow(primeProb, 7 - floor(shareTarget));
   return shareValue;
 }

@@ -9,6 +9,7 @@
 #include "blockmaker/divisionChecker.h"
 #include "poolcommon/bigNum.h"
 #include "poolinstances/protocol.pb.h"
+#include <deque>
 
 namespace XPM {
 class Proto {
@@ -166,18 +167,17 @@ public:
       ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
       // Update thread config
       threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
-
-      LOG_F(WARNING, "initialize workerCfg.ExtraNonceFixed=%u", (unsigned)ExtraNonceFixed);
     }
   };
 
   struct WorkerContext {
     uint64_t TotalShares = 0;
     unsigned LowestDivisorIndex = -1U;
+    std::deque<uint32_t> SharesBitSize;
   };
 
 public:
-  static void initialize() { DivisionChecker_.init(); }
+  static void initialize() { DivisionChecker_.init(131072, 2048/32); }
   static void initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg);
   static void initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum);
   static void resetThreadConfig(ThreadConfig &cfg);
