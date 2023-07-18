@@ -740,16 +740,6 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
                                                 2048,
                                                 workerContext.LowestDivisorIndex);
 
-  // DEBUG
-  // if (smallestDivisor < workerContext.LowestDivisorIndex) {
-  //  char s[4096];
-  //  XPM::Proto::BlockHashTy hash = Header.GetOriginalHeaderHash();
-  //  uint256ToBN(ctx.bnPrimeChainOrigin, hash);
-  //  mpz_mul(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, Header.bnPrimeChainMultiplier.get_mpz_t());
-  //  LOG_F(WARNING, "divisor update: %u(%u)", smallestDivisor, Zmq::DivisionChecker_.prime(smallestDivisor));
-  //  LOG_F(WARNING, "share %uch base=%s type=%u", chainLength, mpz_get_str(s, 10, ctx.bnPrimeChainOrigin), info.ChainType);
-  // }
-
   workerContext.LowestDivisorIndex = std::min(workerContext.LowestDivisorIndex, smallestDivisor);
   workerContext.TotalShares++;
 
@@ -758,7 +748,11 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
     divisorIndexForPPCalc = 2048;
 
   double d = log(Zmq::DivisionChecker_.prime(divisorIndexForPPCalc));
-  double primeProb = (1.8554 * (d - log(2))) / (bnPrimeChainOriginBitSizeAvg * log(2));
+  double primeProbBase = (1.883271 * (d - log(2))) / (bnPrimeChainOriginBitSizeAvg * log(2));
+  double primeProbTarget = primeProbBase - (0.0003 * headerChainLength / 2);
+  double primeProb7 = primeProbBase - (0.0003 * 7.0 / 2);
+  double ppRatio = pow(primeProbTarget, headerChainLength) / pow(primeProb7, 7.0);
+  double primeProb = pow(ppRatio, 1.0 / (headerChainLength - 7));
   double shareValue = pow(primeProb / 0.1, headerChainLength - 7) * pow(primeProb, 7 - floor(shareTarget));
   return shareValue;
 }
