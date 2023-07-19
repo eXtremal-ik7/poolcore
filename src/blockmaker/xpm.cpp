@@ -5,9 +5,7 @@
 
 #include "blockmaker/xpm.h"
 #include "blockmaker/serializeJson.h"
-#include "poolcommon/arith_uint256.h"
 #include "poolcommon/utils.h"
-#include "poolcore/backendData.h"
 #include "blockmaker/merkleTree.h"
 
 CDivisionChecker XPM::Zmq::DivisionChecker_;
@@ -422,19 +420,6 @@ bool Proto::checkConsensus(const Proto::BlockHeader &header,
   else
     *chainType = EBiTwin;
 
-  // Check smallest divisor, we accept shares only if it greater than constant 2048
-  unsigned smallestDivisor = getSmallestDivisor(Zmq::DivisionChecker_,
-                                                ctx.bnPrimeChainOrigin,
-                                                *chainType,
-                                                static_cast<unsigned>(*shareSize),
-                                                TargetGetLength(header.nBits),
-                                                1,
-                                                2048);
-  if (smallestDivisor != -1U) {
-    *shareSize = 0.0;
-    return false;
-  }
-
   if (!(l1 >= header.nBits || l2 >= header.nBits || lbitwin >= header.nBits))
     return false;
 
@@ -712,43 +697,39 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
                             double shareDiff,
                             double shareTarget,
                             const CExtraInfo &info,
-                            WorkerContext &workerContext)
+                            WorkerConfig &workerConfig)
 {
-  constexpr unsigned warmUpShares = 64;
+  constexpr unsigned ShareWindowSize = 128;
 
   XPM::Proto::BlockHashTy hash = Header.GetOriginalHeaderHash();
+
   uint256ToBN(ctx.bnPrimeChainOrigin, hash);
   mpz_mul(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, Header.bnPrimeChainMultiplier.get_mpz_t());
   unsigned bnPrimeChainOriginBitSize = mpz_sizeinbase(ctx.bnPrimeChainOrigin, 2);
   unsigned headerChainLength = TargetGetLength(Header.nBits);
   unsigned chainLength = static_cast<unsigned>(shareDiff);
 
-  workerContext.SharesBitSize.push_back(bnPrimeChainOriginBitSize);
-  if (workerContext.SharesBitSize.size() >= warmUpShares * 2)
-    workerContext.SharesBitSize.pop_front();
-
-  double bnPrimeChainOriginBitSizeAvg = 0.0;
-  for (unsigned i = 0; i < workerContext.SharesBitSize.size(); i++)
-    bnPrimeChainOriginBitSizeAvg += workerContext.SharesBitSize[i];
-  bnPrimeChainOriginBitSizeAvg /= workerContext.SharesBitSize.size();
-
   unsigned smallestDivisor = getSmallestDivisor(Zmq::DivisionChecker_,
                                                 ctx.bnPrimeChainOrigin,
                                                 info.ChainType,
                                                 chainLength,
                                                 headerChainLength,
-                                                2048,
-                                                workerContext.LowestDivisorIndex);
+                                                0,
+                                                workerConfig.WeaveDepth);
+  if (smallestDivisor != -1U)
+    return 0.0;
 
-  workerContext.LowestDivisorIndex = std::min(workerContext.LowestDivisorIndex, smallestDivisor);
-  workerContext.TotalShares++;
+  workerConfig.SharesBitSize.push_back(bnPrimeChainOriginBitSize);
+  if (workerConfig.SharesBitSize.size() >= ShareWindowSize)
+    workerConfig.SharesBitSize.pop_front();
 
-  unsigned divisorIndexForPPCalc = workerContext.LowestDivisorIndex;
-  if (workerContext.TotalShares < warmUpShares || workerContext.LowestDivisorIndex == -1U)
-    divisorIndexForPPCalc = 2048;
+  double bnPrimeChainOriginBitSizeAvg = 0.0;
+  for (unsigned i = 0; i < workerConfig.SharesBitSize.size(); i++)
+    bnPrimeChainOriginBitSizeAvg += workerConfig.SharesBitSize[i];
+  bnPrimeChainOriginBitSizeAvg /= workerConfig.SharesBitSize.size();
 
-  double d = log(Zmq::DivisionChecker_.prime(divisorIndexForPPCalc));
-  double primeProbBase = (1.883271 * (d - log(2))) / (bnPrimeChainOriginBitSizeAvg * log(2));
+  double d = log(Zmq::DivisionChecker_.prime(workerConfig.WeaveDepth));
+  double primeProbBase = (1.78368 * d) / (bnPrimeChainOriginBitSizeAvg * log(2));
   double primeProbTarget = primeProbBase - (0.0003 * headerChainLength / 2);
   double primeProb7 = primeProbBase - (0.0003 * 7.0 / 2);
   double ppRatio = pow(primeProbTarget, headerChainLength) / pow(primeProb7, 7.0);

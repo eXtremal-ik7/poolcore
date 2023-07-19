@@ -70,7 +70,7 @@ message Share {
 
 message Request {
   
-  enum Type { NONE = 0; CONNECT = 1; GETWORK = 2; SHARE = 3; STATS = 4; PING = 5; }
+  enum Type { NONE = 0; CONNECT = 1; GETWORK = 2; SHARE = 3; STATS = 4; PING = 5; SETCONFIG = 6;}
   
   required Type type = 1;
   required uint32 reqid = 2;
@@ -78,6 +78,7 @@ message Request {
   optional uint32 version = 10;
   optional uint32 height = 11;
   optional bytes reqnonce = 12;
+  optional uint32 weaveDepth = 13;
   
   optional Share share = 20;
   optional ClientStats stats = 21;

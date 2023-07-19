@@ -11,6 +11,7 @@
 #include <asyncioextras/zmtp.h>
 #include "protocol.pb.h"
 
+static constexpr unsigned REQUIRED_MINER_VERSION = 1006;
 
 static bool checkRequest(pool::proto::Request &req,
                          pool::proto::Reply &rep,
@@ -113,7 +114,6 @@ private:
     zmtpStream Stream;
     zmtpUserMsgTy MsgType;
     typename X::Zmq::WorkerConfig WorkerConfig;
-    typename X::Zmq::WorkerContext WorkerContext;
   };
 
   struct ThreadData {
@@ -148,6 +148,18 @@ private:
     }, connection);
   }
 
+  void onSetConfig(ThreadData &data, Connection *connection, pool::proto::Request &req, pool::proto::Reply &rep) {
+    if (!req.has_weavedepth()) {
+      rep.set_errstr("Client sent empty config");
+      return;
+    }
+
+    if (!connection->WorkerConfig.setConfig(req.weavedepth())) {
+      rep.set_errstr("Client sent invalid config");
+      return;
+    }
+  }
+
   void onGetWork(ThreadData &data, Connection *connection, pool::proto::Request&, pool::proto::Reply &rep) {
     if (data.HasWork) {
       X::Zmq::generateNewWork(data.Work, connection->WorkerConfig, data.ThreadConfig, MiningCfg_);
@@ -179,6 +191,12 @@ private:
 
     const pool::proto::Share& share = req.share();
 
+    if (!connection->WorkerConfig.hasConfig()) {
+      rep.set_errstr("Mining config not set");
+      rep.set_error(pool::proto::Reply::INVALID);
+      return;
+    }
+
     // check user name
     // TODO: move it to connection
     UserManager::Credentials credentials;
@@ -191,6 +209,7 @@ private:
     if (share.name().empty()) {
       rep.set_errstr("Worker can't be empty");
       rep.set_error(pool::proto::Reply::INVALID);
+      return;
     }
 
     // block height
@@ -237,7 +256,11 @@ private:
     }
 
     primePOWTarget = work.primePOWTarget();
-    shareWork = work.shareWork(data.CheckConsensusCtx, shareDiff, MiningCfg_.MinShareLength, info, connection->WorkerContext);
+    shareWork = work.shareWork(data.CheckConsensusCtx, shareDiff, MiningCfg_.MinShareLength, info, connection->WorkerConfig);
+    if (shareWork == 0.0) {
+      rep.set_error(pool::proto::Reply::INVALID);
+      return;
+    }
 
     if (isBlock) {
       LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.ToString().c_str(), data.Work.txNum());
@@ -447,12 +470,15 @@ private:
 
     pool::proto::Request::Type requestType = req.type();
     if (requestType == pool::proto::Request::CONNECT) {
-      // TODO: check version
-      bool versionIsValid = true;
-
-      if (!versionIsValid) {
+      if (!req.has_version() || req.version() < REQUIRED_MINER_VERSION) {
+        char buffer[1024];
+        snprintf(buffer,
+                 sizeof(buffer),
+                 "Miner not supported by pool, minimal version is %u.%u",
+                 REQUIRED_MINER_VERSION / 100,
+                 REQUIRED_MINER_VERSION % 100);
         rep.set_error(pool::proto::Reply::VERSION);
-        rep.set_errstr("Your miner version will no longer be supported in the near future. Please upgrade.");
+        rep.set_errstr(buffer);
       }
 
       // fill 'bitcoin' and 'signals' host addresses
@@ -463,8 +489,8 @@ private:
       // XPM specific
       // TODO: get from block template (nBits)
       mServerInfo.set_target(10);
-      mServerInfo.set_versionmajor(10);
-      mServerInfo.set_versionminor(3);
+      mServerInfo.set_versionmajor(REQUIRED_MINER_VERSION / 100);
+      mServerInfo.set_versionminor(REQUIRED_MINER_VERSION % 100);
       rep.mutable_sinfo()->CopyFrom(mServerInfo);
       CurrentWorker_ = (CurrentWorker_ + 1) % ThreadPool_.threadsNum();
     }
@@ -487,7 +513,9 @@ private:
 
     pool::proto::Request::Type requestType = req.type();
     ThreadData &data = Data_[GetLocalThreadId()];
-    if (requestType == pool::proto::Request::GETWORK) {
+    if (requestType == pool::proto::Request::SETCONFIG) {
+      onSetConfig(data, connection, req, rep);
+    } else if (requestType == pool::proto::Request::GETWORK) {
       onGetWork(data, connection, req, rep);
     } else if (requestType == pool::proto::Request::SHARE) {
       onShare(connection, data, req, rep);

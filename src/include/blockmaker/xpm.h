@@ -108,6 +108,39 @@ struct Zmq {
   struct WorkerContext;
 
 public:
+  struct MiningConfig {
+    unsigned FixedExtraNonceSize = 8;
+    unsigned MinShareLength = 7;
+  };
+
+  struct ThreadConfig {
+    std::unordered_map<uint256, uint64_t> ExtraNonceMap;
+    uint64_t ExtraNonceCurrent;
+    unsigned ThreadsNum;
+  };
+
+  struct WorkerConfig {
+    uint64_t ExtraNonceFixed;
+    unsigned WeaveDepth = 0;
+    std::deque<uint32_t> SharesBitSize;
+
+    void initialize(ThreadConfig &threadCfg) {
+      // Set fixed part of extra nonce
+      ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
+      // Update thread config
+      threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
+    }
+
+    bool setConfig(unsigned weaveDepth) {
+      if (weaveDepth == 0 || weaveDepth > 131072)
+        return false;
+
+      WeaveDepth = weaveDepth;
+      return true;
+    }
+    bool hasConfig() { return WeaveDepth != 0; }
+  };
+
   class Work {
   public:
     struct CExtraInfo {
@@ -144,40 +177,12 @@ public:
       return XPM::Proto::checkConsensus(Header, ctx, params, shareDiff, &info->ChainType);
     }
 
-    double shareWork(Proto::CheckConsensusCtx &ctx, double shareDiff, double shareTarget, const CExtraInfo &info, WorkerContext &workerContext);
+    double shareWork(Proto::CheckConsensusCtx &ctx, double shareDiff, double shareTarget, const CExtraInfo &info, WorkerConfig &workerConfig);
     uint32_t primePOWTarget();
   };
 
-  struct MiningConfig {
-    unsigned FixedExtraNonceSize = 8;
-    unsigned MinShareLength = 7;
-  };
-
-  struct ThreadConfig {
-    std::unordered_map<uint256, uint64_t> ExtraNonceMap;
-    uint64_t ExtraNonceCurrent;
-    unsigned ThreadsNum;
-  };
-
-  struct WorkerConfig {
-    uint64_t ExtraNonceFixed;
-
-    void initialize(ThreadConfig &threadCfg) {
-      // Set fixed part of extra nonce
-      ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
-      // Update thread config
-      threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
-    }
-  };
-
-  struct WorkerContext {
-    uint64_t TotalShares = 0;
-    unsigned LowestDivisorIndex = -1U;
-    std::deque<uint32_t> SharesBitSize;
-  };
-
 public:
-  static void initialize() { DivisionChecker_.init(131072, 2048/32); }
+  static void initialize() { DivisionChecker_.init(131072 + 1024, 2048/32); }
   static void initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg);
   static void initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum);
   static void resetThreadConfig(ThreadConfig &cfg);
