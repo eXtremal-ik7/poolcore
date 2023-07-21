@@ -44,6 +44,18 @@ public:
       info.Name = "sha3.shake256.16";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
+    } else if (strcmp(coinName, "qubit") == 0) {
+      info.Name = "qubit";
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+    } else if (strcmp(coinName, "skein") == 0) {
+      info.Name = "qubit";
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+    } else if (strcmp(coinName, "odocrypt") == 0) {
+      info.Name = "odocrypt";
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
     } else if (strcmp(coinName, "PrimePOW") == 0) {
       info.Name = "PrimePOW";
       info.PowerUnitType = CCoinInfo::ECPD;
@@ -245,6 +257,102 @@ public:
       info.DefaultRpcPort = 14023;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "scrypt";
+      info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+    } else if (strcmp(coinName, "DGB.qubit") == 0) {
+      info.Name = "DGB.qubit";
+      info.FullName = "Digibyte";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {30};
+      info.ScriptAddressPrefix = {63};
+      info.Bech32Prefix = "dgb";
+      info.DefaultRpcPort = 14022;
+      info.CoinGeckoName = "digibyte";
+      info.ProfitSwitchDefaultCoeff = 0.7;
+      info.MinimalConfirmationsNumber = 32;
+      info.Algorithm = "qubit";
+      info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+    } else if (strcmp(coinName, "DGB.qubit.testnet") == 0) {
+      info.Name = "DGB.qubit.testnet";
+      info.FullName = "Digibyte";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {126};
+      info.ScriptAddressPrefix = {140};
+      info.Bech32Prefix = "dgbt";
+      info.DefaultRpcPort = 14023;
+      info.MinimalConfirmationsNumber = 32;
+      info.Algorithm = "qubit";
+      info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+    } else if (strcmp(coinName, "DGB.skein") == 0) {
+      info.Name = "DGB.skein";
+      info.FullName = "Digibyte";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {30};
+      info.ScriptAddressPrefix = {63};
+      info.Bech32Prefix = "dgb";
+      info.DefaultRpcPort = 14022;
+      info.CoinGeckoName = "digibyte";
+      info.ProfitSwitchDefaultCoeff = 0.7;
+      info.MinimalConfirmationsNumber = 32;
+      info.Algorithm = "skein";
+      info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+    } else if (strcmp(coinName, "DGB.skein.testnet") == 0) {
+      info.Name = "DGB.skein.testnet";
+      info.FullName = "Digibyte";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {126};
+      info.ScriptAddressPrefix = {140};
+      info.Bech32Prefix = "dgbt";
+      info.DefaultRpcPort = 14023;
+      info.MinimalConfirmationsNumber = 32;
+      info.Algorithm = "skein";
+      info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+    } else if (strcmp(coinName, "DGB.odo") == 0) {
+      info.Name = "DGB.odo";
+      info.FullName = "Digibyte";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {30};
+      info.ScriptAddressPrefix = {63};
+      info.Bech32Prefix = "dgb";
+      info.DefaultRpcPort = 14022;
+      info.CoinGeckoName = "digibyte";
+      info.ProfitSwitchDefaultCoeff = 0.7;
+      info.MinimalConfirmationsNumber = 32;
+      info.Algorithm = "odocrypt";
+      info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+    } else if (strcmp(coinName, "DGB.odo.testnet") == 0) {
+      info.Name = "DGB.odo.testnet";
+      info.FullName = "Digibyte";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {126};
+      info.ScriptAddressPrefix = {140};
+      info.Bech32Prefix = "dgbt";
+      info.DefaultRpcPort = 14023;
+      info.MinimalConfirmationsNumber = 32;
+      info.Algorithm = "odocrypt";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
     } else if (strcmp(coinName, "DOGE") == 0) {
       info.Name = "DOGE";

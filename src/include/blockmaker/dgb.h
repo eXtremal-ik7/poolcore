@@ -49,8 +49,17 @@ public:
 
 template<Algo algo>
 class Stratum {
+private:
+  static constexpr double factor() {
+    switch(algo) {
+      case Algo::EQubit : return 1.0;
+      case Algo::ESkein : return 1.0;
+      case Algo::EOdo : return 1.0;
+    }
+  }
+
 public:
-  static constexpr double DifficultyFactor = 65536.0;
+  static constexpr double DifficultyFactor = factor();
 
   using MiningConfig = BTC::Stratum::MiningConfig;
   using WorkerConfig = BTC::Stratum::WorkerConfig;

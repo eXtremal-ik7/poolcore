@@ -83,10 +83,6 @@ template<> bool Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB::Algo::
   SHA256_Update(&sha256Context, skeinHash.begin(), skeinHash.size());
   SHA256_Final(result.begin(), &sha256Context);
 
-  SHA256_Init(&sha256Context);
-  SHA256_Update(&sha256Context, result.begin(), sizeof(result));
-  SHA256_Final(result.begin(), &sha256Context);
-
   *shareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
 
   bool fNegative;
