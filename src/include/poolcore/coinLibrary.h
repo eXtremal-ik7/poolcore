@@ -49,7 +49,7 @@ public:
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
     } else if (strcmp(coinName, "skein") == 0) {
-      info.Name = "qubit";
+      info.Name = "skein";
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
     } else if (strcmp(coinName, "odocrypt") == 0) {
