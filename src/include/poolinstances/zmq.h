@@ -11,7 +11,7 @@
 #include <asyncioextras/zmtp.h>
 #include "protocol.pb.h"
 
-static constexpr unsigned REQUIRED_MINER_VERSION = 1006;
+static constexpr unsigned REQUIRED_MINER_VERSION = 1061;
 
 static bool checkRequest(pool::proto::Request &req,
                          pool::proto::Reply &rep,
@@ -255,7 +255,7 @@ private:
       return;
     }
 
-    primePOWTarget = work.primePOWTarget();
+    primePOWTarget = std::max(work.primePOWTarget(), MiningCfg_.MinShareLength);
     shareWork = work.shareWork(data.CheckConsensusCtx, shareDiff, MiningCfg_.MinShareLength, info, connection->WorkerConfig);
     if (shareWork == 0.0) {
       rep.set_error(pool::proto::Reply::INVALID);
@@ -474,9 +474,10 @@ private:
         char buffer[1024];
         snprintf(buffer,
                  sizeof(buffer),
-                 "Miner not supported by pool, minimal version is %u.%u",
+                 "Miner not supported by pool, minimal version is %u.%u.%u",
                  REQUIRED_MINER_VERSION / 100,
-                 REQUIRED_MINER_VERSION % 100);
+                 (REQUIRED_MINER_VERSION % 100) / 10,
+                 (REQUIRED_MINER_VERSION % 100) % 10);
         rep.set_error(pool::proto::Reply::VERSION);
         rep.set_errstr(buffer);
       }

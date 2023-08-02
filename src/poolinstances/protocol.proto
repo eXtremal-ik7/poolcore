@@ -105,15 +105,7 @@ message Work {
   required string merkle = 2;
   required uint32 time = 3;
   required uint32 bits = 4;
-
-  // hash algorithms specific
-  optional uint32 diff = 5;
-
-  // zcash specific
-  optional string hashReserved = 6;
-  optional uint32 n = 7;
-  optional uint32 k = 8;
-  
+  optional uint32 version = 5;
 }
 
 message Reply {

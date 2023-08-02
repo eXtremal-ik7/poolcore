@@ -247,6 +247,45 @@ static inline uint32_t bitwinLength(uint32_t l1, uint32_t l2)
     (l1 + TargetFromInt(TargetGetLength(l1)));
 }
 
+static int64_t getFee(size_t nBytes_, bool isProtocolV1)
+{
+  static constexpr int64_t COIN = 100000000;
+  static constexpr int64_t nSatoshisPerK = COIN;
+  int64_t nSize = int64_t(nBytes_);
+  int64_t nFee = nSatoshisPerK * nSize / 1000;
+
+  if(isProtocolV1) {
+    nFee = (1 + (nSize / 1000)) * nSatoshisPerK;
+  }
+
+  if (nFee == 0 && nSize != 0) {
+    if (nSatoshisPerK > 0)
+      nFee = int64_t(1);
+    if (nSatoshisPerK < 0)
+      nFee = int64_t(-1);
+  }
+
+  return nFee;
+}
+
+static int64_t targetGetMint(unsigned int nBits)
+{
+  static constexpr int64_t COIN = 100000000;
+  static constexpr int64_t CENT = 1000000;
+
+  uint64_t nMint = 0;
+  static uint64_t nMintLimit = 999llu * COIN;
+  mpz_class bnMint = nMintLimit;
+  bnMint = (bnMint << nFractionalBits) / nBits;
+  bnMint = (bnMint << nFractionalBits) / nBits;
+  bnMint = (bnMint / CENT) * CENT;  // mint value rounded to cent
+  {
+    size_t limbsNumber = 0;
+    mpz_export(&nMint, &limbsNumber, -1, 8, 0, 0, bnMint.get_mpz_t());
+  }
+  return nMint;
+}
+
 static unsigned getSmallestDivisor(const CDivisionChecker &checker32,
                                    mpz_t origin,
                                    Proto::EChainType type,
@@ -468,7 +507,7 @@ void Zmq::buildBlockProto(Work &work, MiningConfig &miningCfg, pool::proto::Bloc
 
 void Zmq::buildWorkProto(Work &work, pool::proto::Work &proto)
 {
-  // TODO: switch to 64-bit height
+  proto.set_version(work.Header.nVersion);
   proto.set_height(static_cast<uint32_t>(work.Height));
   proto.set_merkle(work.Header.hashMerkleRoot.ToString().c_str());
   proto.set_time(std::max(static_cast<uint32_t>(time(0)), work.Header.nTime));
@@ -565,23 +604,19 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   rapidjson::Value &hashPrevBlock = blockTemplate["previousblockhash"];
   rapidjson::Value &curtime = blockTemplate["curtime"];
   rapidjson::Value &bits = blockTemplate["bits"];
-  rapidjson::Value &coinbaseValue = blockTemplate["coinbasevalue"];
   rapidjson::Value::Array transactions = blockTemplate["transactions"].GetArray();
   if (!height.IsUint64() ||
       !version.IsUint() ||
       !hashPrevBlock.IsString() ||
       !curtime.IsUint() ||
-      !bits.IsString() ||
-      !coinbaseValue.IsInt64()) {
+      !bits.IsString()) {
     error = "height or header data invalid format";
     return false;
   }
 
   work.Height = height.GetUint64();
   Proto::BlockHeader &header = work.Header;
-  // TODO: use version from template
-  // header.nVersion = version.GetUint();
-  header.nVersion = 2;
+  header.nVersion = version.GetUint();
   header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
   header.hashMerkleRoot.SetNull();
   header.nTime = curtime.GetUint();
@@ -632,7 +667,8 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
     {
       // First txout (funds)
       BTC::Proto::TxOut &txOut = coinbaseTx.txOut[0];
-      work.BlockReward = txOut.value = coinbaseValue.GetInt64();
+      work.BlockReward = 0;
+      txOut.value = 0;
 
       // pkScript (use single P2PKH)
       txOut.pkScript.resize(sizeof(BTC::Proto::AddressTy) + 5);
@@ -654,6 +690,11 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
     // TODO: make separate 'blockmaker' for DTC
     work.CoinbaseTx.write<uint8_t>(0);
   }
+
+  // Calculate reward & serialize coinbase transaction again
+  work.BlockReward = coinbaseTx.txOut[0].value = targetGetMint(work.Header.nBits) - getFee(work.CoinbaseTx.sizeOf(), false);
+  work.CoinbaseTx.reset();
+  BTC::X::serialize(work.CoinbaseTx, coinbaseTx);
 
   bin2hexLowerCase(work.CoinbaseTx.data(), work.TxHexData.reserve<char>(work.CoinbaseTx.sizeOf()*2), work.CoinbaseTx.sizeOf());
 
@@ -681,6 +722,9 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   // Build merkle path
   dumpMerkleTree(txHashes, work.MerklePath);
   work.TransactionsNum = transactions.Size() + 1;
+
+
+
   return true;
 }
 
@@ -706,8 +750,8 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
   uint256ToBN(ctx.bnPrimeChainOrigin, hash);
   mpz_mul(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, Header.bnPrimeChainMultiplier.get_mpz_t());
   unsigned bnPrimeChainOriginBitSize = mpz_sizeinbase(ctx.bnPrimeChainOrigin, 2);
-  unsigned headerChainLength = TargetGetLength(Header.nBits);
   unsigned chainLength = static_cast<unsigned>(shareDiff);
+  int headerChainLength = std::max(TargetGetLength(Header.nBits), static_cast<unsigned>(shareTarget));
 
   unsigned smallestDivisor = getSmallestDivisor(Zmq::DivisionChecker_,
                                                 ctx.bnPrimeChainOrigin,
@@ -733,7 +777,7 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
   double primeProbTarget = primeProbBase - (0.0003 * headerChainLength / 2);
   double primeProb7 = primeProbBase - (0.0003 * 7.0 / 2);
   double ppRatio = pow(primeProbTarget, headerChainLength) / pow(primeProb7, 7.0);
-  double primeProb = pow(ppRatio, 1.0 / (headerChainLength - 7));
+  double primeProb = headerChainLength != 7 ? pow(ppRatio, 1.0 / (headerChainLength - 7)) : 1.0;
   double shareValue = pow(primeProb / 0.1, headerChainLength - 7) * pow(primeProb, 7 - floor(shareTarget));
   return shareValue;
 }
