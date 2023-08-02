@@ -709,7 +709,7 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
       return false;
     }
 
-    work.BlockHexData.write(txSrc["data"].GetString(), txSrc["data"].GetStringLength());
+    work.TxHexData.write(txSrc["data"].GetString(), txSrc["data"].GetStringLength());
     if (!txSrc.HasMember("txid") || !txSrc["txid"].IsString()) {
       error = "no 'hash' for transaction";
       return false;
