@@ -95,7 +95,7 @@ private:
   };
 
   struct Connection {
-    Connection(ZmqInstance *instance, zmtpSocket *socket, unsigned workerId, bool isSignal) : Instance(instance), Socket(socket), WorkerId(workerId), IsSignal(isSignal), IsConnected(false) {
+    Connection(ZmqInstance *instance, zmtpSocket *socket, unsigned workerId, bool isSignal) : Instance(instance), Socket(socket), WorkerId(workerId), IsSignal(isSignal), IsConnected(true) {
       if (isSignal)
         instance->Data_[workerId].SignalSockets.insert(this);
     }
@@ -144,7 +144,7 @@ private:
     sig.SerializeToArray(connection->Stream.reserve(repSize), static_cast<int>(repSize));
     aioZmtpSend(connection->Socket, connection->Stream.data(), connection->Stream.sizeOf(), zmtpMessage, afNone, 0, [](AsyncOpStatus status, zmtpSocket*, void *arg) {
       if (status != aosSuccess)
-        delete static_cast<Connection*>(arg);
+        static_cast<Connection*>(arg)->IsConnected = false;
     }, connection);
   }
 
@@ -366,7 +366,6 @@ private:
     aioZmtpAccept(connection->Socket, afNone, 5000000, [](AsyncOpStatus status, zmtpSocket*, void *arg) {
       Connection *connection = static_cast<Connection*>(arg);
       if (status == aosSuccess) {
-        connection->IsConnected = true;
         aioZmtpRecv(connection->Socket, connection->Stream, 65536, afNone, 0, frontendRecvCb, connection);
        } else {
         delete connection;
@@ -383,7 +382,6 @@ private:
     aioZmtpAccept(connection->Socket, afNone, 5000000, [](AsyncOpStatus status, zmtpSocket*, void *arg) {
       Connection *connection = static_cast<Connection*>(arg);
       if (status == aosSuccess) {
-        connection->IsConnected = true;
         aioZmtpRecv(connection->Socket, connection->Stream, 65536, afNone, 5000000, workerRecvCb, connection);
       } else {
         delete connection;
@@ -400,7 +398,6 @@ private:
     aioZmtpAccept(connection->Socket, afNone, 5000000, [](AsyncOpStatus status, zmtpSocket*, void *arg) {
       Connection *connection = static_cast<Connection*>(arg);
       if (status == aosSuccess) {
-        connection->IsConnected = true;
         ThreadData &data = connection->Instance->Data_[GetLocalThreadId()];
         if (data.HasWork)
           connection->Instance->sendWork(data, connection);
@@ -438,10 +435,18 @@ private:
     X::Zmq::resetThreadConfig(data.ThreadConfig);
     data.KnownShares.clear();
 
-    // Send signals
-    for (const auto &connection: data.SignalSockets) {
-      sendWork(data, connection);
+    // Cleanup
+    std::vector<Connection*> disconnected;
+    for (Connection *connection: data.SignalSockets) {
+      if (!connection->IsConnected)
+        disconnected.push_back(connection);
     }
+    for (Connection *connection: disconnected)
+      delete connection;
+
+    // Send signals
+    for (Connection *connection: data.SignalSockets)
+      sendWork(data, connection);
   }
 
   static void frontendRecvCb(AsyncOpStatus status, zmtpSocket*, zmtpUserMsgTy type, zmtpStream*, void *arg) {
