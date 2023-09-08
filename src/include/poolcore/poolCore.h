@@ -164,6 +164,7 @@ public:
   virtual EOperationStatus ioListUnspent(asyncBase *base, ListUnspentResult &result) = 0;
   virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result) = 0;
   virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, int64_t *balance) = 0;
+  virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) = 0;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, CSubmitBlockOperation *operation) = 0;
 
   virtual void poll() = 0;

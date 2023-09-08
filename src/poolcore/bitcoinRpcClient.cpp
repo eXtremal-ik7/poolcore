@@ -824,6 +824,11 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZGetBalance(asyncBase *bas
   return CNetworkClient::EStatusOk;
 }
 
+CNetworkClient::EOperationStatus CBitcoinRpcClient::ioWalletService(asyncBase*, std::string&)
+{
+  return CNetworkClient::EStatusOk;
+}
+
 void CBitcoinRpcClient::poll()
 {
   socketTy S = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);

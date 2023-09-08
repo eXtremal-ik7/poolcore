@@ -986,6 +986,13 @@ void AccountingDb::makePayout()
 
   if (needRebuild)
     LOG_F(ERROR, "Payout database inconsistent, restart pool for rebuild recommended");
+
+  // Make a service after every payment session
+  {
+    std::string serviceError;
+    if (ClientDispatcher_.ioWalletService(Base_, serviceError) != CNetworkClient::EStatusOk)
+      LOG_F(ERROR, "Wallet service ERROR: %s", serviceError.c_str());
+  }
 }
 
 void AccountingDb::checkBalance()

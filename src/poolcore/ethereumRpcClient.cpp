@@ -433,6 +433,11 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncB
   return CNetworkClient::EStatusOk;
 }
 
+CNetworkClient::EOperationStatus CEthereumRpcClient::ioWalletService(asyncBase*, std::string&)
+{
+  return CNetworkClient::EStatusOk;
+}
+
 void CEthereumRpcClient::aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation)
 {
   CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(queryPtr);

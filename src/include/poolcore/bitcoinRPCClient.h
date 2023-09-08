@@ -24,6 +24,7 @@ public:
   virtual EOperationStatus ioListUnspent(asyncBase *base, ListUnspentResult &result) override;
   virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result) override;
   virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, int64_t *balance) override;
+  virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) override;
 
   virtual bool ioGetBlockExtraInfo(asyncBase*, int64_t, std::vector<GetBlockExtraInfoQuery>&) override {
     return false;

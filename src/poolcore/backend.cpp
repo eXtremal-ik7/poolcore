@@ -124,6 +124,8 @@ void PoolBackend::payoutHandler()
     if (ShutdownRequested_)
       break;
     _accounting->makePayout();
+    if (ShutdownRequested_)
+      break;
   }
 }
 
