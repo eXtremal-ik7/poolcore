@@ -246,7 +246,9 @@ public:
 
   private:
     int64_t DevFee = 0;
+    int64_t StakingReward = 0;
     xmstream DevScriptPubKey;
+    xmstream StakingRewardScriptPubkey;
   };
 
   struct Notify {

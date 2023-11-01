@@ -211,6 +211,27 @@ static void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockRewa
   }
 }
 
+static void processStakingReward(rapidjson::Value &blockTemplate, int64_t *blockReward, int64_t *stakingReward, xmstream &stakingRewardScriptPubkey)
+{
+  if (blockTemplate.HasMember("coinbasetxn") && blockTemplate["coinbasetxn"].IsObject()) {
+    rapidjson::Value &coinbasetxn = blockTemplate["coinbasetxn"];
+    if (coinbasetxn.HasMember("stakingrewards") && coinbasetxn["stakingrewards"].IsObject()) {
+      rapidjson::Value &stakingRewards = coinbasetxn["stakingrewards"];
+      if (stakingRewards.HasMember("payoutscript") && stakingRewards["payoutscript"].IsObject() &&
+          stakingRewards.HasMember("minimumvalue") && stakingRewards["minimumvalue"].IsInt64()) {
+        rapidjson::Value &payoutScript = stakingRewards["payoutscript"];
+        rapidjson::Value &minimumvalue = stakingRewards["minimumvalue"];
+        if (payoutScript.HasMember("hex") && payoutScript["hex"].IsString() && payoutScript["hex"].GetStringLength() % 2 == 0) {
+          rapidjson::SizeType size = payoutScript["hex"].GetStringLength();
+          hex2bin(payoutScript["hex"].GetString(), size, stakingRewardScriptPubkey.reserve(size / 2));
+          *stakingReward = minimumvalue.GetInt64();
+          *blockReward -= *stakingReward;
+        }
+      }
+    }
+  }
+}
+
 bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, CoinbaseTx&, const std::vector<uint256>&, rapidjson::Value &blockTemplate)
 {
   // Check fields:
@@ -254,8 +275,11 @@ bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward, rapidjson::Value &b
 
   // "coinbasedevreward" (FreeCash/FCH)
   processCoinbaseDevReward(blockTemplate, &DevFee, DevScriptPubKey);
-  // "minerfund" (BCHA)
+  // "minerfund" (XEC)
   processMinerFund(blockTemplate, blockReward, &DevFee, DevScriptPubKey);
+  // "stakingrewards" (XEC)
+  processStakingReward(blockTemplate, blockReward, &StakingReward, StakingRewardScriptPubkey);
+
   return true;
 }
 
@@ -332,6 +356,13 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
     txOut.value = DevFee;
     txOut.pkScript.resize(DevScriptPubKey.sizeOf());
     memcpy(txOut.pkScript.begin(), DevScriptPubKey.data(), DevScriptPubKey.sizeOf());
+  }
+
+  if (StakingReward) {
+    typename Proto::TxOut &txOut = coinbaseTx.txOut.emplace_back();
+    txOut.value = StakingReward;
+    txOut.pkScript.resize(StakingRewardScriptPubkey.sizeOf());
+    memcpy(txOut.pkScript.begin(), StakingRewardScriptPubkey.data(), StakingRewardScriptPubkey.sizeOf());
   }
 
   if (segwitEnabled) {
