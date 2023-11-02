@@ -192,6 +192,8 @@ static void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockRewa
             addrPrefix = "bitcoincash";
           else if (strstr(addresses[0].GetString(), "ecash:") == addresses[0].GetString())
             addrPrefix = "ecash";
+          else if (strstr(addresses[0].GetString(), "ectest:") == addresses[0].GetString())
+            addrPrefix = "ectest";
 
           if (addrPrefix != nullptr) {
             // Decode bch bech32 address
