@@ -7,6 +7,7 @@
 #include "blockmaker/doge.h"
 #include "blockmaker/eth.h"
 #include "blockmaker/ltc.h"
+#include "blockmaker/xec.h"
 #include "blockmaker/xpm.h"
 #include "blockmaker/zec.h"
 
@@ -18,6 +19,7 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
   {"DOGE.stratum", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) { return new StratumInstance<DOGE::X>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config); }},
   {"ETH.stratum", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) { return new StratumInstance<ETH::X>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config); }},
   {"LTC.stratum", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) { return new StratumInstance<LTC::X>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config); }},
+  {"XEC.stratum", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) { return new StratumInstance<XEC::X>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config); }},
   {"ZEC.stratum", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) { return new StratumInstance<ZEC::X>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config); }},
   {"XPM.zmq", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) { return new ZmqInstance<XPM::X>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config); }}
 };

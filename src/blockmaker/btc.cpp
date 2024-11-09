@@ -141,25 +141,27 @@ size_t Proto::Transaction::getFirstScriptSigOffset(bool serializeWitness)
   return result;
 }
 
-bool Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&, double *shareDiff)
+CCheckStatus Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&)
 {
+  CCheckStatus status;
   bool fNegative;
   bool fOverflow;
   arith_uint256 bnTarget;
   bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
 
   arith_uint256 hash = UintToArith256(header.GetHash());
-  *shareDiff = difficultyFromBits(hash.GetCompact(), 29);
+  status.ShareDiff = difficultyFromBits(hash.GetCompact(), 29);
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)
-    return false;
+    return status;
 
   // Check proof of work matches claimed amount
   if (hash > bnTarget)
-    return false;
+    return status;
 
-  return true;
+  status.IsBlock = true;
+  return status;
 }
 
 static void processCoinbaseDevReward(rapidjson::Value &blockTemplate, int64_t *devFee, xmstream &devScriptPubKey)

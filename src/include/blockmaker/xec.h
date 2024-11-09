@@ -7,10 +7,10 @@
 
 #include "btc.h"
 
-namespace LTC {
+namespace XEC {
 class Proto {
 public:
-  static constexpr const char *TickerName = "LTC";
+  static constexpr const char *TickerName = "XEC";
 
   using BlockHashTy = BTC::Proto::BlockHashTy;
   using TxHashTy = BTC::Proto::TxHashTy;
@@ -22,15 +22,25 @@ public:
   using TxWitness = BTC::Proto::TxWitness;
   using Transaction = BTC::Proto::Transaction;
 
-  using CheckConsensusCtx = BTC::Proto::CheckConsensusCtx;
+  struct CheckConsensusCtx {
+  public:
+    bool HasRtt = false;
+    uint32_t PrevBits;
+    int64_t PrevHeaderTime[4];
+
+  public:
+    void initialize(CBlockTemplate &blockTemplate, const std::string &ticker);
+    bool hasRtt() { return HasRtt; }
+  };
+
   using ChainParams = BTC::Proto::ChainParams;
 
   static CCheckStatus checkPow(const Proto::BlockHeader &header, uint32_t nBits);
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static CCheckStatus checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams&) { return checkPow(header, header.nBits); }
-  static CCheckStatus checkConsensus(const LTC::Proto::Block &block, CheckConsensusCtx&, LTC::Proto::ChainParams&) { return checkPow(block.header, block.header.nBits); }
+  static CCheckStatus checkConsensus(const XEC::Proto::BlockHeader &header, CheckConsensusCtx &ctx, XEC::Proto::ChainParams &params);
+  static CCheckStatus checkConsensus(const XEC::Proto::Block &block, CheckConsensusCtx &ctx, XEC::Proto::ChainParams &params) { return checkConsensus(block.header, ctx, params); }
   static double getDifficulty(const Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 29); }
-  static double expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&) { return getDifficulty(header); }
+  static double expectedWork(const XEC::Proto::BlockHeader &header, const CheckConsensusCtx &ctx);
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 
@@ -42,19 +52,19 @@ public:
   using WorkerConfig = BTC::Stratum::WorkerConfig;
   using StratumMessage = BTC::Stratum::StratumMessage;
 
-  using Work = BTC::WorkTy<LTC::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, MiningConfig, WorkerConfig, StratumMessage>;
+  using Work = BTC::WorkTy<XEC::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, MiningConfig, WorkerConfig, StratumMessage>;
   using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
   using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
   static constexpr bool MergedMiningSupport = false;
-  static constexpr bool HasRtt = false;
+  static constexpr bool HasRtt = true;
   static bool isMainBackend(const std::string&) { return true; }
   static bool keepOldWorkForBackend(const std::string&) { return false; }
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
 };
 
 struct X {
-  using Proto = LTC::Proto;
-  using Stratum = LTC::Stratum;
+  using Proto = XEC::Proto;
+  using Stratum = XEC::Stratum;
   template<typename T> static inline void serialize(xmstream &src, const T &data) { BTC::Io<T>::serialize(src, data); }
   template<typename T> static inline void unserialize(xmstream &dst, T &data) { BTC::Io<T>::unserialize(dst, data); }
 };

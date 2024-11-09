@@ -73,6 +73,12 @@ public:
           backendsWithInfo.push_back(std::make_pair(backend, X::Stratum::isMainBackend(backend->getCoinInfo().Name)));
         Data_[i].WorkStorage.init(backendsWithInfo);
       }
+      if (X::Stratum::HasRtt) {
+        Data_[i].Timer = newUserEvent(Data_[i].WorkerBase, false, [](aioUserEvent*, void *arg) {
+          ((StratumInstance*)(arg))->rttTimerCb();
+        }, this);
+        userEventStartTimer(Data_[i].Timer, 1000000, 0);
+      }
     }
 
     if (!config.HasMember("port") || !config["port"].IsUint()) {
@@ -339,6 +345,7 @@ private:
     ThreadConfig ThreadCfg;
     std::set<Connection*> Connections_;
     StratumWorkStorage<X> WorkStorage;
+    aioUserEvent *Timer;
   };
 
 private:
@@ -500,10 +507,72 @@ private:
     send(connection, stream);
   }
 
+  bool sharePendingCheck(std::string userName,
+                         std::string workerName,
+                         int64_t majorJobId,
+                         double shareDifficulty,
+                         typename X::Stratum::WorkerConfig workerConfig,
+                         typename X::Stratum::StratumMessage msg) {
+    ThreadData &data = Data_[GetLocalThreadId()];
+    CWork *work = data.WorkStorage.workById(majorJobId);
+    if (!work)
+      return false;
+    if (!work->prepareForSubmit(workerConfig, msg))
+      return false;
+    for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i) {
+      PoolBackend *backend = work->backend(i);
+      if (!backend)
+        continue;
+
+      // skip non-rtt backends
+      if (!work->hasRtt(i))
+        continue;
+
+      CCheckStatus checkStatus = work->checkConsensus(i);
+      if (checkStatus.IsBlock) {
+        std::string blockHash = work->blockHash(i);
+        LOG_F(INFO, "%s: pending proof of work %s sending; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work->txNum(i));
+
+        // Serialize block
+        xmstream blockHexData;
+        work->buildBlock(i, blockHexData);
+        uint64_t height = work->height(i);
+        double expectedWork = work->expectedWork(i);
+        int64_t generatedCoins = work->blockReward(i);
+        CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
+        dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(), [height, blockHash, generatedCoins, expectedWork, backend, shareDifficulty, userName, workerName](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+          if (success) {
+            LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
+            if (successNum == 1) {
+              // Send share with block to backend
+              CShare *backendShare = new CShare;
+              backendShare->Time = time(nullptr);
+              backendShare->userId = userName;
+              backendShare->workerId = workerName;
+              backendShare->height = height;
+              backendShare->WorkValue = shareDifficulty;
+              backendShare->isBlock = true;
+              backendShare->hash = blockHash;
+              backendShare->generatedCoins = generatedCoins;
+              backendShare->ExpectedWork = expectedWork;
+              backend->sendShare(backendShare);
+            }
+          } else {
+            LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
+          }
+        });
+
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   bool shareCheck(Connection *connection, typename X::Stratum::StratumMessage &msg, StratumErrorTy &errorCode) {
     ThreadData &data = Data_[GetLocalThreadId()];
     uint64_t height = 0;
-    double shareDiff = 0.0;
+    CCheckStatus checkStatus;
     std::string blockHash;
     std::vector<bool> foundBlockMask(LinkedBackends_.size(), false);
 
@@ -571,8 +640,9 @@ private:
       blockHash = work->blockHash(i);
 
       height = work->height(i);
-      bool isBlock = work->checkConsensus(i, &shareDiff);
-      if (shareDiff < connection->ShareDifficulty) {
+      checkStatus = work->checkConsensus(i);
+
+      if (checkStatus.ShareDiff < connection->ShareDifficulty) {
         if (isDebugInstanceStratumRejects())
           LOG_F(1,
                 "%s(%s) %s/%s sub-reject(%s): invalid share difficulty %lg (%lg required)",
@@ -581,13 +651,13 @@ private:
                 worker.User.c_str(),
                 worker.WorkerName.c_str(),
                 backend->getCoinInfo().Name.c_str(),
-                shareDiff,
+                checkStatus.ShareDiff,
                 connection->ShareDifficulty);
         continue;
       }
 
       shareAccepted = true;
-      if (isBlock) {
+      if (checkStatus.IsBlock) {
         LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work->txNum(i));
 
         // Serialize block
@@ -635,6 +705,11 @@ private:
         backendShare->WorkValue = connection->ShareDifficulty;
         backendShare->isBlock = false;
         backend->sendShare(backendShare);
+
+        if (checkStatus.IsPendingBlock) {
+          LOG_F(INFO, "%s: new pending block %s found; hash: %s", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str());
+          data.WorkStorage.addPending(i, worker.User, worker.WorkerName, xatoi<uint64_t>(msg.Submit.JobId.c_str()), connection->ShareDifficulty, connection->WorkerConfig, msg);
+        }
       }
     }
 
@@ -656,7 +731,7 @@ private:
       // All affected coins by this share
       // Difficulty of all affected coins
       if (MiningStats_)
-        MiningStats_->onShare(shareDiff, connection->ShareDifficulty, LinkedBackends_, foundBlockMask, shareHash);
+        MiningStats_->onShare(checkStatus.ShareDiff, connection->ShareDifficulty, LinkedBackends_, foundBlockMask, shareHash);
     }
 
     return shareAccepted;
@@ -896,6 +971,22 @@ private:
 
     if (connection->Active)
       aioRead(connection->Socket, connection->Buffer + connection->MsgTailSize, sizeof(connection->Buffer) - connection->MsgTailSize, afNone, 0, reinterpret_cast<aioCb*>(readCb), connection);
+  }
+
+  void rttTimerCb() {
+    ThreadData &data = Data_[GetLocalThreadId()];
+    size_t backendsNum = data.WorkStorage.backendsNum();
+    for (size_t i = 0; i < backendsNum; i++) {
+      for (const auto &share: data.WorkStorage.pendingShares(i)) {
+        if (sharePendingCheck(share.User,
+                              share.WorkerName,
+                              share.MajorJobId,
+                              share.ShareDifficulty,
+                              share.WorkerConfig,
+                              share.Msg))
+          break;
+      }
+    }
   }
 
   std::string workName(CWork *work) {

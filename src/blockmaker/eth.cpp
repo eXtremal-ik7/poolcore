@@ -179,11 +179,14 @@ void Stratum::Work::buildBlock(size_t, xmstream &blockHexData)
   data->MixHash[64+2] = 0;
 }
 
-bool Stratum::Work::checkConsensus(size_t, double *shareDiff)
+CCheckStatus Stratum::Work::checkConsensus(size_t)
 {
+  CCheckStatus status;
   // Get difficulty
-  *shareDiff = getDifficulty(FinalHash_.GetCompact());
-  return FinalHash_ <= Target_;
+  status.ShareDiff = getDifficulty(FinalHash_.GetCompact());
+  status.IsBlock = FinalHash_ <= Target_;
+  status.IsPendingBlock = false;
+  return status;
 }
 
 void Stratum::Work::buildNotifyMessage(bool resetPreviousWork)

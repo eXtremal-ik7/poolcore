@@ -25,7 +25,7 @@ public:
   using Transaction = BTC::Proto::Transaction;
 
   struct CheckConsensusCtx {
-    void initialize(const std::string &ticker) {
+    void initialize(CBlockTemplate&, const std::string &ticker) {
       if (ticker.find(".testnet")) {
         OdoShapechangeInterval = 1*24*60*60; // 1 day
       } else if (ticker.find(".regtest") != ticker.npos) {
@@ -35,15 +35,19 @@ public:
         OdoShapechangeInterval = 10*24*60*60; // 10 days
       }
     }
+
+    bool hasRtt() { return false; }
+
     uint32_t OdoShapechangeInterval;
   };
 
   using ChainParams = BTC::Proto::ChainParams;
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static bool checkConsensus(const BlockHeader&, CheckConsensusCtx&, ChainParams&, double *shareDiff);
-  static bool checkConsensus(const Block &block, CheckConsensusCtx &ctx, ChainParams &chainParams, double *shareDiff) { return checkConsensus(block.header, ctx, chainParams, shareDiff); }
+  static CCheckStatus checkConsensus(const BlockHeader&, CheckConsensusCtx&, ChainParams&);
+  static CCheckStatus checkConsensus(const Block &block, CheckConsensusCtx &ctx, ChainParams &chainParams) { return checkConsensus(block.header, ctx, chainParams); }
   static double getDifficulty(const Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 29); }
+  static double expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&) { return getDifficulty(header); }
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 
@@ -69,6 +73,7 @@ public:
   using MergedWork = StratumMergedWorkEmpty<typename Proto<algo>::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
 
   static constexpr bool MergedMiningSupport = false;
+  static constexpr bool HasRtt = false;
   static bool isMainBackend(const std::string&) { return true; }
   static bool keepOldWorkForBackend(const std::string&) { return false; }
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }

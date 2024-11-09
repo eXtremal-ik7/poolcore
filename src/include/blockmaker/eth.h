@@ -133,7 +133,9 @@ public:
 
     virtual void mutate() override {}
 
-    virtual bool checkConsensus(size_t, double *shareDiff) override;
+    virtual CCheckStatus checkConsensus(size_t) override;
+
+    virtual bool hasRtt(size_t) override { return false; }
 
     virtual void buildNotifyMessage(bool resetPreviousWork) override;
 
@@ -158,6 +160,7 @@ public:
   };
 
   static constexpr bool MergedMiningSupport = false;
+  static constexpr bool HasRtt = false;
   static bool isMainBackend(const std::string&) { return true; }
   static bool keepOldWorkForBackend(const std::string&) { return false; }
 

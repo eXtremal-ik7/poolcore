@@ -667,15 +667,16 @@ EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char 
   return EStratumStatusOk;
 }
 
-bool Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx &consensusCtx, ZEC::Proto::ChainParams&, double *shareDiff)
+CCheckStatus Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx &consensusCtx, ZEC::Proto::ChainParams&)
 {
   static Equihash<200,9> Eh200_9;
   static Equihash<48,5> Eh48_5;
+  CCheckStatus status;
 
   // Check equihash solution
   // Here used original code from ZCash repository, it causes high CPU load
   // TODO: optimize it
-  *shareDiff = 0;
+  status.ShareDiff = 0;
   crypto_generichash_blake2b_state state;
   if (consensusCtx.N == 200 && consensusCtx.K == 9) {
     Eh200_9.InitialiseState(state);
@@ -683,16 +684,16 @@ bool Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensus
     crypto_generichash_blake2b_update(&state, (const uint8_t*)header.nNonce.begin(), 32);
     std::vector<uint8_t> proofForCheck(header.nSolution.begin(), header.nSolution.end());
     if (!Eh200_9.IsValidSolution(state, proofForCheck))
-      return false;
+      return status;
   } else if (consensusCtx.N == 48 && consensusCtx.K == 5) {
     Eh48_5.InitialiseState(state);
     crypto_generichash_blake2b_update(&state, reinterpret_cast<const uint8_t*>(&header), 4+32+32+32+4+4);
     crypto_generichash_blake2b_update(&state, (const uint8_t*)header.nNonce.begin(), 32);
     std::vector<uint8_t> proofForCheck(header.nSolution.begin(), header.nSolution.end());
     if (!Eh48_5.IsValidSolution(state, proofForCheck))
-      return false;
+      return status;
   } else {
-    return false;
+    return status;
   }
 
   bool fNegative;
@@ -702,17 +703,18 @@ bool Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensus
   Proto::BlockHashTy hash256 = header.GetHash();
 
   arith_uint256 hash = UintToArith256(hash256);
-  *shareDiff = targetToDiff(&hash256);
+  status.ShareDiff = targetToDiff(&hash256);
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)
-    return false;
+    return status;
 
   // Check proof of work matches claimed amount
   if (hash > bnTarget)
-    return false;
+    return status;
 
-  return true;
+  status.IsBlock = true;
+  return status;
 }
 
 bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<uint256> &merklePath, rapidjson::Value &blockTemplate)

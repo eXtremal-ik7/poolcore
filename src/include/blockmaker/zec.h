@@ -177,7 +177,7 @@ public:
   using Block = BTC::Proto::BlockTy<ZEC::Proto>;
   struct CheckConsensusCtx {
   public:
-    void initialize(const std::string &ticker) {
+    void initialize(CBlockTemplate&, const std::string &ticker) {
       if (ticker.find(".regtest") != ticker.npos) {
         N = 48;
         K = 5;
@@ -187,6 +187,8 @@ public:
       }
     }
 
+    bool hasRtt() { return false; }
+
   public:
     unsigned N = 0;
     unsigned K = 0;
@@ -195,9 +197,10 @@ public:
   using ChainParams = BTC::Proto::ChainParams;
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static bool checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx&consensusCtx, ZEC::Proto::ChainParams&, double *shareDiff);
-  static bool checkConsensus(const ZEC::Proto::Block &block, CheckConsensusCtx &ctx, ZEC::Proto::ChainParams &chainParams, double *shareDiff) { return checkConsensus(block.header, ctx, chainParams, shareDiff); }
+  static CCheckStatus checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx&consensusCtx, ZEC::Proto::ChainParams&);
+  static CCheckStatus checkConsensus(const ZEC::Proto::Block &block, CheckConsensusCtx &ctx, ZEC::Proto::ChainParams &chainParams) { return checkConsensus(block.header, ctx, chainParams); }
   static double getDifficulty(const ZEC::Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 32); }
+  static double expectedWork(const ZEC::Proto::BlockHeader &header, const CheckConsensusCtx&) { return getDifficulty(header); }
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 
@@ -338,6 +341,7 @@ public:
   using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
 
   static constexpr bool MergedMiningSupport = false;
+  static constexpr bool HasRtt = false;
   static bool isMainBackend(const std::string&) { return true; }
   static bool keepOldWorkForBackend(const std::string&) { return false; }
   static void buildSendTargetMessage(xmstream &stream, double difficulty);

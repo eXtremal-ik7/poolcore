@@ -14,6 +14,14 @@ struct ThreadConfig {
   }
 };
 
+struct CCheckStatus {
+  bool IsBlock = false;
+  double ShareDiff = 0.0;
+  // For XEC rtt
+  bool IsPendingBlock = false;
+
+};
+
 template<typename BlockHashTy, typename MiningConfig, typename WorkerConfig, typename StratumMessage>
 class StratumMergedWork;
 class PoolBackend;
@@ -37,10 +45,11 @@ public:
   virtual void buildBlock(size_t workIdx, xmstream &stream) = 0;
   virtual bool ready() = 0;
   virtual void mutate() = 0;
-  virtual bool checkConsensus(size_t workIdx, double *shareDiff) = 0;
+  virtual CCheckStatus checkConsensus(size_t workIdx) = 0;
   virtual void buildNotifyMessage(bool resetPreviousWork) = 0;
   virtual bool prepareForSubmit(const WorkerConfig &workerCfg, const StratumMessage &msg) = 0;
   virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) = 0;
+  virtual bool hasRtt(size_t workIdx) = 0;
 
   xmstream &notifyMessage() { return NotifyMessage_; }
   int64_t stratumId() const { return StratumId_; }
@@ -120,6 +129,7 @@ public:
   virtual double expectedWork(size_t workIdx) final { return Works_[workIdx]->expectedWork(0); }
   virtual bool ready() final { return true; }
   virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) final { return Works_[workIdx]->getAbstractProfitValue(0, price, coeff); }
+  virtual bool hasRtt(size_t workIdx) final { return Works_[workIdx]->hasRtt(0); }
 
   void removeLink(StratumSingleWork<BlockHashTy, MiningConfig, WorkerConfig, StratumMessage> *work) {
     if (Works_[0] == work)
@@ -151,12 +161,13 @@ public:
   virtual void buildBlock(size_t, xmstream&) final {}
   virtual bool ready() final { return false; }
   virtual void mutate() final {}
-  virtual bool checkConsensus(size_t, double*) final { return false; }
+  virtual CCheckStatus checkConsensus(size_t) final { return CCheckStatus(); }
   virtual void buildNotifyMessage(bool) final {}
   virtual bool prepareForSubmit(const WorkerConfig&, const StratumMessage&) final { return false; }
   virtual bool loadFromTemplate(CBlockTemplate&, const std::string&, std::string&) final { return false; }
   virtual double getAbstractProfitValue(size_t, double, double) final { return 0.0; }
   virtual bool resetNotRecommended() final { return false; }
+  virtual bool hasRtt(size_t) final { return false; }
 };
 
 template<typename BlockHashTy, typename MiningConfig, typename WorkerConfig, typename StratumMessage>
@@ -172,5 +183,5 @@ public:
   virtual void mutate() final {}
   virtual void buildNotifyMessage(bool) final {}
   virtual bool prepareForSubmit(const WorkerConfig&, const StratumMessage&) final { return false; }
-  virtual bool checkConsensus(size_t, double*) final { return false; }
+  virtual CCheckStatus checkConsensus(size_t) final { return CCheckStatus(); }
 };

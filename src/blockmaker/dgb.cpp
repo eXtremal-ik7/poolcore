@@ -17,8 +17,9 @@ static uint32_t OdoKey(uint32_t nOdoShapechangeInterval, uint32_t nTime)
 
 namespace DGB {
 
-template<> bool Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB::Algo::EQubit>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::EQubit>::ChainParams&, double *shareDiff)
+template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB::Algo::EQubit>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::EQubit>::ChainParams&)
 {
+  CCheckStatus status;
   arith_uint256 result;
   sph_luffa512_context	 ctx_luffa;
   sph_cubehash512_context  ctx_cubehash;
@@ -49,7 +50,7 @@ template<> bool Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB::Algo::
 
   memcpy(result.begin(), hash[4].begin(), 32);
 
-  *shareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
+  status.ShareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
 
   bool fNegative;
   bool fOverflow;
@@ -59,17 +60,19 @@ template<> bool Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB::Algo::
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)
-    return false;
+    return status;
 
   // Check proof of work matches claimed amount
   if (result > bnTarget)
-    return false;
+    return status;
 
-  return true;
+  status.IsBlock = true;
+  return status;
 }
 
-template<> bool Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB::Algo::ESkein>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::ESkein>::ChainParams&, double *shareDiff)
+template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB::Algo::ESkein>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::ESkein>::ChainParams&)
 {
+  CCheckStatus status;
   SHA256_CTX sha256Context;
   sph_skein512_context skeinContext;
   uint512 skeinHash;
@@ -83,7 +86,7 @@ template<> bool Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB::Algo::
   SHA256_Update(&sha256Context, skeinHash.begin(), skeinHash.size());
   SHA256_Final(result.begin(), &sha256Context);
 
-  *shareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
+  status.ShareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
 
   bool fNegative;
   bool fOverflow;
@@ -93,17 +96,19 @@ template<> bool Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB::Algo::
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)
-    return false;
+    return status;
 
   // Check proof of work matches claimed amount
   if (result > bnTarget)
-    return false;
+    return status;
 
-  return true;
+  status.IsBlock = true;
+  return status;
 }
 
-template<> bool Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::Algo::EOdo>::BlockHeader &header, CheckConsensusCtx &ctx, DGB::Proto<DGB::Algo::EOdo>::ChainParams&, double *shareDiff)
+template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::Algo::EOdo>::BlockHeader &header, CheckConsensusCtx &ctx, DGB::Proto<DGB::Algo::EOdo>::ChainParams&)
 {
+  CCheckStatus status;
   uint32_t key = OdoKey(ctx.OdoShapechangeInterval, header.nTime);
 
   char cipher[KeccakP800_stateSizeInBytes] = {};
@@ -117,7 +122,7 @@ template<> bool Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::Algo::EO
   KeccakP800_Permute_12rounds(cipher);
   memcpy(result.begin(), cipher, result.size());
 
-  *shareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
+  status.ShareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
 
   bool fNegative;
   bool fOverflow;
@@ -127,13 +132,14 @@ template<> bool Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::Algo::EO
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)
-    return false;
+    return status;
 
   // Check proof of work matches claimed amount
   if (result > bnTarget)
-    return false;
+    return status;
 
-  return true;
+  status.IsBlock = true;
+  return status;
 }
 
 }

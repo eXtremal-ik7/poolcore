@@ -38,14 +38,15 @@ public:
   using ChainParams = BTC::Proto::ChainParams;
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static bool checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, Proto::ChainParams&, double *shareDiff) {
+  static CCheckStatus checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, Proto::ChainParams&) {
     return header.nVersion & Proto::BlockHeader::VERSION_AUXPOW ?
-      LTC::Proto::checkPow(header.ParentBlock, header.nBits, shareDiff) :
-      LTC::Proto::checkPow(header, header.nBits, shareDiff);
+      LTC::Proto::checkPow(header.ParentBlock, header.nBits) :
+      LTC::Proto::checkPow(header, header.nBits);
   }
 
-  static bool checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, Proto::ChainParams &chainParams, double *shareDiff) { return checkConsensus(block.header, ctx, chainParams, shareDiff); }
+  static CCheckStatus checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, Proto::ChainParams &chainParams) { return checkConsensus(block.header, ctx, chainParams); }
   static double getDifficulty(const Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 29); }
+  static double expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&) { return getDifficulty(header); }
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 
@@ -96,12 +97,12 @@ public:
       }
     }
 
-    virtual bool checkConsensus(size_t workIdx, double *shareDiff) override {
+    virtual CCheckStatus checkConsensus(size_t workIdx) override {
       if (workIdx == 0)
-        return DOGE::Stratum::Work::checkConsensusImpl(DOGEHeader_, LTCConsensusCtx_, shareDiff);
+        return DOGE::Stratum::Work::checkConsensusImpl(DOGEHeader_, LTCConsensusCtx_);
       else if (workIdx == 1)
-        return LTC::Stratum::Work::checkConsensusImpl(LTCHeader_, DOGEConsensusCtx_, shareDiff);
-      return false;
+        return LTC::Stratum::Work::checkConsensusImpl(LTCHeader_, DOGEConsensusCtx_);
+      return CCheckStatus();
     }
 
   private:
@@ -122,6 +123,7 @@ public:
   };
 
   static constexpr bool MergedMiningSupport = true;
+  static constexpr bool HasRtt = false;
   static bool isMainBackend(const std::string &ticker) { return ticker == "DOGE" || ticker == "DOGE.testnet" || ticker == "DOGE.regtest"; }
   static bool keepOldWorkForBackend(const std::string&) { return false; }
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
