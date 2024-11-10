@@ -148,7 +148,7 @@ public:
   };
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static CCheckStatus checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&ctx, ChainParams&);
+  static CCheckStatus checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx &ctx, ChainParams&);
   static CCheckStatus checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, ChainParams &params) { return checkConsensus(block.header, ctx, params); }
   static double getDifficulty(const Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 29); }
   static double expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&);
@@ -270,7 +270,6 @@ public:
   using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessage>;
 
   static constexpr bool MergedMiningSupport = false;
-  static constexpr bool HasRtt = false;
   static bool isMainBackend(const std::string&) { return true; }
   static bool keepOldWorkForBackend(const std::string&) { return false; }
 

@@ -624,6 +624,7 @@ public:
       info.CoinGeckoName = "ecash";
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.HasRtt = true;
     } else if (strcmp(coinName, "XEC.testnet") == 0) {
       info.FullName = "eCash testnet";
       info.Name = "XEC.testnet";
@@ -637,6 +638,7 @@ public:
       info.DefaultRpcPort = 18332;
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.HasRtt = true;
     } else if (strcmp(coinName, "XPM") == 0) {
       info.Name = "XPM";
       info.FullName = "Primecoin";

@@ -15,7 +15,7 @@ public:
   struct CPendingShare {
     std::string User;
     std::string WorkerName;
-    double RealDifficulty;
+    double RealDifficulty = 0.0;
     double StratumDifficulty;
     int64_t MajorJobId;
     typename X::Stratum::WorkerConfig WorkerConfig;
@@ -234,6 +234,7 @@ private:
     sequence.clear();
     AcceptedShares_[backendIdx].clear();
     PendingShares_[backendIdx].HasShare = false;
+    PendingShares_[backendIdx].RealDifficulty = 0.0;
   }
 
 private:

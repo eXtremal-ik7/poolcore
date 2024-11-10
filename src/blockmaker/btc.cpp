@@ -186,19 +186,6 @@ void Proto::CheckConsensusCtx::initialize(CBlockTemplate &blockTemplate, const s
   auto prevBitsValue = rttValue["prevbits"].GetString();
   PrevBits = strtoul(prevBitsValue, nullptr, 16);
   HasRtt = true;
-
-  // Debug
-  if (false) {
-    rapidjson::Value &bitsValue = resultValue["bits"];
-    uint64_t bits = strtoul(bitsValue.GetString(), nullptr, 16);
-
-    int64_t now = time(nullptr);
-    LOG_F(WARNING, "bits: %08x (%.2lf) now: %lli prevBits: %08x prevheadertime: %lli %lli %lli %lli", bits, BTC::difficultyFromBits(bits, 29), now, PrevBits, PrevHeaderTime[0], PrevHeaderTime[1], PrevHeaderTime[2], PrevHeaderTime[3]);
-    for (int64_t n: {now, now+1, now+5, now+10, now+20, now+30, now+60, now+120, now+240, now+300, now+480, now+600}) {
-      arith_uint256 t = rttComputeNextTarget(n, PrevBits, PrevHeaderTime, bits);
-      LOG_F(WARNING, "target for %lli (+%lli): %08x (%.2lf)", n, n - now, t.GetCompact(), BTC::difficultyFromBits(t.GetCompact(), 29));
-    }
-  }
 }
 
 size_t Proto::Transaction::getFirstScriptSigOffset(bool serializeWitness)

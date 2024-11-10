@@ -55,6 +55,7 @@ struct CCoinInfo {
   uint256 PowLimit;
   bool HasDagFile = false;
   bool BigEpoch = false;
+  bool HasRtt = false;
 
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;
