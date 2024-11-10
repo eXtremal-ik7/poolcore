@@ -135,8 +135,12 @@ public:
 
   // Consensus (PoW)
   struct CheckConsensusCtx {
-    void initialize(CBlockTemplate&, const std::string&) {}
-    bool hasRtt() { return false; }
+    bool HasRtt = false;
+    uint32_t PrevBits;
+    int64_t PrevHeaderTime[4];
+
+    void initialize(CBlockTemplate&, const std::string&);
+    bool hasRtt() { return HasRtt; }
   };
 
   struct ChainParams {
@@ -144,10 +148,10 @@ public:
   };
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static CCheckStatus checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, ChainParams&);
+  static CCheckStatus checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&ctx, ChainParams&);
   static CCheckStatus checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, ChainParams &params) { return checkConsensus(block.header, ctx, params); }
   static double getDifficulty(const Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 29); }
-  static double expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&) { return BTC::difficultyFromBits(header.nBits, 29); }
+  static double expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&);
   static std::string makeHumanReadableAddress(uint8_t pubkeyAddressPrefix, const BTC::Proto::AddressTy &address);
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address);
   static bool decodeWIF(const std::string &privateKey, const std::vector<uint8_t> &prefix, uint8_t *result);

@@ -507,18 +507,18 @@ private:
     send(connection, stream);
   }
 
-  bool sharePendingCheck(std::string userName,
+  void sharePendingCheck(std::string userName,
                          std::string workerName,
                          int64_t majorJobId,
-                         double shareDifficulty,
+                         double stratumDifficulty,
                          typename X::Stratum::WorkerConfig workerConfig,
                          typename X::Stratum::StratumMessage msg) {
     ThreadData &data = Data_[GetLocalThreadId()];
     CWork *work = data.WorkStorage.workById(majorJobId);
     if (!work)
-      return false;
+      return;
     if (!work->prepareForSubmit(workerConfig, msg))
-      return false;
+      return;
     for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i) {
       PoolBackend *backend = work->backend(i);
       if (!backend)
@@ -540,7 +540,7 @@ private:
         double expectedWork = work->expectedWork(i);
         int64_t generatedCoins = work->blockReward(i);
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(), [height, blockHash, generatedCoins, expectedWork, backend, shareDifficulty, userName, workerName](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+        dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(), [height, blockHash, generatedCoins, expectedWork, backend, stratumDifficulty, userName, workerName](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
           if (success) {
             LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
             if (successNum == 1) {
@@ -550,7 +550,7 @@ private:
               backendShare->userId = userName;
               backendShare->workerId = workerName;
               backendShare->height = height;
-              backendShare->WorkValue = shareDifficulty;
+              backendShare->WorkValue = stratumDifficulty;
               backendShare->isBlock = true;
               backendShare->hash = blockHash;
               backendShare->generatedCoins = generatedCoins;
@@ -561,12 +561,8 @@ private:
             LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
           }
         });
-
-        return true;
       }
     }
-
-    return false;
   }
 
   bool shareCheck(Connection *connection, typename X::Stratum::StratumMessage &msg, StratumErrorTy &errorCode) {
@@ -707,8 +703,8 @@ private:
         backend->sendShare(backendShare);
 
         if (checkStatus.IsPendingBlock) {
-          LOG_F(INFO, "%s: new pending block %s found; hash: %s", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str());
-          data.WorkStorage.addPending(i, worker.User, worker.WorkerName, xatoi<uint64_t>(msg.Submit.JobId.c_str()), connection->ShareDifficulty, connection->WorkerConfig, msg);
+          if (data.WorkStorage.updatePending(i, worker.User, worker.WorkerName, xatoi<uint64_t>(msg.Submit.JobId.c_str()), checkStatus.ShareDiff, connection->ShareDifficulty, connection->WorkerConfig, msg))
+            LOG_F(INFO, "%s: new pending block %s found; hash: %s", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str());
         }
       }
     }
@@ -977,14 +973,14 @@ private:
     ThreadData &data = Data_[GetLocalThreadId()];
     size_t backendsNum = data.WorkStorage.backendsNum();
     for (size_t i = 0; i < backendsNum; i++) {
-      for (const auto &share: data.WorkStorage.pendingShares(i)) {
-        if (sharePendingCheck(share.User,
-                              share.WorkerName,
-                              share.MajorJobId,
-                              share.ShareDifficulty,
-                              share.WorkerConfig,
-                              share.Msg))
-          break;
+      const auto &share = data.WorkStorage.pendingShare(i);
+      if (share.HasShare) {
+        sharePendingCheck(share.User,
+                          share.WorkerName,
+                          share.MajorJobId,
+                          share.StratumDifficulty,
+                          share.WorkerConfig,
+                          share.Msg);
       }
     }
   }

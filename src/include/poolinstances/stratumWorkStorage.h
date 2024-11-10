@@ -15,10 +15,13 @@ public:
   struct CPendingShare {
     std::string User;
     std::string WorkerName;
+    double RealDifficulty;
+    double StratumDifficulty;
     int64_t MajorJobId;
-    double ShareDifficulty;
     typename X::Stratum::WorkerConfig WorkerConfig;
     typename X::Stratum::StratumMessage Msg;
+
+    bool HasShare = false;
   };
 
   using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::WorkerConfig, typename X::Stratum::StratumMessage>;
@@ -28,7 +31,6 @@ public:
   using CMergedWorkSequence = std::deque<std::unique_ptr<CMergedWork>>;
   using CAcceptedShareSet = std::unordered_set<typename X::Proto::BlockHashTy>;
   using CWorkIndex = std::pair<size_t, size_t>;
-  using CPendingShareList = std::vector<CPendingShare>;
 
 private:
   static constexpr size_t WorkNotExists = std::numeric_limits<size_t>::max();
@@ -46,7 +48,7 @@ public:
     WorkStorage_.reset(new CSingleWorkSequence[BackendsNum_]);
     MergedWorkStorage_.reset(new CMergedWorkSequence[BackendsNum_ * BackendsNum_]);
     AcceptedShares_.reset(new CAcceptedShareSet[BackendsNum_]);
-    PendingShares_.reset(new CPendingShareList[BackendsNum_]);
+    PendingShares_.reset(new CPendingShare[BackendsNum_]);
     FirstBackends_.reset(new bool[BackendsNum_]);
 
     for (size_t i = 0, ie = backends.size(); i != ie; ++i) {
@@ -61,7 +63,7 @@ public:
   CWork *currentWork() { return CurrentWork_; }
   CWork *lastAcceptedWork() { return LastAcceptedWork_; }
   void setCurrentWork(CWork *work) { CurrentWork_ = work; }
-  CPendingShareList &pendingShares(size_t index) { return PendingShares_[index]; }
+  CPendingShare &pendingShare(size_t index) { return PendingShares_[index]; }
 
   CWork *workById(int64_t id) {
     return WorkIdMap_[id];
@@ -134,21 +136,28 @@ public:
     return duplicate;
   }
 
-  void addPending(size_t index,
-                  const std::string &user,
-                  const std::string &workerName,
-                  int64_t majorJobId,
-                  double shareDifficulty,
-                  const typename X::Stratum::WorkerConfig &workerConfig,
-                  const typename X::Stratum::StratumMessage &msg) {
-    CPendingShare share;
-    share.User = user;
-    share.WorkerName = workerName;
-    share.MajorJobId = majorJobId;
-    share.ShareDifficulty = shareDifficulty;
-    share.WorkerConfig = workerConfig;
-    share.Msg = msg;
-    PendingShares_[index].emplace_back(std::move(share));
+  bool updatePending(size_t index,
+                     const std::string &user,
+                     const std::string &workerName,
+                     double realDifficulty,
+                     double stratumDifficulty,
+                     int64_t majorJobId,
+                     const typename X::Stratum::WorkerConfig &workerConfig,
+                     const typename X::Stratum::StratumMessage &msg) {
+    CPendingShare &share = PendingShares_[index];
+    if (!share.HasShare || share.RealDifficulty < realDifficulty) {
+      share.User = user;
+      share.WorkerName = workerName;
+      share.RealDifficulty = realDifficulty;
+      share.StratumDifficulty = stratumDifficulty;
+      share.MajorJobId = majorJobId;
+      share.WorkerConfig = workerConfig;
+      share.Msg = msg;
+      share.HasShare = true;
+      return true;
+    } else {
+      return false;
+    }
   }
 
 private:
@@ -161,7 +170,7 @@ private:
   std::unique_ptr<CSingleWorkSequence[]> WorkStorage_;
   std::unique_ptr<CMergedWorkSequence[]> MergedWorkStorage_;
   std::unique_ptr<CAcceptedShareSet[]> AcceptedShares_;
-  std::unique_ptr<CPendingShareList[]> PendingShares_;
+  std::unique_ptr<CPendingShare[]> PendingShares_;
   std::unordered_map<int64_t, CWork*> WorkIdMap_;
 
   int64_t lastStratumId = 0;
@@ -224,7 +233,7 @@ private:
 
     sequence.clear();
     AcceptedShares_[backendIdx].clear();
-    PendingShares_[backendIdx].clear();
+    PendingShares_[backendIdx].HasShare = false;
   }
 
 private:

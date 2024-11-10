@@ -22,7 +22,6 @@ add_library(blockmaker STATIC
   doge.cpp
   eth.cpp
   ltc.cpp
-  xec.cpp
   xpm.cpp
   zec.cpp
 )
