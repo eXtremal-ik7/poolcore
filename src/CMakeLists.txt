@@ -1,7 +1,7 @@
 include("cmake/cxx-pm.cmake")
 cxxpm_initialize(
-  https://github.com/eXtremal-ik7/cxx-pm/archive/refs/tags/0.0.3.tar.gz
-  c7a00b89700cdaaf5f4fd9efadd19a4259d9e281cdc37e03c728aed38ee18387
+  https://github.com/eXtremal-ik7/cxx-pm/archive/refs/tags/0.0.4.tar.gz
+  409fdb16b267926d0cae526041f6b6174fe17b7170519e3d35ae2486e9139f1a
 )
 
 cmake_minimum_required(VERSION 3.11)
@@ -40,16 +40,16 @@ endif(MSVC)
 
 set(protobuf_MODULE_COMPATIBLE TRUE)
 
-cxxpm_add_package(one-tbb)
-cxxpm_add_package(rocksdb)
-cxxpm_add_package(rapidjson)
-cxxpm_add_package(protobuf)
-cxxpm_add_package(libsodium)
+cxxpm_add_package(one-tbb default)
+cxxpm_add_package(rocksdb default)
+cxxpm_add_package(rapidjson default)
+cxxpm_add_package(protobuf default)
+cxxpm_add_package(libsodium default)
 if (NOT MSVC)
-  cxxpm_add_package(gmp)
+  cxxpm_add_package(gmp default)
   set(BIGNUM_LIBRARIES gmp::libgmp gmp::libgmpxx)
 else()
-  cxxpm_add_package(mpir)
+  cxxpm_add_package(mpir default)
   set(BIGNUM_LIBRARIES ${MPIR_LIBRARIES})
 endif()
 
