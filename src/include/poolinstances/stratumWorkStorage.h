@@ -18,15 +18,15 @@ public:
     double RealDifficulty = 0.0;
     double StratumDifficulty;
     int64_t MajorJobId;
-    typename X::Stratum::WorkerConfig WorkerConfig;
+    CWorkerConfig WorkerConfig;
     typename X::Stratum::StratumMessage Msg;
 
     bool HasShare = false;
   };
 
-  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::WorkerConfig, typename X::Stratum::StratumMessage>;
-  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::WorkerConfig, typename X::Stratum::StratumMessage>;
-  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::WorkerConfig, typename X::Stratum::StratumMessage>;
+  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
+  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
+  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
   using CSingleWorkSequence = std::deque<std::unique_ptr<CSingleWork>>;
   using CMergedWorkSequence = std::deque<std::unique_ptr<CMergedWork>>;
   using CAcceptedShareSet = std::unordered_set<typename X::Proto::BlockHashTy>;
@@ -142,7 +142,7 @@ public:
                      double realDifficulty,
                      double stratumDifficulty,
                      int64_t majorJobId,
-                     const typename X::Stratum::WorkerConfig &workerConfig,
+                     const CWorkerConfig &workerConfig,
                      const typename X::Stratum::StratumMessage &msg) {
     CPendingShare &share = PendingShares_[index];
     if (!share.HasShare || share.RealDifficulty < realDifficulty) {

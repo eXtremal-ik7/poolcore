@@ -244,65 +244,50 @@ public:
 
   using MiningConfig = BTC::MiningConfig;
 
-  struct WorkerConfig {
-    std::string Session;
-    uint64_t ExtraNonceFixed;
-    bool AsicBoostEnabled = false;
-    uint32_t VersionMask = 0;
+  static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) {
+    // Set fixed part of extra nonce
+    workerCfg.ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
 
-    static inline void addId(JSON::Object &object, StratumMessage &msg) {
+    // Set session names
+    uint8_t sessionId[16];
+    {
+      RAND_bytes(sessionId, sizeof(sessionId));
+      workerCfg.NotifySession.resize(sizeof(sessionId)*2);
+      bin2hexLowerCase(sessionId, workerCfg.NotifySession.data(), sizeof(sessionId));
+    }
+
+    // Update thread config
+    threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
+  }
+
+  static void workerConfigSetupVersionRolling(CWorkerConfig&, uint32_t) {}
+
+  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, BTC::MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+    // Response format
+    // {"id": 1, "result": [ [ ["mining.set_difficulty", <setDifficultySession>:string(hex)], ["mining.notify", <notifySession>:string(hex)]], <uniqueExtraNonce>:string(hex), extraNonceSize:integer], "error": null}\n
+    {
+      JSON::Object object(out);
       if (!msg.StringId.empty())
         object.addString("id", msg.StringId);
       else
         object.addInt("id", msg.IntegerId);
-    }
+      object.addField("result");
 
-    void initialize(ThreadConfig &threadCfg) {
-      // Set fixed part of extra nonce
-      ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
-
-      // Set session names
-      uint8_t sessionId[16];
       {
-        RAND_bytes(sessionId, sizeof(sessionId));
-        Session.resize(sizeof(sessionId)*2);
-        bin2hexLowerCase(sessionId, Session.data(), sizeof(sessionId));
+        JSON::Array result(out);
+        result.addString(workerCfg.NotifySession);
+        // Unique extra nonce
+        result.addString(writeHexBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
       }
 
-      // Update thread config
-      threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
+      object.addNull("error");
     }
 
-    void setupVersionRolling(uint32_t versionMask) {
-      AsicBoostEnabled = true;
-      VersionMask = versionMask;
-    }
+    out.write('\n');
+    subscribeInfo = std::to_string(workerCfg.ExtraNonceFixed);
+  }
 
-    void onSubscribe(BTC::MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
-      // Response format
-      // {"id": 1, "result": [ [ ["mining.set_difficulty", <setDifficultySession>:string(hex)], ["mining.notify", <notifySession>:string(hex)]], <uniqueExtraNonce>:string(hex), extraNonceSize:integer], "error": null}\n
-      {
-        JSON::Object object(out);
-        addId(object, msg);
-        object.addField("result");
-
-        {
-          JSON::Array result(out);
-          result.addString(Session);
-          // Unique extra nonce
-          result.addString(writeHexBE(ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
-        }
-
-        object.addNull("error");
-      }
-
-      out.write('\n');
-      subscribeInfo = std::to_string(ExtraNonceFixed);
-    }
-
-  };
-
-  using CWork = StratumWork<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
+  using CWork = StratumWork<Proto::BlockHashTy, MiningConfig, StratumMessage>;
 
   struct HeaderBuilder {
     static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<uint256> &merklePath, rapidjson::Value &blockTemplate);
@@ -333,12 +318,12 @@ public:
   };
 
   struct Prepare {
-    static bool prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx &legacy, BTC::CoinbaseTx &, const std::vector<uint256> &, const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
+    static bool prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx &legacy, BTC::CoinbaseTx &, const std::vector<uint256> &, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
   };
 
-  using Work = BTC::WorkTy<ZEC::Proto, HeaderBuilder, CoinbaseBuilder, ZEC::Stratum::Notify, ZEC::Stratum::Prepare, MiningConfig, WorkerConfig, StratumMessage>;
-  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
-  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
+  using Work = BTC::WorkTy<ZEC::Proto, HeaderBuilder, CoinbaseBuilder, ZEC::Stratum::Notify, ZEC::Stratum::Prepare, MiningConfig, StratumMessage>;
+  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, StratumMessage>;
+  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, StratumMessage>;
 
   static constexpr bool MergedMiningSupport = false;
   static bool isMainBackend(const std::string&) { return true; }

@@ -66,40 +66,55 @@ public:
     }
   };
 
-  struct WorkerConfig {
-    uint64_t ExtraNonceFixed;
-    std::string NotifySession;
+  static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) {
+    // Set fixed part of extra nonce
+    workerCfg.ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
 
-    static inline void addId(JSON::Object &object, StratumMessage &msg) {
+    // Set session names
+    uint8_t sessionId[16];
+    {
+      RAND_bytes(sessionId, sizeof(sessionId));
+      workerCfg.NotifySession.resize(sizeof(sessionId)*2);
+      bin2hexLowerCase(sessionId, workerCfg.NotifySession.data(), sizeof(sessionId));
+    }
+
+    // Update thread config
+    threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
+  }
+
+  static void workerConfigSetupVersionRolling(CWorkerConfig&, uint32_t) {}
+
+  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+    // Response format
+    // {"id": 1, "result": [["mining.notify", "ae6812eb4cd7735a302a8a9dd95cf71f", "EthereumStratum/1.0.0"], "080c"],"error": null}
+
+    {
+      JSON::Object object(out);
       if (!msg.StringId.empty())
         object.addString("id", msg.StringId);
       else
         object.addInt("id", msg.IntegerId);
-    }
-
-    void initialize(ThreadConfig &threadCfg) {
-      // Set fixed part of extra nonce
-      ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
-
-      // Set session names
-      uint8_t sessionId[16];
+      object.addField("result");
       {
-        RAND_bytes(sessionId, sizeof(sessionId));
-        NotifySession.resize(sizeof(sessionId)*2);
-        bin2hexLowerCase(sessionId, NotifySession.data(), sizeof(sessionId));
+        JSON::Array resultValue(out);
+        resultValue.addField();
+        {
+          JSON::Array notifySession(out);
+          notifySession.addString("mining.notify");
+          notifySession.addString(workerCfg.NotifySession);
+          notifySession.addString("EthereumStratum/1.0.0");
+        }
+        // Unique extra nonce
+        resultValue.addString(writeHexBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
       }
-
-      // Update thread config
-      threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
+      object.addNull("error");
     }
 
-    void onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo);
+    out.write('\n');
+    subscribeInfo = std::to_string(workerCfg.ExtraNonceFixed);
+  }
 
-    // TODO: remove
-    void setupVersionRolling(uint32_t) {}
-  };
-
-  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
+  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, MiningConfig, StratumMessage>;
 
   class Work : public CSingleWork {
   public:
@@ -141,7 +156,7 @@ public:
 
     virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error) override;
 
-    virtual bool prepareForSubmit(const WorkerConfig&workerCfg, const StratumMessage&msg) override;
+    virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage&msg) override;
 
     virtual double getAbstractProfitValue(size_t, double, double) override {
       // TODO: calculate real profit value
@@ -174,8 +189,8 @@ public:
     }
   }
 
-  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
-  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
+  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, StratumMessage>;
+  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, StratumMessage>;
 };
 
 struct X {

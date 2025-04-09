@@ -54,12 +54,11 @@ class Stratum {
 public:
   static constexpr double DifficultyFactor = 65536.0;
   using MiningConfig = BTC::Stratum::MiningConfig;
-  using WorkerConfig = BTC::Stratum::WorkerConfig;
   using StratumMessage = BTC::Stratum::StratumMessage;
-  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
-  using CMergedWork = StratumMergedWork<Proto::BlockHashTy, MiningConfig, WorkerConfig, StratumMessage>;
+  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, MiningConfig, StratumMessage>;
+  using CMergedWork = StratumMergedWork<Proto::BlockHashTy, MiningConfig, StratumMessage>;
 
-  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, MiningConfig, WorkerConfig, StratumMessage>;
+  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, MiningConfig, StratumMessage>;
   using SecondWork = LTC::Stratum::Work;
   class MergedWork : public CMergedWork {
   public:
@@ -87,7 +86,7 @@ public:
       LTC::Stratum::Work::buildNotifyMessageImpl(this, LTCHeader_, LTCHeader_.nVersion, LTCLegacy_, LTCMerklePath_, MiningCfg_, resetPreviousWork, NotifyMessage_);
     }
 
-    virtual bool prepareForSubmit(const WorkerConfig &workerCfg, const StratumMessage &msg) override;
+    virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage &msg) override;
 
     virtual void buildBlock(size_t workIdx, xmstream &blockHexData) override {
       if (workIdx == 0) {
@@ -123,6 +122,12 @@ public:
   };
 
   static constexpr bool MergedMiningSupport = true;
+  static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) { BTC::Stratum::workerConfigInitialize(workerCfg, threadCfg); }
+  static void workerConfigSetupVersionRolling(CWorkerConfig &workerCfg, uint32_t versionMask) { BTC::Stratum::workerConfigSetupVersionRolling(workerCfg, versionMask); }
+  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, BTC::MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+    BTC::Stratum::workerConfigOnSubscribe(workerCfg, miningCfg, msg, out, subscribeInfo);
+  }
+
   static bool isMainBackend(const std::string &ticker) { return ticker == "DOGE" || ticker == "DOGE.testnet" || ticker == "DOGE.regtest"; }
   static bool keepOldWorkForBackend(const std::string&) { return false; }
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }

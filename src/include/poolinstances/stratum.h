@@ -47,9 +47,9 @@ static inline unsigned popcount(T number)
 template<typename X>
 class StratumInstance : public CPoolInstance {
 public:
-  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::WorkerConfig, typename X::Stratum::StratumMessage>;
-  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::WorkerConfig, typename X::Stratum::StratumMessage>;
-  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::WorkerConfig, typename X::Stratum::StratumMessage>;
+  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
+  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
+  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
 
 public:
   StratumInstance(asyncBase *monitorBase,
@@ -151,7 +151,7 @@ public:
       delete static_cast<Connection*>(arg);
     }, connection);
 
-    connection->WorkerConfig.initialize(data.ThreadCfg);
+    X::Stratum::workerConfigInitialize(connection->WorkerConfig, data.ThreadCfg);
     if (isDebugInstanceStratumConnections())
       LOG_F(1, "%s: new connection from %s", Name_.c_str(), connection->AddressHr.c_str());
 
@@ -327,7 +327,7 @@ private:
     char Buffer[12288];
     size_t MsgTailSize = 0;
     // Mining info
-    typename X::Stratum::WorkerConfig WorkerConfig;
+    CWorkerConfig WorkerConfig;
     // Current share difficulty (one for all workers on connection)
     double ShareDifficulty;
     // Workers
@@ -390,7 +390,7 @@ private:
     char buffer[4096];
     xmstream stream(buffer, sizeof(buffer));
     stream.reset();
-    connection->WorkerConfig.onSubscribe(MiningCfg_, msg, stream, subscribeInfo);
+    X::Stratum::workerConfigOnSubscribe(connection->WorkerConfig, MiningCfg_, msg, stream, subscribeInfo);
     send(connection, stream);
     if (isDebugInstanceStratumConnections())
       LOG_F(1, "%s(%s): subscribe data: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), subscribeInfo.c_str());
@@ -449,7 +449,8 @@ private:
             unsigned count = popcount(targetBitMask);
             if (count >= msg.MiningConfigure.VersionRollingMinBitCount.value()) {
               result.addString("version-rolling.mask", writeHexBE(targetBitMask, 4));
-              connection->WorkerConfig.setupVersionRolling(targetBitMask);
+              // TODO: write error if asic boost not supported
+              X::Stratum::workerConfigSetupVersionRolling(connection->WorkerConfig, targetBitMask);
               versionRolling = true;
             }
           }
@@ -516,7 +517,7 @@ private:
                          std::string workerName,
                          int64_t majorJobId,
                          double stratumDifficulty,
-                         typename X::Stratum::WorkerConfig workerConfig,
+                         const CWorkerConfig &workerConfig,
                          typename X::Stratum::StratumMessage msg) {
     ThreadData &data = Data_[GetLocalThreadId()];
     CWork *work = data.WorkStorage.workById(majorJobId);

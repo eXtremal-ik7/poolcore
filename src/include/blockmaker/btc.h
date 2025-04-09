@@ -225,9 +225,8 @@ public:
   static constexpr double DifficultyFactor = 1.0;
   using StratumMessage = BTC::StratumMessage;
   using MiningConfig = BTC::MiningConfig;
-  using WorkerConfig = BTC::CWorkerConfig;
 
-  using CWork = StratumWork<Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessage>;
+  using CWork = StratumWork<Proto::BlockHashTy, MiningConfig, StratumMessage>;
 
   // TODO: Use this for headers non-compatible with BTC
   struct HeaderBuilder {
@@ -265,9 +264,9 @@ public:
     static bool prepare(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
   };
 
-  using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare, MiningConfig, WorkerConfig, StratumMessage>;
-  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessage>;
-  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, CWorkerConfig, StratumMessage>;
+  using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare, MiningConfig, StratumMessage>;
+  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, StratumMessage>;
+  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, StratumMessage>;
 
   static constexpr bool MergedMiningSupport = false;
   static bool isMainBackend(const std::string&) { return true; }
@@ -276,6 +275,73 @@ public:
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
 
 public:
+  static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) {
+    // Set fixed part of extra nonce
+    workerCfg.ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
+
+    // Set session names
+    uint8_t sessionId[16];
+    {
+      RAND_bytes(sessionId, sizeof(sessionId));
+      workerCfg.SetDifficultySession.resize(sizeof(sessionId)*2);
+      bin2hexLowerCase(sessionId, workerCfg.SetDifficultySession.data(), sizeof(sessionId));
+    }
+    {
+      RAND_bytes(sessionId, sizeof(sessionId));
+      workerCfg.NotifySession.resize(sizeof(sessionId)*2);
+      bin2hexLowerCase(sessionId, workerCfg.NotifySession.data(), sizeof(sessionId));
+    }
+
+    // Update thread config
+    threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
+  }
+
+  static void workerConfigSetupVersionRolling(CWorkerConfig &workerCfg, uint32_t versionMask) {
+    workerCfg.AsicBoostEnabled = true;
+    workerCfg.VersionMask = versionMask;
+  }
+
+  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, BTC::MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+    // Response format
+    // {"id": 1, "result": [ [ ["mining.set_difficulty", <setDifficultySession>:string(hex)], ["mining.notify", <notifySession>:string(hex)]], <uniqueExtraNonce>:string(hex), extraNonceSize:integer], "error": null}\n
+    {
+      JSON::Object object(out);
+      if (!msg.StringId.empty())
+        object.addString("id", msg.StringId);
+      else
+        object.addInt("id", msg.IntegerId);
+      object.addField("result");
+      {
+        JSON::Array result(out);
+        result.addField();
+        {
+          JSON::Array sessions(out);
+          sessions.addField();
+          {
+            JSON::Array setDifficultySession(out);
+            setDifficultySession.addString("mining.set_difficulty");
+            setDifficultySession.addString(workerCfg.SetDifficultySession);
+          }
+          sessions.addField();
+          {
+            JSON::Array notifySession(out);
+            notifySession.addString("mining.notify");
+            notifySession.addString(workerCfg.NotifySession);
+          }
+        }
+
+        // Unique extra nonce
+        result.addString(writeHexBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
+        // Mutable part of extra nonce size
+        result.addInt(miningCfg.MutableExtraNonceSize);
+      }
+      object.addNull("error");
+    }
+
+    out.write('\n');
+    subscribeInfo = std::to_string(workerCfg.ExtraNonceFixed);
+  }
+
   static void buildSendTargetMessageImpl(xmstream &stream, double difficulty, double factor) {
     JSON::Object object(stream);
     object.addString("method", "mining.set_difficulty");

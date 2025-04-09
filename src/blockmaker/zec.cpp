@@ -898,7 +898,7 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
   notifyMessage.write('\n');
 }
 
-bool Stratum::Prepare::prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, BTC::CoinbaseTx&, const std::vector<uint256>&, const WorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg)
+bool Stratum::Prepare::prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, BTC::CoinbaseTx&, const std::vector<uint256>&, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg)
 {
   header.nTime = swab32(msg.Submit.Time);
 

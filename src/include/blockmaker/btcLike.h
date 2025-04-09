@@ -57,86 +57,6 @@ struct MiningConfig {
   }
 };
 
-struct CWorkerConfig {
-  std::string SetDifficultySession;
-  std::string NotifySession;
-  uint64_t ExtraNonceFixed;
-  bool AsicBoostEnabled = false;
-  uint32_t VersionMask = 0;
-
-  static inline void addId(JSON::Object &object, StratumMessage &msg) {
-    if (!msg.StringId.empty())
-      object.addString("id", msg.StringId);
-    else
-      object.addInt("id", msg.IntegerId);
-  }
-
-  void initialize(ThreadConfig &threadCfg) {
-    // Set fixed part of extra nonce
-    ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
-
-    // Set session names
-    uint8_t sessionId[16];
-    {
-      RAND_bytes(sessionId, sizeof(sessionId));
-      SetDifficultySession.resize(sizeof(sessionId)*2);
-      bin2hexLowerCase(sessionId, SetDifficultySession.data(), sizeof(sessionId));
-    }
-    {
-      RAND_bytes(sessionId, sizeof(sessionId));
-      NotifySession.resize(sizeof(sessionId)*2);
-      bin2hexLowerCase(sessionId, NotifySession.data(), sizeof(sessionId));
-    }
-
-    // Update thread config
-    threadCfg.ExtraNonceCurrent += threadCfg.ThreadsNum;
-  }
-
-  void setupVersionRolling(uint32_t versionMask) {
-    AsicBoostEnabled = true;
-    VersionMask = versionMask;
-  }
-
-  void onSubscribe(BTC::MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
-    // Response format
-    // {"id": 1, "result": [ [ ["mining.set_difficulty", <setDifficultySession>:string(hex)], ["mining.notify", <notifySession>:string(hex)]], <uniqueExtraNonce>:string(hex), extraNonceSize:integer], "error": null}\n
-    {
-      JSON::Object object(out);
-      addId(object, msg);
-      object.addField("result");
-      {
-        JSON::Array result(out);
-        result.addField();
-        {
-          JSON::Array sessions(out);
-          sessions.addField();
-          {
-            JSON::Array setDifficultySession(out);
-            setDifficultySession.addString("mining.set_difficulty");
-            setDifficultySession.addString(SetDifficultySession);
-          }
-          sessions.addField();
-          {
-            JSON::Array notifySession(out);
-            notifySession.addString("mining.notify");
-            notifySession.addString(NotifySession);
-          }
-        }
-
-        // Unique extra nonce
-        result.addString(writeHexBE(ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
-        // Mutable part of extra nonce size
-        result.addInt(miningCfg.MutableExtraNonceSize);
-      }
-      object.addNull("error");
-    }
-
-    out.write('\n');
-    subscribeInfo = std::to_string(ExtraNonceFixed);
-  }
-
-};
-
 struct CoinbaseTx {
   xmstream Data;
   unsigned ExtraDataOffset;
@@ -240,11 +160,11 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
   return true;
 }
 
-template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy, typename MiningConfigTy, typename WorkerConfigTy, typename StratumMessageTy>
-class WorkTy : public StratumSingleWork<typename Proto::BlockHashTy, MiningConfigTy, WorkerConfigTy, StratumMessageTy> {
+template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy, typename MiningConfigTy, typename StratumMessageTy>
+class WorkTy : public StratumSingleWork<typename Proto::BlockHashTy, MiningConfigTy, StratumMessageTy> {
 public:
   WorkTy(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const MiningConfigTy &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) :
-    StratumSingleWork<typename Proto::BlockHashTy, MiningConfigTy, WorkerConfigTy, StratumMessageTy>(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
+    StratumSingleWork<typename Proto::BlockHashTy, MiningConfigTy, StratumMessageTy>(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
     CoinbaseMessage_ = coinbaseMessage;
     this->Initialized_ = miningAddress.size() == sizeof(typename Proto::AddressTy);
     if (this->Initialized_)
@@ -270,7 +190,7 @@ public:
     buildNotifyMessageImpl(this, Header, JobVersion, CBTxLegacy_, MerklePath, this->MiningCfg_, resetPreviousWork, this->NotifyMessage_);
   }
 
-  virtual bool prepareForSubmit(const WorkerConfigTy &workerCfg, const StratumMessageTy &msg) override {
+  virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessageTy &msg) override {
     return prepareForSubmitImpl(Header, JobVersion, CBTxLegacy_, CBTxWitness_, MerklePath, workerCfg, this->MiningCfg_, msg);
   }
 
@@ -369,11 +289,11 @@ public:
     return Proto::checkConsensus(header, consensusCtx, params);
   }
 
-  static void buildNotifyMessageImpl(StratumWork<typename Proto::BlockHashTy, MiningConfigTy, WorkerConfigTy, StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
+  static void buildNotifyMessageImpl(StratumWork<typename Proto::BlockHashTy, MiningConfigTy, StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
     NotifyTy::build(source, header, asicBoostData, legacy, merklePath, cfg, resetPreviousWork, notifyMessage);
   }
 
-  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const WorkerConfigTy &workerCfg, const MiningConfigTy &miningCfg, const StratumMessageTy &msg) {
+  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfigTy &miningCfg, const StratumMessageTy &msg) {
     return PrepareForSubmitTy::prepare(header, asicBoostData, legacy, witness, merklePath, workerCfg, miningCfg, msg);
   }
 

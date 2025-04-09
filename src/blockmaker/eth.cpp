@@ -85,34 +85,6 @@ EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char 
   return EStratumStatusOk;
 }
 
-void Stratum::WorkerConfig::onSubscribe(MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo)
-{
-  // Response format
-  // {"id": 1, "result": [["mining.notify", "ae6812eb4cd7735a302a8a9dd95cf71f", "EthereumStratum/1.0.0"], "080c"],"error": null}
-
-  {
-    JSON::Object object(out);
-    addId(object, msg);
-    object.addField("result");
-    {
-      JSON::Array resultValue(out);
-      resultValue.addField();
-      {
-        JSON::Array notifySession(out);
-        notifySession.addString("mining.notify");
-        notifySession.addString(NotifySession);
-        notifySession.addString("EthereumStratum/1.0.0");
-      }
-      // Unique extra nonce
-      resultValue.addString(writeHexBE(ExtraNonceFixed, miningCfg.FixedExtraNonceSize));
-    }
-    object.addNull("error");
-  }
-
-  out.write('\n');
-  subscribeInfo = std::to_string(ExtraNonceFixed);
-}
-
 bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error)
 {
   if (!blockTemplate.Document.HasMember("result") || !blockTemplate.Document["result"].IsArray()) {
@@ -149,7 +121,7 @@ bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, const std::s
   return true;
 }
 
-bool Stratum::Work::prepareForSubmit(const WorkerConfig &workerCfg, const StratumMessage &msg)
+bool Stratum::Work::prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage &msg)
 {
   Nonce_ = (workerCfg.ExtraNonceFixed << (64 - 8*MiningCfg_.FixedExtraNonceSize)) | msg.Submit.Nonce;
   ethashCalculate(FinalHash_.begin(), MixHash_.begin(), HeaderHash_.begin(), Nonce_, DagFile_.get()->dag());
