@@ -223,9 +223,8 @@ template<typename T> struct Io<Proto::BlockTy<T>> {
 class Stratum {
 public:
   static constexpr double DifficultyFactor = 1.0;
-  using StratumMessage = BTC::StratumMessage;
 
-  using CWork = StratumWork<StratumMessage>;
+  using CWork = StratumWork;
 
   // TODO: Use this for headers non-compatible with BTC
   struct HeaderBuilder {
@@ -260,12 +259,12 @@ public:
   };
 
   struct Prepare {
-    static bool prepare(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const StratumMessage &msg);
+    static bool prepare(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg);
   };
 
-  using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare, StratumMessage>;
-  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, StratumMessage>;
-  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, StratumMessage>;
+  using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare>;
+  using SecondWork = StratumSingleWorkEmpty;
+  using MergedWork = StratumMergedWorkEmpty;
 
   static constexpr bool MergedMiningSupport = false;
   static bool isMainBackend(const std::string&) { return true; }
@@ -274,6 +273,151 @@ public:
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
 
 public:
+  static EStratumDecodeStatusTy decodeStratumMessage(CStratumMessage &msg, const char *in, size_t size) {
+    rapidjson::Document document;
+    document.Parse(in, size);
+    if (document.HasParseError()) {
+      return EStratumStatusJsonError;
+    }
+
+    if (!(document.HasMember("id") && document.HasMember("method") && document.HasMember("params")))
+      return EStratumStatusFormatError;
+
+    // Some clients put null to 'params' field
+    if (document["params"].IsNull())
+      document["params"].SetArray();
+
+    if (!(document["method"].IsString() && document["params"].IsArray()))
+      return EStratumStatusFormatError;
+
+    if (document["id"].IsUint64())
+      msg.IntegerId = document["id"].GetUint64();
+    else if (document["id"].IsString())
+      msg.StringId = document["id"].GetString();
+    else
+      return EStratumStatusFormatError;
+
+    std::string method = document["method"].GetString();
+    const rapidjson::Value::Array &params = document["params"].GetArray();
+    if (method == "mining.subscribe") {
+      msg.Method = ESubscribe;
+      if (params.Size() >= 1) {
+        if (params[0].IsString())
+          msg.Subscribe.minerUserAgent = params[0].GetString();
+      }
+
+      if (params.Size() >= 2) {
+        if (params[1].IsString())
+          msg.Subscribe.sessionId = params[1].GetString();
+      }
+
+      if (params.Size() >= 3) {
+        if (params[2].IsString())
+          msg.Subscribe.connectHost = params[2].GetString();
+      }
+
+      if (params.Size() >= 4) {
+        if (params[3].IsUint())
+          msg.Subscribe.connectPort = params[3].GetUint();
+      }
+    } else if (method == "mining.authorize" && params.Size() >= 2) {
+      msg.Method = EAuthorize;
+      if (params[0].IsString() && params[1].IsString()) {
+        msg.Authorize.login = params[0].GetString();
+        msg.Authorize.password = params[1].GetString();
+      } else {
+        return EStratumStatusFormatError;
+      }
+    } else if (method == "mining.extranonce.subscribe") {
+      msg.Method = EExtraNonceSubscribe;
+    } else if (method == "mining.submit" && params.Size() >= 5) {
+      if (params[0].IsString() &&
+          params[1].IsString() &&
+          params[2].IsString() &&
+          params[3].IsString() && params[3].GetStringLength() == 8 &&
+          params[4].IsString() && params[4].GetStringLength() == 8) {
+        msg.Method = ESubmit;
+        msg.Submit.WorkerName = params[0].GetString();
+        msg.Submit.JobId = params[1].GetString();
+        {
+          // extra nonce mutable part
+          msg.Submit.BTC.MutableExtraNonce.resize(params[2].GetStringLength() / 2);
+          hex2bin(params[2].GetString(), params[2].GetStringLength(), msg.Submit.BTC.MutableExtraNonce.data());
+        }
+        msg.Submit.BTC.Time = readHexBE<uint32_t>(params[3].GetString(), 4);
+        msg.Submit.BTC.Nonce = readHexBE<uint32_t>(params[4].GetString(), 4);
+
+        if (params.Size() >= 6 && params[5].IsString())
+          msg.Submit.BTC.VersionBits = readHexBE<uint32_t>(params[5].GetString(), 4);
+      } else {
+        return EStratumStatusFormatError;
+      }
+    } else if (method == "mining.multi_version" && params.Size() >= 1) {
+      msg.Method = EMultiVersion;
+      if (params[0].IsUint()) {
+        msg.MultiVersion.Version = params[0].GetUint();
+      } else {
+        return EStratumStatusFormatError;
+      }
+    } else if (method == "mining.configure" && params.Size() >= 2) {
+      msg.Method = EMiningConfigure;
+      msg.MiningConfigure.ExtensionsField = 0;
+      // Example:
+      // {
+      //    "id":1,
+      //    "method":"mining.configure",
+      //    "params":[
+      //       [
+      //          "version-rolling"
+      //       ],
+      //       {
+      //          "version-rolling.min-bit-count":2,
+      //          "version-rolling.mask":"00c00000"
+      //       }
+      //    ]
+      // }
+      if (params[0].IsArray() &&
+          params[1].IsObject()) {
+        rapidjson::Value::Array extensions = params[0].GetArray();
+        rapidjson::Value &arguments = params[1];
+        for (rapidjson::SizeType i = 0, ie = extensions.Size(); i != ie; ++i) {
+          if (strcmp(extensions[i].GetString(), "version-rolling") == 0) {
+            msg.MiningConfigure.ExtensionsField |= StratumMiningConfigure::EVersionRolling;
+            if (arguments.HasMember("version-rolling.mask") && arguments["version-rolling.mask"].IsString())
+              msg.MiningConfigure.VersionRollingMask = readHexBE<uint32_t>(arguments["version-rolling.mask"].GetString(), 4);
+            if (arguments.HasMember("version-rolling.min-bit-count") && arguments["version-rolling.min-bit-count"].IsUint())
+              msg.MiningConfigure.VersionRollingMinBitCount = arguments["version-rolling.min-bit-count"].GetUint();
+          } else if (strcmp(extensions[i].GetString(), "minimum-difficulty") == 0) {
+            if (arguments.HasMember("minimum-difficulty.value")) {
+              if (arguments["minimum-difficulty.value"].IsUint64())
+                msg.MiningConfigure.MinimumDifficultyValue = static_cast<double>(arguments["minimum-difficulty.value"].GetUint64());
+              else if (arguments["minimum-difficulty.value"].IsDouble())
+                msg.MiningConfigure.MinimumDifficultyValue = arguments["minimum-difficulty.value"].GetDouble();
+            }
+            msg.MiningConfigure.ExtensionsField |= StratumMiningConfigure::EMinimumDifficulty;
+          } else if (strcmp(extensions[i].GetString(), "subscribe-extranonce") == 0) {
+            msg.MiningConfigure.ExtensionsField |= StratumMiningConfigure::ESubscribeExtraNonce;
+          }
+        }
+      } else {
+        return EStratumStatusFormatError;
+      }
+    } else if (method == "mining.suggest_difficulty" && params.Size() >= 1) {
+      msg.Method = EMiningSuggestDifficulty;
+      if (params[0].IsDouble()) {
+        msg.MiningSuggestDifficulty.Difficulty = params[0].GetDouble();
+      } else if (params[0].IsUint64()) {
+        msg.MiningSuggestDifficulty.Difficulty = static_cast<double>(params[0].GetUint64());
+      } else {
+        return EStratumStatusFormatError;
+      }
+    } else {
+      return EStratumStatusFormatError;
+    }
+
+    return EStratumStatusOk;
+  }
+
   static void miningConfigInitialize(CMiningConfig &miningCfg, rapidjson::Value &instanceCfg) {
     // default values
     miningCfg.FixedExtraNonceSize = 4;
@@ -312,7 +456,7 @@ public:
     workerCfg.VersionMask = versionMask;
   }
 
-  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, CMiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, CMiningConfig &miningCfg, CStratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
     // Response format
     // {"id": 1, "result": [ [ ["mining.set_difficulty", <setDifficultySession>:string(hex)], ["mining.notify", <notifySession>:string(hex)]], <uniqueExtraNonce>:string(hex), extraNonceSize:integer], "error": null}\n
     {

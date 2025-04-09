@@ -570,103 +570,6 @@ void BTC::Io<ZEC::Proto::Transaction>::unserialize(xmstream &src, ZEC::Proto::Tr
 
 
 namespace ZEC {
-
-EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char *in, size_t size)
-{
-  rapidjson::Document document;
-  document.Parse(in, size);
-  if (document.HasParseError()) {
-    return EStratumStatusJsonError;
-  }
-
-  if (!(document.HasMember("id") && document.HasMember("method") && document.HasMember("params")))
-    return EStratumStatusFormatError;
-
-  // Some clients put null to 'params' field
-  if (document["params"].IsNull())
-    document["params"].SetArray();
-
-  if (!(document["method"].IsString() && document["params"].IsArray()))
-    return EStratumStatusFormatError;
-
-  if (document["id"].IsUint64())
-    IntegerId = document["id"].GetUint64();
-  else if (document["id"].IsString())
-    StringId = document["id"].GetString();
-  else
-    return EStratumStatusFormatError;
-
-  std::string method = document["method"].GetString();
-  const rapidjson::Value::Array &params = document["params"].GetArray();
-  if (method == "mining.subscribe") {
-    Method = ESubscribe;
-    if (params.Size() >= 1) {
-      if (params[0].IsString())
-        Subscribe.minerUserAgent = params[0].GetString();
-    }
-
-    if (params.Size() >= 2) {
-      if (params[1].IsString())
-        Subscribe.sessionId = params[1].GetString();
-    }
-
-    if (params.Size() >= 3) {
-      if (params[2].IsString())
-        Subscribe.connectHost = params[2].GetString();
-    }
-
-    if (params.Size() >= 4) {
-      if (params[3].IsUint())
-        Subscribe.connectPort = params[3].GetUint();
-    }
-  } else if (method == "mining.authorize" && params.Size() >= 2) {
-    Method = EAuthorize;
-    if (params[0].IsString() && params[1].IsString()) {
-      Authorize.login = params[0].GetString();
-      Authorize.password = params[1].GetString();
-    } else {
-      return EStratumStatusFormatError;
-    }
-  } else if (method == "mining.extranonce.subscribe") {
-    Method = EExtraNonceSubscribe;
-  } else if (method == "mining.submit" && params.Size() >= 5) {
-    if (params[0].IsString() &&
-        params[1].IsString() &&
-        params[2].IsString() && params[2].GetStringLength() == 8 &&
-        params[3].IsString() &&
-        params[4].IsString()) {
-      Method = ESubmit;
-      Submit.WorkerName = params[0].GetString();
-      Submit.JobId = params[1].GetString();
-      Submit.Time = readHexBE<uint32_t>(params[2].GetString(), 4);
-      Submit.Nonce = params[3].GetString();
-      Submit.Solution = params[4].GetString();
-    } else {
-      return EStratumStatusFormatError;
-    }
-  } else if (method == "mining.multi_version" && params.Size() >= 1) {
-    Method = EMultiVersion;
-    if (params[0].IsUint()) {
-      MultiVersion.Version = params[0].GetUint();
-    } else {
-      return EStratumStatusFormatError;
-    }
-  } else if (method == "mining.suggest_difficulty" && params.Size() >= 1) {
-    Method = EMiningSuggestDifficulty;
-    if (params[0].IsDouble()) {
-      MiningSuggestDifficulty.Difficulty = params[0].GetDouble();
-    } else if (params[0].IsUint64()) {
-      MiningSuggestDifficulty.Difficulty = static_cast<double>(params[0].GetUint64());
-    } else {
-      return EStratumStatusFormatError;
-    }
-  } else {
-    return EStratumStatusFormatError;
-  }
-
-  return EStratumStatusOk;
-}
-
 CCheckStatus Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx &consensusCtx, ZEC::Proto::ChainParams&)
 {
   static Equihash<200,9> Eh200_9;
@@ -898,24 +801,24 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
   notifyMessage.write('\n');
 }
 
-bool Stratum::Prepare::prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, BTC::CoinbaseTx&, const std::vector<uint256>&, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const StratumMessage &msg)
+bool Stratum::Prepare::prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, BTC::CoinbaseTx&, const std::vector<uint256>&, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg)
 {
-  header.nTime = swab32(msg.Submit.Time);
+  header.nTime = swab32(msg.Submit.ZEC.Time);
 
-  if (msg.Submit.Nonce.size() == 64) {
-    hex2bin(msg.Submit.Nonce.data(), 64, header.nNonce.begin());
-  } else if (msg.Submit.Nonce.size() == (32-miningCfg.FixedExtraNonceSize)*2) {
+  if (msg.Submit.ZEC.Nonce.size() == 64) {
+    hex2bin(msg.Submit.ZEC.Nonce.data(), 64, header.nNonce.begin());
+  } else if (msg.Submit.ZEC.Nonce.size() == (32-miningCfg.FixedExtraNonceSize)*2) {
     writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, header.nNonce.begin());
-    hex2bin(msg.Submit.Nonce.data(), msg.Submit.Nonce.size(), header.nNonce.begin() + miningCfg.FixedExtraNonceSize);
+    hex2bin(msg.Submit.ZEC.Nonce.data(), msg.Submit.ZEC.Nonce.size(), header.nNonce.begin() + miningCfg.FixedExtraNonceSize);
   } else {
     return false;
   }
 
   header.nSolution.resize(1344);
-  if (msg.Submit.Solution.size() == 1344*2) {
-    hex2bin(msg.Submit.Solution.data(), msg.Submit.Solution.size(), header.nSolution.data());
-  } else if (msg.Submit.Solution.size() == 1347*2) {
-    hex2bin(msg.Submit.Solution.data() + 6, msg.Submit.Solution.size() - 6, header.nSolution.data());
+  if (msg.Submit.ZEC.Solution.size() == 1344*2) {
+    hex2bin(msg.Submit.ZEC.Solution.data(), msg.Submit.ZEC.Solution.size(), header.nSolution.data());
+  } else if (msg.Submit.ZEC.Solution.size() == 1347*2) {
+    hex2bin(msg.Submit.ZEC.Solution.data() + 6, msg.Submit.ZEC.Solution.size() - 6, header.nSolution.data());
   } else {
     return false;
   }

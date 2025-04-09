@@ -519,31 +519,31 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
   notifyMessage.write('\n');
 }
 
-bool Stratum::Prepare::prepare(BTC::Proto::BlockHeader &header, uint32_t jobVersion, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const StratumMessage &msg)
+bool Stratum::Prepare::prepare(BTC::Proto::BlockHeader &header, uint32_t jobVersion, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg)
 {
-  if (msg.Submit.MutableExtraNonce.size() != miningCfg.MutableExtraNonceSize)
+  if (msg.Submit.BTC.MutableExtraNonce.size() != miningCfg.MutableExtraNonceSize)
     return false;
-  if (workerCfg.AsicBoostEnabled && !msg.Submit.VersionBits.has_value())
+  if (workerCfg.AsicBoostEnabled && !msg.Submit.BTC.VersionBits.has_value())
     return false;
 
   // Write target extra nonce to first txin
   {
     uint8_t *scriptSig = legacy.Data.data<uint8_t>() + legacy.ExtraNonceOffset;
     writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
-    memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.Submit.MutableExtraNonce.data(), msg.Submit.MutableExtraNonce.size());
+    memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.Submit.BTC.MutableExtraNonce.data(), msg.Submit.BTC.MutableExtraNonce.size());
   }
   {
     uint8_t *scriptSig = witness.Data.data<uint8_t>() + witness.ExtraNonceOffset;
     writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
-    memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.Submit.MutableExtraNonce.data(), msg.Submit.MutableExtraNonce.size());
+    memcpy(scriptSig + miningCfg.FixedExtraNonceSize, msg.Submit.BTC.MutableExtraNonce.data(), msg.Submit.BTC.MutableExtraNonce.size());
   }
 
   // Calculate merkle root and build header
   header.hashMerkleRoot = calculateMerkleRoot(legacy.Data.data(), legacy.Data.sizeOf(), merklePath);
-  header.nTime = msg.Submit.Time;
-  header.nNonce = msg.Submit.Nonce;
+  header.nTime = msg.Submit.BTC.Time;
+  header.nNonce = msg.Submit.BTC.Nonce;
   if (workerCfg.AsicBoostEnabled)
-    header.nVersion = (jobVersion & ~workerCfg.VersionMask) | (msg.Submit.VersionBits.value() & workerCfg.VersionMask);
+    header.nVersion = (jobVersion & ~workerCfg.VersionMask) | (msg.Submit.BTC.VersionBits.value() & workerCfg.VersionMask);
   else
     header.nVersion = jobVersion;
 

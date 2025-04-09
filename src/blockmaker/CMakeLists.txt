@@ -24,6 +24,8 @@ add_library(blockmaker STATIC
   ltc.cpp
   xpm.cpp
   zec.cpp
+
+  stratumWork.cpp
 )
 
 target_link_libraries(blockmaker

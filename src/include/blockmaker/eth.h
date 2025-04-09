@@ -6,7 +6,7 @@
 #include "poolcommon/jsonSerializer.h"
 #include "rapidjson/document.h"
 #include <openssl/rand.h>
-
+#include "btc.h"
 namespace ETH {
 
 struct BlockSubmitData {
@@ -24,38 +24,67 @@ public:
 
 class Stratum {
 public:
-  struct StratumMiningSubscribe {
-    std::string minerUserAgent;
-    std::string StratumVersion;
-  };
-
-  struct StratumSubmit {
-    std::string WorkerName;
-    std::string JobId;
-    uint64_t Nonce;
-    // TODO: remove
-    std::optional<uint32_t> VersionBits;
-  };
-
-  struct StratumMessage {
-    int64_t IntegerId;
-    std::string StringId;
-    EStratumMethodTy Method;
-
-    StratumMiningSubscribe Subscribe;
-    StratumAuthorize Authorize;
-    StratumMiningConfigure MiningConfigure;
-    StratumSubmit Submit;
-
-    EStratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size);
-
-    void addId(JSON::Object &object) {
-      if (!StringId.empty())
-        object.addString("id", StringId);
-      else
-        object.addInt("id", IntegerId);
+  static EStratumDecodeStatusTy decodeStratumMessage(CStratumMessage &msg, const char *in, size_t size) {
+    rapidjson::Document document;
+    document.Parse(in, size);
+    if (document.HasParseError()) {
+      return EStratumStatusJsonError;
     }
-  };
+
+    if (!(document.HasMember("id") && document.HasMember("method") && document.HasMember("params")))
+      return EStratumStatusFormatError;
+
+    // Some clients put null to 'params' field
+    if (document["params"].IsNull())
+      document["params"].SetArray();
+
+    if (!(document["method"].IsString() && document["params"].IsArray()))
+      return EStratumStatusFormatError;
+
+    if (document["id"].IsUint64())
+      msg.IntegerId = document["id"].GetUint64();
+    else if (document["id"].IsString())
+      msg.StringId = document["id"].GetString();
+    else
+      return EStratumStatusFormatError;
+
+    std::string method = document["method"].GetString();
+    const rapidjson::Value::Array &params = document["params"].GetArray();
+    if (method == "mining.subscribe") {
+      msg.Method = ESubscribe;
+      if (params.Size() >= 1) {
+        if (params[0].IsString())
+          msg.Subscribe.minerUserAgent = params[0].GetString();
+      }
+
+      if (params.Size() >= 2) {
+        if (params[1].IsString())
+          msg.Subscribe.StratumVersion = params[1].GetString();
+      }
+
+    } else if (method == "mining.authorize" && params.Size() >= 2) {
+      msg.Method = EAuthorize;
+      if (params[0].IsString() && params[1].IsString()) {
+        msg.Authorize.login = params[0].GetString();
+        msg.Authorize.password = params[1].GetString();
+      } else {
+        return EStratumStatusFormatError;
+      }
+    } else if (method == "mining.extranonce.subscribe") {
+      msg.Method = EExtraNonceSubscribe;
+    } else if (method == "mining.submit" && params.Size() == 3) {
+      msg.Method = ESubmit;
+      msg.Submit.WorkerName = params[0].GetString();
+      msg.Submit.JobId = params[1].GetString();
+      msg.Submit.ETH.Nonce = strtoul(params[2].GetString(), nullptr, 16);
+    } else if (method == "eth_submitHashrate") {
+      msg.Method = ESubmitHashrate;
+    } else {
+      return EStratumStatusFormatError;
+    }
+
+    return EStratumStatusOk;
+  }
 
   static void miningConfigInitialize(CMiningConfig &miningCfg, rapidjson::Value &instanceCfg) {
     // default values
@@ -83,7 +112,7 @@ public:
 
   static void workerConfigSetupVersionRolling(CWorkerConfig&, uint32_t) {}
 
-  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, CMiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, CMiningConfig &miningCfg, CStratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
     // Response format
     // {"id": 1, "result": [["mining.notify", "ae6812eb4cd7735a302a8a9dd95cf71f", "EthereumStratum/1.0.0"], "080c"],"error": null}
 
@@ -113,7 +142,7 @@ public:
     subscribeInfo = std::to_string(workerCfg.ExtraNonceFixed);
   }
 
-  using CSingleWork = StratumSingleWork<StratumMessage>;
+  using CSingleWork = StratumSingleWork;
 
   class Work : public CSingleWork {
   public:
@@ -155,7 +184,7 @@ public:
 
     virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error) override;
 
-    virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage&msg) override;
+    virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const CStratumMessage&msg) override;
 
     virtual double getAbstractProfitValue(size_t, double, double) override {
       // TODO: calculate real profit value
@@ -188,8 +217,8 @@ public:
     }
   }
 
-  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, StratumMessage>;
-  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, StratumMessage>;
+  using SecondWork = StratumSingleWorkEmpty;
+  using MergedWork = StratumMergedWorkEmpty;
 };
 
 struct X {

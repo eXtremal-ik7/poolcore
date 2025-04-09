@@ -22,69 +22,6 @@ static inline double getDifficulty(uint32_t bits)
 }
 
 namespace ETH {
-EStratumDecodeStatusTy Stratum::StratumMessage::decodeStratumMessage(const char *in, size_t size)
-{
-  rapidjson::Document document;
-  document.Parse(in, size);
-  if (document.HasParseError()) {
-    return EStratumStatusJsonError;
-  }
-
-  if (!(document.HasMember("id") && document.HasMember("method") && document.HasMember("params")))
-    return EStratumStatusFormatError;
-
-  // Some clients put null to 'params' field
-  if (document["params"].IsNull())
-    document["params"].SetArray();
-
-  if (!(document["method"].IsString() && document["params"].IsArray()))
-    return EStratumStatusFormatError;
-
-  if (document["id"].IsUint64())
-    IntegerId = document["id"].GetUint64();
-  else if (document["id"].IsString())
-    StringId = document["id"].GetString();
-  else
-    return EStratumStatusFormatError;
-
-  std::string method = document["method"].GetString();
-  const rapidjson::Value::Array &params = document["params"].GetArray();
-  if (method == "mining.subscribe") {
-    Method = ESubscribe;
-    if (params.Size() >= 1) {
-      if (params[0].IsString())
-        Subscribe.minerUserAgent = params[0].GetString();
-    }
-
-    if (params.Size() >= 2) {
-      if (params[1].IsString())
-        Subscribe.StratumVersion = params[1].GetString();
-    }
-
-  } else if (method == "mining.authorize" && params.Size() >= 2) {
-    Method = EAuthorize;
-    if (params[0].IsString() && params[1].IsString()) {
-      Authorize.login = params[0].GetString();
-      Authorize.password = params[1].GetString();
-    } else {
-      return EStratumStatusFormatError;
-    }
-  } else if (method == "mining.extranonce.subscribe") {
-    Method = EExtraNonceSubscribe;
-  } else if (method == "mining.submit" && params.Size() == 3) {
-    Method = ESubmit;
-    Submit.WorkerName = params[0].GetString();
-    Submit.JobId = params[1].GetString();
-    Submit.Nonce = strtoul(params[2].GetString(), nullptr, 16);
-  } else if (method == "eth_submitHashrate") {
-    Method = ESubmitHashrate;
-  } else {
-    return EStratumStatusFormatError;
-  }
-
-  return EStratumStatusOk;
-}
-
 bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error)
 {
   if (!blockTemplate.Document.HasMember("result") || !blockTemplate.Document["result"].IsArray()) {
@@ -121,9 +58,9 @@ bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, const std::s
   return true;
 }
 
-bool Stratum::Work::prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage &msg)
+bool Stratum::Work::prepareForSubmit(const CWorkerConfig &workerCfg, const CStratumMessage &msg)
 {
-  Nonce_ = (workerCfg.ExtraNonceFixed << (64 - 8*MiningCfg_.FixedExtraNonceSize)) | msg.Submit.Nonce;
+  Nonce_ = (workerCfg.ExtraNonceFixed << (64 - 8*MiningCfg_.FixedExtraNonceSize)) | msg.Submit.ETH.Nonce;
   ethashCalculate(FinalHash_.begin(), MixHash_.begin(), HeaderHash_.begin(), Nonce_, DagFile_.get()->dag());
   std::reverse(FinalHash_.begin(), FinalHash_.begin()+32);
   return true;

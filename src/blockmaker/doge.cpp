@@ -58,7 +58,7 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSin
   DOGEConsensusCtx_ = dogeWork()->ConsensusCtx_;
 }
 
-bool Stratum::MergedWork::prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessage &msg)
+bool Stratum::MergedWork::prepareForSubmit(const CWorkerConfig &workerCfg, const CStratumMessage &msg)
 {
   if (!LTC::Stratum::Work::prepareForSubmitImpl(LTCHeader_, LTCHeader_.nVersion, LTCLegacy_, LTCWitness_, LTCMerklePath_, workerCfg, MiningCfg_, msg))
     return false;

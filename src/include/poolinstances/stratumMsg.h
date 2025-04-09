@@ -2,8 +2,7 @@
 
 #include <string>
 #include <vector>
-#include "poolcommon/utils.h"
-#include "p2putils/strExtras.h"
+#include "poolcommon/jsonSerializer.h"
 #include <optional>
 
 enum EStratumMethodTy {
@@ -28,6 +27,7 @@ struct StratumMiningSubscribe {
   std::string minerUserAgent;
   std::string sessionId;
   std::string connectHost;
+  std::string StratumVersion;
   int64_t connectPort;
 };
 
@@ -39,10 +39,20 @@ struct StratumAuthorize {
 struct StratumSubmit {
   std::string WorkerName;
   std::string JobId;
-  std::vector<uint8_t> MutableExtraNonce;
-  uint32_t Time;
-  uint32_t Nonce;
-  std::optional<uint32_t> VersionBits;
+  struct {
+    uint32_t Time;
+    uint32_t Nonce;
+    std::vector<uint8_t> MutableExtraNonce;
+    std::optional<uint32_t> VersionBits;
+  } BTC;
+  struct {
+    uint64_t Nonce;
+  } ETH;
+  struct {
+    uint32_t Time;
+    std::string Nonce;
+    std::string Solution;
+  } ZEC;
 };
 
 struct StratumMultiVersion {
@@ -64,4 +74,24 @@ struct StratumMiningConfigure {
 
 struct StratumMiningSuggestDifficulty {
   double Difficulty;
+};
+
+struct CStratumMessage {
+  int64_t IntegerId;
+  std::string StringId;
+  EStratumMethodTy Method;
+  StratumMiningSubscribe Subscribe;
+  StratumAuthorize Authorize;
+  StratumSubmit Submit;
+  StratumMultiVersion MultiVersion;
+  StratumMiningConfigure MiningConfigure;
+  StratumMiningSuggestDifficulty MiningSuggestDifficulty;
+  std::string Error;
+
+  void addId(JSON::Object &object) {
+    if (!StringId.empty())
+      object.addString("id", StringId);
+    else
+      object.addInt("id", IntegerId);
+  }
 };

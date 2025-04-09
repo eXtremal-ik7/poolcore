@@ -47,9 +47,9 @@ static inline unsigned popcount(T number)
 template<typename X>
 class StratumInstance : public CPoolInstance {
 public:
-  using CWork = StratumWork<typename X::Stratum::StratumMessage>;
-  using CSingleWork = StratumSingleWork<typename X::Stratum::StratumMessage>;
-  using CMergedWork = StratumMergedWork<typename X::Stratum::StratumMessage>;
+  using CWork = StratumWork;
+  using CSingleWork = StratumSingleWork;
+  using CMergedWork = StratumMergedWork;
 
 public:
   StratumInstance(asyncBase *monitorBase,
@@ -372,7 +372,7 @@ private:
     }
   }
 
-  void onStratumSubscribe(Connection *connection, typename X::Stratum::StratumMessage &msg) {
+  void onStratumSubscribe(Connection *connection, CStratumMessage &msg) {
     if (msg.Subscribe.minerUserAgent.find("cgminer") != std::string::npos)
       connection->IsCgMiner = true;
     if (msg.Subscribe.minerUserAgent.find("NiceHash") != std::string::npos) {
@@ -396,7 +396,7 @@ private:
       LOG_F(1, "%s(%s): subscribe data: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), subscribeInfo.c_str());
   }
 
-  bool onStratumAuthorize(Connection *connection, typename X::Stratum::StratumMessage &msg) {
+  bool onStratumAuthorize(Connection *connection, CStratumMessage &msg) {
     bool authSuccess = false;
     std::string error;
     size_t dotPos = msg.Authorize.login.find('.');
@@ -427,7 +427,7 @@ private:
     return authSuccess;
   }
 
-  bool onStratumMiningConfigure(Connection *connection, typename X::Stratum::StratumMessage &msg) {
+  bool onStratumMiningConfigure(Connection *connection, CStratumMessage &msg) {
     xmstream stream;
     std::string error;
     {
@@ -494,11 +494,11 @@ private:
     return true;
   }
 
-  void onStratumMiningSuggestDifficulty(Connection*, typename X::Stratum::StratumMessage&) {
+  void onStratumMiningSuggestDifficulty(Connection*, CStratumMessage&) {
     // Nothing to do
   }
 
-  void onStratumExtraNonceSubscribe(Connection *connection, typename X::Stratum::StratumMessage &message) {
+  void onStratumExtraNonceSubscribe(Connection *connection, CStratumMessage &message) {
     xmstream stream;
     {
       JSON::Object object(stream);
@@ -518,7 +518,7 @@ private:
                          int64_t majorJobId,
                          double stratumDifficulty,
                          const CWorkerConfig &workerConfig,
-                         typename X::Stratum::StratumMessage msg) {
+                         CStratumMessage msg) {
     ThreadData &data = Data_[GetLocalThreadId()];
     CWork *work = data.WorkStorage.workById(majorJobId);
     if (!work)
@@ -570,7 +570,7 @@ private:
     }
   }
 
-  bool shareCheck(Connection *connection, typename X::Stratum::StratumMessage &msg, StratumErrorTy &errorCode) {
+  bool shareCheck(Connection *connection, CStratumMessage &msg, StratumErrorTy &errorCode) {
     ThreadData &data = Data_[GetLocalThreadId()];
     uint64_t height = 0;
     CCheckStatus checkStatus;
@@ -738,7 +738,7 @@ private:
     return shareAccepted;
   }
 
-  void onStratumSubmit(Connection *connection, typename X::Stratum::StratumMessage &msg) {
+  void onStratumSubmit(Connection *connection, CStratumMessage &msg) {
     StratumErrorTy errorCode;
     bool result = shareCheck(connection, msg, errorCode);
 
@@ -814,7 +814,7 @@ private:
     }
   }
 
-  void onStratumMultiVersion(Connection *connection, typename X::Stratum::StratumMessage &message) {
+  void onStratumMultiVersion(Connection *connection, CStratumMessage &message) {
     xmstream stream;
     {
       JSON::Object object(stream);
@@ -827,7 +827,7 @@ private:
     send(connection, stream);
   }
 
-  void onStratumSubmitHashrate(Connection *connection, typename X::Stratum::StratumMessage &message) {
+  void onStratumSubmitHashrate(Connection *connection, CStratumMessage &message) {
     xmstream stream;
     {
       JSON::Object object(stream);
@@ -877,14 +877,14 @@ private:
     while (p != e && (nextMsgPos = static_cast<const char*>(memchr(p, '\n', e - p)))) {
       // parse stratum message
       bool result = true;
-      typename X::Stratum::StratumMessage msg;
+      CStratumMessage msg;
       size_t stratumMsgSize = nextMsgPos - p;
       if (isDebugInstanceStratumMessages()) {
         std::string msg(p, stratumMsgSize);
         LOG_F(1, "%s(%s): incoming message %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
       }
 
-      switch (msg.decodeStratumMessage(p, stratumMsgSize)) {
+      switch (X::Stratum::decodeStratumMessage(msg, p, stratumMsgSize)) {
         case EStratumDecodeStatusTy::EStratumStatusOk :
           // Process stratum messages here
           switch (msg.Method) {

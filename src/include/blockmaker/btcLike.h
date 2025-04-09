@@ -1,7 +1,8 @@
 #pragma once
 #include "merkleTree.h"
+#include "poolcommon/utils.h"
 #include "poolinstances/stratumMsg.h"
-#include "poolcommon/jsonSerializer.h"
+
 #include "stratumWork.h"
 #include "serialize.h"
 #include "loguru.hpp"
@@ -20,29 +21,6 @@ namespace Script {
     OP_CHECKSIG = 0xAC
   };
 }
-
-struct StratumMessage {
-  int64_t IntegerId;
-  std::string StringId;
-  EStratumMethodTy Method;
-
-  StratumMiningSubscribe Subscribe;
-  StratumAuthorize Authorize;
-  StratumSubmit Submit;
-  StratumMultiVersion MultiVersion;
-  StratumMiningConfigure MiningConfigure;
-  StratumMiningSuggestDifficulty MiningSuggestDifficulty;
-
-  std::string Error;
-
-  EStratumDecodeStatusTy decodeStratumMessage(const char *in, size_t size);
-  void addId(JSON::Object &object) {
-    if (!StringId.empty())
-      object.addString("id", StringId);
-    else
-      object.addInt("id", IntegerId);
-  }
-};
 
 struct CoinbaseTx {
   xmstream Data;
@@ -147,11 +125,11 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
   return true;
 }
 
-template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy, typename StratumMessageTy>
-class WorkTy : public StratumSingleWork<StratumMessageTy> {
+template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy>
+class WorkTy : public StratumSingleWork {
 public:
   WorkTy(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const CMiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) :
-    StratumSingleWork<StratumMessageTy>(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
+    StratumSingleWork(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
     CoinbaseMessage_ = coinbaseMessage;
     this->Initialized_ = miningAddress.size() == sizeof(typename Proto::AddressTy);
     if (this->Initialized_)
@@ -177,7 +155,7 @@ public:
     buildNotifyMessageImpl(this, Header, JobVersion, CBTxLegacy_, MerklePath, this->MiningCfg_, resetPreviousWork, this->NotifyMessage_);
   }
 
-  virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const StratumMessageTy &msg) override {
+  virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const CStratumMessage &msg) override {
     return prepareForSubmitImpl(Header, JobVersion, CBTxLegacy_, CBTxWitness_, MerklePath, workerCfg, this->MiningCfg_, msg);
   }
 
@@ -276,11 +254,11 @@ public:
     return Proto::checkConsensus(header, consensusCtx, params);
   }
 
-  static void buildNotifyMessageImpl(StratumWork<StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
+  static void buildNotifyMessageImpl(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
     NotifyTy::build(source, header, asicBoostData, legacy, merklePath, cfg, resetPreviousWork, notifyMessage);
   }
 
-  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const StratumMessageTy &msg) {
+  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg) {
     return PrepareForSubmitTy::prepare(header, asicBoostData, legacy, witness, merklePath, workerCfg, miningCfg, msg);
   }
 

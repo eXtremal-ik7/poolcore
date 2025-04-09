@@ -19,17 +19,17 @@ public:
     double StratumDifficulty;
     int64_t MajorJobId;
     CWorkerConfig WorkerConfig;
-    typename X::Stratum::StratumMessage Msg;
+    CStratumMessage Msg;
 
     bool HasShare = false;
   };
 
-  using CWork = StratumWork<typename X::Stratum::StratumMessage>;
-  using CSingleWork = StratumSingleWork<typename X::Stratum::StratumMessage>;
-  using CMergedWork = StratumMergedWork<typename X::Stratum::StratumMessage>;
+  using CWork = StratumWork;
+  using CSingleWork = StratumSingleWork;
+  using CMergedWork = StratumMergedWork;
   using CSingleWorkSequence = std::deque<std::unique_ptr<CSingleWork>>;
   using CMergedWorkSequence = std::deque<std::unique_ptr<CMergedWork>>;
-  using CAcceptedShareSet = std::unordered_set<typename X::Proto::BlockHashTy>;
+  using CAcceptedShareSet = std::unordered_set<uint256>;
   using CWorkIndex = std::pair<size_t, size_t>;
 
 private:
@@ -129,7 +129,7 @@ public:
     return true;
   }
 
-  bool isDuplicate(CWork *work, const typename X::Proto::BlockHashTy &shareHash) {
+  bool isDuplicate(CWork *work, const uint256 &shareHash) {
     bool duplicate = false;
     for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i)
       duplicate |= !AcceptedShares_[work->backendId(i)].insert(shareHash).second;
@@ -143,7 +143,7 @@ public:
                      double stratumDifficulty,
                      int64_t majorJobId,
                      const CWorkerConfig &workerConfig,
-                     const typename X::Stratum::StratumMessage &msg) {
+                     const CStratumMessage &msg) {
     CPendingShare &share = PendingShares_[index];
     if (!share.HasShare || share.RealDifficulty < realDifficulty) {
       share.User = user;
