@@ -24,9 +24,9 @@ public:
     bool HasShare = false;
   };
 
-  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
-  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
-  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
+  using CWork = StratumWork<typename X::Stratum::StratumMessage>;
+  using CSingleWork = StratumSingleWork<typename X::Stratum::StratumMessage>;
+  using CMergedWork = StratumMergedWork<typename X::Stratum::StratumMessage>;
   using CSingleWorkSequence = std::deque<std::unique_ptr<CSingleWork>>;
   using CMergedWorkSequence = std::deque<std::unique_ptr<CMergedWork>>;
   using CAcceptedShareSet = std::unordered_set<typename X::Proto::BlockHashTy>;

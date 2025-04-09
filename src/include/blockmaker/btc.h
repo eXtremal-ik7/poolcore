@@ -225,7 +225,7 @@ public:
   static constexpr double DifficultyFactor = 1.0;
   using StratumMessage = BTC::StratumMessage;
 
-  using CWork = StratumWork<Proto::BlockHashTy, StratumMessage>;
+  using CWork = StratumWork<StratumMessage>;
 
   // TODO: Use this for headers non-compatible with BTC
   struct HeaderBuilder {

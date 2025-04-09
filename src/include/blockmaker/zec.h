@@ -287,7 +287,7 @@ public:
     subscribeInfo = std::to_string(workerCfg.ExtraNonceFixed);
   }
 
-  using CWork = StratumWork<Proto::BlockHashTy, StratumMessage>;
+  using CWork = StratumWork<StratumMessage>;
 
   struct HeaderBuilder {
     static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<uint256> &merklePath, rapidjson::Value &blockTemplate);

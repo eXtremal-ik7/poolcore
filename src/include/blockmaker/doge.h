@@ -54,8 +54,8 @@ class Stratum {
 public:
   static constexpr double DifficultyFactor = 65536.0;
   using StratumMessage = BTC::Stratum::StratumMessage;
-  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, StratumMessage>;
-  using CMergedWork = StratumMergedWork<Proto::BlockHashTy, StratumMessage>;
+  using CSingleWork = StratumSingleWork<StratumMessage>;
+  using CMergedWork = StratumMergedWork<StratumMessage>;
 
   using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, StratumMessage>;
   using SecondWork = LTC::Stratum::Work;

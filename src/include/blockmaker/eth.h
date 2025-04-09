@@ -113,7 +113,7 @@ public:
     subscribeInfo = std::to_string(workerCfg.ExtraNonceFixed);
   }
 
-  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, StratumMessage>;
+  using CSingleWork = StratumSingleWork<StratumMessage>;
 
   class Work : public CSingleWork {
   public:

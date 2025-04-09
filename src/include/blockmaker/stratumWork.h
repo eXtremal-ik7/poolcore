@@ -1,6 +1,7 @@
 #pragma once
 
 #include "poolcore/blockTemplate.h"
+#include "poolcommon/uint256.h"
 #include "p2putils/xmstream.h"
 #include <string>
 #include <vector>
@@ -38,11 +39,11 @@ struct CCheckStatus {
 
 };
 
-template<typename BlockHashTy, typename StratumMessage>
+template<typename StratumMessage>
 class StratumMergedWork;
 class PoolBackend;
 
-template<typename BlockHashTy, typename StratumMessage>
+template<typename StratumMessage>
 class StratumWork {
 public:
   StratumWork(uint64_t stratumId, const CMiningConfig &miningCfg) : StratumId_(stratumId), MiningCfg_(miningCfg) {}
@@ -50,7 +51,7 @@ public:
 
   bool initialized() { return Initialized_; }
   virtual size_t backendsNum() = 0;
-  virtual BlockHashTy shareHash() = 0;
+  virtual uint256 shareHash() = 0;
   virtual std::string blockHash(size_t workIdx) = 0;
   virtual PoolBackend *backend(size_t workIdx) = 0;
   virtual size_t backendId(size_t workIdx) = 0;
@@ -79,10 +80,10 @@ public:
   xmstream NotifyMessage_;
 };
 
-template<typename BlockHashTy, typename StratumMessage>
-class StratumSingleWork : public StratumWork<BlockHashTy, StratumMessage> {
+template<typename StratumMessage>
+class StratumSingleWork : public StratumWork<StratumMessage> {
 public:
-  StratumSingleWork(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendId, const CMiningConfig &miningCfg) : StratumWork<BlockHashTy, StratumMessage>(stratumWorkId, miningCfg), UniqueWorkId_(uniqueWorkId), Backend_(backend), BackendId_(backendId) {}
+  StratumSingleWork(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendId, const CMiningConfig &miningCfg) : StratumWork<StratumMessage>(stratumWorkId, miningCfg), UniqueWorkId_(uniqueWorkId), Backend_(backend), BackendId_(backendId) {}
 
   virtual size_t backendsNum() final { return 1; }
   virtual PoolBackend *backend(size_t) final { return Backend_; }
@@ -100,7 +101,7 @@ public:
 
   uint64_t uniqueWorkId() { return UniqueWorkId_; }
 
-  void addLink(StratumMergedWork<BlockHashTy, StratumMessage> *mergedWork) {
+  void addLink(StratumMergedWork<StratumMessage> *mergedWork) {
     LinkedWorks_.push_back(mergedWork);
   }
 
@@ -112,19 +113,19 @@ protected:
   uint64_t UniqueWorkId_ = 0;
   PoolBackend *Backend_ = nullptr;
   size_t BackendId_ = 0;
-  std::vector<StratumMergedWork<BlockHashTy, StratumMessage>*> LinkedWorks_;
+  std::vector<StratumMergedWork<StratumMessage>*> LinkedWorks_;
   uint64_t Height_ = 0;
   size_t TxNum_ = 0;
   int64_t BlockReward_ = 0;
 };
 
-template<typename BlockHashTy, typename StratumMessage>
-class StratumMergedWork : public StratumWork<BlockHashTy, StratumMessage> {
+template<typename StratumMessage>
+class StratumMergedWork : public StratumWork<StratumMessage> {
 public:
   StratumMergedWork(uint64_t stratumWorkId,
-                    StratumSingleWork<BlockHashTy, StratumMessage> *first,
-                    StratumSingleWork<BlockHashTy, StratumMessage> *second,
-                    const CMiningConfig &miningCfg) : StratumWork<BlockHashTy, StratumMessage>(stratumWorkId, miningCfg) {
+                    StratumSingleWork<StratumMessage> *first,
+                    StratumSingleWork<StratumMessage> *second,
+                    const CMiningConfig &miningCfg) : StratumWork<StratumMessage>(stratumWorkId, miningCfg) {
     Works_[0] = first;
     Works_[1] = second;
     WorkId_[0] = first->backendId(0);
@@ -147,7 +148,7 @@ public:
   virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) final { return Works_[workIdx]->getAbstractProfitValue(0, price, coeff); }
   virtual bool hasRtt(size_t workIdx) final { return Works_[workIdx]->hasRtt(0); }
 
-  void removeLink(StratumSingleWork<BlockHashTy, StratumMessage> *work) {
+  void removeLink(StratumSingleWork<StratumMessage> *work) {
     if (Works_[0] == work)
       Works_[0] = nullptr;
     if (Works_[1] == work)
@@ -157,12 +158,12 @@ public:
   bool empty() { return Works_[0] == nullptr && Works_[1] == nullptr; }
 
 protected:
-  StratumSingleWork<BlockHashTy, StratumMessage> *Works_[2] = {nullptr, nullptr};
+  StratumSingleWork<StratumMessage> *Works_[2] = {nullptr, nullptr};
   size_t WorkId_[2] = {std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max()};
 };
 
 template<typename BlockHashTy, typename StratumMessage>
-class StratumSingleWorkEmpty : public StratumSingleWork<BlockHashTy, StratumMessage> {
+class StratumSingleWorkEmpty : public StratumSingleWork<StratumMessage> {
 public:
   StratumSingleWorkEmpty(int64_t stratumWorkId,
                          uint64_t uniqueWorkId,
@@ -170,7 +171,7 @@ public:
                          size_t backendId,
                          const CMiningConfig &miningCfg,
                          const std::vector<uint8_t>&,
-                         const std::string&) : StratumSingleWork<BlockHashTy, StratumMessage>(stratumWorkId, uniqueWorkId, backend, backendId, miningCfg) {}
+                         const std::string&) : StratumSingleWork<StratumMessage>(stratumWorkId, uniqueWorkId, backend, backendId, miningCfg) {}
   virtual BlockHashTy shareHash() final { return BlockHashTy(); }
   virtual std::string blockHash(size_t) final { return std::string(); }
   virtual double expectedWork(size_t) final { return 0.0; }
@@ -187,12 +188,12 @@ public:
 };
 
 template<typename BlockHashTy, typename StratumMessage>
-class StratumMergedWorkEmpty : public StratumMergedWork<BlockHashTy, StratumMessage> {
+class StratumMergedWorkEmpty : public StratumMergedWork<StratumMessage> {
 public:
   StratumMergedWorkEmpty(uint64_t stratumWorkId,
-                         StratumSingleWork<BlockHashTy, StratumMessage> *first,
-                         StratumSingleWork<BlockHashTy, StratumMessage> *second,
-                         CMiningConfig &cfg) : StratumMergedWork<BlockHashTy, StratumMessage>(stratumWorkId, first, second, cfg) {}
+                         StratumSingleWork<StratumMessage> *first,
+                         StratumSingleWork<StratumMessage> *second,
+                         CMiningConfig &cfg) : StratumMergedWork<StratumMessage>(stratumWorkId, first, second, cfg) {}
   virtual BlockHashTy shareHash() final { return BlockHashTy(); }
   virtual std::string blockHash(size_t) final { return std::string(); }
   virtual void buildBlock(size_t, xmstream&) final {}

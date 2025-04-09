@@ -148,10 +148,10 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
 }
 
 template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy, typename StratumMessageTy>
-class WorkTy : public StratumSingleWork<typename Proto::BlockHashTy, StratumMessageTy> {
+class WorkTy : public StratumSingleWork<StratumMessageTy> {
 public:
   WorkTy(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const CMiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) :
-    StratumSingleWork<typename Proto::BlockHashTy, StratumMessageTy>(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
+    StratumSingleWork<StratumMessageTy>(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
     CoinbaseMessage_ = coinbaseMessage;
     this->Initialized_ = miningAddress.size() == sizeof(typename Proto::AddressTy);
     if (this->Initialized_)
@@ -276,7 +276,7 @@ public:
     return Proto::checkConsensus(header, consensusCtx, params);
   }
 
-  static void buildNotifyMessageImpl(StratumWork<typename Proto::BlockHashTy, StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
+  static void buildNotifyMessageImpl(StratumWork<StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
     NotifyTy::build(source, header, asicBoostData, legacy, merklePath, cfg, resetPreviousWork, notifyMessage);
   }
 

@@ -47,9 +47,9 @@ static inline unsigned popcount(T number)
 template<typename X>
 class StratumInstance : public CPoolInstance {
 public:
-  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
-  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
-  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
+  using CWork = StratumWork<typename X::Stratum::StratumMessage>;
+  using CSingleWork = StratumSingleWork<typename X::Stratum::StratumMessage>;
+  using CMergedWork = StratumMergedWork<typename X::Stratum::StratumMessage>;
 
 public:
   StratumInstance(asyncBase *monitorBase,
