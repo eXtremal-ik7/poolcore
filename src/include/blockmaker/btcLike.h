@@ -44,19 +44,6 @@ struct StratumMessage {
   }
 };
 
-struct MiningConfig {
-  unsigned FixedExtraNonceSize = 4;
-  unsigned MutableExtraNonceSize = 4;
-  unsigned TxNumLimit = 0;
-
-  void initialize(rapidjson::Value &instanceCfg) {
-    if (instanceCfg.HasMember("fixedExtraNonceSize") && instanceCfg["fixedExtraNonceSize"].IsUint())
-      FixedExtraNonceSize = instanceCfg["fixedExtraNonceSize"].GetUint();
-    if (instanceCfg.HasMember("mutableExtraNonceSize") && instanceCfg["mutableExtraNonceSize"].IsUint())
-      MutableExtraNonceSize = instanceCfg["mutableExtraNonceSize"].GetUint();
-  }
-};
-
 struct CoinbaseTx {
   xmstream Data;
   unsigned ExtraDataOffset;
@@ -160,11 +147,11 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
   return true;
 }
 
-template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy, typename MiningConfigTy, typename StratumMessageTy>
-class WorkTy : public StratumSingleWork<typename Proto::BlockHashTy, MiningConfigTy, StratumMessageTy> {
+template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy, typename StratumMessageTy>
+class WorkTy : public StratumSingleWork<typename Proto::BlockHashTy, StratumMessageTy> {
 public:
-  WorkTy(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const MiningConfigTy &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) :
-    StratumSingleWork<typename Proto::BlockHashTy, MiningConfigTy, StratumMessageTy>(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
+  WorkTy(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const CMiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) :
+    StratumSingleWork<typename Proto::BlockHashTy, StratumMessageTy>(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
     CoinbaseMessage_ = coinbaseMessage;
     this->Initialized_ = miningAddress.size() == sizeof(typename Proto::AddressTy);
     if (this->Initialized_)
@@ -280,7 +267,7 @@ public:
 public:
   // Implementation
   /// Build & serialize custom coinbase transaction
-  void buildCoinbaseTx(void *coinbaseData, size_t coinbaseSize, const MiningConfig &miningCfg, CoinbaseTx &legacy, CoinbaseTx &witness) {
+  void buildCoinbaseTx(void *coinbaseData, size_t coinbaseSize, const CMiningConfig &miningCfg, CoinbaseTx &legacy, CoinbaseTx &witness) {
     CoinbaseBuilder_.build(this->Height_, this->BlockReward_, coinbaseData, coinbaseSize, this->CoinbaseMessage_, this->MiningAddress_, miningCfg, SegwitEnabled, WitnessCommitment, legacy, witness);
   }
 
@@ -289,11 +276,11 @@ public:
     return Proto::checkConsensus(header, consensusCtx, params);
   }
 
-  static void buildNotifyMessageImpl(StratumWork<typename Proto::BlockHashTy, MiningConfigTy, StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
+  static void buildNotifyMessageImpl(StratumWork<typename Proto::BlockHashTy, StratumMessageTy> *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
     NotifyTy::build(source, header, asicBoostData, legacy, merklePath, cfg, resetPreviousWork, notifyMessage);
   }
 
-  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfigTy &miningCfg, const StratumMessageTy &msg) {
+  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const StratumMessageTy &msg) {
     return PrepareForSubmitTy::prepare(header, asicBoostData, legacy, witness, merklePath, workerCfg, miningCfg, msg);
   }
 

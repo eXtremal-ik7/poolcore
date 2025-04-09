@@ -782,16 +782,16 @@ bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward, rapidjson::Value &b
 }
 
 void Stratum::CoinbaseBuilder::build(int64_t height,
-                                     int64_t blockReward,
-                                     void *coinbaseData,
-                                     size_t coinbaseSize,
-                                     const std::string &coinbaseMessage,
-                                     const Proto::AddressTy &miningAddress,
-                                     const MiningConfig&,
-                                     bool,
-                                     const xmstream&,
-                                     BTC::CoinbaseTx &legacy,
-                                     BTC::CoinbaseTx &witness)
+    int64_t blockReward,
+    void *coinbaseData,
+    size_t coinbaseSize,
+    const std::string &coinbaseMessage,
+    const Proto::AddressTy &miningAddress,
+    const CMiningConfig&,
+    bool,
+    const xmstream&,
+    BTC::CoinbaseTx &legacy,
+    BTC::CoinbaseTx &witness)
 {
   // TxIn
   {
@@ -832,7 +832,7 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
   BTC::Io<typename Proto::Transaction>::serialize(witness.Data, CoinbaseTx);
 }
 
-void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, const std::vector<uint256>&, const MiningConfig&, bool resetPreviousWork, xmstream &notifyMessage)
+void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, const std::vector<uint256>&, const CMiningConfig&, bool resetPreviousWork, xmstream &notifyMessage)
 {
   // {"id": null, "method": "mining.notify", "params": ["JOB_ID", "VERSION", "PREVHASH", "MERKLEROOT", "RESERVED", "TIME", "BITS", CLEAN_JOBS]}
 
@@ -898,7 +898,7 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
   notifyMessage.write('\n');
 }
 
-bool Stratum::Prepare::prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, BTC::CoinbaseTx&, const std::vector<uint256>&, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg)
+bool Stratum::Prepare::prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, BTC::CoinbaseTx&, const std::vector<uint256>&, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const StratumMessage &msg)
 {
   header.nTime = swab32(msg.Submit.Time);
 

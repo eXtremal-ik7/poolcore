@@ -57,14 +57,13 @@ public:
     }
   };
 
-  struct MiningConfig {
-    unsigned FixedExtraNonceSize = 3;
+  static void miningConfigInitialize(CMiningConfig &miningCfg, rapidjson::Value &instanceCfg) {
+    // default values
+    miningCfg.FixedExtraNonceSize = 3;
 
-    void initialize(rapidjson::Value &instanceCfg) {
-      if (instanceCfg.HasMember("fixedExtraNonceSize") && instanceCfg["fixedExtraNonceSize"].IsUint())
-        FixedExtraNonceSize = instanceCfg["fixedExtraNonceSize"].GetUint();
-    }
-  };
+    if (instanceCfg.HasMember("fixedExtraNonceSize") && instanceCfg["fixedExtraNonceSize"].IsUint())
+      miningCfg.FixedExtraNonceSize = instanceCfg["fixedExtraNonceSize"].GetUint();
+  }
 
   static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) {
     // Set fixed part of extra nonce
@@ -84,7 +83,7 @@ public:
 
   static void workerConfigSetupVersionRolling(CWorkerConfig&, uint32_t) {}
 
-  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, CMiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
     // Response format
     // {"id": 1, "result": [["mining.notify", "ae6812eb4cd7735a302a8a9dd95cf71f", "EthereumStratum/1.0.0"], "080c"],"error": null}
 
@@ -114,11 +113,11 @@ public:
     subscribeInfo = std::to_string(workerCfg.ExtraNonceFixed);
   }
 
-  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, MiningConfig, StratumMessage>;
+  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, StratumMessage>;
 
   class Work : public CSingleWork {
   public:
-    Work(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const MiningConfig &miningCfg, const std::vector<uint8_t>&, const std::string&) :
+    Work(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const CMiningConfig &miningCfg, const std::vector<uint8_t>&, const std::string&) :
       CSingleWork(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
       Initialized_ = true;
     }
@@ -189,8 +188,8 @@ public:
     }
   }
 
-  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, StratumMessage>;
-  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, StratumMessage>;
+  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, StratumMessage>;
+  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, StratumMessage>;
 };
 
 struct X {

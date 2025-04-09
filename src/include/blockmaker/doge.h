@@ -53,16 +53,15 @@ public:
 class Stratum {
 public:
   static constexpr double DifficultyFactor = 65536.0;
-  using MiningConfig = BTC::Stratum::MiningConfig;
   using StratumMessage = BTC::Stratum::StratumMessage;
-  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, MiningConfig, StratumMessage>;
-  using CMergedWork = StratumMergedWork<Proto::BlockHashTy, MiningConfig, StratumMessage>;
+  using CSingleWork = StratumSingleWork<Proto::BlockHashTy, StratumMessage>;
+  using CMergedWork = StratumMergedWork<Proto::BlockHashTy, StratumMessage>;
 
-  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, MiningConfig, StratumMessage>;
+  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, StratumMessage>;
   using SecondWork = LTC::Stratum::Work;
   class MergedWork : public CMergedWork {
   public:
-    MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSingleWork *second, MiningConfig &miningCfg);
+    MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSingleWork *second, CMiningConfig &miningCfg);
 
     virtual Proto::BlockHashTy shareHash() override {
       return LTCHeader_.GetHash();
@@ -122,9 +121,10 @@ public:
   };
 
   static constexpr bool MergedMiningSupport = true;
+  static void miningConfigInitialize(CMiningConfig &miningCfg, rapidjson::Value &instanceCfg) { BTC::Stratum::miningConfigInitialize(miningCfg, instanceCfg); }
   static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) { BTC::Stratum::workerConfigInitialize(workerCfg, threadCfg); }
   static void workerConfigSetupVersionRolling(CWorkerConfig &workerCfg, uint32_t versionMask) { BTC::Stratum::workerConfigSetupVersionRolling(workerCfg, versionMask); }
-  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, BTC::MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, CMiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
     BTC::Stratum::workerConfigOnSubscribe(workerCfg, miningCfg, msg, out, subscribeInfo);
   }
 

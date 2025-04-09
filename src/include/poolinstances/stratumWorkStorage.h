@@ -24,9 +24,9 @@ public:
     bool HasShare = false;
   };
 
-  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
-  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
-  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
+  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
+  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
+  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
   using CSingleWorkSequence = std::deque<std::unique_ptr<CSingleWork>>;
   using CMergedWorkSequence = std::deque<std::unique_ptr<CMergedWork>>;
   using CAcceptedShareSet = std::unordered_set<typename X::Proto::BlockHashTy>;
@@ -80,7 +80,7 @@ public:
   }
 
   /// Add work
-  bool createWork(CBlockTemplate &blockTemplate, PoolBackend *backend, const std::string &ticker, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMsg, typename X::Stratum::MiningConfig &miningConfig, const std::string &stratumInstanceName, bool *isNewBlock) {
+  bool createWork(CBlockTemplate &blockTemplate, PoolBackend *backend, const std::string &ticker, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMsg, CMiningConfig &miningConfig, const std::string &stratumInstanceName, bool *isNewBlock) {
     auto It = BackendMap_.find(backend);
     if (It == BackendMap_.end())
       return false;
@@ -176,7 +176,7 @@ private:
   int64_t lastStratumId = 0;
 
 private: 
-  CSingleWork *newSingleWork(PoolBackend *backend, size_t backendIdx, uint64_t uniqueId, const typename X::Stratum::MiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) {
+  CSingleWork *newSingleWork(PoolBackend *backend, size_t backendIdx, uint64_t uniqueId, const CMiningConfig &miningCfg, const std::vector<uint8_t> &miningAddress, const std::string &coinbaseMessage) {
     lastStratumId = std::max(lastStratumId+1, static_cast<int64_t>(time(nullptr)));
     CSingleWork *work;
     if (FirstBackends_[backendIdx])
@@ -199,7 +199,7 @@ private:
     return work;
   }
 
-  void newMergedWork(size_t firstIdx, size_t secondIdx, CSingleWork *first, CSingleWork *second, typename X::Stratum::MiningConfig &miningCfg) {
+  void newMergedWork(size_t firstIdx, size_t secondIdx, CSingleWork *first, CSingleWork *second, CMiningConfig &miningCfg) {
     lastStratumId = std::max(lastStratumId+1, static_cast<int64_t>(time(nullptr)));
     CMergedWork *work = new typename X::Stratum::MergedWork(lastStratumId, first, second, miningCfg);
     WorkIdMap_[lastStratumId] = work;

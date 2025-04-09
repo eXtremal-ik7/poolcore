@@ -47,9 +47,9 @@ static inline unsigned popcount(T number)
 template<typename X>
 class StratumInstance : public CPoolInstance {
 public:
-  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
-  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
-  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::MiningConfig, typename X::Stratum::StratumMessage>;
+  using CWork = StratumWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
+  using CSingleWork = StratumSingleWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
+  using CMergedWork = StratumMergedWork<typename X::Proto::BlockHashTy, typename X::Stratum::StratumMessage>;
 
 public:
   StratumInstance(asyncBase *monitorBase,
@@ -125,7 +125,7 @@ public:
     if (config.HasMember("profitSwitcherEnabled") && config["profitSwitcherEnabled"].IsBool())
       ProfitSwitcherEnabled_ = config["profitSwitcherEnabled"].GetBool();
 
-    MiningCfg_.initialize(config);
+    X::Stratum::miningConfigInitialize(MiningCfg_, config);
 
     // Main listener
     createListener(monitorBase, port, [](socketTy socket, HostAddress address, void *arg) { static_cast<StratumInstance*>(arg)->newFrontendConnection(socket, address); }, this);
@@ -1008,7 +1008,7 @@ private:
   unsigned CurrentThreadId_;
   std::unique_ptr<ThreadData[]> Data_;
   std::string Name_ = "stratum";
-  typename X::Stratum::MiningConfig MiningCfg_;
+  CMiningConfig MiningCfg_;
   double ConstantShareDiff_;
 
   // Profit switcher section

@@ -16,7 +16,7 @@ static uint32_t getExpectedIndex(uint32_t nNonce, int nChainId, unsigned h)
 
 namespace DOGE {
 
-Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSingleWork *second, MiningConfig &miningCfg) : StratumMergedWork(stratumWorkId, first, second, miningCfg)
+Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSingleWork *second, CMiningConfig &miningCfg) : StratumMergedWork(stratumWorkId, first, second, miningCfg)
 {
   LTCHeader_ = ltcWork()->Header;
   LTCMerklePath_ = ltcWork()->MerklePath;
@@ -31,7 +31,7 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSin
   // For calculate merkle root, we need non-mutable DOGE coinbase transaction (without extra nonce) and merkle path (already available)
 
   // Create 'static' DOGE coinbase transaction without extra nonce
-  MiningConfig emptyExtraNonceConfig;
+  CMiningConfig emptyExtraNonceConfig;
   emptyExtraNonceConfig.FixedExtraNonceSize = 0;
   emptyExtraNonceConfig.MutableExtraNonceSize = 0;
   dogeWork()->buildCoinbaseTx(nullptr, 0, emptyExtraNonceConfig, DOGELegacy_, DOGEWitness_);

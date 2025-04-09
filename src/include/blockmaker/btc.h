@@ -224,9 +224,8 @@ class Stratum {
 public:
   static constexpr double DifficultyFactor = 1.0;
   using StratumMessage = BTC::StratumMessage;
-  using MiningConfig = BTC::MiningConfig;
 
-  using CWork = StratumWork<Proto::BlockHashTy, MiningConfig, StratumMessage>;
+  using CWork = StratumWork<Proto::BlockHashTy, StratumMessage>;
 
   // TODO: Use this for headers non-compatible with BTC
   struct HeaderBuilder {
@@ -243,7 +242,7 @@ public:
                size_t coinbaseSize,
                const std::string &coinbaseMessage,
                const Proto::AddressTy &miningAddress,
-               const MiningConfig &miningCfg,
+               const CMiningConfig &miningCfg,
                bool segwitEnabled,
                const xmstream &witnessCommitment,
                BTC::CoinbaseTx &legacy,
@@ -257,16 +256,16 @@ public:
   };
 
   struct Notify {
-    static void build(CWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage);
+    static void build(CWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage);
   };
 
   struct Prepare {
-    static bool prepare(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg);
+    static bool prepare(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const StratumMessage &msg);
   };
 
-  using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare, MiningConfig, StratumMessage>;
-  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, MiningConfig, StratumMessage>;
-  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, MiningConfig, StratumMessage>;
+  using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare, StratumMessage>;
+  using SecondWork = StratumSingleWorkEmpty<Proto::BlockHashTy, StratumMessage>;
+  using MergedWork = StratumMergedWorkEmpty<Proto::BlockHashTy, StratumMessage>;
 
   static constexpr bool MergedMiningSupport = false;
   static bool isMainBackend(const std::string&) { return true; }
@@ -275,6 +274,18 @@ public:
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
 
 public:
+  static void miningConfigInitialize(CMiningConfig &miningCfg, rapidjson::Value &instanceCfg) {
+    // default values
+    miningCfg.FixedExtraNonceSize = 4;
+    miningCfg.MutableExtraNonceSize = 4;
+    miningCfg.TxNumLimit = 0;
+
+    if (instanceCfg.HasMember("fixedExtraNonceSize") && instanceCfg["fixedExtraNonceSize"].IsUint())
+      miningCfg.FixedExtraNonceSize = instanceCfg["fixedExtraNonceSize"].GetUint();
+    if (instanceCfg.HasMember("mutableExtraNonceSize") && instanceCfg["mutableExtraNonceSize"].IsUint())
+      miningCfg.MutableExtraNonceSize = instanceCfg["mutableExtraNonceSize"].GetUint();
+  }
+
   static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) {
     // Set fixed part of extra nonce
     workerCfg.ExtraNonceFixed = threadCfg.ExtraNonceCurrent;
@@ -301,7 +312,7 @@ public:
     workerCfg.VersionMask = versionMask;
   }
 
-  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, BTC::MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, CMiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
     // Response format
     // {"id": 1, "result": [ [ ["mining.set_difficulty", <setDifficultySession>:string(hex)], ["mining.notify", <notifySession>:string(hex)]], <uniqueExtraNonce>:string(hex), extraNonceSize:integer], "error": null}\n
     {

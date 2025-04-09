@@ -365,16 +365,16 @@ bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward, rapidjson::Value &b
 }
 
 void Stratum::CoinbaseBuilder::build(int64_t height,
-                                     int64_t blockReward,
-                                     void *coinbaseData,
-                                     size_t coinbaseSize,
-                                     const std::string &coinbaseMessage,
-                                     const Proto::AddressTy &miningAddress,
-                                     const MiningConfig &miningCfg,
-                                     bool segwitEnabled,
-                                     const xmstream &witnessCommitment,
-                                     CoinbaseTx &legacy,
-                                     CoinbaseTx &witness)
+    int64_t blockReward,
+    void *coinbaseData,
+    size_t coinbaseSize,
+    const std::string &coinbaseMessage,
+    const Proto::AddressTy &miningAddress,
+    const CMiningConfig &miningCfg,
+    bool segwitEnabled,
+    const xmstream &witnessCommitment,
+    CoinbaseTx &legacy,
+    CoinbaseTx &witness)
 {
   BTC::Proto::Transaction coinbaseTx;
 
@@ -458,7 +458,7 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
   BTC::Io<typename Proto::Transaction>::serialize(witness.Data, coinbaseTx, true);
 }
 
-void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const MiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage)
+void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage)
 {
   {
     notifyMessage.reset();
@@ -519,7 +519,7 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
   notifyMessage.write('\n');
 }
 
-bool Stratum::Prepare::prepare(BTC::Proto::BlockHeader &header, uint32_t jobVersion, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const MiningConfig &miningCfg, const StratumMessage &msg)
+bool Stratum::Prepare::prepare(BTC::Proto::BlockHeader &header, uint32_t jobVersion, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const StratumMessage &msg)
 {
   if (msg.Submit.MutableExtraNonce.size() != miningCfg.MutableExtraNonceSize)
     return false;

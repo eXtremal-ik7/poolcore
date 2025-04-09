@@ -65,16 +65,16 @@ private:
 public:
   static constexpr double DifficultyFactor = factor();
 
-  using MiningConfig = BTC::Stratum::MiningConfig;
   using StratumMessage = BTC::Stratum::StratumMessage;
-  using Work = BTC::WorkTy<Proto<algo>, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, MiningConfig, StratumMessage>;
-  using SecondWork = StratumSingleWorkEmpty<typename Proto<algo>::BlockHashTy, MiningConfig, StratumMessage>;
-  using MergedWork = StratumMergedWorkEmpty<typename Proto<algo>::BlockHashTy, MiningConfig, StratumMessage>;
+  using Work = BTC::WorkTy<Proto<algo>, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare, StratumMessage>;
+  using SecondWork = StratumSingleWorkEmpty<typename Proto<algo>::BlockHashTy, StratumMessage>;
+  using MergedWork = StratumMergedWorkEmpty<typename Proto<algo>::BlockHashTy, StratumMessage>;
 
   static constexpr bool MergedMiningSupport = false;
+  static void miningConfigInitialize(CMiningConfig &miningCfg, rapidjson::Value &instanceCfg) { BTC::Stratum::miningConfigInitialize(miningCfg, instanceCfg); }
   static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) { BTC::Stratum::workerConfigInitialize(workerCfg, threadCfg); }
   static void workerConfigSetupVersionRolling(CWorkerConfig &workerCfg, uint32_t versionMask) { BTC::Stratum::workerConfigSetupVersionRolling(workerCfg, versionMask); }
-  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, BTC::MiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
+  static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, CMiningConfig &miningCfg, StratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
     BTC::Stratum::workerConfigOnSubscribe(workerCfg, miningCfg, msg, out, subscribeInfo);
   }
   static bool isMainBackend(const std::string&) { return true; }
