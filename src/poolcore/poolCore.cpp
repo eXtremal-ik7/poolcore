@@ -2,7 +2,7 @@
 
 #include "poolcommon/bech32.h"
 #include "poolcore/base58.h"
-#include "openssl/sha.h"
+#include "blockmaker/sha256.h"
 #include <string.h>
 #include "loguru.hpp"
 #include <math.h>
@@ -20,14 +20,14 @@ static bool checkBase58Address(const std::vector<uint8_t> &decodedAddress, const
   memcpy(&addrHash, &decodedAddress[prefix.size() + 20], 4);
 
   uint8_t sha256[32];
-  SHA256_CTX ctx;
-  SHA256_Init(&ctx);
-  SHA256_Update(&ctx, &decodedAddress[0], decodedAddress.size() - 4);
-  SHA256_Final(sha256, &ctx);
+  CCtxSha256 ctx;
+  sha256Init(&ctx);
+  sha256Update(&ctx, &decodedAddress[0], decodedAddress.size() - 4);
+  sha256Final(&ctx, sha256);
 
-  SHA256_Init(&ctx);
-  SHA256_Update(&ctx, sha256, sizeof(sha256));
-  SHA256_Final(sha256, &ctx);
+  sha256Init(&ctx);
+  sha256Update(&ctx, sha256, sizeof(sha256));
+  sha256Final(&ctx, sha256);
   return reinterpret_cast<uint32_t*>(sha256)[0] == addrHash;
 }
 

@@ -73,7 +73,7 @@ template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB
 template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB::Algo::ESkein>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::ESkein>::ChainParams&)
 {
   CCheckStatus status;
-  SHA256_CTX sha256Context;
+  CCtxSha256 sha256Context;
   sph_skein512_context skeinContext;
   uint512 skeinHash;
   arith_uint256 result;
@@ -82,9 +82,9 @@ template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB
   sph_skein512(&skeinContext, &header, sizeof(Proto<DGB::Algo::ESkein>::BlockHeader));
   sph_skein512_close(&skeinContext, &skeinHash);
 
-  SHA256_Init(&sha256Context);
-  SHA256_Update(&sha256Context, skeinHash.begin(), skeinHash.size());
-  SHA256_Final(result.begin(), &sha256Context);
+  sha256Init(&sha256Context);
+  sha256Update(&sha256Context, skeinHash.begin(), skeinHash.size());
+  sha256Final(&sha256Context, result.begin());
 
   status.ShareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
 

@@ -1,8 +1,23 @@
+option(LIBPOW_SSE2_ENABLED off)
+option(LIBPOW_SHANI_ENABLED off)
+
+if (LIBPOW_SHANI_ENABLED)
+  add_definitions(-DLIBPOW_SHANI_ENABLED)
+  set_source_files_properties(sha256.c PROPERTIES COMPILE_FLAGS -march=znver1)
+endif()
+
+if (LIBPOW_SSE2_ENABLED)
+  add_definitions(-DLIBPOW_SSE2_ENABLED)
+endif()
+
 # Backend library
 add_library(blockmaker STATIC
+  sha256.c
+  scrypt.c
+
   ethash.c
-  scrypt.cpp
-  scrypt-sse2.cpp
+  #scrypt.cpp
+  #scrypt-sse2.cpp
   tiny_sha3.c
 
   aes_helper.cpp

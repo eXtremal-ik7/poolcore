@@ -1,5 +1,4 @@
 #pragma once
-#include "merkleTree.h"
 #include "poolcommon/utils.h"
 #include "poolinstances/stratumMsg.h"
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "btcLike.h"
+#include "sha256.h"
 
 struct CCoinInfo;
 struct PoolBackendConfig;
@@ -45,14 +46,14 @@ public:
 
     BlockHashTy GetHash() const {
       uint256 result;
-      SHA256_CTX sha256;
-      SHA256_Init(&sha256);
-      SHA256_Update(&sha256, this, sizeof(*this));
-      SHA256_Final(result.begin(), &sha256);
+      CCtxSha256 sha256;
+      sha256Init(&sha256);
+      sha256Update(&sha256, this, sizeof(*this));
+      sha256Final(&sha256, result.begin());
 
-      SHA256_Init(&sha256);
-      SHA256_Update(&sha256, result.begin(), sizeof(result));
-      SHA256_Final(result.begin(), &sha256);
+      sha256Init(&sha256);
+      sha256Update(&sha256, result.begin(), sizeof(result));
+      sha256Final(&sha256, result.begin());
       return result;
     }
   };
@@ -103,13 +104,13 @@ public:
       stream.reset();
       BTC::serialize(stream, *this);
 
-      SHA256_CTX sha256;
-      SHA256_Init(&sha256);
-      SHA256_Update(&sha256, stream.data(), stream.sizeOf());
-      SHA256_Final(result.begin(), &sha256);
-      SHA256_Init(&sha256);
-      SHA256_Update(&sha256, result.begin(), sizeof(result));
-      SHA256_Final(result.begin(), &sha256);
+      CCtxSha256 sha256;
+      sha256Init(&sha256);
+      sha256Update(&sha256, stream.data(), stream.sizeOf());
+      sha256Final(&sha256, result.begin());
+      sha256Init(&sha256);
+      sha256Update(&sha256, result.begin(), sizeof(result));
+      sha256Final(&sha256, result.begin());
       Hash = result;
       return result;
     }

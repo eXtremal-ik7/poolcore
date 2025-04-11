@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "blockmaker/btc.h"
+#include "blockmaker/merkleTree.h"
 #include "blockmaker/serializeJson.h"
 #include "poolcommon/arith_uint256.h"
 #include "poolcore/base58.h"
@@ -613,14 +614,14 @@ std::string BTC::Proto::makeHumanReadableAddress(uint8_t pubkeyAddressPrefix, co
   memcpy(&data[1], address.begin(), sizeof(BTC::Proto::AddressTy));
 
   uint8_t sha256[32];
-  SHA256_CTX ctx;
-  SHA256_Init(&ctx);
-  SHA256_Update(&ctx, &data[0], sizeof(data) - 4);
-  SHA256_Final(sha256, &ctx);
+  CCtxSha256 ctx;
+  sha256Init(&ctx);
+  sha256Update(&ctx, &data[0], sizeof(data) - 4);
+  sha256Final(&ctx, sha256);
 
-  SHA256_Init(&ctx);
-  SHA256_Update(&ctx, sha256, sizeof(sha256));
-  SHA256_Final(sha256, &ctx);
+  sha256Init(&ctx);
+  sha256Update(&ctx, sha256, sizeof(sha256));
+  sha256Final(&ctx, sha256);
 
   memcpy(data+1+sizeof(BTC::Proto::AddressTy), sha256, 4);
   return EncodeBase58(data, data+sizeof(data));
@@ -640,14 +641,14 @@ bool BTC::Proto::decodeHumanReadableAddress(const std::string &hrAddress, const 
   memcpy(&addrHash, &data[prefix.size() + 20], 4);
 
   uint8_t sha256[32];
-  SHA256_CTX ctx;
-  SHA256_Init(&ctx);
-  SHA256_Update(&ctx, &data[0], data.size() - 4);
-  SHA256_Final(sha256, &ctx);
+  CCtxSha256 ctx;
+  sha256Init(&ctx);
+  sha256Update(&ctx, &data[0], data.size() - 4);
+  sha256Final(&ctx, sha256);
 
-  SHA256_Init(&ctx);
-  SHA256_Update(&ctx, sha256, sizeof(sha256));
-  SHA256_Final(sha256, &ctx);
+  sha256Init(&ctx);
+  sha256Update(&ctx, sha256, sizeof(sha256));
+  sha256Final(&ctx, sha256);
 
   if (reinterpret_cast<uint32_t*>(sha256)[0] != addrHash)
     return false;
@@ -677,14 +678,14 @@ bool BTC::Proto::decodeWIF(const std::string &privateKey, const std::vector<uint
   }
 
   uint8_t sha256[32];
-  SHA256_CTX ctx;
-  SHA256_Init(&ctx);
-  SHA256_Update(&ctx, &data[0], hashDataSize);
-  SHA256_Final(sha256, &ctx);
+  CCtxSha256 ctx;
+  sha256Init(&ctx);
+  sha256Update(&ctx, &data[0], hashDataSize);
+  sha256Final(&ctx, sha256);
 
-  SHA256_Init(&ctx);
-  SHA256_Update(&ctx, sha256, sizeof(sha256));
-  SHA256_Final(sha256, &ctx);
+  sha256Init(&ctx);
+  sha256Update(&ctx, sha256, sizeof(sha256));
+  sha256Final(&ctx, sha256);
 
   if (reinterpret_cast<uint32_t*>(sha256)[0] != addrHash)
     return false;

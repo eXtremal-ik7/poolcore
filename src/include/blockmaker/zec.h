@@ -76,15 +76,15 @@ public:
       localStream.reset();
       BTC::serialize(localStream, nSolution);
 
-      SHA256_CTX sha256;
-      SHA256_Init(&sha256);
-      SHA256_Update(&sha256, this, HEADER_SIZE);
-      SHA256_Update(&sha256, localStream.data(), localStream.sizeOf());
-      SHA256_Final(result.begin(), &sha256);
+      CCtxSha256 sha256;
+      sha256Init(&sha256);
+      sha256Update(&sha256, this, HEADER_SIZE);
+      sha256Update(&sha256, localStream.data(), localStream.sizeOf());
+      sha256Final(&sha256, result.begin());
 
-      SHA256_Init(&sha256);
-      SHA256_Update(&sha256, result.begin(), sizeof(result));
-      SHA256_Final(result.begin(), &sha256);
+      sha256Init(&sha256);
+      sha256Update(&sha256, result.begin(), sizeof(result));
+      sha256Final(&sha256, result.begin());
       return result;
     }
   };

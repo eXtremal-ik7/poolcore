@@ -1,8 +1,8 @@
 #include "poolcore/usermgr.h"
 #include "poolcommon/totp.h"
+#include "blockmaker/sha256.h"
 #include "loguru.hpp"
 #include <openssl/rand.h>
-#include <openssl/sha.h>
 #include <regex>
 #include "asyncio/smtp.h"
 
@@ -18,26 +18,26 @@ uint256 UserManager::generateHash(const std::string &login, const std::string &p
 
   {
     // generate login hash (as a salt)
-    SHA256_CTX ctx;
-    SHA256_Init(&ctx);
-    SHA256_Update(&ctx, login.data(), login.size());
-    SHA256_Final(result.begin(), &ctx);
+    CCtxSha256 ctx;
+    sha256Init(&ctx);
+    sha256Update(&ctx, login.data(), login.size());
+    sha256Final(&ctx, result.begin());
   }
   {
     // sha256(password ++ loginHash)
-    SHA256_CTX ctx;
-    SHA256_Init(&ctx);
-    SHA256_Update(&ctx, password.data(), password.size());
-    SHA256_Update(&ctx, result.begin(), sizeof(result));
-    SHA256_Final(result.begin(), &ctx);
+    CCtxSha256 ctx;
+    sha256Init(&ctx);
+    sha256Update(&ctx, password.data(), password.size());
+    sha256Update(&ctx, result.begin(), sizeof(result));
+    sha256Final(&ctx, result.begin());
   }
   {
     // sha256 loop
-    SHA256_CTX ctx;
+    CCtxSha256 ctx;
     for (unsigned i = 0; i < 1499; i++) {
-      SHA256_Init(&ctx);
-      SHA256_Update(&ctx, result.begin(), sizeof(result));
-      SHA256_Final(result.begin(), &ctx);
+      sha256Init(&ctx);
+      sha256Update(&ctx, result.begin(), sizeof(result));
+      sha256Final(&ctx, result.begin());
     }
   }
 

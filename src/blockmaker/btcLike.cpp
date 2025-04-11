@@ -1,6 +1,5 @@
 #include "blockmaker/btcLike.h"
-#include <openssl/sha.h>
-#include "poolinstances/stratumMsg.h"
+#include "blockmaker/merkleTree.h"
 
 namespace BTC {
 bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<TxData> &result, int64_t *blockReward)
@@ -88,14 +87,14 @@ bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, bool txFilter, 
     {
       uint8_t defaultWitnessNonce[32];
       memset(defaultWitnessNonce, 0, sizeof(defaultWitnessNonce));
-      SHA256_CTX ctx;
-      SHA256_Init(&ctx);
-      SHA256_Update(&ctx, witnessMerkleRoot.begin(), witnessMerkleRoot.size());
-      SHA256_Update(&ctx, defaultWitnessNonce, 32);
-      SHA256_Final(commitment.begin(), &ctx);
-      SHA256_Init(&ctx);
-      SHA256_Update(&ctx, commitment.begin(), commitment.size());
-      SHA256_Final(commitment.begin(), &ctx);
+      CCtxSha256 ctx;
+      sha256Init(&ctx);
+      sha256Update(&ctx, witnessMerkleRoot.begin(), witnessMerkleRoot.size());
+      sha256Update(&ctx, defaultWitnessNonce, 32);
+      sha256Final(&ctx, commitment.begin());
+      sha256Init(&ctx);
+      sha256Update(&ctx, commitment.begin(), commitment.size());
+      sha256Final(&ctx, commitment.begin());
     }
 
     uint8_t prefix[6] = {0x6A, 0x24, 0xAA, 0x21, 0xA9, 0xED};

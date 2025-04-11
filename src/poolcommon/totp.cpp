@@ -17,7 +17,8 @@
 // limitations under the License.
 
 #include "poolcommon/totp.h"
-#include "openssl/hmac.h"
+#include <openssl/core_names.h>
+#include <openssl/evp.h>
 #include <string.h>
 
 #define VERIFICATION_CODE_MODULUS (1000*1000) // Six digits
@@ -125,13 +126,23 @@ int generateCode(const char *key, unsigned long tm) {
   // Compute the HMAC_SHA1 of the secret and the challenge.
   uint8_t hash[20];
   {
-    unsigned result_len;
-    HMAC_CTX *ctx = HMAC_CTX_new();
-    HMAC_Init_ex(ctx, secret, secretLen, EVP_sha1(), NULL);
-    HMAC_Update(ctx, challenge, 8);
-    HMAC_Final(ctx, hash, &result_len);
-    HMAC_CTX_free(ctx);
+    size_t result_len;
+    static const char *prop = 0;
+    OSSL_LIB_CTX *libraryContext = OSSL_LIB_CTX_new();
+    EVP_MAC *mac = EVP_MAC_fetch(libraryContext, "HMAC", prop);
+    EVP_MAC_CTX *ctx = EVP_MAC_CTX_new(mac);
+    OSSL_PARAM params[2];
+    char sha1[] = "SHA1";
+    params[0] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, sha1, sizeof(sha1));
+    params[1] = OSSL_PARAM_construct_end();
+    EVP_MAC_init(ctx, secret, secretLen, params);
+    EVP_MAC_update(ctx, challenge, 8);
+    EVP_MAC_final(ctx, hash, &result_len, sizeof(hash));
+    EVP_MAC_CTX_free(ctx);
+    EVP_MAC_free(mac);
+    OSSL_LIB_CTX_free(libraryContext);
   }
+
 
   // Pick the offset where to sample our hash value for the actual verification
   // code.

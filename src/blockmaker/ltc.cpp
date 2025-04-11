@@ -6,7 +6,7 @@ CCheckStatus LTC::Proto::checkPow(const Proto::BlockHeader &header, uint32_t nBi
 {
   CCheckStatus status;
   arith_uint256 scryptHash;
-  scrypt_1024_1_1_256(reinterpret_cast<const char*>(&header), reinterpret_cast<char*>(scryptHash.begin()));
+  scrypt_1024_1_1_256(reinterpret_cast<const char*>(&header), scryptHash.begin());
   status.ShareDiff = BTC::difficultyFromBits(scryptHash.GetCompact(), 29);
 
   bool fNegative;

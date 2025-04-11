@@ -1,4 +1,5 @@
 #include "blockmaker/zec.h"
+#include "blockmaker/merkleTree.h"
 #include "poolcommon/arith_uint256.h"
 #include "sodium/crypto_generichash_blake2b.h"
 
