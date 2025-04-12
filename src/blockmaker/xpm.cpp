@@ -270,12 +270,12 @@ static int64_t getFee(size_t nBytes_, bool isProtocolV1)
 
 static int64_t targetGetMint(unsigned int nBits)
 {
-  static constexpr int64_t COIN = 100000000;
-  static constexpr int64_t CENT = 1000000;
+  static constexpr uint32_t COIN = 100000000;
+  static constexpr uint32_t CENT = 1000000;
 
   uint64_t nMint = 0;
-  static uint64_t nMintLimit = 999llu * COIN;
-  mpz_class bnMint = nMintLimit;
+  mpz_class bnMint = 999;
+  bnMint *= COIN;
   bnMint = (bnMint << nFractionalBits) / nBits;
   bnMint = (bnMint << nFractionalBits) / nBits;
   bnMint = (bnMint / CENT) * CENT;  // mint value rounded to cent
