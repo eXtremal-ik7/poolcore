@@ -51,12 +51,12 @@ static inline void jsonParseString(const rapidjson::Value &value, const char *na
   }
 }
 
-static std::string buildPostQuery(const char *data, size_t size, const std::string &host, const std::string &basicAuth)
+static std::string buildPostQuery(const char *data, size_t size, const std::string &host, const std::string &wallet, const std::string &basicAuth)
 {
   char dataLength[16];
   xitoa(size, dataLength);
 
-  std::string query = "POST / HTTP/1.1\r\n";
+  std::string query = wallet.empty() ? "POST / HTTP/1.1\r\n" : "POST /wallet/" + wallet + " HTTP/1.1\r\n";
     query.append("Host: ");
       query.append(host);
       query.append("\r\n");
@@ -73,12 +73,18 @@ static std::string buildPostQuery(const char *data, size_t size, const std::stri
   return query;
 }
 
-static void buildPostQuery(const char *data, size_t size, const std::string &host, const std::string &basicAuth, xmstream &out)
+static void buildPostQuery(const char *data, size_t size, const std::string &host, const std::string &wallet, const std::string &basicAuth, xmstream &out)
 {
   char dataLength[16];
   xitoa(size, dataLength);
 
-  out.write("POST / HTTP/1.1\r\n");
+  if (wallet.empty()) {
+    out.write("POST / HTTP/1.1\r\n");
+  } else {
+    out.write("POST /wallet/");
+    out.write(wallet.data(), wallet.size());
+    out.write(" HTTP/1.1\r\n");
+  }
     out.write("Host: ");
       out.write(host.data(), host.size());
       out.write("\r\n");
@@ -180,7 +186,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::signRawTransaction(CConnecti
 
   {
     rapidjson::Document document;
-    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, Wallet_, BasicAuth_), document, 180*1000000);
     if (status != CNetworkClient::EStatusOk) {
       constexpr int RPC_METHOD_NOT_FOUND = -32601;
       error = connection->LastError;
@@ -212,7 +218,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::signRawTransaction(CConnecti
   return EStatusOk;
 }
 
-CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, bool longPollEnabled) :
+CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, const char *wallet, bool longPollEnabled) :
   CNetworkClient(threadsNum),
   WorkFetcherBase_(base), ThreadsNum_(threadsNum), CoinInfo_(coinInfo), HasLongPoll_(longPollEnabled)
 {
@@ -269,9 +275,11 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
   BasicAuth_.resize(base64getEncodeLength(basicAuth.size()));
   base64Encode(BasicAuth_.data(), reinterpret_cast<uint8_t*>(basicAuth.data()), basicAuth.size());
 
-  BalanceQuery_ = buildPostQuery(gBalanceQuery.data(), gBalanceQuery.size(), HostName_, BasicAuth_);
-  BalanceQueryWithImmatured_ = buildPostQuery(gBalanceQueryWithImmatured.data(), gBalanceQueryWithImmatured.size(), HostName_, BasicAuth_);
-  GetWalletInfoQuery_ = buildPostQuery(gGetWalletInfoQuery.data(), gGetWalletInfoQuery.size(), HostName_, BasicAuth_);
+  Wallet_ = wallet;
+
+  BalanceQuery_ = buildPostQuery(gBalanceQuery.data(), gBalanceQuery.size(), HostName_, Wallet_, BasicAuth_);
+  BalanceQueryWithImmatured_ = buildPostQuery(gBalanceQueryWithImmatured.data(), gBalanceQueryWithImmatured.size(), HostName_, Wallet_, BasicAuth_);
+  GetWalletInfoQuery_ = buildPostQuery(gGetWalletInfoQuery.data(), gGetWalletInfoQuery.size(), HostName_, Wallet_, BasicAuth_);
 }
 
 CPreparedQuery *CBitcoinRpcClient::prepareBlock(const void *data, size_t size)
@@ -284,7 +292,7 @@ CPreparedQuery *CBitcoinRpcClient::prepareBlock(const void *data, size_t size)
 
   xmstream &stream = query->stream();
   stream.reset();
-  buildPostQuery(nullptr, fullDataSize, HostName_, BasicAuth_, stream);
+  buildPostQuery(nullptr, fullDataSize, HostName_, Wallet_, BasicAuth_, stream);
   stream.write(firstPart.c_str());
     query->setPayLoadOffset(stream.offsetOf());
   stream.write(data, size);
@@ -384,7 +392,7 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphanA
   jsonQuery.push_back(']');
 
   rapidjson::Document document;
-  if (ioQueryJson(*connection, buildPostQuery(jsonQuery.data(), jsonQuery.size(), HostName_, BasicAuth_), document, 5*1000000) != EStatusOk) {
+  if (ioQueryJson(*connection, buildPostQuery(jsonQuery.data(), jsonQuery.size(), HostName_, Wallet_, BasicAuth_), document, 5*1000000) != EStatusOk) {
     return false;
   }
 
@@ -470,7 +478,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
 
     {
       rapidjson::Document document;
-      CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+      CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, Wallet_, BasicAuth_), document, 180*1000000);
       if (status != CNetworkClient::EStatusOk) {
         result.Error = connection->LastError;
         return status;
@@ -501,7 +509,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
 
     {
       rapidjson::Document document;
-      CNetworkClient::EOperationStatus status = ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+      CNetworkClient::EOperationStatus status = ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, Wallet_, BasicAuth_), document, 180*1000000);
       if (status != CNetworkClient::EStatusOk) {
         static constexpr int RPC_WALLET_INSUFFICIENT_FUNDS = -6;
         result.Error = connection->LastError;
@@ -554,7 +562,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
 
   {
     rapidjson::Document document;
-    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, Wallet_, BasicAuth_), document, 180*1000000);
     if (status != CNetworkClient::EStatusOk) {
       result.Error = connection->LastError;
       return status;
@@ -594,7 +602,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioSendTransaction(asyncBase 
 
   {
     rapidjson::Document document;
-    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, Wallet_, BasicAuth_), document, 180*1000000);
     if (status != CNetworkClient::EStatusOk) {
 
       constexpr int RPC_VERIFY_ERROR = -25;
@@ -639,7 +647,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioGetTxConfirmations(asyncBa
 
   {
     rapidjson::Document document;
-    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+    CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, Wallet_, BasicAuth_), document, 180*1000000);
     if (status != CNetworkClient::EStatusOk) {
       constexpr int RPC_INVALID_ADDRESS_OR_KEY = -5;
       error = connection->LastError;
@@ -711,7 +719,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioListUnspent(asyncBase *bas
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+  CNetworkClient::EOperationStatus status = ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, Wallet_, BasicAuth_), document, 180*1000000);
   if (status != CNetworkClient::EStatusOk)
     return status;
 
@@ -771,7 +779,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZSendMany(asyncBase *base,
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+  CNetworkClient::EOperationStatus status = ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, Wallet_, BasicAuth_), document, 180*1000000);
   if (status != CNetworkClient::EStatusOk)
     return status;
 
@@ -813,7 +821,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZGetBalance(asyncBase *bas
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, BasicAuth_), document, 180*1000000);
+  CNetworkClient::EOperationStatus status = ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, Wallet_, BasicAuth_), document, 180*1000000);
   if (status != CNetworkClient::EStatusOk)
     return status;
 
@@ -854,7 +862,7 @@ void CBitcoinRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
   }
 
   std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled, CoinInfo_.MWebEnabled);
-  std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, BasicAuth_);
+  std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, Wallet_, BasicAuth_);
   aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), 60000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherIncomingData(status);
   }, this);
@@ -950,7 +958,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   if (!WorkFetcher_.LongPollId.empty()) {
     // With long polling send new request immediately
     std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled, CoinInfo_.MWebEnabled);
-    std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, BasicAuth_);
+    std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, Wallet_, BasicAuth_);
     aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), !WorkFetcher_.LongPollId.empty() ? 0 : 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
       static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherIncomingData(status);
     }, this);
@@ -963,7 +971,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 void CBitcoinRpcClient::onWorkFetchTimeout()
 {
   std::string gbtQuery = buildGetBlockTemplate(WorkFetcher_.LongPollId, CoinInfo_.SegwitEnabled, CoinInfo_.MWebEnabled);
-  std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, BasicAuth_);
+  std::string query = buildPostQuery(gbtQuery.data(), gbtQuery.size(), HostName_, Wallet_, BasicAuth_);
   aioHttpRequest(WorkFetcher_.Client, query.c_str(), query.size(), !WorkFetcher_.LongPollId.empty() ? 0 : 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
     static_cast<CBitcoinRpcClient*>(arg)->onWorkFetcherIncomingData(status);
   }, this);
