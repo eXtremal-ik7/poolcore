@@ -523,7 +523,17 @@ void Zmq::generateNewWork(Work &work, WorkerConfig &workerCfg, ThreadConfig &thr
   writeBinBE(workerCfg.ExtraNonceFixed, miningCfg.FixedExtraNonceSize, scriptSig);
 
   // Recalculate merkle root
-  header.hashMerkleRoot = calculateMerkleRoot(work.CoinbaseTx.data(), work.CoinbaseTx.sizeOf(), work.MerklePath);
+  {
+    uint256 coinbaseTxHash;
+    CCtxSha256 sha256;
+    sha256Init(&sha256);
+    sha256Update(&sha256, work.CoinbaseTx.data(), work.CoinbaseTx.sizeOf());
+    sha256Final(&sha256, coinbaseTxHash.begin());
+    sha256Init(&sha256);
+    sha256Update(&sha256, coinbaseTxHash.begin(), coinbaseTxHash.size());
+    sha256Final(&sha256, coinbaseTxHash.begin());
+    header.hashMerkleRoot = calculateMerkleRootWithPath(coinbaseTxHash, &work.MerklePath[0], work.MerklePath.size(), 0);
+  }
 
   // Update thread config
   threadCfg.ExtraNonceMap[work.Header.hashMerkleRoot] = workerCfg.ExtraNonceFixed;
@@ -720,7 +730,7 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   }
 
   // Build merkle path
-  dumpMerkleTree(txHashes, work.MerklePath);
+  buildMerklePath(txHashes, 0, work.MerklePath);
   work.TransactionsNum = transactions.Size() + 1;
 
 

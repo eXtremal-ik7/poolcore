@@ -38,7 +38,17 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSin
 
   // Calculate merkle root
   DOGEHeader_.nVersion |= DOGE::Proto::BlockHeader::VERSION_AUXPOW;
-  DOGEHeader_.hashMerkleRoot = calculateMerkleRoot(DOGELegacy_.Data.data(), DOGELegacy_.Data.sizeOf(), dogeWork()->MerklePath);
+  {
+    uint256 coinbaseTxHash;
+    CCtxSha256 sha256;
+    sha256Init(&sha256);
+    sha256Update(&sha256, DOGELegacy_.Data.data(), DOGELegacy_.Data.sizeOf());
+    sha256Final(&sha256, coinbaseTxHash.begin());
+    sha256Init(&sha256);
+    sha256Update(&sha256, coinbaseTxHash.begin(), coinbaseTxHash.size());
+    sha256Final(&sha256, coinbaseTxHash.begin());
+    DOGEHeader_.hashMerkleRoot = calculateMerkleRootWithPath(coinbaseTxHash, &dogeWork()->MerklePath[0], dogeWork()->MerklePath.size(), 0);
+  }
 
   // Calculate /reversed/ DOGE header hash
   uint256 hash = DOGEHeader_.GetHash();

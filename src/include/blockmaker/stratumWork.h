@@ -117,14 +117,25 @@ protected:
 
 class StratumMergedWork : public StratumWork {
 public:
+  struct CWorkWithId {
+    StratumSingleWork *Work;
+    size_t Id;
+  };
+
+public:
   StratumMergedWork(uint64_t stratumWorkId,
                     StratumSingleWork *first,
                     StratumSingleWork *second,
                     const CMiningConfig &miningCfg) : StratumWork(stratumWorkId, miningCfg) {
-    Works_[0] = first;
-    Works_[1] = second;
-    WorkId_[0] = first->backendId(0);
-    WorkId_[1] = second->backendId(0);
+    Works_.resize(2);
+    Works_[0].Work = first;
+    Works_[0].Id = first->backendId(0);
+    Works_[1].Work = second;
+    Works_[1].Id = second->backendId(0);
+    // Works_[0] = first;
+    // Works_[1] = second;
+    // WorkId_[0] = first->backendId(0);
+    // WorkId_[1] = second->backendId(0);
     first->addLink(this);
     second->addLink(this);
     this->Initialized_ = true;
@@ -132,29 +143,40 @@ public:
 
   virtual ~StratumMergedWork() {}
 
-  virtual size_t backendsNum() final { return 2; }
-  virtual PoolBackend *backend(size_t workIdx) final { return Works_[workIdx] ? Works_[workIdx]->backend(0) : nullptr; }
-  virtual size_t backendId(size_t workIdx) final { return WorkId_[workIdx]; }
-  virtual uint64_t height(size_t workIdx) final { return Works_[workIdx]->height(0); }
-  virtual size_t txNum(size_t workIdx) final { return Works_[workIdx]->txNum(0); }
-  virtual int64_t blockReward(size_t workIdx) final { return Works_[workIdx]->blockReward(0); }
-  virtual double expectedWork(size_t workIdx) final { return Works_[workIdx]->expectedWork(0); }
+  virtual size_t backendsNum() final { return Works_.size(); }
+  virtual PoolBackend *backend(size_t workIdx) final { return Works_[workIdx].Work ? Works_[workIdx].Work->backend(0) : nullptr; }
+  virtual size_t backendId(size_t workIdx) final { return Works_[workIdx].Id; }
+  virtual uint64_t height(size_t workIdx) final { return Works_[workIdx].Work->height(0); }
+  virtual size_t txNum(size_t workIdx) final { return Works_[workIdx].Work->txNum(0); }
+  virtual int64_t blockReward(size_t workIdx) final { return Works_[workIdx].Work->blockReward(0); }
+  virtual double expectedWork(size_t workIdx) final { return Works_[workIdx].Work->expectedWork(0); }
   virtual bool ready() final { return true; }
-  virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) final { return Works_[workIdx]->getAbstractProfitValue(0, price, coeff); }
-  virtual bool hasRtt(size_t workIdx) final { return Works_[workIdx]->hasRtt(0); }
+  virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) final { return Works_[workIdx].Work->getAbstractProfitValue(0, price, coeff); }
+  virtual bool hasRtt(size_t workIdx) final { return Works_[workIdx].Work->hasRtt(0); }
 
   void removeLink(StratumSingleWork *work) {
-    if (Works_[0] == work)
-      Works_[0] = nullptr;
-    if (Works_[1] == work)
-      Works_[1] = nullptr;
+    for (auto &w: Works_) {
+      if (w.Work == work) {
+        w.Work = nullptr;
+        break;
+      }
+    }
   }
 
-  bool empty() { return Works_[0] == nullptr && Works_[1] == nullptr; }
+  bool empty() {
+    for (auto &w: Works_) {
+      if (w.Work)
+        return false;
+    }
+
+    return true;
+  }
 
 protected:
-  StratumSingleWork *Works_[2] = {nullptr, nullptr};
-  size_t WorkId_[2] = {std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max()};
+  std::vector<CWorkWithId> Works_;
+
+  // StratumSingleWork *Works_[2] = {nullptr, nullptr};
+  // size_t WorkId_[2] = {std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max()};
 };
 
 class StratumSingleWorkEmpty : public StratumSingleWork {

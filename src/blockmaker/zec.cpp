@@ -643,7 +643,17 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
 
   header.nVersion = version.GetUint();
   header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
-  header.hashMerkleRoot = calculateMerkleRoot(legacy.Data.data(), legacy.Data.sizeOf(), merklePath);
+  {
+    uint256 coinbaseTxHash;
+    CCtxSha256 sha256;
+    sha256Init(&sha256);
+    sha256Update(&sha256, legacy.Data.data(), legacy.Data.sizeOf());
+    sha256Final(&sha256, coinbaseTxHash.begin());
+    sha256Init(&sha256);
+    sha256Update(&sha256, coinbaseTxHash.begin(), coinbaseTxHash.size());
+    sha256Final(&sha256, coinbaseTxHash.begin());
+    header.hashMerkleRoot = calculateMerkleRootWithPath(coinbaseTxHash, &merklePath[0], merklePath.size(), 0);
+  }
   header.nTime = curtime.GetUint();
   header.nBits = strtoul(bits.GetString(), nullptr, 16);
   header.nNonce.SetNull();

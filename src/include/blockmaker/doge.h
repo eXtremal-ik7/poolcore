@@ -103,8 +103,8 @@ public:
     }
 
   private:
-    DOGE::Stratum::Work *dogeWork() { return static_cast<DOGE::Stratum::Work*>(Works_[0]); }
-    LTC::Stratum::Work *ltcWork() { return static_cast<LTC::Stratum::Work*>(Works_[1]); }
+    DOGE::Stratum::Work *dogeWork() { return static_cast<DOGE::Stratum::Work*>(Works_[0].Work); }
+    LTC::Stratum::Work *ltcWork() { return static_cast<LTC::Stratum::Work*>(Works_[1].Work); }
 
   private:
     LTC::Proto::BlockHeader LTCHeader_;

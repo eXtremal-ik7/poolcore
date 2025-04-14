@@ -167,6 +167,36 @@ public:
       info.CoinGeckoName = "bitcoin-cash";
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "BELLS") == 0) {
+      info.Name = "BELLS";
+      info.FullName = "Bellscoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {25};
+      info.ScriptAddressPrefix = {30};
+      info.DefaultRpcPort = 8332;
+      info.CoinGeckoName = "bellscoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "BELLS.testnet") == 0) {
+      info.Name = "BELLS.testnet";
+      info.FullName = "Bellscoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {33};
+      info.ScriptAddressPrefix = {22};
+      info.DefaultRpcPort = 18332;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "BSV") == 0) {
       info.Name = "BSV";
       info.FullName = "Bitcoin SV";
@@ -354,6 +384,36 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "odocrypt";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+    } else if (strcmp(coinName, "DINGO") == 0) {
+      info.Name = "DINGO";
+      info.FullName = "Dingocoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {30};
+      info.ScriptAddressPrefix = {22};
+      info.DefaultRpcPort = 34646;
+      info.CoinGeckoName = "dingocoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "DINGO.testnet") == 0) {
+      info.Name = "DINGO.testnet";
+      info.FullName = "Dingocoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {113};
+      info.ScriptAddressPrefix = {196};
+      info.DefaultRpcPort = 44555;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "DOGE") == 0) {
       info.Name = "DOGE";
       info.FullName = "Dogecoin";
@@ -483,6 +543,36 @@ public:
       info.CoinGeckoName = "freecash";
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "JKC") == 0) {
+      info.Name = "JKC";
+      info.FullName = "Junkcoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {16};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 9771;
+      info.CoinGeckoName = "junkcoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "JKC.testnet") == 0) {
+      info.Name = "JKC.testnet";
+      info.FullName = "Junkcoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {111};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 19771;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "KMD") == 0) {
       info.Name = "KMD";
       info.FullName = "Komodo";
@@ -547,6 +637,36 @@ public:
       info.CoinGeckoName = "litecoin-cash";
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "LKY") == 0) {
+      info.Name = "LKY";
+      info.FullName = "Luckycoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {47};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 19918;
+      info.CoinGeckoName = "luckycoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "LKY.testnet") == 0) {
+      info.Name = "LKY.testnet";
+      info.FullName = "Luckycoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {113};
+      info.ScriptAddressPrefix = {196};
+      info.DefaultRpcPort = 29919;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "LTC") == 0) {
       info.Name = "LTC";
       info.FullName = "Litecoin";
@@ -597,6 +717,36 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "PEP") == 0) {
+      info.Name = "PEP";
+      info.FullName = "Pepecoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {56};
+      info.ScriptAddressPrefix = {22};
+      info.DefaultRpcPort = 33873;
+      info.CoinGeckoName = "pepecoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "PEP.testnet") == 0) {
+      info.Name = "PEP.testnet";
+      info.FullName = "Pepecoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {113};
+      info.ScriptAddressPrefix = {196};
+      info.DefaultRpcPort = 44873;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "SPACE") == 0) {
       info.Name = "SPACE";
       info.FullName = "MVC";

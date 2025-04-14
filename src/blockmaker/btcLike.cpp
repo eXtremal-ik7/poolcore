@@ -118,7 +118,7 @@ void collectTransactions(const std::vector<TxData> &processedTransactions, xmstr
   txNum = processedTransactions.size();
 
   // Build merkle path
-  dumpMerkleTree(txHashes, merklePath);
+  buildMerklePath(txHashes, 0, merklePath);
 }
 
 }
