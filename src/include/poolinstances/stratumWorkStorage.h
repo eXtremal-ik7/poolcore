@@ -38,7 +38,7 @@ private:
 public:
   ~StratumWorkStorage() {
     for (size_t i = 0; i < BackendsNum_; i++) {
-      for (const auto &work: WorkStorage_[i])
+      for (const auto &work: PrimaryWorkStorage_[i])
         work->clearLinks();
     }
   }
@@ -55,7 +55,8 @@ public:
     SecondaryBackendMap_.resize(backends.size(), false);
     KnownWorkMap_.resize(backends.size(), false);
 
-    WorkStorage_.reset(new CSingleWorkSequence[BackendsNum_]);
+    PrimaryWorkStorage_.reset(new CSingleWorkSequence[BackendsNum_]);
+    SecondaryWorkStorage_.reset(new CSingleWorkSequence[BackendsNum_]);
     MergedWorkStorage_.reset(new CMergedWorkSequence[BackendsNum_]);
     AcceptedShares_.reset(new CAcceptedShareSet[BackendsNum_]);
     PendingShares_.reset(new CPendingShare[BackendsNum_]);
@@ -87,8 +88,8 @@ public:
       CWork *work = MergedWorkStorage_[index].back().get();
       return work->ready() ? work : nullptr;
     }
-    if (!WorkStorage_[index].empty()) {
-      CWork *work = WorkStorage_[index].back().get();
+    if (!PrimaryWorkStorage_[index].empty()) {
+      CWork *work = PrimaryWorkStorage_[index].back().get();
       return work->ready() ? work : nullptr;
     }
 
@@ -119,14 +120,14 @@ public:
                                                            blockTemplate,
                                                            error);
       if (primaryWork) {
-        pushSingleWork(primaryWork, backendIdx);
+        pushSingleWork(primaryWork, PrimaryWorkStorage_[backendIdx], backendIdx);
 
         if (X::Stratum::MergedMiningSupport) {
           // create merged mining work with current coin
           // collect all secondary coins
           std::vector<CSingleWork*> secondaryWorks;
           for (size_t i = 0; i < BackendsNum_; i++) {
-            CSingleWorkSequence &secondarySequence = WorkStorage_[i];
+            CSingleWorkSequence &secondarySequence = SecondaryWorkStorage_[i];
             if (SecondaryBackendMap_[i] && i != backendIdx && !secondarySequence.empty())
               secondaryWorks.push_back(secondarySequence.back().get());
           }
@@ -162,36 +163,41 @@ public:
                                                              blockTemplate,
                                                              error);
       if (secondaryWork) {
-        pushSingleWork(secondaryWork, backendIdx);
+        pushSingleWork(secondaryWork, SecondaryWorkStorage_[backendIdx], backendIdx);
 
-        std::vector<CSingleWork*> secondaryWorks;
+        // update all merged works
+        for (size_t primaryIdx = 0; primaryIdx < BackendsNum_; primaryIdx++) {
+          if (!PrimaryBackendMap_[primaryIdx])
+            continue;
+          CSingleWorkSequence &primarySequence = PrimaryWorkStorage_[primaryIdx];
+          if (primarySequence.empty())
+            continue;
 
-        for (size_t i = 0; i < BackendsNum_; i++) {
-          CSingleWorkSequence &secondarySequence = WorkStorage_[i];
-          if (SecondaryBackendMap_[i] && !secondarySequence.empty())
+          CSingleWork *primaryWork = primarySequence.back().get();
+          std::vector<CSingleWork*> secondaryWorks;
+          for (size_t secondaryIdx = 0; secondaryIdx < BackendsNum_; secondaryIdx++) {
+            if (secondaryIdx == primaryIdx || !SecondaryBackendMap_[secondaryIdx])
+              continue;
+            CSingleWorkSequence &secondarySequence = SecondaryWorkStorage_[secondaryIdx];
+            if (secondarySequence.empty())
+              continue;
             secondaryWorks.push_back(secondarySequence.back().get());
-        }
+          }
 
-        // create merged mining work with all primary coins
-        if (!secondaryWorks.empty()) {
-          for (size_t i = 0; i < BackendsNum_; i++) {
-            CSingleWorkSequence &primarySequence = WorkStorage_[i];
-            if (PrimaryBackendMap_[i] && i != backendIdx && !primarySequence.empty()) {
-              CSingleWork *primaryWork = primarySequence.back().get();
+          if (secondaryWorks.empty())
+            continue;
 
-              // create merged work using (primaryWork, secondaryWorks)
-              CMergedWork *mergedWork = X::Stratum::newMergedWork(newStratumId(),
-                                                                  primaryWork,
-                                                                  secondaryWorks,
-                                                                  miningConfig,
-                                                                  error);
-              if (mergedWork) {
-                pushMergedWork(mergedWork, i);
-              } else if (!error.empty()) {
-                std::string tickers;
-                LOG_F(ERROR, "%s: can't create merged work error: %s", stratumInstanceName.c_str(), error.c_str());
-              }
-            }
+          // create merged work using (primaryWork, secondaryWorks)
+          CMergedWork *mergedWork = X::Stratum::newMergedWork(newStratumId(),
+                                                              primaryWork,
+                                                              secondaryWorks,
+                                                              miningConfig,
+                                                              error);
+          if (mergedWork) {
+            pushMergedWork(mergedWork, primaryIdx);
+          } else if (!error.empty()) {
+            std::string tickers;
+            LOG_F(ERROR, "%s: can't create merged work error: %s", stratumInstanceName.c_str(), error.c_str());
           }
         }
       } else if (!error.empty()) {
@@ -253,7 +259,8 @@ private:
   std::vector<bool> KnownWorkMap_;
   std::unordered_map<PoolBackend*, size_t> BackendMap_;
 
-  std::unique_ptr<CSingleWorkSequence[]> WorkStorage_;
+  std::unique_ptr<CSingleWorkSequence[]> PrimaryWorkStorage_;
+  std::unique_ptr<CSingleWorkSequence[]> SecondaryWorkStorage_;
   std::unique_ptr<CMergedWorkSequence[]> MergedWorkStorage_;
   std::unique_ptr<CAcceptedShareSet[]> AcceptedShares_;
   std::unique_ptr<CPendingShare[]> PendingShares_;
@@ -267,8 +274,7 @@ private:
     return LastStratumId_;
   }
 
-  void pushSingleWork(CSingleWork *work, size_t backendIdx) {
-    CSingleWorkSequence &sequence = WorkStorage_[backendIdx];
+  void pushSingleWork(CSingleWork *work, CSingleWorkSequence &sequence, size_t backendIdx) {
     if (!sequence.empty() && sequence.back()->uniqueWorkId() != work->uniqueWorkId()) {
       KnownWorkMap_[backendIdx] = false;
       eraseAll(sequence, backendIdx);

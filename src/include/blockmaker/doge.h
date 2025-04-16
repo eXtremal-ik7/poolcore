@@ -65,9 +65,9 @@ public:
 
     virtual std::string blockHash(size_t workIdx) override {
       if (workIdx == 0)
-        return DOGEHeader_.GetHash().ToString();
-      else if (workIdx == 1)
         return LTCHeader_.GetHash().ToString();
+      else if (workIdx == 1)
+        return DOGEHeader_.GetHash().ToString();
       else
         return std::string();
     }
@@ -84,18 +84,18 @@ public:
     virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const CStratumMessage &msg) override;
 
     virtual void buildBlock(size_t workIdx, xmstream &blockHexData) override {
-      if (workIdx == 0) {
-        dogeWork()->buildBlockImpl(DOGEHeader_, DOGEWitness_, blockHexData);
-      } else if (workIdx == 1) {
+      if (workIdx == 0 && ltcWork()) {
         ltcWork()->buildBlockImpl(LTCHeader_, LTCWitness_, blockHexData);
+      } else if (workIdx == 1 && dogeWork()) {
+        dogeWork()->buildBlockImpl(DOGEHeader_, DOGEWitness_, blockHexData);
       }
     }
 
     virtual CCheckStatus checkConsensus(size_t workIdx) override {
-      if (workIdx == 0)
-        return DOGE::Stratum::DogeWork::checkConsensusImpl(DOGEHeader_, LTCConsensusCtx_);
-      else if (workIdx == 1)
+      if (workIdx == 0 && ltcWork())
         return LTC::Stratum::Work::checkConsensusImpl(LTCHeader_, DOGEConsensusCtx_);
+      else if (workIdx == 1 && dogeWork())
+        return DOGE::Stratum::DogeWork::checkConsensusImpl(DOGEHeader_, LTCConsensusCtx_);
       return CCheckStatus();
     }
 
