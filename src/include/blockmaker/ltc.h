@@ -39,9 +39,32 @@ public:
   static constexpr double DifficultyFactor = 65536.0;
 
   using Work = BTC::WorkTy<LTC::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare>;
-  using SecondWork = StratumSingleWorkEmpty;
-  using MergedWork = StratumMergedWorkEmpty;
   static constexpr bool MergedMiningSupport = false;
+
+  static Work *newPrimaryWork(int64_t stratumId,
+      PoolBackend *backend,
+      size_t backendIdx,
+      const CMiningConfig &miningCfg,
+      const std::vector<uint8_t> &miningAddress,
+      const std::string &coinbaseMessage,
+      CBlockTemplate &blockTemplate,
+      std::string &error) {
+    if (blockTemplate.WorkType != EWorkBitcoin) {
+      error = "incompatible work type";
+      return nullptr;
+    }
+
+    std::unique_ptr<Work> work(new Work(stratumId,
+                                        blockTemplate.UniqueWorkId,
+                                        backend,
+                                        backendIdx,
+                                        miningCfg,
+                                        miningAddress,
+                                        coinbaseMessage));
+    return work->loadFromTemplate(blockTemplate, error) ? work.release() : nullptr;
+  }
+  static StratumSingleWork *newSecondaryWork(int64_t, PoolBackend*, size_t, const CMiningConfig&, const std::vector<uint8_t>&, const std::string&, CBlockTemplate&, const std::string&) { return nullptr; }
+  static StratumMergedWork *newMergedWork(int64_t, StratumSingleWork*, std::vector<StratumSingleWork*>&, const CMiningConfig&, std::string&) { return nullptr; }
 
   static EStratumDecodeStatusTy decodeStratumMessage(CStratumMessage &msg, const char *in, size_t size) { return BTC::Stratum::decodeStratumMessage(msg, in, size); }
   static void miningConfigInitialize(CMiningConfig &miningCfg, rapidjson::Value &instanceCfg) { BTC::Stratum::miningConfigInitialize(miningCfg, instanceCfg); }
@@ -51,8 +74,6 @@ public:
     BTC::Stratum::workerConfigOnSubscribe(workerCfg, miningCfg, msg, out, subscribeInfo);
   }
 
-  static bool isMainBackend(const std::string&) { return true; }
-  static bool keepOldWorkForBackend(const std::string&) { return false; }
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
 };
 

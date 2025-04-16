@@ -53,14 +53,11 @@ public:
 class Stratum {
 public:
   static constexpr double DifficultyFactor = 65536.0;
-  using CSingleWork = StratumSingleWork;
-  using CMergedWork = StratumMergedWork;
+  using DogeWork = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare>;
 
-  using Work = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare>;
-  using SecondWork = LTC::Stratum::Work;
-  class MergedWork : public CMergedWork {
+  class MergedWork : public StratumMergedWork {
   public:
-    MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSingleWork *second, CMiningConfig &miningCfg);
+    MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, StratumSingleWork *second, const CMiningConfig &miningCfg);
 
     virtual Proto::BlockHashTy shareHash() override {
       return LTCHeader_.GetHash();
@@ -96,15 +93,15 @@ public:
 
     virtual CCheckStatus checkConsensus(size_t workIdx) override {
       if (workIdx == 0)
-        return DOGE::Stratum::Work::checkConsensusImpl(DOGEHeader_, LTCConsensusCtx_);
+        return DOGE::Stratum::DogeWork::checkConsensusImpl(DOGEHeader_, LTCConsensusCtx_);
       else if (workIdx == 1)
         return LTC::Stratum::Work::checkConsensusImpl(LTCHeader_, DOGEConsensusCtx_);
       return CCheckStatus();
     }
 
   private:
-    DOGE::Stratum::Work *dogeWork() { return static_cast<DOGE::Stratum::Work*>(Works_[0].Work); }
-    LTC::Stratum::Work *ltcWork() { return static_cast<LTC::Stratum::Work*>(Works_[1].Work); }
+    LTC::Stratum::Work *ltcWork() { return static_cast<LTC::Stratum::Work*>(Works_[0].Work); }
+    DOGE::Stratum::DogeWork *dogeWork() { return static_cast<DOGE::Stratum::DogeWork*>(Works_[1].Work); }
 
   private:
     LTC::Proto::BlockHeader LTCHeader_;
@@ -128,8 +125,60 @@ public:
     BTC::Stratum::workerConfigOnSubscribe(workerCfg, miningCfg, msg, out, subscribeInfo);
   }
 
-  static bool isMainBackend(const std::string &ticker) { return ticker == "DOGE" || ticker == "DOGE.testnet" || ticker == "DOGE.regtest"; }
-  static bool keepOldWorkForBackend(const std::string&) { return false; }
+  static LTC::Stratum::Work *newPrimaryWork(int64_t stratumId,
+                                            PoolBackend *backend,
+                                            size_t backendIdx,
+                                            const CMiningConfig &miningCfg,
+                                            const std::vector<uint8_t> &miningAddress,
+                                            const std::string &coinbaseMessage,
+                                            CBlockTemplate &blockTemplate,
+                                            std::string &error) {
+    if (blockTemplate.WorkType != EWorkBitcoin) {
+      error = "incompatible work type";
+      return nullptr;
+    }
+    std::unique_ptr<LTC::Stratum::Work> work(new LTC::Stratum::Work(stratumId,
+                                        blockTemplate.UniqueWorkId,
+                                        backend,
+                                        backendIdx,
+                                        miningCfg,
+                                        miningAddress,
+                                        coinbaseMessage));
+    return work->loadFromTemplate(blockTemplate, error) ? work.release() : nullptr;
+  }
+  static DogeWork *newSecondaryWork(int64_t stratumId,
+                                    PoolBackend *backend,
+                                    size_t backendIdx,
+                                    const CMiningConfig &miningCfg,
+                                    const std::vector<uint8_t> &miningAddress,
+                                    const std::string &coinbaseMessage,
+                                    CBlockTemplate &blockTemplate,
+                                    std::string &error) {
+    if (blockTemplate.WorkType != EWorkBitcoin) {
+      error = "incompatible work type";
+      return nullptr;
+    }
+    std::unique_ptr<DogeWork> work(new DogeWork(stratumId,
+                                                blockTemplate.UniqueWorkId,
+                                                backend,
+                                                backendIdx,
+                                                miningCfg,
+                                                miningAddress,
+                                                coinbaseMessage));
+    return work->loadFromTemplate(blockTemplate, error) ? work.release() : nullptr;
+  }
+  static StratumMergedWork *newMergedWork(int64_t stratumId,
+                                          StratumSingleWork *primaryWork,
+                                          std::vector<StratumSingleWork*> &secondaryWorks,
+                                          const CMiningConfig &miningCfg,
+                                          std::string &error) {
+    if (secondaryWorks.size() != 1) {
+      error = "DOGE now supports only 2 coins together";
+      return nullptr;
+    }
+    return new MergedWork(stratumId, primaryWork, secondaryWorks[0], miningCfg);
+  }
+
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
 };
 

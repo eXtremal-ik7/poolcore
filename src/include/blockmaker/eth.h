@@ -2,11 +2,12 @@
 
 #include "stratumWork.h"
 #include "poolcommon/arith_uint256.h"
+#include "poolcommon/utils.h"
 #include "poolinstances/stratumMsg.h"
 #include "poolcommon/jsonSerializer.h"
 #include "rapidjson/document.h"
 #include <openssl/rand.h>
-#include "btc.h"
+
 namespace ETH {
 
 struct BlockSubmitData {
@@ -24,6 +25,8 @@ public:
 
 class Stratum {
 public:
+
+
   static EStratumDecodeStatusTy decodeStratumMessage(CStratumMessage &msg, const char *in, size_t size) {
     rapidjson::Document document;
     document.Parse(in, size);
@@ -142,12 +145,10 @@ public:
     subscribeInfo = std::to_string(workerCfg.ExtraNonceFixed);
   }
 
-  using CSingleWork = StratumSingleWork;
-
-  class Work : public CSingleWork {
+  class Work : public StratumSingleWork {
   public:
     Work(int64_t stratumWorkId, uint64_t uniqueWorkId, PoolBackend *backend, size_t backendIdx, const CMiningConfig &miningCfg, const std::vector<uint8_t>&, const std::string&) :
-      CSingleWork(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
+      StratumSingleWork(stratumWorkId, uniqueWorkId, backend, backendIdx, miningCfg) {
       Initialized_ = true;
     }
 
@@ -182,7 +183,7 @@ public:
 
     virtual void buildNotifyMessage(bool resetPreviousWork) override;
 
-    virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error) override;
+    virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, std::string &error) override;
 
     virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const CStratumMessage&msg) override;
 
@@ -203,8 +204,27 @@ public:
   };
 
   static constexpr bool MergedMiningSupport = false;
-  static bool isMainBackend(const std::string&) { return true; }
-  static bool keepOldWorkForBackend(const std::string&) { return false; }
+
+  static Work *newPrimaryWork(int64_t stratumId,
+      PoolBackend *backend,
+      size_t backendIdx,
+      const CMiningConfig &miningCfg,
+      const std::vector<uint8_t> &miningAddress,
+      const std::string &coinbaseMessage,
+      CBlockTemplate &blockTemplate,
+      std::string &error) {
+    std::unique_ptr<Work> work(new Work(stratumId,
+                                        blockTemplate.UniqueWorkId,
+                                        backend,
+                                        backendIdx,
+                                        miningCfg,
+                                        miningAddress,
+                                        coinbaseMessage));
+    return work->loadFromTemplate(blockTemplate, error) ? work.release() : nullptr;
+  }
+  static StratumSingleWork *newSecondaryWork(int64_t, PoolBackend*, size_t, const CMiningConfig&, const std::vector<uint8_t>&, const std::string&, CBlockTemplate&, const std::string&) { return nullptr; }
+  static StratumMergedWork *newMergedWork(int64_t, StratumSingleWork*, std::vector<StratumSingleWork*>&, const CMiningConfig&, std::string&) { return nullptr; }
+
 
   static void buildSendTargetMessage(xmstream &stream, double difficulty) {
     JSON::Object object(stream);

@@ -77,6 +77,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "ARRR.testnet") == 0) {
       info.Name = "ARRR.testnet";
       info.FullName = "Pirate Chain";
@@ -93,6 +94,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "ARRR.regtest") == 0) {
       info.Name = "ARRR.regtest";
       info.FullName = "Pirate Chain";
@@ -109,6 +111,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "BTC") == 0) {
       info.Name = "BTC";
       info.FullName = "Bitcoin";
@@ -125,6 +128,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "BTC.testnet") == 0) {
       info.Name = "BTC.testnet";
       info.FullName = "Bitcoin";
@@ -139,6 +143,7 @@ public:
       info.DefaultRpcPort = 18332;
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "BTC.regtest") == 0) {
       info.Name = "BTC.regtest";
       info.FullName = "Bitcoin";
@@ -153,6 +158,7 @@ public:
       info.DefaultRpcPort = 18443;
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "BCHN") == 0) {
       info.Name = "BCHN";
       info.FullName = "Bitcoin Cash Node";
@@ -167,6 +173,7 @@ public:
       info.CoinGeckoName = "bitcoin-cash";
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "BELLS") == 0) {
       info.Name = "BELLS";
       info.FullName = "Bellscoin";
@@ -183,6 +190,9 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "BELLS.testnet") == 0) {
       info.Name = "BELLS.testnet";
       info.FullName = "Bellscoin";
@@ -197,6 +207,9 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "BSV") == 0) {
       info.Name = "BSV";
       info.FullName = "Bitcoin SV";
@@ -211,6 +224,7 @@ public:
       info.CoinGeckoName = "bitcoin-cash-sv";
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "BSV.testnet") == 0) {
       info.Name = "BSV.testnet";
       info.FullName = "Bitcoin SV";
@@ -224,6 +238,7 @@ public:
       info.DefaultRpcPort = 18332;
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DGB.sha256") == 0) {
       info.Name = "DGB.sha256";
       info.FullName = "Digibyte(sha256)";
@@ -241,6 +256,7 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "sha256";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DGB.sha256.testnet") == 0) {
       info.Name = "DGB.sha256.testnet";
       info.FullName = "Digibyte";
@@ -256,6 +272,7 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "sha256";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DGB.scrypt") == 0) {
       info.Name = "DGB.scrypt";
       info.FullName = "Digibyte";
@@ -273,6 +290,7 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "scrypt";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DGB.scrypt.testnet") == 0) {
       info.Name = "DGB.scrypt.testnet";
       info.FullName = "Digibyte";
@@ -288,6 +306,7 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "scrypt";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DGB.qubit") == 0) {
       info.Name = "DGB.qubit";
       info.FullName = "Digibyte";
@@ -305,6 +324,7 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "qubit";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DGB.qubit.testnet") == 0) {
       info.Name = "DGB.qubit.testnet";
       info.FullName = "Digibyte";
@@ -320,6 +340,7 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "qubit";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DGB.skein") == 0) {
       info.Name = "DGB.skein";
       info.FullName = "Digibyte";
@@ -337,6 +358,7 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "skein";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DGB.skein.testnet") == 0) {
       info.Name = "DGB.skein.testnet";
       info.FullName = "Digibyte";
@@ -352,6 +374,7 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "skein";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DGB.odo") == 0) {
       info.Name = "DGB.odo";
       info.FullName = "Digibyte";
@@ -369,6 +392,7 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "odocrypt";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DGB.odo.testnet") == 0) {
       info.Name = "DGB.odo.testnet";
       info.FullName = "Digibyte";
@@ -384,6 +408,7 @@ public:
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "odocrypt";
       info.PowLimit = ArithToUint256(~arith_uint256(static_cast<uint64_t>(0)) >> 20);
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DINGO") == 0) {
       info.Name = "DINGO";
       info.FullName = "Dingocoin";
@@ -400,6 +425,9 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DINGO.testnet") == 0) {
       info.Name = "DINGO.testnet";
       info.FullName = "Dingocoin";
@@ -414,6 +442,9 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DOGE") == 0) {
       info.Name = "DOGE";
       info.FullName = "Dogecoin";
@@ -430,6 +461,8 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
+      info.CanBeSecondaryCoin = true;
     } else if (strcmp(coinName, "DOGE.testnet") == 0) {
       info.Name = "DOGE.testnet";
       info.FullName = "Dogecoin";
@@ -444,6 +477,8 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DOGE.regtest") == 0) {
       info.Name = "DOGE.regtest";
       info.FullName = "Dogecoin";
@@ -458,6 +493,8 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DTC") == 0) {
       info.Name = "DTC";
       info.FullName = "Datacoin";
@@ -472,6 +509,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "DTC.testnet") == 0) {
       info.Name = "DTC";
       info.FullName = "Datacoin";
@@ -486,6 +524,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "ETC") == 0) {
       info.Name = "ETC";
       info.FullName = "Ethereum Classic";
@@ -501,33 +540,7 @@ public:
       info.Algorithm = "etchash";
       info.HasDagFile = true;
       info.BigEpoch = true;
-    } else if (strcmp(coinName, "ETH") == 0) {
-      info.Name = "ETH";
-      info.FullName = "Ethereum";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
-      info.RationalPartSize = 1000000000;
-      info.ExtraMultiplier = 1;
-      info.PowerUnitType = CCoinInfo::EHash;
-      info.PowerMultLog10 = 6;
-      info.DefaultRpcPort = 8545;
-      info.CoinGeckoName = "ethereum";
-      info.ProfitSwitchDefaultCoeff = 1.0;
-      info.MinimalConfirmationsNumber = 64;
-      info.Algorithm = "ethash";
-      info.HasDagFile = true;
-    } else if (strcmp(coinName, "ETH.ropsten") == 0) {
-      info.Name = "ETH.ropsten";
-      info.FullName = "Ethereum";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
-      info.RationalPartSize = 1000000000;
-      info.ExtraMultiplier = 1;
-      info.PowerUnitType = CCoinInfo::EHash;
-      info.PowerMultLog10 = 6;
-      info.DefaultRpcPort = 8545;
-      info.ProfitSwitchDefaultCoeff = 1.0;
-      info.MinimalConfirmationsNumber = 64;
-      info.Algorithm = "ethash";
-      info.HasDagFile = true;
+      info.WorkType = EWorkEthereum;
     } else if (strcmp(coinName, "FCH") == 0) {
       info.Name = "FCH";
       info.FullName = "FreeCash";
@@ -543,6 +556,7 @@ public:
       info.CoinGeckoName = "freecash";
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "JKC") == 0) {
       info.Name = "JKC";
       info.FullName = "Junkcoin";
@@ -559,6 +573,9 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "JKC.testnet") == 0) {
       info.Name = "JKC.testnet";
       info.FullName = "Junkcoin";
@@ -573,6 +590,9 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "KMD") == 0) {
       info.Name = "KMD";
       info.FullName = "Komodo";
@@ -590,6 +610,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "KMD.testnet") == 0) {
       info.Name = "KMD.testnet";
       info.FullName = "Komodo";
@@ -606,6 +627,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "KMD.regtest") == 0) {
       info.Name = "KMD.regtest";
       info.FullName = "Komodo";
@@ -622,6 +644,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "LCC") == 0) {
       info.Name = "LCC";
       info.FullName = "LitecoinCash";
@@ -637,6 +660,7 @@ public:
       info.CoinGeckoName = "litecoin-cash";
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "LKY") == 0) {
       info.Name = "LKY";
       info.FullName = "Luckycoin";
@@ -653,6 +677,9 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "LKY.testnet") == 0) {
       info.Name = "LKY.testnet";
       info.FullName = "Luckycoin";
@@ -667,6 +694,9 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "LTC") == 0) {
       info.Name = "LTC";
       info.FullName = "Litecoin";
@@ -685,6 +715,7 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "LTC.testnet") == 0) {
       info.Name = "LTC.testnet";
       info.FullName = "Litecoin";
@@ -701,6 +732,7 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "LTC.regtest") == 0) {
       info.Name = "LTC.regtest";
       info.FullName = "Litecoin";
@@ -717,6 +749,7 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "PEP") == 0) {
       info.Name = "PEP";
       info.FullName = "Pepecoin";
@@ -733,6 +766,9 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "PEP.testnet") == 0) {
       info.Name = "PEP.testnet";
       info.FullName = "Pepecoin";
@@ -747,6 +783,9 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "SPACE") == 0) {
       info.Name = "SPACE";
       info.FullName = "MVC";
@@ -760,6 +799,7 @@ public:
       info.DefaultRpcPort = 9882;
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "XEC") == 0) {
       info.Name = "XEC";
       info.FullName = "eCash";
@@ -775,6 +815,7 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.HasRtt = true;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "XEC.testnet") == 0) {
       info.FullName = "eCash testnet";
       info.Name = "XEC.testnet";
@@ -789,6 +830,7 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.HasRtt = true;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "XPM") == 0) {
       info.Name = "XPM";
       info.FullName = "Primecoin";
@@ -803,6 +845,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "XPM.testnet") == 0) {
       info.Name = "XPM.testnet";
       info.FullName = "Primecoin";
@@ -815,6 +858,7 @@ public:
       info.DefaultRpcPort = 9914;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "ZEC") == 0) {
       info.Name = "ZEC";
       info.FullName = "ZCash";
@@ -832,6 +876,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "ZEC.testnet") == 0) {
       info.Name = "ZEC.testnet";
       info.FullName = "ZCash";
@@ -848,6 +893,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "ZEC.regtest") == 0) {
       info.Name = "ZEC.regtest";
       info.FullName = "ZCash";
@@ -864,6 +910,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "ZEN") == 0) {
       info.Name = "ZEN";
       info.FullName = "Horizen";
@@ -881,6 +928,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "ZEN.testnet") == 0) {
       info.Name = "ZEN.testnet";
       info.FullName = "Horizen";
@@ -897,6 +945,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.WorkType = EWorkZCash;
     } else if (strcmp(coinName, "ZEN.regtest") == 0) {
       info.Name = "ZEN.regtest";
       info.FullName = "Horizen";
@@ -913,6 +962,7 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.WorkMultiplier = 256.0;
       info.PowLimit = uint256S("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
+      info.WorkType = EWorkZCash;
     } else {
       info.Name.clear();
     }

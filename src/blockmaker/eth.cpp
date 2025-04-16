@@ -22,7 +22,7 @@ static inline double getDifficulty(uint32_t bits)
 }
 
 namespace ETH {
-bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error)
+bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, std::string &error)
 {
   if (!blockTemplate.Document.HasMember("result") || !blockTemplate.Document["result"].IsArray()) {
     error = "no result";

@@ -512,7 +512,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     return;
   }
 
-  std::unique_ptr<CBlockTemplate> blockTemplate(new CBlockTemplate);
+  std::unique_ptr<CBlockTemplate> blockTemplate(new CBlockTemplate(CoinInfo_.Name, CoinInfo_.WorkType));
   blockTemplate->Document.Parse(WorkFetcher_.ParseCtx.body.data);
   if (blockTemplate->Document.HasParseError()) {
     LOG_F(WARNING, "%s %s: JSON parse error", CoinInfo_.Name.c_str(), FullHostName_.c_str());

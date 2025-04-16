@@ -16,7 +16,7 @@ static uint32_t getExpectedIndex(uint32_t nNonce, int nChainId, unsigned h)
 
 namespace DOGE {
 
-Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, CSingleWork *first, CSingleWork *second, CMiningConfig &miningCfg) : StratumMergedWork(stratumWorkId, first, second, miningCfg)
+Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, StratumSingleWork *second, const CMiningConfig &miningCfg) : StratumMergedWork(stratumWorkId, first, second, miningCfg)
 {
   LTCHeader_ = ltcWork()->Header;
   LTCMerklePath_ = ltcWork()->MerklePath;

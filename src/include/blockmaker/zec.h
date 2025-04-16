@@ -383,12 +383,29 @@ public:
   };
 
   using Work = BTC::WorkTy<ZEC::Proto, HeaderBuilder, CoinbaseBuilder, ZEC::Stratum::Notify, ZEC::Stratum::Prepare>;
-  using SecondWork = StratumSingleWorkEmpty;
-  using MergedWork = StratumMergedWorkEmpty;
 
   static constexpr bool MergedMiningSupport = false;
-  static bool isMainBackend(const std::string&) { return true; }
-  static bool keepOldWorkForBackend(const std::string&) { return false; }
+
+  static Work *newPrimaryWork(int64_t stratumId,
+      PoolBackend *backend,
+      size_t backendIdx,
+      const CMiningConfig &miningCfg,
+      const std::vector<uint8_t> &miningAddress,
+      const std::string &coinbaseMessage,
+      CBlockTemplate &blockTemplate,
+      std::string &error) {
+    std::unique_ptr<Work> work(new Work(stratumId,
+                                        blockTemplate.UniqueWorkId,
+                                        backend,
+                                        backendIdx,
+                                        miningCfg,
+                                        miningAddress,
+                                        coinbaseMessage));
+    return work->loadFromTemplate(blockTemplate, error) ? work.release() : nullptr;
+  }
+  static StratumSingleWork *newSecondaryWork(int64_t, PoolBackend*, size_t, const CMiningConfig&, const std::vector<uint8_t>&, const std::string&, CBlockTemplate&, std::string&) { return nullptr; }
+  static StratumMergedWork *newMergedWork(int64_t, StratumSingleWork*, std::vector<StratumSingleWork*>&, const CMiningConfig&, std::string&) { return nullptr; }
+
   static void buildSendTargetMessage(xmstream &stream, double difficulty);
 };
 

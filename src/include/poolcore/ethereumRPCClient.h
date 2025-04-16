@@ -6,6 +6,7 @@
 #include "asyncio/socket.h"
 #include <rapidjson/document.h>
 #include "loguru.hpp"
+#include <chrono>
 
 struct PoolBackendConfig;
 

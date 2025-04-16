@@ -91,7 +91,7 @@ public:
   virtual size_t txNum(size_t) final { return TxNum_; }
   virtual int64_t blockReward(size_t) final { return BlockReward_; }
 
-  virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error) = 0;
+  virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, std::string &error) = 0;
 
   virtual ~StratumSingleWork();
 
@@ -132,10 +132,6 @@ public:
     Works_[0].Id = first->backendId(0);
     Works_[1].Work = second;
     Works_[1].Id = second->backendId(0);
-    // Works_[0] = first;
-    // Works_[1] = second;
-    // WorkId_[0] = first->backendId(0);
-    // WorkId_[1] = second->backendId(0);
     first->addLink(this);
     second->addLink(this);
     this->Initialized_ = true;
@@ -174,9 +170,6 @@ public:
 
 protected:
   std::vector<CWorkWithId> Works_;
-
-  // StratumSingleWork *Works_[2] = {nullptr, nullptr};
-  // size_t WorkId_[2] = {std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max()};
 };
 
 class StratumSingleWorkEmpty : public StratumSingleWork {
@@ -197,7 +190,7 @@ public:
   virtual CCheckStatus checkConsensus(size_t) final { return CCheckStatus(); }
   virtual void buildNotifyMessage(bool) final {}
   virtual bool prepareForSubmit(const CWorkerConfig&, const CStratumMessage&) final { return false; }
-  virtual bool loadFromTemplate(CBlockTemplate&, const std::string&, std::string&) final { return false; }
+  virtual bool loadFromTemplate(CBlockTemplate&, std::string&) final { return false; }
   virtual double getAbstractProfitValue(size_t, double, double) final { return 0.0; }
   virtual bool resetNotRecommended() final { return false; }
   virtual bool hasRtt(size_t) final { return false; }

@@ -1,5 +1,6 @@
-#pragma once 
+#pragma once
 
+#include "workTypes.h"
 extern "C" {
 #include "blockmaker/ethash.h"
 }
@@ -28,8 +29,11 @@ class CBlockTemplate {
 private:
   mutable std::atomic<uintptr_t> Refs_ = 0;
 public:
+  CBlockTemplate(const std::string &ticker, EWorkType workType) : Ticker(ticker), WorkType(workType) {}
   // TODO: Don't send json document to stratum workers
   rapidjson::Document Document;
+  std::string Ticker;
+  EWorkType WorkType;
   uint64_t UniqueWorkId;
   double Difficulty;
   intrusive_ptr<EthashDagWrapper> DagFile;

@@ -158,7 +158,7 @@ public:
     return prepareForSubmitImpl(Header, JobVersion, CBTxLegacy_, CBTxWitness_, MerklePath, workerCfg, this->MiningCfg_, msg);
   }
 
-  virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, const std::string &ticker, std::string &error) override {
+  virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, std::string &error) override {
     if (!blockTemplate.Document.HasMember("result") || !blockTemplate.Document["result"].IsObject()) {
       error = "no result";
       return false;
@@ -191,7 +191,7 @@ public:
     int64_t blockRewardDelta = 0;
     bool txFilter = this->MiningCfg_.TxNumLimit && transactions.Size() > this->MiningCfg_.TxNumLimit;
     std::vector<TxData> processedTransactions;
-    bool needSortByHash = (ticker == "BCHN" || ticker == "BCHABC");
+    bool needSortByHash = (blockTemplate.Ticker == "BCHN" || blockTemplate.Ticker == "BCHABC");
 
     bool transactionCheckResult;
     if (txFilter)
@@ -233,7 +233,7 @@ public:
       return false;
     }
 
-    ConsensusCtx_.initialize(blockTemplate, ticker);
+    ConsensusCtx_.initialize(blockTemplate, blockTemplate.Ticker);
     return true;
   }
 

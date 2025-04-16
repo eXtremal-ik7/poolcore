@@ -1,14 +1,15 @@
 #pragma once
 
+#include "workTypes.h"
 #include "poolcommon/uint256.h"
-#include <string>
-#include <thread>
-#include <vector>
 #include "p2putils/xmstream.h"
 #include "poolcore/thread.h"
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <stack>
+#include <string>
+#include <vector>
 
 class CPreparedQuery;
 class CNetworkClientDispatcher;
@@ -53,9 +54,16 @@ struct CCoinInfo {
   bool HasExtendedFundRawTransaction = true;
   double WorkMultiplier = 4294967296.0;
   uint256 PowLimit;
+  // ETH configuration
   bool HasDagFile = false;
   bool BigEpoch = false;
+  // XEC delayed blocks
   bool HasRtt = false;
+  // Merged mining configuration
+  EWorkType WorkType;
+  bool CanBePrimaryCoin = true;
+  bool CanBeSecondaryCoin = false;
+  bool ResetWorkOnBlockChange = true;
 
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;

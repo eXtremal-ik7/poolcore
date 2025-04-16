@@ -3,8 +3,10 @@
 #include "common.h"
 #include "stratumMsg.h"
 #include "stratumWorkStorage.h"
-#include "poolcommon/arith_uint256.h"
 #include "poolcommon/debug.h"
+namespace jp {
+#include "poolcommon/jsonConfigParser.h"
+}
 #include "poolcommon/jsonSerializer.h"
 #include "poolcore/backend.h"
 #include "poolcore/blockTemplate.h"
@@ -58,25 +60,91 @@ public:
                   CThreadPool &threadPool,
                   unsigned instanceId,
                   unsigned instancesNum,
-                  rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0) {
+                  rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0)
+  {
+
+    // Parse config
+    jp::EErrorType acc = jp::EOk;
+    std::string cfgError;
+    unsigned port;
+    std::optional<std::string> versionMask;
+    std::optional<std::vector<std::string>> workResetBackendNames;
+    std::optional<std::vector<std::string>> primaryBackendNames;
+    std::optional<std::vector<std::string>> secondaryBackendNames;
+
+    jp::jsonParseUnsignedInt(config, "port", &port, &acc, "", cfgError);
+    jp::jsonParseDouble(config, "shareDiff", &ConstantShareDiff_, &acc, "", cfgError);
+    jp::jsonParseStringOptional(config, "versionMask", versionMask, &acc, "", cfgError);
+    jp::jsonParseBoolean(config, "profitSwitcherEnabled", &ProfitSwitcherEnabled_, std::make_pair(true, false), &acc, "", cfgError);
+    jp::jsonParseStringArrayOptional(config, "resetWorkOnBlockChange", workResetBackendNames, &acc, "", cfgError);
+    jp::jsonParseStringArrayOptional(config, "primaryBackends", primaryBackendNames, &acc, "", cfgError);
+    jp::jsonParseStringArrayOptional(config, "secondaryBackends", secondaryBackendNames, &acc, "", cfgError);
+    if (acc != jp::EOk) {
+      LOG_F(ERROR, "%s: can't load stratum config", Name_.c_str());
+      LOG_F(ERROR, "%s", cfgError.c_str());
+      exit(1);
+    }
+
+    Name_ += ".";
+    Name_ += std::to_string(port);
+    if (versionMask.has_value()) {
+      // BTC ASIC boost
+      if (versionMask.value().size() != 8) {
+        LOG_F(ERROR, "versionMask must be 8-byte hex value");
+        exit(1);
+      }
+
+      VersionMask_ = readHexBE<uint32_t>(versionMask.value().c_str(), 4);
+    }
+
+    bool hasRtt = false;
+    std::unordered_map<std::string, size_t> backendsMap;
+    for (size_t i = 0; i < linkedBackends.size(); i++) {
+      backendsMap[linkedBackends[i]->getCoinInfo().Name] = i;
+      hasRtt |= linkedBackends[i]->getCoinInfo().HasRtt;
+    }
+
+    std::vector<size_t> workResetBackends;
+    std::vector<size_t> primaryBackends;
+    std::vector<size_t> secondaryBackends;
+
+    buildBackendList(linkedBackends, workResetBackendNames, backendsMap, false, [](const PoolBackend *backend) -> bool {
+      return backend->getCoinInfo().ResetWorkOnBlockChange;
+    }, workResetBackends, "resetWorkOnBlockChange");
+    if (X::Stratum::MergedMiningSupport) {
+      buildBackendList(linkedBackends, primaryBackendNames, backendsMap, false, [](const PoolBackend *backend) -> bool {
+        return backend->getCoinInfo().CanBePrimaryCoin;
+      }, primaryBackends, "primaryBackends");
+      buildBackendList(linkedBackends, secondaryBackendNames, backendsMap, false, [](const PoolBackend *backend) -> bool {
+        return backend->getCoinInfo().CanBeSecondaryCoin;
+      }, secondaryBackends, "secondaryBackends");
+    } else {
+      for (size_t i = 0; i < linkedBackends.size(); i++)
+        primaryBackends.push_back(i);
+    }
+
+    if (primaryBackends.empty()) {
+      LOG_F(ERROR, "%s: empty primary backends list", Name_.c_str());
+      exit(1);
+    } else if (primaryBackends.size() > 1 && !ProfitSwitcherEnabled_) {
+      LOG_F(ERROR, "%s: too much primary backends specified without profit switcher", Name_.c_str());
+      exit(1);
+    }
+
+    MainWorkSource_ = primaryBackends[0];
+
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
 
     unsigned totalInstancesNum = instancesNum * threadPool.threadsNum();
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
-      bool hasRtt = false;
-
       // initialInstanceId used for fixed extra nonce part calculation
       unsigned initialInstanceId = instanceId*threadPool.threadsNum() + i;
       Data_[i].ThreadCfg.initialize(initialInstanceId, totalInstancesNum);
       Data_[i].WorkerBase = threadPool.getBase(i);
-      {
-        std::vector<std::pair<PoolBackend*, bool>> backendsWithInfo;
-        for (PoolBackend *backend: linkedBackends) {
-          hasRtt |= backend->getCoinInfo().HasRtt;
-          backendsWithInfo.push_back(std::make_pair(backend, X::Stratum::isMainBackend(backend->getCoinInfo().Name)));
-        }
-        Data_[i].WorkStorage.init(backendsWithInfo);
-      }
+
+      // initialize work storage
+      Data_[i].WorkStorage.init(linkedBackends, workResetBackends, primaryBackends, secondaryBackends);
+
       if (hasRtt) {
         Data_[i].Timer = newUserEvent(Data_[i].WorkerBase, false, [](aioUserEvent*, void *arg) {
           ((StratumInstance*)(arg))->rttTimerCb();
@@ -85,50 +153,12 @@ public:
       }
     }
 
-    if (!config.HasMember("port") || !config["port"].IsUint()) {
-      LOG_F(ERROR, "instance %s: can't read 'port' valuee from config", Name_.c_str());
-      exit(1);
-    }
-
-    uint16_t port = config["port"].GetInt();
-    Name_ += ".";
-    Name_ += std::to_string(port);
-
-    // Share diff
-    if (config.HasMember("shareDiff")) {
-      if (config["shareDiff"].IsUint64()) {
-        ConstantShareDiff_ = static_cast<double>(config["shareDiff"].GetUint64());
-      } else if (config["shareDiff"].IsFloat()) {
-        ConstantShareDiff_ = config["shareDiff"].GetFloat();
-      } else {
-        LOG_F(ERROR, "%s: 'shareDiff' must be an integer", Name_.c_str());
-        exit(1);
-      }
-    } else if (config.HasMember("varDiffTarget") && config.HasMember("minShareDiff")) {
-      LOG_F(ERROR, "%s: Vardiff not supported now", Name_.c_str());
-      exit(1);
-    } else {
-      LOG_F(ERROR, "instance %s: no share difficulty config (expected 'shareDiff' for constant difficulty or 'varDiffTarget' and 'minShareDiff' for variable diff", Name_.c_str());
-      exit(1);
-    }
-
-    if (!config.HasMember("backends") || !config["backends"].IsArray()) {
-      LOG_F(ERROR, "instance %s: no backends specified", Name_.c_str());
-      exit(1);
-    }
-
-    // BTC ASIC boost
-    if (config.HasMember("versionMask") && config["versionMask"].IsString())
-      VersionMask_ = readHexBE<uint32_t>(config["versionMask"].GetString(), 4);
-
-    // Profit switcher
-    if (config.HasMember("profitSwitcherEnabled") && config["profitSwitcherEnabled"].IsBool())
-      ProfitSwitcherEnabled_ = config["profitSwitcherEnabled"].GetBool();
-
     X::Stratum::miningConfigInitialize(MiningCfg_, config);
 
     // Main listener
-    createListener(monitorBase, port, [](socketTy socket, HostAddress address, void *arg) { static_cast<StratumInstance*>(arg)->newFrontendConnection(socket, address); }, this);
+    createListener(monitorBase, port, [](socketTy socket, HostAddress address, void *arg) {
+      static_cast<StratumInstance*>(arg)->newFrontendConnection(socket, address);
+    }, this);
   }
 
   virtual void checkNewBlockTemplate(CBlockTemplate *blockTemplate, PoolBackend *backend) override {
@@ -141,6 +171,38 @@ public:
   virtual void stopWork() override {
     for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
       ThreadPool_.startAsyncTask(i, new AcceptWork(*this, nullptr, nullptr));
+  }
+
+  void buildBackendList(const std::vector<PoolBackend*> &linkedBackends,
+                        std::optional<std::vector<std::string>> &backendNamesList,
+                        const std::unordered_map<std::string, size_t> &backendsMap,
+                        bool needCheck,
+                        std::function<bool(const PoolBackend*)> fn,
+                        std::vector<size_t> &result,
+                        const char *listName) {
+    result.clear();
+    if (backendNamesList.has_value()) {
+      for (const auto &name: backendNamesList.value()) {
+        auto It = backendsMap.find(name);
+        if (It == backendsMap.end()) {
+          LOG_F(ERROR, "%s: unknown primary backend %s", Name_.c_str(), name.c_str());
+          exit(1);
+        }
+
+        size_t index = It->second;
+        if (needCheck && !fn(linkedBackends[index])) {
+          LOG_F(ERROR, "%s: %s cannot be a part of %s", Name_.c_str(), name.c_str(), listName);
+          exit(1);
+        }
+
+        result.push_back(index);
+      }
+    } else {
+      for (size_t i = 0; i < linkedBackends.size(); i++) {
+        if (fn(linkedBackends[i]))
+          result.push_back(i);
+      }
+    }
   }
 
   void acceptConnection(unsigned workerId, socketTy socketFd, HostAddress address) {
@@ -176,11 +238,10 @@ public:
       return;
     }
 
-    bool isNewBlock = false;
     std::vector<uint8_t> miningAddressData(miningAddress.begin(), miningAddress.end());
-    if (!data.WorkStorage.createWork(*blockTemplate, backend, coinInfo.Name, miningAddressData, backendConfig.CoinBaseMsg, MiningCfg_, Name_, &isNewBlock))
-      return;
+    data.WorkStorage.createWork(*blockTemplate, backend, coinInfo.Name, miningAddressData, backendConfig.CoinBaseMsg, MiningCfg_, Name_);
 
+    // Select new work
     CWork *work = nullptr;
     if (ProfitSwitcherEnabled_) {
       // Search most profitable work
@@ -199,21 +260,14 @@ public:
 
       std::vector<std::pair<CWork*, double>> allWorks;
       for (size_t i = 0; i < LinkedBackends_.size(); i++) {
-        CWork *nextWork = data.WorkStorage.singleWork(i);
-        if (!nextWork || !nextWork->ready())
+        if (!data.WorkStorage.isPrimaryBackend(i))
+          continue;
+
+        CWork *nextWork = data.WorkStorage.fetchWork(i);
+        if (!nextWork)
           continue;
 
         allWorks.emplace_back(nextWork, calculateProfit(nextWork));
-      }
-
-      for (size_t i = 0; i < LinkedBackends_.size(); i++) {
-        for (size_t j = 0; j < LinkedBackends_.size(); j++) {
-          CWork *nextWork = data.WorkStorage.mergedWork(i, j);
-          if (!nextWork || !nextWork->ready() || !nextWork->backend(0) || !nextWork->backend(1))
-            continue;
-
-          allWorks.emplace_back(nextWork, calculateProfit(nextWork));
-        }
       }
 
       std::sort(allWorks.begin(), allWorks.end(), [](const auto &l, const auto &r) { return l.second < r.second; });
@@ -235,19 +289,21 @@ public:
           LOG_F(INFO, "[t=0] %s: ProfitSwitcher:%s", Name_.c_str(), profitSwitcherInfo.c_str());
       }
     } else {
-      // Switch to last accepted work
-      work = data.WorkStorage.lastAcceptedWork();
+      // Without profit switched we use main work source
+      auto w = data.WorkStorage.fetchWork(MainWorkSource_);
+      if (w != data.WorkStorage.currentWork())
+        work = w;
     }
 
-    if (work && work->ready()) {
+    if (work) {
       // Send work to all miners
       auto beginPt = std::chrono::steady_clock::now();
+
+      // Calculate reset flag for new work & build notify message
+      bool resetPreviousWork = data.WorkStorage.needSendResetSignal(work);
+      work->buildNotifyMessage(resetPreviousWork);
       data.WorkStorage.setCurrentWork(work);
 
-      // If previous work has been updated (new block came), we need send 'true' as a last field of stratum.notify
-      bool resetPreviousWork = isNewBlock && !X::Stratum::keepOldWorkForBackend(coinInfo.Name);
-
-      work->buildNotifyMessage(resetPreviousWork);
       int64_t currentTime = time(nullptr);
       unsigned counter = 0;
       for (auto &connection: data.Connections_) {
@@ -1013,6 +1069,7 @@ private:
 
   // Profit switcher section
   bool ProfitSwitcherEnabled_ = false;
+  size_t MainWorkSource_;
 
   // ASIC boost 'overt' data
   uint32_t VersionMask_ = 0x1FFFE000;

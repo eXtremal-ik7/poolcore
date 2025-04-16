@@ -459,7 +459,7 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
   BTC::Io<typename Proto::Transaction>::serialize(witness.Data, coinbaseTx, true);
 }
 
-void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage)
+void Stratum::Notify::build(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage)
 {
   {
     notifyMessage.reset();

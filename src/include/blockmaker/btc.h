@@ -225,8 +225,6 @@ class Stratum {
 public:
   static constexpr double DifficultyFactor = 1.0;
 
-  using CWork = StratumWork;
-
   // TODO: Use this for headers non-compatible with BTC
   struct HeaderBuilder {
     static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, rapidjson::Value &blockTemplate);
@@ -256,7 +254,7 @@ public:
   };
 
   struct Notify {
-    static void build(CWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage);
+    static void build(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage);
   };
 
   struct Prepare {
@@ -264,16 +262,36 @@ public:
   };
 
   using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare>;
-  using SecondWork = StratumSingleWorkEmpty;
-  using MergedWork = StratumMergedWorkEmpty;
 
   static constexpr bool MergedMiningSupport = false;
-  static bool isMainBackend(const std::string&) { return true; }
-  static bool keepOldWorkForBackend(const std::string&) { return false; }
-
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
 
 public:
+  static Work *newPrimaryWork(int64_t stratumId,
+      PoolBackend *backend,
+      size_t backendIdx,
+      const CMiningConfig &miningCfg,
+      const std::vector<uint8_t> &miningAddress,
+      const std::string &coinbaseMessage,
+      CBlockTemplate &blockTemplate,
+      std::string &error) {
+    if (blockTemplate.WorkType != EWorkBitcoin) {
+      error = "incompatible work type";
+      return nullptr;
+    }
+
+    std::unique_ptr<Work> work(new Work(stratumId,
+                                        blockTemplate.UniqueWorkId,
+                                        backend,
+                                        backendIdx,
+                                        miningCfg,
+                                        miningAddress,
+                                        coinbaseMessage));
+    return work->loadFromTemplate(blockTemplate, error) ? work.release() : nullptr;
+  }
+  static StratumSingleWork *newSecondaryWork(int64_t, PoolBackend*, size_t, const CMiningConfig&, const std::vector<uint8_t>&, const std::string&, CBlockTemplate&, std::string&) { return nullptr; }
+  static StratumMergedWork *newMergedWork(int64_t, StratumSingleWork*, std::vector<StratumSingleWork*>&, const CMiningConfig&, std::string&) { return nullptr; }
+
   static EStratumDecodeStatusTy decodeStratumMessage(CStratumMessage &msg, const char *in, size_t size) {
     rapidjson::Document document;
     document.Parse(in, size);
