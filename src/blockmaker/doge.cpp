@@ -21,7 +21,49 @@ static uint32_t getExpectedIndex(uint32_t nNonce, int nChainId, unsigned h)
 
 namespace DOGE {
 
-Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, std::vector<StratumSingleWork*> &second, const CMiningConfig &miningCfg) : StratumMergedWork(stratumWorkId, first, second, miningCfg)
+std::vector<int> Stratum::buildChainMap(std::vector<StratumSingleWork*> &secondary, uint32_t &nonce, unsigned &virtualHashesNum)
+{
+  std::vector<int> result;
+  std::vector<int> chainMap;
+  result.resize(secondary.size());
+  bool finished = true;
+  for (unsigned pathSize = merklePathSize(secondary.size()); pathSize < 8; pathSize++) {
+    virtualHashesNum = 1u << pathSize;
+    chainMap.resize(virtualHashesNum);
+    for (nonce = 0; nonce < virtualHashesNum; nonce++) {
+      finished = true;
+      std::fill(chainMap.begin(), chainMap.end(), 0);
+      for (size_t workIdx = 0; workIdx < secondary.size(); workIdx++) {
+        DOGE::Stratum::DogeWork *work = (DOGE::Stratum::DogeWork*)secondary[workIdx];
+        uint32_t chainId = work->Header.nVersion >> 16;
+        uint32_t indexInMerkle = getExpectedIndex(nonce, chainId, pathSize);
+        if (chainMap[indexInMerkle] == 0) {
+          chainMap[indexInMerkle] = 1;
+          result[workIdx] = indexInMerkle;
+        } else {
+          finished = false;
+          break;
+        }
+      }
+
+      if (finished)
+        break;
+    }
+
+    if (finished)
+      break;
+  }
+
+  return finished ? result : std::vector<int>();
+}
+
+Stratum::MergedWork::MergedWork(uint64_t stratumWorkId,
+                                StratumSingleWork *first,
+                                std::vector<StratumSingleWork*> &second,
+                                std::vector<int> &mmChainId,
+                                uint32_t mmNonce,
+                                unsigned virtualHashesNum,
+                                const CMiningConfig &miningCfg) : StratumMergedWork(stratumWorkId, first, second, miningCfg)
 {
   LTCHeader_ = ltcWork()->Header;
   LTCMerklePath_ = ltcWork()->MerklePath;
@@ -30,31 +72,9 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first
   DOGEHeader_.resize(second.size());
   DOGELegacy_.resize(second.size());
   DOGEWitness_.resize(second.size());
-  DOGEHeaderHashes_.resize(second.size());
-  DOGEWorkMap_.resize(second.size());
 
-  uint32_t nonce = 0;
-  unsigned pathSize = merklePathSize(second.size());
-  for (;;) {
-    std::fill(DOGEWorkMap_.begin(), DOGEWorkMap_.end(), -1);
-
-    bool found = true;
-    for (size_t workIdx = 0; workIdx < second.size(); workIdx++) {
-      DOGE::Stratum::DogeWork *work = dogeWork(workIdx);
-      unsigned index = getExpectedIndex(nonce, work->Header.nVersion >> 16, pathSize);
-      if (DOGEWorkMap_[index] == -1) {
-        DOGEWorkMap_[index] = workIdx;
-      } else {
-        found = false;
-        break;
-      }
-    }
-
-    if (found)
-      break;
-
-    nonce++;
-  }
+  DOGEHeaderHashes_.resize(virtualHashesNum, uint256());
+  DOGEWorkMap_.assign(mmChainId.begin(), mmChainId.end());
 
   for (size_t workIdx = 0; workIdx < DOGEHeader_.size(); workIdx++) {
     DOGE::Stratum::DogeWork *work = dogeWork(workIdx);
@@ -96,17 +116,17 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first
   }
 
   // Calculate /reversed/ merkle root from DOGE header hashes
-  uint256 hash = calculateMerkleRoot(&DOGEHeaderHashes_[0], DOGEHeaderHashes_.size());
-  std::reverse(hash.begin(), hash.end());
+  uint256 chainMerkleRoot = calculateMerkleRoot(&DOGEHeaderHashes_[0], DOGEHeaderHashes_.size());
+  std::reverse(chainMerkleRoot.begin(), chainMerkleRoot.end());
 
   // Prepare LTC coinbase
   uint8_t buffer[1024];
   xmstream coinbaseMsg(buffer, sizeof(buffer));
   coinbaseMsg.reset();
   coinbaseMsg.write(pchMergedMiningHeader, sizeof(pchMergedMiningHeader));
-  coinbaseMsg.write(hash.begin(), sizeof(uint256));
-  coinbaseMsg.write<uint32_t>(1u << pathSize);
-  coinbaseMsg.write<uint32_t>(nonce);
+  coinbaseMsg.write(chainMerkleRoot.begin(), sizeof(uint256));
+  coinbaseMsg.write<uint32_t>(virtualHashesNum);
+  coinbaseMsg.write<uint32_t>(mmNonce);
   ltcWork()->buildCoinbaseTx(coinbaseMsg.data(), coinbaseMsg.sizeOf(), miningCfg, LTCLegacy_, LTCWitness_);
 
   DOGEConsensusCtx_ = dogeWork(0)->ConsensusCtx_;

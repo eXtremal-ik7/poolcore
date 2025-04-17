@@ -57,7 +57,13 @@ public:
 
   class MergedWork : public StratumMergedWork {
   public:
-    MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, std::vector<StratumSingleWork*> &second, const CMiningConfig &miningCfg);
+    MergedWork(uint64_t stratumWorkId,
+               StratumSingleWork *first,
+               std::vector<StratumSingleWork*> &second,
+               std::vector<int> &mmChainId,
+               uint32_t mmNonce,
+               unsigned int virtualHashesNum,
+               const CMiningConfig &miningCfg);
 
     virtual Proto::BlockHashTy shareHash() override {
       return LTCHeader_.GetHash();
@@ -117,6 +123,8 @@ public:
     std::vector<int> DOGEWorkMap_;
     DOGE::Proto::CheckConsensusCtx DOGEConsensusCtx_;
   };
+
+  static std::vector<int> buildChainMap(std::vector<StratumSingleWork*> &secondary, uint32_t &nonce, unsigned int &virtualHashesNum);
 
   static constexpr bool MergedMiningSupport = true;
   static EStratumDecodeStatusTy decodeStratumMessage(CStratumMessage &msg, const char *in, size_t size) { return BTC::Stratum::decodeStratumMessage(msg, in, size); }
@@ -178,7 +186,16 @@ public:
       error = "no secondary works";
       return nullptr;
     }
-    return new MergedWork(stratumId, primaryWork, secondaryWorks, miningCfg);
+
+    uint32_t nonce = 0;
+    unsigned virtualHashesNum = 0;
+    std::vector<int> chainMap = buildChainMap(secondaryWorks, nonce, virtualHashesNum);
+    if (chainMap.empty()) {
+      error = "chainId conflict";
+      return nullptr;
+    }
+
+    return new MergedWork(stratumId, primaryWork, secondaryWorks, chainMap, nonce, virtualHashesNum, miningCfg);
   }
 
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
