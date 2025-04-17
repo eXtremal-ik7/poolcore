@@ -57,7 +57,7 @@ public:
 
   class MergedWork : public StratumMergedWork {
   public:
-    MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, StratumSingleWork *second, const CMiningConfig &miningCfg);
+    MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, std::vector<StratumSingleWork*> &second, const CMiningConfig &miningCfg);
 
     virtual Proto::BlockHashTy shareHash() override {
       return LTCHeader_.GetHash();
@@ -66,8 +66,8 @@ public:
     virtual std::string blockHash(size_t workIdx) override {
       if (workIdx == 0)
         return LTCHeader_.GetHash().ToString();
-      else if (workIdx == 1)
-        return DOGEHeader_.GetHash().ToString();
+      else if (workIdx - 1 < DOGEHeader_.size())
+        return DOGEHeader_[workIdx-1].GetHash().ToString();
       else
         return std::string();
     }
@@ -86,22 +86,22 @@ public:
     virtual void buildBlock(size_t workIdx, xmstream &blockHexData) override {
       if (workIdx == 0 && ltcWork()) {
         ltcWork()->buildBlockImpl(LTCHeader_, LTCWitness_, blockHexData);
-      } else if (workIdx == 1 && dogeWork()) {
-        dogeWork()->buildBlockImpl(DOGEHeader_, DOGEWitness_, blockHexData);
+      } else if (dogeWork(workIdx - 1)) {
+        dogeWork(workIdx - 1)->buildBlockImpl(DOGEHeader_[workIdx-1], DOGEWitness_[workIdx-1], blockHexData);
       }
     }
 
     virtual CCheckStatus checkConsensus(size_t workIdx) override {
       if (workIdx == 0 && ltcWork())
         return LTC::Stratum::Work::checkConsensusImpl(LTCHeader_, DOGEConsensusCtx_);
-      else if (workIdx == 1 && dogeWork())
-        return DOGE::Stratum::DogeWork::checkConsensusImpl(DOGEHeader_, LTCConsensusCtx_);
+      else if (dogeWork(workIdx - 1))
+        return DOGE::Stratum::DogeWork::checkConsensusImpl(DOGEHeader_[workIdx - 1], LTCConsensusCtx_);
       return CCheckStatus();
     }
 
   private:
     LTC::Stratum::Work *ltcWork() { return static_cast<LTC::Stratum::Work*>(Works_[0].Work); }
-    DOGE::Stratum::DogeWork *dogeWork() { return static_cast<DOGE::Stratum::DogeWork*>(Works_[1].Work); }
+    DOGE::Stratum::DogeWork *dogeWork(unsigned index) { return static_cast<DOGE::Stratum::DogeWork*>(Works_[index + 1].Work); }
 
   private:
     LTC::Proto::BlockHeader LTCHeader_;
@@ -110,9 +110,10 @@ public:
     std::vector<uint256> LTCMerklePath_;
     LTC::Proto::CheckConsensusCtx LTCConsensusCtx_;
 
-    DOGE::Proto::BlockHeader DOGEHeader_;
-    BTC::CoinbaseTx DOGELegacy_;
-    BTC::CoinbaseTx DOGEWitness_;
+    std::vector<DOGE::Proto::BlockHeader> DOGEHeader_;
+    std::vector<BTC::CoinbaseTx> DOGELegacy_;
+    std::vector<BTC::CoinbaseTx> DOGEWitness_;
+    std::vector<uint256> DOGEHeaderHashes_;
     DOGE::Proto::CheckConsensusCtx DOGEConsensusCtx_;
   };
 
@@ -172,11 +173,11 @@ public:
                                           std::vector<StratumSingleWork*> &secondaryWorks,
                                           const CMiningConfig &miningCfg,
                                           std::string &error) {
-    if (secondaryWorks.size() != 1) {
-      error = "DOGE now supports only 2 coins together";
+    if (secondaryWorks.empty()) {
+      error = "no secondary works";
       return nullptr;
     }
-    return new MergedWork(stratumId, primaryWork, secondaryWorks[0], miningCfg);
+    return new MergedWork(stratumId, primaryWork, secondaryWorks, miningCfg);
   }
 
   static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }

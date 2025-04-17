@@ -4,6 +4,11 @@
 
 static const unsigned char pchMergedMiningHeader[] = { 0xfa, 0xbe, 'm', 'm' };
 
+static unsigned merklePathSize(unsigned count)
+{
+  return count > 1 ? (31 - __builtin_clz((count << 1) - 1)) : 0;
+}
+
 static uint32_t getExpectedIndex(uint32_t nNonce, int nChainId, unsigned h)
 {
   uint32_t rand = nNonce;
@@ -16,42 +21,78 @@ static uint32_t getExpectedIndex(uint32_t nNonce, int nChainId, unsigned h)
 
 namespace DOGE {
 
-Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, StratumSingleWork *second, const CMiningConfig &miningCfg) : StratumMergedWork(stratumWorkId, first, second, miningCfg)
+Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first, std::vector<StratumSingleWork*> &second, const CMiningConfig &miningCfg) : StratumMergedWork(stratumWorkId, first, second, miningCfg)
 {
   LTCHeader_ = ltcWork()->Header;
   LTCMerklePath_ = ltcWork()->MerklePath;
-  DOGEHeader_ = dogeWork()->Header;
+  LTCConsensusCtx_ = ltcWork()->ConsensusCtx_;
 
-  // Prepare merged work
-  // <Merged mining signature> <chain merkle root> <chain merkle tree size> <extra nonce fixed part>
-  // Really:
-  //   <0xfa, 0xbe, 'm', 'm'> <doge header hash> <0x01, 0x00, 0x00, 0x00> <0x00, 0x00, 0x00, 0x00>
+  DOGEHeader_.resize(second.size());
+  DOGELegacy_.resize(second.size());
+  DOGEWitness_.resize(second.size());
+  DOGEHeaderHashes_.resize(second.size());
 
-  // We need DOGE header hash, but we have not merkle root now
-  // For calculate merkle root, we need non-mutable DOGE coinbase transaction (without extra nonce) and merkle path (already available)
+  for (size_t workIdx = 0; workIdx < DOGEHeader_.size(); workIdx++) {
+    DOGE::Stratum::DogeWork *work = dogeWork(workIdx);
+    DOGE::Proto::BlockHeader &header = DOGEHeader_[workIdx];
+    BTC::CoinbaseTx &legacy = DOGELegacy_[workIdx];
+    BTC::CoinbaseTx &witness = DOGEWitness_[workIdx];
 
-  // Create 'static' DOGE coinbase transaction without extra nonce
-  CMiningConfig emptyExtraNonceConfig;
-  emptyExtraNonceConfig.FixedExtraNonceSize = 0;
-  emptyExtraNonceConfig.MutableExtraNonceSize = 0;
-  dogeWork()->buildCoinbaseTx(nullptr, 0, emptyExtraNonceConfig, DOGELegacy_, DOGEWitness_);
+    header = work->Header;
 
-  // Calculate merkle root
-  DOGEHeader_.nVersion |= DOGE::Proto::BlockHeader::VERSION_AUXPOW;
-  {
-    uint256 coinbaseTxHash;
-    CCtxSha256 sha256;
-    sha256Init(&sha256);
-    sha256Update(&sha256, DOGELegacy_.Data.data(), DOGELegacy_.Data.sizeOf());
-    sha256Final(&sha256, coinbaseTxHash.begin());
-    sha256Init(&sha256);
-    sha256Update(&sha256, coinbaseTxHash.begin(), coinbaseTxHash.size());
-    sha256Final(&sha256, coinbaseTxHash.begin());
-    DOGEHeader_.hashMerkleRoot = calculateMerkleRootWithPath(coinbaseTxHash, &dogeWork()->MerklePath[0], dogeWork()->MerklePath.size(), 0);
+    // Prepare merged work
+    // <Merged mining signature> <chain merkle root> <chain merkle tree size> <extra nonce fixed part>
+    // Really:
+    //   <0xfa, 0xbe, 'm', 'm'> <doge header hash> <0x01, 0x00, 0x00, 0x00> <0x00, 0x00, 0x00, 0x00>
+
+    // We need DOGE header hash, but we have not merkle root now
+    // For calculate merkle root, we need non-mutable DOGE coinbase transaction (without extra nonce) and merkle path (already available)
+
+    // Create 'static' DOGE coinbase transaction without extra nonce
+    CMiningConfig emptyExtraNonceConfig;
+    emptyExtraNonceConfig.FixedExtraNonceSize = 0;
+    emptyExtraNonceConfig.MutableExtraNonceSize = 0;
+    work->buildCoinbaseTx(nullptr, 0, emptyExtraNonceConfig, legacy, witness);
+
+    // Calculate merkle root
+    header.nVersion |= DOGE::Proto::BlockHeader::VERSION_AUXPOW;
+    header.nVersion &= 0x0000FFFF;
+    header.nVersion |= workIdx << 16;
+    {
+      uint256 coinbaseTxHash;
+      CCtxSha256 sha256;
+      sha256Init(&sha256);
+      sha256Update(&sha256, legacy.Data.data(), legacy.Data.sizeOf());
+      sha256Final(&sha256, coinbaseTxHash.begin());
+      sha256Init(&sha256);
+      sha256Update(&sha256, coinbaseTxHash.begin(), coinbaseTxHash.size());
+      sha256Final(&sha256, coinbaseTxHash.begin());
+      header.hashMerkleRoot = calculateMerkleRootWithPath(coinbaseTxHash, &work->MerklePath[0], work->MerklePath.size(), 0);
+    }
+
+    DOGEHeaderHashes_[workIdx] = header.GetHash();
   }
 
-  // Calculate /reversed/ DOGE header hash
-  uint256 hash = DOGEHeader_.GetHash();
+  // Search nonce for all chains
+  uint32_t nonce = 0;
+  unsigned pathSize = merklePathSize(second.size());
+  for (;;) {
+    bool found = true;
+    for (size_t i = 0; i < second.size(); i++) {
+      if (getExpectedIndex(nonce, DOGEHeader_[i].nVersion >> 16, pathSize) != i) {
+        found = false;
+        break;
+      }
+    }
+
+    if (found)
+      break;
+
+    nonce++;
+  }
+
+  // Calculate /reversed/ merkle root from DOGE header hashes
+  uint256 hash = calculateMerkleRoot(&DOGEHeaderHashes_[0], DOGEHeaderHashes_.size());
   std::reverse(hash.begin(), hash.end());
 
   // Prepare LTC coinbase
@@ -60,12 +101,11 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first
   coinbaseMsg.reset();
   coinbaseMsg.write(pchMergedMiningHeader, sizeof(pchMergedMiningHeader));
   coinbaseMsg.write(hash.begin(), sizeof(uint256));
-  coinbaseMsg.write<uint32_t>(1);
-  coinbaseMsg.write<uint32_t>(0);
+  coinbaseMsg.write<uint32_t>(1u << pathSize);
+  coinbaseMsg.write<uint32_t>(nonce);
   ltcWork()->buildCoinbaseTx(coinbaseMsg.data(), coinbaseMsg.sizeOf(), miningCfg, LTCLegacy_, LTCWitness_);
 
-  LTCConsensusCtx_ = ltcWork()->ConsensusCtx_;
-  DOGEConsensusCtx_ = dogeWork()->ConsensusCtx_;
+  DOGEConsensusCtx_ = dogeWork(0)->ConsensusCtx_;
 }
 
 bool Stratum::MergedWork::prepareForSubmit(const CWorkerConfig &workerCfg, const CStratumMessage &msg)
@@ -73,19 +113,27 @@ bool Stratum::MergedWork::prepareForSubmit(const CWorkerConfig &workerCfg, const
   if (!LTC::Stratum::Work::prepareForSubmitImpl(LTCHeader_, LTCHeader_.nVersion, LTCLegacy_, LTCWitness_, LTCMerklePath_, workerCfg, MiningCfg_, msg))
     return false;
 
-  uint32_t chainId = DOGEHeader_.nVersion >> 16;
-  LTCWitness_.Data.seekSet(0);
-  BTC::unserialize(LTCWitness_.Data, DOGEHeader_.ParentBlockCoinbaseTx);
+  for (size_t workIdx = 0; workIdx < DOGEHeader_.size(); workIdx++) {
+    DOGE::Proto::BlockHeader &header = DOGEHeader_[workIdx];
+    LTCWitness_.Data.seekSet(0);
+    BTC::unserialize(LTCWitness_.Data, header.ParentBlockCoinbaseTx);
 
-  DOGEHeader_.HashBlock.SetNull();
-  DOGEHeader_.MerkleBranch.resize(LTCMerklePath_.size());
-  for (size_t i = 0, ie = LTCMerklePath_.size(); i != ie; ++i)
-    DOGEHeader_.MerkleBranch[i] = LTCMerklePath_[i];
+    header.HashBlock.SetNull();
+    header.Index = 0;
 
-  DOGEHeader_.Index = 0;
-  DOGEHeader_.ChainMerkleBranch.resize(0);
-  DOGEHeader_.ChainIndex = getExpectedIndex(0, chainId, 0);
-  DOGEHeader_.ParentBlock = LTCHeader_;
+    header.MerkleBranch.resize(LTCMerklePath_.size());
+    for (size_t j = 0, je = LTCMerklePath_.size(); j != je; ++j)
+      header.MerkleBranch[j] = LTCMerklePath_[j];
+
+    std::vector<uint256> path;
+    buildMerklePath(DOGEHeaderHashes_, workIdx, path);
+    header.ChainMerkleBranch.resize(path.size());
+    for (size_t j = 0; j < path.size(); j++)
+      header.ChainMerkleBranch[j] = path[j];
+    header.ChainIndex = workIdx;
+    header.ParentBlock = LTCHeader_;
+  }
+
   return true;
 }
 }

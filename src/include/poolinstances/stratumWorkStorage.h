@@ -259,9 +259,9 @@ private:
   std::vector<bool> KnownWorkMap_;
   std::unordered_map<PoolBackend*, size_t> BackendMap_;
 
+  std::unique_ptr<CMergedWorkSequence[]> MergedWorkStorage_;
   std::unique_ptr<CSingleWorkSequence[]> PrimaryWorkStorage_;
   std::unique_ptr<CSingleWorkSequence[]> SecondaryWorkStorage_;
-  std::unique_ptr<CMergedWorkSequence[]> MergedWorkStorage_;
   std::unique_ptr<CAcceptedShareSet[]> AcceptedShares_;
   std::unique_ptr<CPendingShare[]> PendingShares_;
   std::unordered_map<int64_t, CWork*> WorkIdMap_;

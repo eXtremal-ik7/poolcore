@@ -137,6 +137,23 @@ public:
     this->Initialized_ = true;
   }
 
+  StratumMergedWork(uint64_t stratumWorkId,
+                    StratumSingleWork *primary,
+                    std::vector<StratumSingleWork*> &secondary,
+                    const CMiningConfig &miningCfg) : StratumWork(stratumWorkId, miningCfg) {
+    Works_.resize(1 + secondary.size());
+    Works_[0].Work = primary;
+    Works_[0].Id = primary->backendId(0);
+    primary->addLink(this);
+    for (size_t i = 0; i < secondary.size(); i++) {
+      Works_[i + 1].Work = secondary[i];
+      Works_[i + 1].Id = secondary[i]->backendId(0);
+      secondary[i]->addLink(this);
+    }
+
+    this->Initialized_ = true;
+  }
+
   virtual ~StratumMergedWork() {}
 
   virtual size_t backendsNum() final { return Works_.size(); }
