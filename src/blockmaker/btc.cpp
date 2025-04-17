@@ -293,6 +293,29 @@ static void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockRewa
   }
 }
 
+static void processDevelopmentFund(rapidjson::Value &blockTemplate, int64_t *blockReward, int64_t *devFee, xmstream &devScriptPubKey)
+{
+  if (blockTemplate.HasMember("coinbasetxn") && blockTemplate["coinbasetxn"].IsObject()) {
+    rapidjson::Value &coinbasetxn = blockTemplate["coinbasetxn"];
+    if (coinbasetxn.HasMember("developmentfund") && coinbasetxn["developmentfund"].IsUint64() &&
+        coinbasetxn.HasMember("developmentfundaddress") && coinbasetxn["developmentfundaddress"].IsArray()) {
+      rapidjson::Value &developmentfund = coinbasetxn["developmentfund"];
+      rapidjson::Value &addresses = coinbasetxn["developmentfundaddress"];
+      if (addresses.Size() >= 1 && addresses[0].IsString()) {
+        BTC::Proto::AddressTy address;
+        if (BTC::Proto::decodeHumanReadableAddress(addresses[0].GetString(), {5}, address)) {
+          *devFee = developmentfund.GetInt64();
+          devScriptPubKey.write<uint8_t>(BTC::Script::OP_HASH160);
+          devScriptPubKey.write<uint8_t>(0x14);
+          devScriptPubKey.write(address.begin(), address.size());
+          devScriptPubKey.write<uint8_t>(BTC::Script::OP_EQUAL);
+          *blockReward -= *devFee;
+        }
+      }
+    }
+  }
+}
+
 static void processStakingReward(rapidjson::Value &blockTemplate, int64_t *blockReward, int64_t *stakingReward, xmstream &stakingRewardScriptPubkey)
 {
   if (blockTemplate.HasMember("coinbasetxn") && blockTemplate["coinbasetxn"].IsObject()) {
@@ -361,7 +384,8 @@ bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward, rapidjson::Value &b
   processMinerFund(blockTemplate, blockReward, &DevFee, DevScriptPubKey);
   // "stakingrewards" (XEC)
   processStakingReward(blockTemplate, blockReward, &StakingReward, StakingRewardScriptPubkey);
-
+  // "developmentfund" (JKC)
+  processDevelopmentFund(blockTemplate, blockReward, &DevFee, DevScriptPubKey);
   return true;
 }
 
