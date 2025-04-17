@@ -114,6 +114,7 @@ public:
     std::vector<BTC::CoinbaseTx> DOGELegacy_;
     std::vector<BTC::CoinbaseTx> DOGEWitness_;
     std::vector<uint256> DOGEHeaderHashes_;
+    std::vector<int> DOGEWorkMap_;
     DOGE::Proto::CheckConsensusCtx DOGEConsensusCtx_;
   };
 

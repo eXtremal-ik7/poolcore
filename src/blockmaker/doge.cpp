@@ -31,6 +31,30 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first
   DOGELegacy_.resize(second.size());
   DOGEWitness_.resize(second.size());
   DOGEHeaderHashes_.resize(second.size());
+  DOGEWorkMap_.resize(second.size());
+
+  uint32_t nonce = 0;
+  unsigned pathSize = merklePathSize(second.size());
+  for (;;) {
+    std::fill(DOGEWorkMap_.begin(), DOGEWorkMap_.end(), -1);
+
+    bool found = true;
+    for (size_t workIdx = 0; workIdx < second.size(); workIdx++) {
+      DOGE::Stratum::DogeWork *work = dogeWork(workIdx);
+      unsigned index = getExpectedIndex(nonce, work->Header.nVersion >> 16, pathSize);
+      if (DOGEWorkMap_[index] == -1) {
+        DOGEWorkMap_[index] = workIdx;
+      } else {
+        found = false;
+        break;
+      }
+    }
+
+    if (found)
+      break;
+
+    nonce++;
+  }
 
   for (size_t workIdx = 0; workIdx < DOGEHeader_.size(); workIdx++) {
     DOGE::Stratum::DogeWork *work = dogeWork(workIdx);
@@ -56,8 +80,6 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first
 
     // Calculate merkle root
     header.nVersion |= DOGE::Proto::BlockHeader::VERSION_AUXPOW;
-    header.nVersion &= 0x0000FFFF;
-    header.nVersion |= workIdx << 16;
     {
       uint256 coinbaseTxHash;
       CCtxSha256 sha256;
@@ -70,25 +92,7 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId, StratumSingleWork *first
       header.hashMerkleRoot = calculateMerkleRootWithPath(coinbaseTxHash, &work->MerklePath[0], work->MerklePath.size(), 0);
     }
 
-    DOGEHeaderHashes_[workIdx] = header.GetHash();
-  }
-
-  // Search nonce for all chains
-  uint32_t nonce = 0;
-  unsigned pathSize = merklePathSize(second.size());
-  for (;;) {
-    bool found = true;
-    for (size_t i = 0; i < second.size(); i++) {
-      if (getExpectedIndex(nonce, DOGEHeader_[i].nVersion >> 16, pathSize) != i) {
-        found = false;
-        break;
-      }
-    }
-
-    if (found)
-      break;
-
-    nonce++;
+    DOGEHeaderHashes_[DOGEWorkMap_[workIdx]] = header.GetHash();
   }
 
   // Calculate /reversed/ merkle root from DOGE header hashes
@@ -126,11 +130,11 @@ bool Stratum::MergedWork::prepareForSubmit(const CWorkerConfig &workerCfg, const
       header.MerkleBranch[j] = LTCMerklePath_[j];
 
     std::vector<uint256> path;
-    buildMerklePath(DOGEHeaderHashes_, workIdx, path);
+    buildMerklePath(DOGEHeaderHashes_, DOGEWorkMap_[workIdx], path);
     header.ChainMerkleBranch.resize(path.size());
     for (size_t j = 0; j < path.size(); j++)
       header.ChainMerkleBranch[j] = path[j];
-    header.ChainIndex = workIdx;
+    header.ChainIndex = DOGEWorkMap_[workIdx];
     header.ParentBlock = LTCHeader_;
   }
 
