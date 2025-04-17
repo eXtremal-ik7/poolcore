@@ -193,7 +193,6 @@ private:
   };
 
 private:
-  asyncBase *Base_;
   const PoolBackendConfig _cfg;
   CCoinInfo CoinInfo_;
   uint64_t LastKnownShareId_ = 0;

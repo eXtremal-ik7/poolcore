@@ -98,7 +98,7 @@ CCheckStatus Stratum::Work::checkConsensus(size_t)
   return status;
 }
 
-void Stratum::Work::buildNotifyMessage(bool resetPreviousWork)
+void Stratum::Work::buildNotifyMessage(bool)
 {
   {
     NotifyMessage_.reset();

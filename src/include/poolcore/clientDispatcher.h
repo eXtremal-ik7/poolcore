@@ -7,7 +7,7 @@
 
 class CNetworkClientDispatcher {  
 public:
-  CNetworkClientDispatcher(asyncBase *base, const CCoinInfo &coinInfo, unsigned threadsNum) : Base_(base), CoinInfo_(coinInfo) {
+  CNetworkClientDispatcher(asyncBase *base, const CCoinInfo &coinInfo, unsigned threadsNum) : CoinInfo_(coinInfo) {
     CurrentClientIdx_.resize(threadsNum, 0);
     WorkFetcherReconnectTimer_ = newUserEvent(base, 0, [](aioUserEvent*, void *arg) {
       static_cast<CNetworkClientDispatcher*>(arg)->onWorkFetchReconnectTimer();
@@ -62,7 +62,6 @@ private:
   };
 
 private:
-  asyncBase *Base_;
   CCoinInfo CoinInfo_;
   PoolBackend *Backend_ = nullptr;
   std::vector<std::unique_ptr<CNetworkClient>> GetWorkClients_;

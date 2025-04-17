@@ -220,7 +220,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::signRawTransaction(CConnecti
 
 CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, const char *wallet, bool longPollEnabled) :
   CNetworkClient(threadsNum),
-  WorkFetcherBase_(base), ThreadsNum_(threadsNum), CoinInfo_(coinInfo), HasLongPoll_(longPollEnabled)
+  WorkFetcherBase_(base), CoinInfo_(coinInfo), HasLongPoll_(longPollEnabled)
 {
   WorkFetcher_.Client = nullptr;
   httpParseDefaultInit(&WorkFetcher_.ParseCtx);

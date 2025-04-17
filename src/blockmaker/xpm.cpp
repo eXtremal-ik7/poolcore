@@ -116,9 +116,6 @@ static constexpr int nFractionalBits = 24;
 static constexpr unsigned TARGET_FRACTIONAL_MASK = (1u<<nFractionalBits) - 1;
 static constexpr unsigned TARGET_LENGTH_MASK = ~TARGET_FRACTIONAL_MASK;
 static constexpr uint64_t nFractionalDifficultyMax = (1llu << (nFractionalBits + 32));
-static constexpr uint64_t nFractionalDifficultyMin = (1llu << 32);
-static constexpr uint64_t nFractionalDifficultyThreshold = (1llu << (8 + 32));
-static constexpr unsigned nWorkTransitionRatio = 32;
 
 static inline unsigned int TargetGetLength(unsigned int nBits)
 {
@@ -289,7 +286,7 @@ static int64_t targetGetMint(unsigned int nBits)
 static unsigned getSmallestDivisor(const CDivisionChecker &checker32,
                                    mpz_t origin,
                                    Proto::EChainType type,
-                                   unsigned chainLength,
+                                   unsigned,
                                    unsigned target,
                                    unsigned rangeBegin,
                                    unsigned rangeEnd)

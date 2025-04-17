@@ -65,7 +65,7 @@ static void buildPostQuery(const std::string address, const char *data, size_t s
 }
 
 CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, PoolBackendConfig &config) : CNetworkClient(threadsNum),
-  WorkFetcherBase_(base), ThreadsNum_(threadsNum), CoinInfo_(coinInfo)
+  WorkFetcherBase_(base), CoinInfo_(coinInfo)
 {
   WorkFetcher_.Client = nullptr;
   httpParseDefaultInit(&WorkFetcher_.ParseCtx);

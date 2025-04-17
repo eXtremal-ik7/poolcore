@@ -170,7 +170,6 @@ private:
 
 private:
   asyncBase *WorkFetcherBase_;
-  unsigned ThreadsNum_;
   CCoinInfo CoinInfo_;
 
   HostAddress Address_;

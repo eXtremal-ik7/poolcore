@@ -238,7 +238,6 @@ private:
 
 private:
   asyncBase *WorkFetcherBase_ = nullptr;
-  unsigned ThreadsNum_;
   CCoinInfo CoinInfo_;
   std::string HostName_;
   std::string FullHostName_;

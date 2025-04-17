@@ -7,6 +7,7 @@ extern "C" {
 #include "poolcommon/intrusive_ptr.h"
 #include "rapidjson/document.h"
 #include <atomic>
+#include <string>
 
 struct alignas(512) EthashDagWrapper {
 public:

@@ -148,7 +148,7 @@ private:
     }, connection);
   }
 
-  void onSetConfig(ThreadData &data, Connection *connection, pool::proto::Request &req, pool::proto::Reply &rep) {
+  void onSetConfig(ThreadData&, Connection *connection, pool::proto::Request &req, pool::proto::Reply &rep) {
     if (!req.has_weavedepth()) {
       rep.set_errstr("Client sent empty config");
       return;
@@ -273,7 +273,7 @@ private:
       dispatcher.aioSubmitBlock(data.WorkerBase,
                                 work.blockHexData().data(),
                                 work.blockHexData().sizeOf(),
-                                [height, user, workerId, blockHash, generatedCoins, backend, &data, shareWork, shareDiff, expectedWork, primePOWTarget](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+                                [height, user, workerId, blockHash, generatedCoins, backend, shareWork, shareDiff, expectedWork, primePOWTarget](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
           if (successNum == 1) {

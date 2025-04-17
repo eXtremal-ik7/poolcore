@@ -87,7 +87,7 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
   }
 }
 
-StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo) : Base_(base), _cfg(config), CoinInfo_(coinInfo),
+StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo) : _cfg(config), CoinInfo_(coinInfo),
   WorkerStatsDb_(_cfg.dbPath / "workerStats"),
   PoolStatsDb_(_cfg.dbPath / "poolstats"),
   TaskHandler_(this, base)

@@ -23,7 +23,7 @@ std::string partByTime(time_t time)
   char buffer[16];
   tm *utc = gmtime(&time);
   if (utc)
-    sprintf(buffer, "%04u.%02u", utc->tm_year+1900, utc->tm_mon+1);
+    snprintf(buffer, sizeof(buffer), "%04u.%02u", utc->tm_year+1900, utc->tm_mon+1);
   else
     strcpy(buffer, "2999.12");
   return buffer;
