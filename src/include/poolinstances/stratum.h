@@ -60,9 +60,9 @@ public:
                   CThreadPool &threadPool,
                   unsigned instanceId,
                   unsigned instancesNum,
-                  rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0)
+                  rapidjson::Value &config,
+                  CPriceFetcher *priceFetcher) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0), PriceFetcher_(priceFetcher)
   {
-
     // Parse config
     jp::EErrorType acc = jp::EOk;
     std::string cfgError;
@@ -245,14 +245,14 @@ public:
     CWork *work = nullptr;
     if (ProfitSwitcherEnabled_) {
       // Search most profitable work
-      auto calculateProfit = [](CWork *work) -> double {
+      auto calculateProfit = [this](CWork *work) -> double {
         double result = 0.0;
         for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i) {
           PoolBackend *backend = work->backend(i);
           if (!backend)
             continue;
 
-          result += work->getAbstractProfitValue(i, backend->getPriceFetcher().getPrice(), backend->getProfitSwitchCoeff());
+          result += work->getAbstractProfitValue(i, PriceFetcher_->getPrice(i), backend->getProfitSwitchCoeff());
         }
 
         return result;
@@ -1073,4 +1073,7 @@ private:
 
   // ASIC boost 'overt' data
   uint32_t VersionMask_ = 0x1FFFE000;
+
+  // Price fetcher
+  CPriceFetcher *PriceFetcher_ = nullptr;
 };

@@ -39,8 +39,8 @@ static void checkConsistency(AccountingDb *accounting)
 }
 
 
-PoolBackend::PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher) :
-  _base(base), _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher), PriceFetcher_(priceFetcher), TaskHandler_(this, base)
+PoolBackend::PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher) :
+  _base(base), _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher), TaskHandler_(this, base)
 {
   CheckConfirmationsEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   PayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);

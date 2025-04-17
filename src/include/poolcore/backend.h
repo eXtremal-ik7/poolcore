@@ -81,7 +81,6 @@ private:
   CCoinInfo CoinInfo_;
   UserManager &UserMgr_;
   CNetworkClientDispatcher &ClientDispatcher_;
-  CPriceFetcher &PriceFetcher_;
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
   StatisticServer *AlgoMetaStatistic_ = nullptr;
@@ -111,12 +110,11 @@ private:
 public:
   PoolBackend(const PoolBackend&) = delete;
   PoolBackend(PoolBackend&&) = default;
-  PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, CPriceFetcher &priceFetcher);
+  PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher);
 
   const PoolBackendConfig &getConfig() const { return _cfg; }
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
   CNetworkClientDispatcher &getClientDispatcher() const { return ClientDispatcher_; }
-  CPriceFetcher &getPriceFetcher() const { return PriceFetcher_; }
   double getProfitSwitchCoeff() const { return ProfitSwitchCoeff_; }
   void setProfitSwitchCoeff(double profitSwithCoeff) { ProfitSwitchCoeff_ = profitSwithCoeff; }
   StatisticServer *getAlgoMetaStatistic() { return AlgoMetaStatistic_; }

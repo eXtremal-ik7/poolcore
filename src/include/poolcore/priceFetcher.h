@@ -6,22 +6,24 @@
 
 class CPriceFetcher {
 public:
-  CPriceFetcher(asyncBase *monitorBase, const CCoinInfo &coinInfo);
-  double getPrice() { return CurrentPrice_.load(); }
+  CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coinInfo);
+  double getPrice(size_t index) { return CurrentPrices_[index].load(); }
 
 private:
   void updatePrice();
   void onConnect(AsyncOpStatus status);
   void onRequest(AsyncOpStatus status);
-  bool processRequest(const char *data, size_t size);
+  void processRequest(const char *data, size_t size);
 
 private:
   asyncBase *MonitorBase_ = nullptr;
   HTTPClient *Client_ = nullptr;
   aioUserEvent *TimerEvent_ = nullptr;
-  CCoinInfo CoinInfo_;
+  std::vector<CCoinInfo> CoinInfo_;
   HTTPParseDefaultContext ParseCtx_;
   HostAddress Address_;
   xmstream PreparedQuery_;
   std::atomic<double> CurrentPrice_;
+
+  std::unique_ptr<std::atomic<double>[]> CurrentPrices_;
 };
