@@ -16,8 +16,6 @@ add_library(blockmaker STATIC
   scrypt.c
 
   ethash.c
-  #scrypt.cpp
-  #scrypt-sse2.cpp
   tiny_sha3.c
 
   aes_helper.cpp

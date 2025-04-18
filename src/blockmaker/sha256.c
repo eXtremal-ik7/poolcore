@@ -314,11 +314,15 @@ void sha256llTransform(uint32_t state[8], const uint32_t in[16], int bswap)
 #endif
 }
 
-void sha256llFinal(const uint32_t state[8], uint8_t *hash)
+void sha256llFinal(const uint32_t state[8], uint8_t *hash, int bswap)
 {
   uint32_t *hash32 = (uint32_t*)hash;
-  for (unsigned i = 0; i < 8; i++)
-    hash32[i] = __builtin_bswap32(state[i]);
+  if (bswap) {
+    for (unsigned i = 0; i < 8; i++)
+      hash32[i] = __builtin_bswap32(state[i]);
+  } else {
+    memcpy(hash, state, 32);
+  }
 }
 
 void sha256Init(CCtxSha256 *ctx)
@@ -384,7 +388,7 @@ void sha256Final(CCtxSha256 *ctx, uint8_t *hash)
     sha256llTransform(ctx->state, (const uint32_t*)ctx->buffer, 1);
   }
 
-  sha256llFinal(ctx->state, hash);
+  sha256llFinal(ctx->state, hash, 1);
 }
 
 void sha256(const void *data, size_t size, uint8_t *hash)
@@ -425,5 +429,5 @@ void sha256(const void *data, size_t size, uint8_t *hash)
     sha256llTransform(state, buffer.b32, 1);
   }
 
-  sha256llFinal(state, hash);
+  sha256llFinal(state, hash, 1);
 }

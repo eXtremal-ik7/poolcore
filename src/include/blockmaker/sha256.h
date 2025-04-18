@@ -9,7 +9,7 @@ extern "C" {
 // Low level
 void sha256llInit(uint32_t state[8]);
 void sha256llTransform(uint32_t state[8], const uint32_t in[16], int bswap);
-void sha256llFinal(const uint32_t state[8], uint8_t *hash);
+void sha256llFinal(const uint32_t state[8], uint8_t *hash, int bswap);
 
 // High level
 typedef struct CCtxSha256 {
