@@ -60,6 +60,10 @@ public:
       info.Name = "PrimePOW";
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = -3;
+    } else if (strcmp(coinName, "x11") == 0) {
+      info.Name = "x11";
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
     } else if (strcmp(coinName, "ARRR") == 0) {
       info.Name = "ARRR";
       info.FullName = "Pirate Chain";
@@ -239,6 +243,21 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+    } else if (strcmp(coinName, "DASH") == 0) {
+      info.Name = "DASH";
+      info.FullName = "Dash";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {76};
+      info.ScriptAddressPrefix = {16};
+      info.DefaultRpcPort = 9998;
+      info.CoinGeckoName = "dash";
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "x11";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "DGB.sha256") == 0) {
       info.Name = "DGB.sha256";
       info.FullName = "Digibyte(sha256)";
@@ -557,6 +576,21 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+    } else if (strcmp(coinName, "HOOT") == 0) {
+      info.Name = "HOOT";
+      info.FullName = "Hootchain";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {100};
+      info.ScriptAddressPrefix = {15};
+      info.DefaultRpcPort = 6886;
+      info.CoinGeckoName = "hootchain";
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "x11";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "JKC") == 0) {
       info.Name = "JKC";
       info.FullName = "Junkcoin";
@@ -750,6 +784,35 @@ public:
       info.Algorithm = "scrypt";
       info.PowLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+    } else if (strcmp(coinName, "MAXI") == 0) {
+      info.Name = "MAXI";
+      info.FullName = "Maximus";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {50};
+      info.ScriptAddressPrefix = {5};
+      info.DefaultRpcPort = 9938;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "x11";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    } else if (strcmp(coinName, "OSMI") == 0) {
+      info.Name = "OSMI";
+      info.FullName = "Osmium";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {63};
+      info.ScriptAddressPrefix = {15};
+      info.DefaultRpcPort = 9968;
+      info.CoinGeckoName = "osmium";
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "x11";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "PEP") == 0) {
       info.Name = "PEP";
       info.FullName = "Pepecoin";

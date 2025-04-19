@@ -19,11 +19,16 @@ add_library(blockmaker STATIC
   tiny_sha3.c
 
   aes_helper.cpp
+  blake.c
+  bmw.c
   cubehash.cpp
   echo.cpp
+  groestl.c
+  jh.c
+  keccak.c
   luffa.cpp
-  simd.cpp
   shavite.cpp
+  simd.cpp
   skein.cpp
 
   KeccakP-800-reference.cpp
