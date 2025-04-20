@@ -439,6 +439,8 @@ private:
         connection->ShareDifficulty = std::max(10.0, connection->ShareDifficulty);
       } else if (AlgoMetaStatistic_->coinInfo().Name == "equihash.200.9") {
         connection->ShareDifficulty = std::max(131072.0, connection->ShareDifficulty);
+      } else if (AlgoMetaStatistic_->coinInfo().Name == "x11") {
+        connection->ShareDifficulty = std::max(256.0, connection->ShareDifficulty);
       }
     }
 
