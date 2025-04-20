@@ -6,7 +6,7 @@ CCheckStatus DASH::Proto::checkPow(const Proto::BlockHeader &header, uint32_t nB
 {
   CCheckStatus status;
   arith_uint256 x11Hash;
-  hashX11(reinterpret_cast<const char*>(&header), x11Hash.begin());
+  x11_hash(reinterpret_cast<const char*>(&header), x11Hash.begin());
   status.ShareDiff = BTC::difficultyFromBits(x11Hash.GetCompact(), 29);
 
   bool fNegative;

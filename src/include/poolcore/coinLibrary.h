@@ -255,7 +255,7 @@ public:
       info.ScriptAddressPrefix = {16};
       info.DefaultRpcPort = 9998;
       info.CoinGeckoName = "dash";
-      info.MinimalConfirmationsNumber = 12;
+      info.MinimalConfirmationsNumber = 6;
       info.Algorithm = "x11";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "DGB.sha256") == 0) {
@@ -588,7 +588,7 @@ public:
       info.ScriptAddressPrefix = {15};
       info.DefaultRpcPort = 6886;
       info.CoinGeckoName = "hootchain";
-      info.MinimalConfirmationsNumber = 12;
+      info.MinimalConfirmationsNumber = 6;
       info.Algorithm = "x11";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "JKC") == 0) {
@@ -795,7 +795,7 @@ public:
       info.PubkeyAddressPrefix = {50};
       info.ScriptAddressPrefix = {5};
       info.DefaultRpcPort = 9938;
-      info.MinimalConfirmationsNumber = 12;
+      info.MinimalConfirmationsNumber = 6;
       info.Algorithm = "x11";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "OSMI") == 0) {
@@ -810,7 +810,7 @@ public:
       info.ScriptAddressPrefix = {15};
       info.DefaultRpcPort = 9968;
       info.CoinGeckoName = "osmium";
-      info.MinimalConfirmationsNumber = 12;
+      info.MinimalConfirmationsNumber = 6;
       info.Algorithm = "x11";
       info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "PEP") == 0) {
