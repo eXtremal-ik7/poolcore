@@ -3,6 +3,7 @@
 #include "poolinstances/zmq.h"
 
 #include "blockmaker/btc.h"
+#include "blockmaker/dash.h"
 #include "blockmaker/dgb.h"
 #include "blockmaker/doge.h"
 #include "blockmaker/eth.h"
@@ -12,6 +13,7 @@
 
 std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> PoolInstanceFabric::FabricData_ = {
   {"BTC.stratum", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config, CPriceFetcher *priceFetcher) { return new StratumInstance<BTC::X>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config, priceFetcher); }},
+  {"DASH.stratum", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config, CPriceFetcher *priceFetcher) { return new StratumInstance<DASH::X>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config, priceFetcher); }},
   {"DGB.qubit.stratum", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config, CPriceFetcher *priceFetcher) { return new StratumInstance<DGB::X<DGB::Algo::EQubit>>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config, priceFetcher); }},
   {"DGB.skein.stratum", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config, CPriceFetcher *priceFetcher) { return new StratumInstance<DGB::X<DGB::Algo::ESkein>>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config, priceFetcher); }},
   {"DGB.odo.stratum", [](asyncBase *base, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &pool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config, CPriceFetcher *priceFetcher) { return new StratumInstance<DGB::X<DGB::Algo::EOdo>>(base, userMgr, linkedBackends, pool, instanceId, instancesNum, config, priceFetcher); }},

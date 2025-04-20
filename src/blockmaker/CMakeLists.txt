@@ -37,6 +37,7 @@ add_library(blockmaker STATIC
 
   btc.cpp
   btcLike.cpp
+  dash.cpp
   dgb.cpp
   doge.cpp
   eth.cpp
