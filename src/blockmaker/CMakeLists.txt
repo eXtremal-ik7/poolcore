@@ -30,6 +30,7 @@ add_library(blockmaker STATIC
   shavite.cpp
   simd.cpp
   skein.cpp
+  x11.cpp
 
   KeccakP-800-reference.cpp
   odocrypt.cpp
