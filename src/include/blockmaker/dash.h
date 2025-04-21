@@ -8,6 +8,45 @@
 #include "btc.h"
 
 namespace DASH {
+
+enum {
+  TRANSACTION_NORMAL = 0
+  // Additional Dash transaction types can be added here
+};
+
+struct Transaction {
+  int16_t nVersion;
+  uint16_t nType;
+  xvector<TxIn> vin;
+  xvector<TxOut> vout;
+  uint32_t nLockTime;
+  xvector<uint8_t> vExtraPayload;
+
+  template<typename Stream>
+  void serialize(Stream &s) const {
+    int32_t n32bitVersion = (nType << 16) | (uint16_t)nVersion;
+    s << n32bitVersion;
+    s << vin;
+    s << vout;
+    s << nLockTime;
+    if (nVersion >= 3 && nType != TRANSACTION_NORMAL)
+      s << vExtraPayload;
+  }
+
+  template<typename Stream>
+  void unserialize(Stream &s) {
+    int32_t n32bitVersion;
+    s >> n32bitVersion;
+    nVersion = (int16_t)(n32bitVersion & 0xffff);
+    nType = (uint16_t)((n32bitVersion >> 16) & 0xffff);
+    s >> vin;
+    s >> vout;
+    s >> nLockTime;
+    if (nVersion >= 3 && nType != TRANSACTION_NORMAL)
+      s >> vExtraPayload;
+  }
+};
+
 class Proto {
 public:
   static constexpr const char *TickerName = "DASH";
