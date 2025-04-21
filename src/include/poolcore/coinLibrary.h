@@ -576,6 +576,22 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+    } else if (strcmp(coinName, "FB") == 0) {
+      info.Name = "FB";
+      info.FullName = "Fractal Bitcoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {0};
+      info.ScriptAddressPrefix = {5};
+      info.Bech32Prefix = "bc";
+      info.DefaultRpcPort = 8332;
+      info.CoinGeckoName = "fractal-bitcoin";
+      info.ProfitSwitchDefaultCoeff = 1.0;
+      info.Algorithm = "sha256";
+      info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     } else if (strcmp(coinName, "HOOT") == 0) {
       info.Name = "HOOT";
       info.FullName = "Hootchain";
