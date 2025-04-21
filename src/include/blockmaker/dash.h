@@ -17,8 +17,8 @@ enum {
 struct Transaction {
   int16_t nVersion;
   uint16_t nType;
-  xvector<TxIn> vin;
-  xvector<TxOut> vout;
+  xvector<BTC::Proto::TxIn> vin;
+  xvector<BTC::Proto::TxOut> vout;
   uint32_t nLockTime;
   xvector<uint8_t> vExtraPayload;
 
