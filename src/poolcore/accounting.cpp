@@ -3,6 +3,7 @@
 #include "poolcommon/mergeSorted.h"
 #include "poolcommon/utils.h"
 #include "poolcore/base58.h"
+#include "poolcore/priceFetcher.h"
 #include "poolcore/statistics.h"
 #include "loguru.hpp"
 #include <stdarg.h>
@@ -177,18 +178,26 @@ void AccountingDb::flushAccountingStorageFile(int64_t timeLabel)
   }
 }
 
-AccountingDb::AccountingDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, StatisticDb &statisticDb) :
+AccountingDb::AccountingDb(asyncBase *base,
+                           const PoolBackendConfig &config,
+                           const CCoinInfo &coinInfo,
+                           UserManager &userMgr,
+                           CNetworkClientDispatcher &clientDispatcher,
+                           StatisticDb &statisticDb,
+                           CPriceFetcher &priceFetcher) :
   Base_(base),
   _cfg(config),
   CoinInfo_(coinInfo),
   UserManager_(userMgr),
   ClientDispatcher_(clientDispatcher),
   StatisticDb_(statisticDb),
+  PriceFetcher_(priceFetcher),
   _roundsDb(config.dbPath / "rounds.v2"),
   _balanceDb(config.dbPath / "balance"),
   _foundBlocksDb(config.dbPath / "foundBlocks"),
   _poolBalanceDb(config.dbPath / "poolBalance"),
   _payoutDb(config.dbPath / "payouts"),
+  PPLNSPayoutsDb(config.dbPath / "pplns.payouts"),
   TaskHandler_(this, base)
 {
   FlushTimerEvent_ = newUserEvent(base, 1, nullptr, nullptr);
@@ -338,7 +347,7 @@ void AccountingDb::cleanupRounds()
   auto I = _allRounds.begin();
   while (I != _allRounds.end()) {
     MiningRound *round = I->get();
-    if (round->Time >= timeLabel || UnpayedRounds_.count(round))
+    if (round->EndTime >= timeLabel || UnpayedRounds_.count(round))
       break;
     _roundsDb.deleteRow(*round);
     ++I;
@@ -363,17 +372,17 @@ void AccountingDb::calculatePayments(MiningRound *R, int64_t generatedCoins)
   R->Payouts.clear();
 
   int64_t totalPayout = 0;
-  std::vector<PayoutDbRecord> payouts;
+  std::vector<CUserPayout> payouts;
   std::map<std::string, int64_t> feePayouts;
   std::unordered_map<std::string, UserManager::UserFeeConfig> feePlans;
   for (const auto &record: R->UserShares) {
     // Calculate payout
-    int64_t payoutValue = static_cast<int64_t>(R->AvailableCoins * (record.shareValue / R->TotalShareValue));
+    int64_t payoutValue = static_cast<int64_t>(R->AvailableCoins * (record.ShareValue / R->TotalShareValue));
 
     totalPayout += payoutValue;
 
     // get fee plan for user
-    std::string feePlanId = UserManager_.getFeePlanId(record.userId);
+    std::string feePlanId = UserManager_.getFeePlanId(record.UserId);
     auto It = feePlans.find(feePlanId);
     if (It == feePlans.end())
       It = feePlans.insert(It, std::make_pair(feePlanId, UserManager_.getFeeRecord(feePlanId, CoinInfo_.Name)));
@@ -403,25 +412,25 @@ void AccountingDb::calculatePayments(MiningRound *R, int64_t generatedCoins)
       feeValuesSum = 0;
       feeValues.clear();
       debugString = "NONE";
-      LOG_F(ERROR, "   * user %s: fee over 100%% can't be applied", record.userId.c_str());
+      LOG_F(ERROR, "   * user %s: fee over 100%% can't be applied", record.UserId.c_str());
     }
 
-    payouts.emplace_back(record.userId, payoutValue);
-    LOG_F(INFO, " * %s %s -> %sremaining %s", record.userId.c_str(), FormatMoney(payoutValue+feeValuesSum, rationalPartSize).c_str(), debugString.c_str(), FormatMoney(payoutValue, rationalPartSize).c_str());
+    payouts.emplace_back(record.UserId, payoutValue, payoutValue, record.IncomingWork);
+    LOG_F(INFO, " * %s %s -> %sremaining %s", record.UserId.c_str(), FormatMoney(payoutValue+feeValuesSum, rationalPartSize).c_str(), debugString.c_str(), FormatMoney(payoutValue, rationalPartSize).c_str());
   }
 
   mergeSorted(payouts.begin(), payouts.end(), feePayouts.begin(), feePayouts.end(),
-    [](const PayoutDbRecord &l, const std::pair<std::string, int64_t> &r) { return l.UserId < r.first; },
-    [](const std::pair<std::string, int64_t> &l, const PayoutDbRecord &r) { return l.first < r.UserId; },
-    [R](const PayoutDbRecord &record) {
+    [](const CUserPayout &l, const std::pair<std::string, int64_t> &r) { return l.UserId < r.first; },
+    [](const std::pair<std::string, int64_t> &l, const CUserPayout &r) { return l.first < r.UserId; },
+    [R](const CUserPayout &record) {
       if (record.Value)
         R->Payouts.emplace_back(record);
     }, [R](const std::pair<std::string, int64_t> &fee) {
       if (fee.second)
-        R->Payouts.emplace_back(fee.first, fee.second);
-    }, [R](const PayoutDbRecord &record, const std::pair<std::string, int64_t> &fee) {
+        R->Payouts.emplace_back(fee.first, fee.second, 0, 0.0);
+    }, [R](const CUserPayout &record, const std::pair<std::string, int64_t> &fee) {
       if (record.Value + fee.second)
-        R->Payouts.emplace_back(record.UserId, record.Value + fee.second);
+        R->Payouts.emplace_back(record.UserId, record.Value + fee.second, record.Value, record.AcceptedWork);
     });
 
   // Correct payouts for use all available coins
@@ -479,11 +488,17 @@ void AccountingDb::addShare(const CShare &share)
 
     R->Height = share.height;
     R->BlockHash = share.hash.c_str();
-    R->Time = share.Time;
+    R->EndTime = share.Time;
     R->FoundBy = share.userId;
     R->ExpectedWork = share.ExpectedWork;
     R->AccumulatedWork = accumulatedWork;
     R->TotalShareValue = 0;
+    R->PrimePOWTarget = share.PrimePOWTarget;
+
+    if (!_allRounds.empty())
+      R->StartTime = _allRounds.back()->EndTime;
+    else
+      R->StartTime = 0;
 
     // Merge shares for current block with older shares (PPLNS)
     {
@@ -495,14 +510,14 @@ void AccountingDb::addShare(const CShare &share)
           // User disconnected recently, no new shares
           double shareValue = stats.recentShareValue(acceptSharesTime);
           if (shareValue != 0.0) {
-            R->UserShares.emplace_back(stats.UserId, shareValue);
+            R->UserShares.emplace_back(stats.UserId, shareValue, 0.0);
           }
         }, [&](const std::pair<std::string, double> &scores) {
           // User joined recently, no extra shares in statistic
-          R->UserShares.emplace_back(scores.first, scores.second);
+          R->UserShares.emplace_back(scores.first, scores.second, scores.second);
         }, [&](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, double> &scores) {
           // Need merge new shares and recent share statistics
-          R->UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime));
+          R->UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime), scores.second);
         });
     }
 
@@ -510,7 +525,7 @@ void AccountingDb::addShare(const CShare &share)
 
     // Calculate total share value
     for (const auto &element: R->UserShares)
-      R->TotalShareValue += element.shareValue;
+      R->TotalShareValue += element.ShareValue;
 
     // Calculate payments
     if (!hasUnknownReward())
@@ -573,10 +588,6 @@ void AccountingDb::initializationFinish(int64_t timeLabel)
   }
 }
 
-void AccountingDb::mergeRound(const Round*)
-{
-}
-
 void AccountingDb::checkBlockConfirmations()
 {
   if (UnpayedRounds_.empty())
@@ -608,6 +619,23 @@ void AccountingDb::checkBlockConfirmations()
       LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R->Height, R->BlockHash.c_str());
       for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I) {
         requestPayout(I->UserId, I->Value);
+
+        // update payout table
+        if (R->StartTime != 0) {
+          CPPLNSPayout record;
+          record.Login = I->UserId;
+          record.RoundStartTime = R->StartTime;
+          record.BlockHash = R->BlockHash;
+          record.BlockHeight = R->Height;
+          record.RoundEndTime = R->EndTime;
+          record.PayoutValue = I->Value;
+          record.PayoutValueWithoutFee = I->ValueWithoutFee;
+          record.AcceptedWork = I->AcceptedWork;
+          record.PrimePOWTarget = R->PrimePOWTarget;
+          record.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
+          record.RateBTCToUSD = PriceFetcher_.getBtcUsd();
+          PPLNSPayoutsDb.put(record);
+        }
       }
 
       R->Payouts.clear();
@@ -645,7 +673,7 @@ void AccountingDb::checkBlockExtraInfo()
       FoundBlockRecord blk;
       blk.Height = R->Height;
       blk.Hash = R->BlockHash;
-      blk.Time = R->Time;
+      blk.Time = R->EndTime;
       blk.AvailableCoins = confirmationsQuery[i].BlockReward;
       blk.FoundBy = R->FoundBy;
       blk.ExpectedWork = R->ExpectedWork;
@@ -1154,6 +1182,117 @@ void AccountingDb::queryFoundBlocksImpl(int64_t heightFrom, const std::string &h
   callback(foundBlocks, confirmationsQuery);
 }
 
+void AccountingDb::queryPPLNSPayoutsImpl(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback)
+{
+  auto &db = getPPLNSPayoutsDb();
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
+  if (timeFrom != 0) {
+    CPPLNSPayout record;
+    record.Login = login;
+    record.RoundStartTime = timeFrom;
+    record.BlockHash = hashFrom;
+    It->seek(record);
+    It->prev();
+  } else {
+    It->seekLast();
+  }
+
+  std::vector<CPPLNSPayout> payouts;
+  for (unsigned i = 0; i < count && It->valid(); i++) {
+    RawData data = It->value();
+    payouts.emplace_back();
+    if (!payouts.back().deserializeValue(data.data, data.size))
+      break;
+    It->prev();
+  }
+
+  callback(payouts);
+}
+
+void AccountingDb::queryPPLNSPayoutsAccImpl(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, QueryPPLNSAccCallback callback)
+{
+  std::vector<CPPLNSPayoutAcc> payoutAccs;
+
+  // TODO: return error
+  if (timeTo <= timeFrom ||
+      groupByInterval == 0 ||
+      (timeTo - timeFrom) % groupByInterval != 0 ||
+      (timeTo - timeFrom) / groupByInterval > 3200) {
+    callback(payoutAccs);
+    return;
+  }
+
+  auto &db = getPPLNSPayoutsDb();
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
+
+  CPPLNSPayout valueRecord;
+  xmstream resumeKey;
+  auto validPredicate = [&login](const CPPLNSPayout &record) -> bool {
+    return record.Login == login;
+  };
+
+  {
+    CPPLNSPayout record;
+    record.Login = login;
+    record.RoundStartTime = std::numeric_limits<int64_t>::max();
+    record.BlockHash.clear();
+    record.serializeKey(resumeKey);
+  }
+
+  {
+    CPPLNSPayout keyRecord;
+    keyRecord.Login = login;
+    keyRecord.RoundStartTime = timeTo;
+    keyRecord.BlockHash.clear();
+    It->seekForPrev<CPPLNSPayout>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+  }
+
+  // Fill 'stats' with zero-initialized elements for entire range
+  {
+    size_t count = (timeTo - timeFrom) / groupByInterval;
+    int64_t timeLabel = timeFrom + groupByInterval;
+    payoutAccs.resize(count);
+    for (size_t i = 0; i < count; i++) {
+      payoutAccs[i].IntervalEnd = timeLabel;
+      timeLabel += groupByInterval;
+    }
+  }
+
+  while (It->valid()) {
+    if (valueRecord.RoundEndTime < timeFrom)
+      break;
+
+    double intervalSize = valueRecord.RoundEndTime - valueRecord.RoundStartTime;
+    int64_t intervalStart = std::max(valueRecord.RoundStartTime, timeFrom);
+    while (intervalStart < valueRecord.RoundEndTime) {
+      int64_t e = intervalStart + groupByInterval - (intervalStart % groupByInterval);
+      int64_t intervalEnd = std::min(e, valueRecord.RoundEndTime);
+      size_t index = (intervalStart - timeFrom) / groupByInterval;
+      double coeff = static_cast<double>(intervalEnd - intervalStart) / intervalSize;
+
+      if (index < payoutAccs.size()) {
+        auto &current = payoutAccs[index];
+        double payoutValue = valueRecord.PayoutValue * coeff;
+        current.TotalCoin += payoutValue;
+        current.TotalBTC += payoutValue * valueRecord.RateToBTC;
+        current.TotalUSD += payoutValue * (valueRecord.RateToBTC * valueRecord.RateBTCToUSD);
+        current.TotalIncomingWork += valueRecord.AcceptedWork * coeff;
+        current.PrimePOWTarget = std::min(current.PrimePOWTarget, valueRecord.PrimePOWTarget);
+      }
+
+      intervalStart = intervalEnd;
+    }
+
+    It->prev<CPPLNSPayout>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+  }
+
+  for (auto &p : payoutAccs) {
+    p.AvgHashRate = CoinInfo_.calculateAveragePower(p.TotalIncomingWork, groupByInterval, p.PrimePOWTarget);
+  }
+
+  callback(payoutAccs);
+}
+
 void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback)
 {
   int64_t currentTime = time(nullptr);
@@ -1211,7 +1350,7 @@ void AccountingDb::queryBalanceImpl(const std::string &user, QueryBalanceCallbac
   // Calculate queued balance
   info.Queued = 0;
   for (const auto &It: UnpayedRounds_) {
-    auto payout = std::lower_bound(It->Payouts.begin(), It->Payouts.end(), user, [](const PayoutDbRecord &record, const std::string &user) -> bool { return record.UserId < user; });
+    auto payout = std::lower_bound(It->Payouts.begin(), It->Payouts.end(), user, [](const CUserPayout &record, const std::string &user) -> bool { return record.UserId < user; });
     if (payout != It->Payouts.end() && payout->UserId == user)
       info.Queued += payout->Value;
   }

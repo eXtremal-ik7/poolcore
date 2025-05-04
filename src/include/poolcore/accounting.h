@@ -17,28 +17,24 @@
 #include <set>
 #include <string>
 
-class p2pNode;
-class p2pPeer;
+class CPriceFetcher;
 class StatisticDb;
-
-struct RoundElement {
-  std::string userId;
-  int64_t shareValue;
-};
-
-struct Round {
-  int64_t height;
-  std::string hash;
-  uint64_t time;
-  int64_t availableCoins;
-  std::vector<RoundElement> elements;
-};
 
 class AccountingDb {
 public:
   struct UserBalanceInfo {
     UserBalanceRecord Data;
     int64_t Queued;
+  };
+
+  struct CPPLNSPayoutAcc {
+    int64_t IntervalEnd = 0;
+    int64_t TotalCoin = 0;
+    int64_t TotalBTC = 0.0;
+    double TotalUSD = 0.0;
+    double TotalIncomingWork = 0.0;
+    uint64_t AvgHashRate = 0;
+    uint32_t PrimePOWTarget = -1U;
   };
 
   // +file serialization
@@ -56,6 +52,8 @@ private:
   using ManualPayoutCallback = std::function<void(bool)>;
   using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
   using QueryBalanceCallback = std::function<void(const UserBalanceInfo&)>;
+  using QueryPPLNSPayoutsCallback = std::function<void(const std::vector<CPPLNSPayout>&)>;
+  using QueryPPLNSAccCallback = std::function<void(const std::vector<CPPLNSPayoutAcc>&)>;
   using PoolLuckCallback = std::function<void(const std::vector<double>&)>;
 
   struct UserFeePair {
@@ -120,6 +118,32 @@ private:
     QueryBalanceCallback Callback_;
   };
 
+  class TaskQueryPPLNSPayouts : public Task<AccountingDb> {
+  public:
+    TaskQueryPPLNSPayouts(const std::string &user, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback) :
+      User_(user), TimeFrom_(timeFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
+    void run(AccountingDb *accounting) final { accounting->queryPPLNSPayoutsImpl(User_, TimeFrom_, HashFrom_, Count_, Callback_); }
+  private:
+    std::string User_;
+    int64_t TimeFrom_;
+    std::string HashFrom_;
+    uint32_t Count_;
+    QueryPPLNSPayoutsCallback Callback_;
+  };
+
+  class TaskQueryPPLNSAcc: public Task<AccountingDb> {
+  public:
+    TaskQueryPPLNSAcc(const std::string &user, int64_t timeFrom, int64_t timeTo, int64_t groupInterval, QueryPPLNSAccCallback callback) :
+        User_(user), TimeFrom_(timeFrom), TimeTo_(timeTo), GroupInterval_(groupInterval), Callback_(callback) {}
+    void run(AccountingDb *accounting) final { accounting->queryPPLNSPayoutsAccImpl(User_, TimeFrom_, TimeTo_, GroupInterval_, Callback_); }
+  private:
+    std::string User_;
+    int64_t TimeFrom_;
+    int64_t TimeTo_;
+    int64_t GroupInterval_;
+    QueryPPLNSAccCallback Callback_;
+  };
+
   class TaskPoolLuck : public Task<AccountingDb> {
   public:
     TaskPoolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) : Intervals_(intervals), Callback_(callback) {}
@@ -136,6 +160,7 @@ private:
   UserManager &UserManager_;
   CNetworkClientDispatcher &ClientDispatcher_;
   StatisticDb &StatisticDb_;
+  CPriceFetcher &PriceFetcher_;
   
   std::map<std::string, UserBalanceRecord> _balanceMap;
   std::deque<std::unique_ptr<MiningRound>> _allRounds;
@@ -162,6 +187,7 @@ private:
   kvdb<rocksdbBase> _foundBlocksDb;
   kvdb<rocksdbBase> _poolBalanceDb;
   kvdb<rocksdbBase> _payoutDb;
+  kvdb<rocksdbBase> PPLNSPayoutsDb;
   
   uint64_t LastKnownShareId_ = 0;
   
@@ -175,7 +201,14 @@ private:
   void flushAccountingStorageFile(int64_t timeLabel);
 
 public:
-  AccountingDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher, StatisticDb &statisticDb);
+  AccountingDb(asyncBase *base,
+               const PoolBackendConfig &config,
+               const CCoinInfo &coinInfo,
+               UserManager &userMgr,
+               CNetworkClientDispatcher &clientDispatcher,
+               StatisticDb &statisticDb,
+               CPriceFetcher &priceFetcher);
+
   void taskHandler();
 
   uint64_t lastAggregatedShareId() { return !AccountingDiskStorage_.empty() ? AccountingDiskStorage_.back().LastShareId : 0; }
@@ -194,7 +227,6 @@ public:
   void addShare(const CShare &share);
   void replayShare(const CShare &share);
   void initializationFinish(int64_t timeLabel);
-  void mergeRound(const Round *round);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();
   void buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout);
@@ -208,12 +240,21 @@ public:
   kvdb<rocksdbBase> &getPoolBalanceDb() { return _poolBalanceDb; }
   kvdb<rocksdbBase> &getPayoutDb() { return _payoutDb; }
   kvdb<rocksdbBase> &getBalanceDb() { return _balanceDb; }
+  kvdb<rocksdbBase> &getPPLNSPayoutsDb() { return PPLNSPayoutsDb; }
 
   const std::map<std::string, UserBalanceRecord> &getUserBalanceMap() { return _balanceMap; }
 
   // Asynchronous api
   void manualPayout(const std::string &user, DefaultCb callback) { TaskHandler_.push(new TaskManualPayout(user, callback)); }
-  void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) { TaskHandler_.push(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback)); }
+  void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) {
+    TaskHandler_.push(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback));
+  }
+  void queryPPLNSPayouts(const std::string &user, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback) {
+    TaskHandler_.push(new TaskQueryPPLNSPayouts(user, timeFrom, hashFrom, count, callback));
+  }
+  void queryPPLNSAcc(const std::string &user, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, QueryPPLNSAccCallback callback) {
+    TaskHandler_.push(new TaskQueryPPLNSAcc(user, timeFrom, timeTo, groupByInterval, callback));
+  }
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { TaskHandler_.push(new TaskQueryBalance(user, callback)); }
   void poolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) { TaskHandler_.push(new TaskPoolLuck(std::move(intervals), callback)); }
 
@@ -228,6 +269,8 @@ private:
   void manualPayoutImpl(const std::string &user, DefaultCb callback);
   void queryBalanceImpl(const std::string &user, QueryBalanceCallback callback);
   void queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
+  void queryPPLNSPayoutsImpl(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback);
+  void queryPPLNSPayoutsAccImpl(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, QueryPPLNSAccCallback callback);
   void poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback);
 };
 

@@ -39,7 +39,12 @@ static void checkConsistency(AccountingDb *accounting)
 }
 
 
-PoolBackend::PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher) :
+PoolBackend::PoolBackend(asyncBase *base,
+                         const PoolBackendConfig &cfg,
+                         const CCoinInfo &info,
+                         UserManager &userMgr,
+                         CNetworkClientDispatcher &clientDispatcher,
+                         CPriceFetcher &priceFetcher) :
   _base(base), _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher), TaskHandler_(this, base)
 {
   CheckConfirmationsEvent_ = newUserEvent(base, 1, nullptr, nullptr);
@@ -49,7 +54,7 @@ PoolBackend::PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CC
   _timeout = 8*1000000;
 
   _statistics.reset(new StatisticDb(_base, _cfg, CoinInfo_));
-  _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, *_statistics.get()));
+  _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, *_statistics.get(), priceFetcher));
 
   ShareLogConfig shareLogConfig(_accounting.get(), _statistics.get());
   ShareLog_.init(cfg.dbPath / "shares.log.v1", cfg.dbPath / "shares.log", info.Name, _base, _cfg.ShareLogFlushInterval, _cfg.ShareLogFileSizeLimit, shareLogConfig);

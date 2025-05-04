@@ -7,7 +7,9 @@
 class CPriceFetcher {
 public:
   CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coinInfo);
-  double getPrice(size_t index) { return CurrentPrices_[index].load(); }
+  double getBtcUsd();
+  double getPrice(const std::string &coinName);
+  double getPrice(size_t index);
 
 private:
   void updatePrice();
@@ -20,10 +22,12 @@ private:
   HTTPClient *Client_ = nullptr;
   aioUserEvent *TimerEvent_ = nullptr;
   std::vector<CCoinInfo> CoinInfo_;
+  std::unordered_map<std::string, size_t> CoinIndexMap_;
   HTTPParseDefaultContext ParseCtx_;
   HostAddress Address_;
   xmstream PreparedQuery_;
   std::atomic<double> CurrentPrice_;
+  std::atomic<double> BTCPrice_;
 
   std::unique_ptr<std::atomic<double>[]> CurrentPrices_;
 };

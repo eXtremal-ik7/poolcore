@@ -93,10 +93,12 @@ struct PoolBackendConfig {
 };
 
 struct UserShareValue {
-  std::string userId;
-  double shareValue;
+  std::string UserId;
+  double ShareValue;
+  double IncomingWork;
   UserShareValue() {}
-  UserShareValue(const std::string &userId_, double shareValue_) : userId(userId_), shareValue(shareValue_) {}
+  UserShareValue(const std::string &userId, double shareValue, double incomingWork) :
+    UserId(userId), ShareValue(shareValue), IncomingWork(incomingWork) {}
 };
 
 struct PayoutDbRecord {
@@ -133,12 +135,23 @@ struct shareInfo {
   int64_t count;
 };
 
+struct CUserPayout {
+  std::string UserId;
+  int64_t Value;
+  int64_t ValueWithoutFee;
+  double AcceptedWork;
+  CUserPayout() : Value(0) {}
+  CUserPayout(const std::string &userId, int64_t value, int64_t valueWithoutFee, double acceptedWork) :
+    UserId(userId), Value(value), ValueWithoutFee(valueWithoutFee), AcceptedWork(acceptedWork) {}
+};
+
 struct MiningRound {
-  static constexpr uint32_t CurrentRecordVersion = 1;
+  static constexpr uint32_t CurrentRecordVersion = 2;
   
   uint64_t Height;
   std::string BlockHash;
-  int64_t Time;
+  int64_t EndTime;
+  int64_t StartTime;
     
   // aggregated share and payment value
   double TotalShareValue;
@@ -150,8 +163,11 @@ struct MiningRound {
   double AccumulatedWork;
   int64_t TxFee = 0;
 
+  // XPM specific
+  uint32_t PrimePOWTarget;
+
   std::vector<UserShareValue> UserShares;
-  std::vector<PayoutDbRecord> Payouts;
+  std::vector<CUserPayout> Payouts;
     
   MiningRound() {}
   MiningRound(unsigned heightArg) : Height(heightArg) {}
@@ -386,14 +402,76 @@ struct StatsRecord {
   void serializeValue(xmstream &stream) const;
 };
 
+struct CPPLNSPayout {
+  enum { CurrentRecordVersion = 1 };
+  // Key part
+  std::string Login;
+  int64_t RoundStartTime;
+  std::string BlockHash;
+  // Value part
+  uint64_t BlockHeight;
+  int64_t RoundEndTime;
+  int64_t PayoutValue;
+  int64_t PayoutValueWithoutFee;
+  double AcceptedWork;
+  uint32_t PrimePOWTarget;
+  double RateToBTC;
+  double RateBTCToUSD;
+
+  std::string getPartitionId() const { return partByTime(RoundStartTime); }
+  bool deserializeValue(const void *data, size_t size);
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;
+};
+
 template<>
 struct DbIo<UserShareValue> {
   static inline void serialize(xmstream &stream, const UserShareValue &data) {
+    DbIo<decltype (data.UserId)>::serialize(stream, data.UserId);
+    DbIo<decltype (data.ShareValue)>::serialize(stream, data.ShareValue);
+    DbIo<decltype (data.IncomingWork)>::serialize(stream, data.IncomingWork);
+  }
+
+  static inline void unserialize(xmstream &stream, UserShareValue &data) {
+    DbIo<decltype (data.UserId)>::unserialize(stream, data.UserId);
+    DbIo<decltype (data.ShareValue)>::unserialize(stream, data.ShareValue);
+    DbIo<decltype (data.IncomingWork)>::unserialize(stream, data.IncomingWork);
+  }
+};
+
+template<>
+struct DbIo<CUserPayout> {
+  static inline void serialize(xmstream &stream, const CUserPayout &data) {
+    DbIo<decltype (data.UserId)>::serialize(stream, data.UserId);
+    DbIo<decltype (data.Value)>::serialize(stream, data.Value);
+    DbIo<decltype (data.ValueWithoutFee)>::serialize(stream, data.ValueWithoutFee);
+    DbIo<decltype (data.AcceptedWork)>::serialize(stream, data.AcceptedWork);
+  }
+
+  static inline void unserialize(xmstream &stream, CUserPayout &data) {
+    DbIo<decltype (data.UserId)>::unserialize(stream, data.UserId);
+    DbIo<decltype (data.Value)>::unserialize(stream, data.Value);
+    DbIo<decltype (data.ValueWithoutFee)>::unserialize(stream, data.ValueWithoutFee);
+    DbIo<decltype (data.AcceptedWork)>::unserialize(stream, data.AcceptedWork);
+  }
+};
+
+// For backward compatibility
+struct UserShareValue1 {
+  std::string userId;
+  double shareValue;
+  UserShareValue1() {}
+  UserShareValue1(const std::string &userId_, double shareValue_) : userId(userId_), shareValue(shareValue_) {}
+};
+
+template<>
+struct DbIo<UserShareValue1> {
+  static inline void serialize(xmstream &stream, const UserShareValue1 &data) {
     DbIo<decltype (data.userId)>::serialize(stream, data.userId);
     DbIo<decltype (data.shareValue)>::serialize(stream, data.shareValue);
   }
 
-  static inline void unserialize(xmstream &stream, UserShareValue &data) {
+  static inline void unserialize(xmstream &stream, UserShareValue1 &data) {
     DbIo<decltype (data.userId)>::unserialize(stream, data.userId);
     DbIo<decltype (data.shareValue)>::unserialize(stream, data.shareValue);
   }

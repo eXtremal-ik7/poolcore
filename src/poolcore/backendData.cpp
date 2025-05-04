@@ -109,7 +109,8 @@ void MiningRound::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
   dbIoSerialize(stream, Height);
   dbIoSerialize(stream, BlockHash);
-  dbIoSerialize(stream, Time);
+  dbIoSerialize(stream, EndTime);
+  dbIoSerialize(stream, StartTime);
   dbIoSerialize(stream, TotalShareValue);
   dbIoSerialize(stream, AvailableCoins);
   dbIoSerialize(stream, UserShares);
@@ -118,6 +119,7 @@ void MiningRound::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, ExpectedWork);
   dbIoSerialize(stream, AccumulatedWork);
   dbIoSerialize(stream, TxFee);
+  dbIoSerialize(stream, PrimePOWTarget);
 }
 
 bool MiningRound::deserializeValue(const void *data, size_t size)
@@ -126,20 +128,53 @@ bool MiningRound::deserializeValue(const void *data, size_t size)
 
   uint32_t version;
   dbIoUnserialize(stream, version);
-  if (version >= 1) {
+  if (version == 1) {
+    std::vector<UserShareValue1> userShares1;
+    std::vector<PayoutDbRecord> payouts1;
+
     dbIoUnserialize(stream, Height);
     dbIoUnserialize(stream, BlockHash);
-    dbIoUnserialize(stream, Time);
+    dbIoUnserialize(stream, EndTime);
+
+    StartTime = 0;
+
     dbIoUnserialize(stream, TotalShareValue);
     dbIoUnserialize(stream, AvailableCoins);
-    dbIoUnserialize(stream, UserShares);
-    dbIoUnserialize(stream, Payouts);
+
+    dbIoUnserialize(stream, userShares1);
+    {
+      for (const auto &s: userShares1)
+        UserShares.emplace_back(s.userId, s.shareValue, 0.0);
+    }
+
+    dbIoUnserialize(stream, payouts1);
+    {
+      for (const auto &p: payouts1)
+        Payouts.emplace_back(p.UserId, p.Value, p.Value, 0.0);
+    }
+
     if (stream.remaining()) {
       dbIoUnserialize(stream, FoundBy);
       dbIoUnserialize(stream, ExpectedWork);
       dbIoUnserialize(stream, AccumulatedWork);
       dbIoUnserialize(stream, TxFee);
     }
+
+    PrimePOWTarget = -1U;
+  } else if (version == 2) {
+    dbIoUnserialize(stream, Height);
+    dbIoUnserialize(stream, BlockHash);
+    dbIoUnserialize(stream, EndTime);
+    dbIoUnserialize(stream, StartTime);
+    dbIoUnserialize(stream, TotalShareValue);
+    dbIoUnserialize(stream, AvailableCoins);
+    dbIoUnserialize(stream, UserShares);
+    dbIoUnserialize(stream, Payouts);
+    dbIoUnserialize(stream, FoundBy);
+    dbIoUnserialize(stream, ExpectedWork);
+    dbIoUnserialize(stream, AccumulatedWork);
+    dbIoUnserialize(stream, TxFee);
+    dbIoUnserialize(stream, PrimePOWTarget);
   }
   
   return !stream.eof();
@@ -149,18 +184,20 @@ void MiningRound::dump()
 {
   fprintf(stderr, "height=%u\n", (unsigned)Height);
   fprintf(stderr, "blockhash=%s\n", BlockHash.c_str());
-  fprintf(stderr, "time=%u\n", (unsigned)Time);
+  fprintf(stderr, "time=%u\n", (unsigned)EndTime);
   fprintf(stderr, "totalShareValue=%.3lf\n", TotalShareValue);
   fprintf(stderr, "availableCoins=%" PRId64 "\n", AvailableCoins);
   for (auto r: UserShares) {
     fprintf(stderr, " *** round element ***\n");
-    fprintf(stderr, " * userId: %s\n", r.userId.c_str());
-    fprintf(stderr, " * shareValue: %.3lf\n", r.shareValue);
+    fprintf(stderr, " * userId: %s\n", r.UserId.c_str());
+    fprintf(stderr, " * shareValue: %.6lf\n", r.ShareValue);
+    fprintf(stderr, " * incomingWork: %.6lf\n", r.IncomingWork);
   }
   for (auto p: Payouts) {
     fprintf(stderr, " *** payout element ***\n");
     fprintf(stderr, " * userId: %s\n", p.UserId.c_str());
     fprintf(stderr, " * payoutValue: %" PRId64 "\n", p.Value);
+    fprintf(stderr, " * valueWithoutFee: %" PRId64 "\n", p.ValueWithoutFee);
   }  
 }
 
@@ -521,6 +558,51 @@ void StatsRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, ShareWork);
   dbIoSerialize(stream, PrimePOWTarget);
   dbIoSerialize(stream, PrimePOWShareCount);
+}
+
+bool CPPLNSPayout::deserializeValue(const void *data, size_t size)
+{
+  xmstream stream((void*)data, size);
+  uint32_t version;
+  dbIoUnserialize(stream, version);
+  if (version == 1) {
+    dbIoUnserialize(stream, Login);
+    dbIoUnserialize(stream, RoundStartTime);
+    dbIoUnserialize(stream, BlockHash);
+    dbIoUnserialize(stream, BlockHeight);
+    dbIoUnserialize(stream, RoundEndTime);
+    dbIoUnserialize(stream, PayoutValue);
+    dbIoUnserialize(stream, PayoutValueWithoutFee);
+    dbIoUnserialize(stream, AcceptedWork);
+    dbIoUnserialize(stream, PrimePOWTarget);
+    dbIoUnserialize(stream, RateToBTC);
+    dbIoUnserialize(stream, RateBTCToUSD);
+  }
+
+  return !stream.eof();
+}
+
+void CPPLNSPayout::serializeKey(xmstream &stream) const
+{
+  dbKeyIoSerialize(stream, Login);
+  dbKeyIoSerialize(stream, RoundStartTime);
+  dbKeyIoSerialize(stream, BlockHash);
+}
+
+void CPPLNSPayout::serializeValue(xmstream &stream) const
+{
+  dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
+  dbIoSerialize(stream, Login);
+  dbIoSerialize(stream, RoundStartTime);
+  dbIoSerialize(stream, BlockHash);
+  dbIoSerialize(stream, BlockHeight);
+  dbIoSerialize(stream, RoundEndTime);
+  dbIoSerialize(stream, PayoutValue);
+  dbIoSerialize(stream, PayoutValueWithoutFee);
+  dbIoSerialize(stream, AcceptedWork);
+  dbIoSerialize(stream, PrimePOWTarget);
+  dbIoSerialize(stream, RateToBTC);
+  dbIoSerialize(stream, RateBTCToUSD);
 }
 
 // ====================== payoutRecord ======================

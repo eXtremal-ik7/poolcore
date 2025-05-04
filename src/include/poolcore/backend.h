@@ -110,7 +110,12 @@ private:
 public:
   PoolBackend(const PoolBackend&) = delete;
   PoolBackend(PoolBackend&&) = default;
-  PoolBackend(asyncBase *base, const PoolBackendConfig &cfg, const CCoinInfo &info, UserManager &userMgr, CNetworkClientDispatcher &clientDispatcher);
+  PoolBackend(asyncBase *base,
+              const PoolBackendConfig &cfg,
+              const CCoinInfo &info,
+              UserManager &userMgr,
+              CNetworkClientDispatcher &clientDispatcher,
+              CPriceFetcher &priceFetcher);
 
   const PoolBackendConfig &getConfig() const { return _cfg; }
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }

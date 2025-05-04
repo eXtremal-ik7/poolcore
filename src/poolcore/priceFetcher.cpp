@@ -62,6 +62,7 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coi
 
       query.push_back(',');
       query.append(coin.CoinGeckoName);
+      CoinIndexMap_[coin.Name] = i;
     }
 
     query.append("&vs_currencies=USD");
@@ -75,6 +76,22 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coi
   }, this);
 
   updatePrice();
+}
+
+double CPriceFetcher::getBtcUsd()
+{
+  return BTCPrice_.load();
+}
+
+double CPriceFetcher::getPrice(const std::string &coinName)
+{
+  auto I = CoinIndexMap_.find(coinName);
+  return I != CoinIndexMap_.end() ? CurrentPrices_[I->second].load() : 0.0;
+}
+
+double CPriceFetcher::getPrice(size_t index)
+{
+  return CurrentPrices_[index].load();
 }
 
 void CPriceFetcher::updatePrice()
@@ -122,7 +139,6 @@ void CPriceFetcher::processRequest(const char *data, size_t size)
   if (document.HasParseError())
     return;
 
-  double btcPrice = 0.0;
   for (size_t i = 0; i < CoinInfo_.size(); i++) {
     const auto &coin = CoinInfo_[i];
 
@@ -134,12 +150,12 @@ void CPriceFetcher::processRequest(const char *data, size_t size)
 
     double price = coinPrice["usd"].GetDouble();
     if (coin.Name == "BTC") {
-      btcPrice = price;
-      snprintf(buffer, sizeof(buffer), "%s/USD: %.2lf ", "BTC", btcPrice);
+      BTCPrice_ = price;
+      snprintf(buffer, sizeof(buffer), "%s/USD: %.2lf ", "BTC", BTCPrice_.load());
       priceFetcherLog.append(buffer);
     } else {
-      CurrentPrices_[i].store(price / btcPrice);
-      snprintf(buffer, sizeof(buffer), "%s/USD: %.2lf %s/BTC: %.8lf ", coin.Name.c_str(), price, coin.Name.c_str(), price / btcPrice);
+      CurrentPrices_[i].store(price / BTCPrice_.load());
+      snprintf(buffer, sizeof(buffer), "%s/USD: %.2lf %s/BTC: %.8lf ", coin.Name.c_str(), price, coin.Name.c_str(), price / BTCPrice_.load());
       priceFetcherLog.append(buffer);
     }
   }
