@@ -14,13 +14,19 @@ endif()
 add_library(blockmaker STATIC
   sha256.c
   scrypt.c
+  x11.cpp
 
   ethash.c
   tiny_sha3.c
 
   aes_helper.cpp
+  blake.c
+  bmw.c
   cubehash.cpp
   echo.cpp
+  groestl.c
+  jh.c
+  keccak.c
   luffa.cpp
   simd.cpp
   shavite.cpp
@@ -31,6 +37,7 @@ add_library(blockmaker STATIC
 
   btc.cpp
   btcLike.cpp
+  dash.cpp
   dgb.cpp
   doge.cpp
   eth.cpp
