@@ -1,6 +1,5 @@
 #include "blockmaker/ethash.h"
-#include "blockmaker/tiny_sha3.h"
-#include "libp2pconfig.h"
+#include "blockmaker/sha3.h"
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,11 +105,11 @@ static inline size_t getLightCacheSize(int num_items)
 static void calculateEpochSeed(uint32_t out[8], int epoch_number)
 {
   memset(out, 0, 32);
-  sha3_ctx_t ctx;
+  CCtxSha3 ctx;
   for (int i = 0; i < epoch_number; i++) {
-    sha3_init(&ctx, 32);
-    sha3_update(&ctx, out, 32);
-    sha3_final(out, &ctx, 1);
+    sha3Init(&ctx, 32);
+    sha3Update(&ctx, out, 32);
+    sha3Final(&ctx, (uint8_t*)out, 1);
   }
 }
 
@@ -120,17 +119,17 @@ static void buildLightCache(uint32_t *cache, unsigned num_items, const uint32_t 
   const unsigned item32_size = 16;
 
   {
-    sha3_ctx_t ctx;
-    sha3_init(&ctx, 64);
-    sha3_update(&ctx, seed, 32);
-    sha3_final(&cache[item32_size*0], &ctx, 1);
+    CCtxSha3 ctx;
+    sha3Init(&ctx, 64);
+    sha3Update(&ctx, seed, 32);
+    sha3Final(&ctx, (uint8_t*)&cache[item32_size*0], 1);
   }
 
   for (unsigned i = 1; i < num_items; ++i) {
-    sha3_ctx_t ctx;
-    sha3_init(&ctx, 64);
-    sha3_update(&ctx, &cache[item32_size*(i-1)], 64);
-    sha3_final(&cache[item32_size*i], &ctx, 1);
+    CCtxSha3 ctx;
+    sha3Init(&ctx, 64);
+    sha3Update(&ctx, &cache[item32_size*(i-1)], 64);
+    sha3Final(&ctx, (uint8_t*)&cache[item32_size*i], 1);
   }
 
   for (int q = 0; q < light_cache_rounds; ++q) {
@@ -151,10 +150,10 @@ static void buildLightCache(uint32_t *cache, unsigned num_items, const uint32_t 
         x[i] = pv[i] ^ pw[i];
 
       {
-        sha3_ctx_t ctx;
-        sha3_init(&ctx, 64);
-        sha3_update(&ctx, x, 64);
-        sha3_final(&cache[item32_size*i], &ctx, 1);
+        CCtxSha3 ctx;
+        sha3Init(&ctx, 64);
+        sha3Update(&ctx, x, 64);
+        sha3Final(&ctx, (uint8_t*)&cache[item32_size*i], 1);
       }
     }
   }
@@ -171,10 +170,10 @@ static void itemInit(ItemState *item, const EthashDag *context, int64_t index)
   memcpy(item->Mix, &item->Cache[size32*(index % item->CacheItemsNum)], 64);
   item->Mix[0] ^= item->Seed;
 
-  sha3_ctx_t ctx;
-  sha3_init(&ctx, 64);
-  sha3_update(&ctx, item->Mix, 64);
-  sha3_final(item->Mix, &ctx, 1);
+  CCtxSha3 ctx;
+  sha3Init(&ctx, 64);
+  sha3Update(&ctx, item->Mix, 64);
+  sha3Final(&ctx, (uint8_t*)item->Mix, 1);
 }
 
 static void itemUpdate(ItemState *item, uint32_t round)
@@ -189,10 +188,10 @@ static void itemUpdate(ItemState *item, uint32_t round)
 
 static void itemFinal(void *out, ItemState *item)
 {
-  sha3_ctx_t ctx;
-  sha3_init(&ctx, 64);
-  sha3_update(&ctx, item->Mix, 64);
-  sha3_final(out, &ctx, 1);
+  CCtxSha3 ctx;
+  sha3Init(&ctx, 64);
+  sha3Update(&ctx, item->Mix, 64);
+  sha3Final(&ctx, out, 1);
 }
 
 int ethashGetEpochNumber(void *seed)
@@ -209,10 +208,10 @@ int ethashGetEpochNumber(void *seed)
       return i;
     }
 
-    sha3_ctx_t ctx;
-    sha3_init(&ctx, 32);
-    sha3_update(&ctx, localSeed, 32);
-    sha3_final(localSeed, &ctx, 1);
+    CCtxSha3 ctx;
+    sha3Init(&ctx, 32);
+    sha3Update(&ctx, localSeed, 32);
+    sha3Final(&ctx, localSeed, 1);
   }
 
   return -1;
@@ -251,11 +250,11 @@ void ethashCalculate(void *finalHash, void *mixHash, const void *headerHash, uin
   // calculate seed
   uint8_t seedX[64];
   {
-    sha3_ctx_t ctx;
-    sha3_init(&ctx, 64);
-    sha3_update(&ctx, headerHash, 32);
-    sha3_update(&ctx, &nonce, 8);
-    sha3_final(seedX, &ctx, 1);
+    CCtxSha3 ctx;
+    sha3Init(&ctx, 64);
+    sha3Update(&ctx, headerHash, 32);
+    sha3Update(&ctx, &nonce, 8);
+    sha3Final(&ctx, seedX, 1);
   }
 
   // calculate mix hash
@@ -303,10 +302,10 @@ void ethashCalculate(void *finalHash, void *mixHash, const void *headerHash, uin
   }
 
   {
-    sha3_ctx_t ctx;
-    sha3_init(&ctx, 32);
-    sha3_update(&ctx, seedX, 64);
-    sha3_update(&ctx, mixHash32, 32);
-    sha3_final(finalHash, &ctx, 1);
+    CCtxSha3 ctx;
+    sha3Init(&ctx, 32);
+    sha3Update(&ctx, seedX, 64);
+    sha3Update(&ctx, mixHash32, 32);
+    sha3Final(&ctx, finalHash, 1);
   }
 }

@@ -1,11 +1,10 @@
-
 #include "blockmaker/x11.h"
 
 #include "blockmaker/sph_blake.h"
 #include "blockmaker/sph_bmw.h"
 #include "blockmaker/sph_groestl.h"
 #include "blockmaker/sph_jh.h"
-#include "blockmaker/sph_keccak.h"
+#include "blockmaker/sha3.h"
 #include "blockmaker/sph_skein.h"
 #include "blockmaker/sph_luffa.h"
 #include "blockmaker/sph_cubehash.h"
@@ -22,7 +21,6 @@ void x11_hash(const uint8_t* input, uint32_t len, uint8_t* output) {
     sph_bmw512_context       ctx_bmw;
     sph_groestl512_context   ctx_groestl;
     sph_jh512_context        ctx_jh;
-    sph_keccak512_context    ctx_keccak;
     sph_skein512_context     ctx_skein;
     sph_luffa512_context     ctx_luffa;
     sph_cubehash512_context  ctx_cubehash;
@@ -55,9 +53,12 @@ void x11_hash(const uint8_t* input, uint32_t len, uint8_t* output) {
     sph_jh512(&ctx_jh, &hash[3], 64);
     sph_jh512_close(&ctx_jh, &hash[4]);
 
-    sph_keccak512_init(&ctx_keccak);
-    sph_keccak512(&ctx_keccak, &hash[4], 64);
-    sph_keccak512_close(&ctx_keccak, &hash[5]);
+    {
+      CCtxSha3 ctx;
+      sha3Init(&ctx, 64);
+      sha3Update(&ctx, &hash[4], 64);
+      sha3Final(&ctx, (uint8_t*)&hash[5], 1);
+    }
 
     sph_luffa512_init(&ctx_luffa);
     sph_luffa512(&ctx_luffa, &hash[5], 64);

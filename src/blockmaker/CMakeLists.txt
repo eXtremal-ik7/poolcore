@@ -13,11 +13,11 @@ endif()
 # Backend library
 add_library(blockmaker STATIC
   sha256.c
+  sha3.c
   scrypt.c
   x11.cpp
 
   ethash.c
-  tiny_sha3.c
 
   aes_helper.cpp
   blake.c
@@ -26,13 +26,10 @@ add_library(blockmaker STATIC
   echo.cpp
   groestl.c
   jh.c
-  keccak.c
   luffa.cpp
   simd.cpp
   shavite.cpp
   skein.cpp
-
-  KeccakP-800-reference.cpp
   odocrypt.cpp
 
   btc.cpp

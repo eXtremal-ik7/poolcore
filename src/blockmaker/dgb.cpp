@@ -7,7 +7,7 @@
 #include "blockmaker/sph_simd.h"
 #include "blockmaker/sph_echo.h"
 #include "blockmaker/odocrypt.h"
-#include "blockmaker/KeccakP-800-SnP.h"
+#include "blockmaker/sha3.h"
 
 static uint32_t OdoKey(uint32_t nOdoShapechangeInterval, uint32_t nTime)
 {
@@ -111,7 +111,7 @@ template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::
   CCheckStatus status;
   uint32_t key = OdoKey(ctx.OdoShapechangeInterval, header.nTime);
 
-  char cipher[KeccakP800_stateSizeInBytes] = {};
+  char cipher[100] = {};
   arith_uint256 result;
 
   size_t len = sizeof(Proto<DGB::Algo::EOdo>::BlockHeader);
@@ -119,7 +119,8 @@ template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::
   cipher[len] = 1;
 
   OdoCrypt(key).Encrypt(cipher, cipher);
-  KeccakP800_Permute_12rounds(cipher);
+  for (unsigned i = 22-12; i < 22; i++)
+    sha3llRound800((uint32_t*)cipher, i);
   memcpy(result.begin(), cipher, result.size());
 
   status.ShareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
