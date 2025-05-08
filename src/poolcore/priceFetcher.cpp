@@ -139,8 +139,20 @@ void CPriceFetcher::processRequest(const char *data, size_t size)
   if (document.HasParseError())
     return;
 
+  // bitcoin first
+  if (document.HasMember("bitcoin") && document["bitcoin"].IsObject()) {
+    rapidjson::Value &coinPrice = document["bitcoin"];
+    if (coinPrice.HasMember("usd") && coinPrice["usd"].IsNumber()) {
+      BTCPrice_ = coinPrice["usd"].GetDouble();
+      snprintf(buffer, sizeof(buffer), "BTC/USD: %lf ", BTCPrice_.load());
+      priceFetcherLog.append(buffer);
+    }
+  }
+
   for (size_t i = 0; i < CoinInfo_.size(); i++) {
     const auto &coin = CoinInfo_[i];
+    if (coin.Name == "BTC")
+      continue;
 
     if (!document.HasMember(coin.CoinGeckoName.c_str()) || !document[coin.CoinGeckoName.c_str()].IsObject())
       continue;
@@ -149,15 +161,9 @@ void CPriceFetcher::processRequest(const char *data, size_t size)
       continue;
 
     double price = coinPrice["usd"].GetDouble();
-    if (coin.Name == "BTC") {
-      BTCPrice_ = price;
-      snprintf(buffer, sizeof(buffer), "%s/USD: %.2lf ", "BTC", BTCPrice_.load());
-      priceFetcherLog.append(buffer);
-    } else {
-      CurrentPrices_[i].store(price / BTCPrice_.load());
-      snprintf(buffer, sizeof(buffer), "%s/USD: %.2lf %s/BTC: %.8lf ", coin.Name.c_str(), price, coin.Name.c_str(), price / BTCPrice_.load());
-      priceFetcherLog.append(buffer);
-    }
+    CurrentPrices_[i].store(price / BTCPrice_.load());
+    snprintf(buffer, sizeof(buffer), "%s/USD: %lf %s/BTC: %.12lf ", coin.Name.c_str(), price, coin.Name.c_str(), price / BTCPrice_.load());
+    priceFetcherLog.append(buffer);
   }
 
   LOG_F(INFO, "%s", priceFetcherLog.c_str());
