@@ -12,6 +12,7 @@ endif()
 
 # Backend library
 add_library(blockmaker STATIC
+  aes.c
   sha256.c
   sha3.c
   scrypt.c
@@ -19,7 +20,6 @@ add_library(blockmaker STATIC
 
   ethash.c
 
-  aes_helper.cpp
   blake.c
   bmw.c
   cubehash.cpp

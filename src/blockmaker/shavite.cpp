@@ -62,7 +62,7 @@ extern "C"{
  */
 
 #define AES_BIG_ENDIAN   0
-#include "aes_helper.cpp"
+#include "blockmaker/aes.h"
 
 static const sph_u32 IV224[] = {
 	C32(0x6774F31C), C32(0x990AE210), C32(0xC87D4274), C32(0xC9546371),
@@ -93,7 +93,7 @@ static const sph_u32 IV512[] = {
 		sph_u32 t1 = (x1); \
 		sph_u32 t2 = (x2); \
 		sph_u32 t3 = (x3); \
-		AES_ROUND_NOKEY_LE(t0, t1, t2, t3, x0, x1, x2, x3); \
+    aesRound(t0, t1, t2, t3, 0, 0, 0, 0, &x0, &x1, &x2, &x3); \
 	} while (0)
 
 /*
