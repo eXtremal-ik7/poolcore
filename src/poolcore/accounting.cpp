@@ -622,14 +622,17 @@ void AccountingDb::checkBlockConfirmations()
 
         // update payout table
         if (R->StartTime != 0) {
+          FixedPointInteger payoutValue(I->Value);
+          FixedPointInteger payoutValueWithoutFee(I->ValueWithoutFee);
+
           CPPLNSPayout record;
           record.Login = I->UserId;
           record.RoundStartTime = R->StartTime;
           record.BlockHash = R->BlockHash;
           record.BlockHeight = R->Height;
           record.RoundEndTime = R->EndTime;
-          record.PayoutValue = I->Value;
-          record.PayoutValueWithoutFee = I->ValueWithoutFee;
+          record.PayoutValue = payoutValue.getRational(CoinInfo_.ExtraMultiplier);
+          record.PayoutValueWithoutFee = payoutValueWithoutFee.getRational(CoinInfo_.ExtraMultiplier);
           record.AcceptedWork = I->AcceptedWork;
           record.PrimePOWTarget = R->PrimePOWTarget;
           record.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
@@ -1186,24 +1189,32 @@ void AccountingDb::queryPPLNSPayoutsImpl(const std::string &login, int64_t timeF
 {
   auto &db = getPPLNSPayoutsDb();
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
-  if (timeFrom != 0) {
+
+  CPPLNSPayout valueRecord;
+  xmstream resumeKey;
+  auto validPredicate = [&login](const CPPLNSPayout &record) -> bool {
+    return record.Login == login;
+  };
+
+  {
     CPPLNSPayout record;
     record.Login = login;
-    record.RoundStartTime = timeFrom;
-    record.BlockHash = hashFrom;
-    It->seek(record);
-    It->prev();
-  } else {
-    It->seekLast();
+    record.RoundStartTime = std::numeric_limits<int64_t>::max();
+    record.serializeKey(resumeKey);
+  }
+
+  {
+    CPPLNSPayout keyRecord;
+    keyRecord.Login = login;
+    keyRecord.RoundStartTime = timeFrom == 0 ? std::numeric_limits<int64_t>::max() : timeFrom;
+    keyRecord.BlockHash = hashFrom;
+    It->seekForPrev<CPPLNSPayout>(keyRecord, resumeKey.data<const char*>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
   std::vector<CPPLNSPayout> payouts;
   for (unsigned i = 0; i < count && It->valid(); i++) {
-    RawData data = It->value();
-    payouts.emplace_back();
-    if (!payouts.back().deserializeValue(data.data, data.size))
-      break;
-    It->prev();
+    payouts.emplace_back(valueRecord);
+    It->prev<CPPLNSPayout>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
   callback(payouts);
@@ -1275,7 +1286,7 @@ void AccountingDb::queryPPLNSPayoutsAccImpl(const std::string &login, int64_t ti
         double payoutValue = valueRecord.PayoutValue * coeff;
         current.TotalCoin += payoutValue;
         current.TotalBTC += payoutValue * valueRecord.RateToBTC;
-        current.TotalUSD += payoutValue * (valueRecord.RateToBTC * valueRecord.RateBTCToUSD);
+        current.TotalUSD += (payoutValue * (valueRecord.RateToBTC * valueRecord.RateBTCToUSD)) / static_cast<double>(CoinInfo_.RationalPartSize);
         current.TotalIncomingWork += valueRecord.AcceptedWork * coeff;
         current.PrimePOWTarget = std::min(current.PrimePOWTarget, valueRecord.PrimePOWTarget);
       }

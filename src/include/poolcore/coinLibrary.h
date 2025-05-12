@@ -214,6 +214,23 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+    } else if (strcmp(coinName, "BELLS.regtest") == 0) {
+      info.Name = "BELLS.regtest";
+      info.FullName = "Bellscoin";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.RationalPartSize = 100000000;
+      info.SegwitEnabled = true;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 3;
+      info.PubkeyAddressPrefix = {111};
+      info.ScriptAddressPrefix = {196};
+      info.DefaultRpcPort = 18443;
+      info.MinimalConfirmationsNumber = 12;
+      info.Algorithm = "scrypt";
+      info.PowLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.CanBeSecondaryCoin = true;
+      info.ResetWorkOnBlockChange = false;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "BSV") == 0) {
       info.Name = "BSV";
       info.FullName = "Bitcoin SV";
