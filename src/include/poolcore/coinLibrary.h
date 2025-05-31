@@ -181,13 +181,14 @@ public:
     } else if (strcmp(coinName, "BELLS") == 0) {
       info.Name = "BELLS";
       info.FullName = "Bellscoin";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {25};
       info.ScriptAddressPrefix = {30};
+      info.Bech32Prefix = "bel";
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "bellscoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
@@ -200,13 +201,14 @@ public:
     } else if (strcmp(coinName, "BELLS.testnet") == 0) {
       info.Name = "BELLS.testnet";
       info.FullName = "Bellscoin";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {33};
       info.ScriptAddressPrefix = {22};
+      info.Bech32Prefix = "tbel";
       info.DefaultRpcPort = 18332;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -217,13 +219,14 @@ public:
     } else if (strcmp(coinName, "BELLS.regtest") == 0) {
       info.Name = "BELLS.regtest";
       info.FullName = "Bellscoin";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.RationalPartSize = 100000000;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
+      info.Bech32Prefix = "bcrt";
       info.DefaultRpcPort = 18443;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
