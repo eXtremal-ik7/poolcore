@@ -126,7 +126,7 @@ public:
     if (primaryBackends.empty()) {
       LOG_F(ERROR, "%s: empty primary backends list", Name_.c_str());
       exit(1);
-    } else if (primaryBackends.size() > 1 && !ProfitSwitcherEnabled_) {
+    } else if (primaryBackends.size() > 5 && !ProfitSwitcherEnabled_) {
       LOG_F(ERROR, "%s: too much primary backends specified without profit switcher", Name_.c_str());
       exit(1);
     }
