@@ -614,7 +614,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "sha256";
       info.PowLimit = uint256S("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-      info.CanBeSecondaryCoin = true;
+      info.WorkType = EWorkBitcoin;
     } else if (strcmp(coinName, "HOOT") == 0) {
       info.Name = "HOOT";
       info.FullName = "Hootchain";
