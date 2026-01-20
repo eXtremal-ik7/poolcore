@@ -5,6 +5,7 @@
 #include "backendData.h"
 #include "poolcommon/debug.h"
 #include "poolcommon/file.h"
+#include "poolcommon/path.h"
 #include "loguru.hpp"
 #include "asyncio/asyncio.h"
 #include "p2putils/xmstream.h"
@@ -62,7 +63,7 @@ public:
           std::string fileName = I->path().filename().generic_string();
           auto dotDatPos = fileName.find(".dat");
           if (dotDatPos == fileName.npos) {
-            LOG_F(WARNING, "Ignore shares file: %s", I->path().u8string().c_str());
+            LOG_F(WARNING, "Ignore shares file: %s", path_to_utf8(I->path()).c_str());
             continue;
           }
 
@@ -84,7 +85,7 @@ public:
         std::string fileName = I->path().filename().generic_string();
         auto dotDatPos = fileName.find(".dat");
         if (dotDatPos == fileName.npos) {
-          LOG_F(WARNING, "Ignore shares file: %s", I->path().u8string().c_str());
+          LOG_F(WARNING, "Ignore shares file: %s", path_to_utf8(I->path()).c_str());
           continue;
         }
 
@@ -113,7 +114,7 @@ public:
       if (lastFile.Fd.open(lastFile.Path)) {
         lastFile.Fd.seekSet(lastFile.Fd.size());
       } else {
-        LOG_F(ERROR, "Can't open share log %s", lastFile.Path.u8string().c_str());
+        LOG_F(ERROR, "Can't open share log %s", path_to_utf8(lastFile.Path).c_str());
         ShareLoggingEnabled_ = false;
       }
     } else {
@@ -154,7 +155,7 @@ public:
 
 
       while (ShareLog_.size() > 1 && ShareLog_.front().LastId < aggregatedShareId) {
-        LOG_F(INFO, "remove old share log file %s", ShareLog_.front().Path.u8string().c_str());
+        LOG_F(INFO, "remove old share log file %s", path_to_utf8(ShareLog_.front().Path).c_str());
         std::filesystem::remove(ShareLog_.front().Path);
         ShareLog_.pop_front();
       }
@@ -164,11 +165,11 @@ public:
 private:
   void replayShares(CShareLogFile &file) {
     if (isDebugBackend())
-      LOG_F(1, "%s: Replaying shares from file %s", BackendName_.c_str(), file.Path.u8string().c_str());
+      LOG_F(1, "%s: Replaying shares from file %s", BackendName_.c_str(), path_to_utf8(file.Path).c_str());
 
     FileDescriptor fd;
-    if (!fd.open(file.Path.u8string().c_str())) {
-      LOG_F(ERROR, "StatisticDb: can't open file %s", file.Path.u8string().c_str());
+    if (!fd.open(path_to_utf8(file.Path).c_str())) {
+      LOG_F(ERROR, "StatisticDb: can't open file %s", path_to_utf8(file.Path).c_str());
       return;
     }
 
@@ -177,7 +178,7 @@ private:
     size_t bytesRead = fd.read(stream.reserve(fileSize), 0, fileSize);
     fd.close();
     if (bytesRead != fileSize) {
-      LOG_F(ERROR, "StatisticDb: can't read file %s", file.Path.u8string().c_str());
+      LOG_F(ERROR, "StatisticDb: can't read file %s", path_to_utf8(file.Path).c_str());
       return;
     }
 
@@ -200,7 +201,7 @@ private:
         ShareLogIo<CShare>::unserialize(stream, share);
       }
       if (stream.eof()) {
-        LOG_F(ERROR, "Corrupted file %s", file.Path.u8string().c_str());
+        LOG_F(ERROR, "Corrupted file %s", path_to_utf8(file.Path).c_str());
         break;
       }
 
@@ -229,10 +230,10 @@ private:
     file.FirstId = CurrentShareId_;
     file.LastId = 0;
     if (!file.Fd.open(file.Path)) {
-      LOG_F(ERROR, "PoolBackend: can't write to share log %s", file.Path.u8string().c_str());
+      LOG_F(ERROR, "PoolBackend: can't write to share log %s", path_to_utf8(file.Path).c_str());
       ShareLoggingEnabled_ = false;
     } else {
-      LOG_F(INFO, "PoolBackend: started new share log file %s", file.Path.u8string().c_str());
+      LOG_F(INFO, "PoolBackend: started new share log file %s", path_to_utf8(file.Path).c_str());
     }
   }
 

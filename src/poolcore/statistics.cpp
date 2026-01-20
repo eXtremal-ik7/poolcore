@@ -2,6 +2,7 @@
 #include "poolcore/accounting.h"
 #include "poolcommon/coroutineJoin.h"
 #include "poolcommon/debug.h"
+#include "poolcommon/path.h"
 #include "poolcommon/serialize.h"
 #include "loguru.hpp"
 #include <algorithm>
@@ -9,8 +10,8 @@
 bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
 {
   FileDescriptor fd;
-  if (!fd.open(file.Path.u8string().c_str())) {
-    LOG_F(ERROR, "StatisticDb: can't open file %s", file.Path.u8string().c_str());
+  if (!fd.open(path_to_utf8(file.Path).c_str())) {
+    LOG_F(ERROR, "StatisticDb: can't open file %s", path_to_utf8(file.Path).c_str());
     return false;
   }
 
@@ -19,7 +20,7 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
   size_t bytesRead = fd.read(stream.reserve(fileSize), 0, fileSize);
   fd.close();
   if (bytesRead != fileSize) {
-    LOG_F(ERROR, "StatisticDb: can't read file %s", file.Path.u8string().c_str());
+    LOG_F(ERROR, "StatisticDb: can't read file %s", path_to_utf8(file.Path).c_str());
     return false;
   }
 
@@ -57,7 +58,7 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
 
 
       if (!acc->Recent.empty() && acc->Recent.back().TimeLabel >= file.TimeLabel) {
-        LOG_F(ERROR, "<%s> StatisticDb: duplicate data in %s", CoinInfo_.Name.c_str(), file.Path.u8string().c_str());
+        LOG_F(ERROR, "<%s> StatisticDb: duplicate data in %s", CoinInfo_.Name.c_str(), path_to_utf8(file.Path).c_str());
         return false;
       }
 
@@ -79,10 +80,10 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
       }
     }
 
-    LOG_F(INFO, "<%s> Statistic cache file %s loaded successfully", CoinInfo_.Name.c_str(), file.Path.u8string().c_str());
+    LOG_F(INFO, "<%s> Statistic cache file %s loaded successfully", CoinInfo_.Name.c_str(), path_to_utf8(file.Path).c_str());
     return true;
   } else {
-    LOG_F(ERROR, "<%s> StatisticDb: corrupted file %s", CoinInfo_.Name.c_str(), file.Path.u8string().c_str());
+    LOG_F(ERROR, "<%s> StatisticDb: corrupted file %s", CoinInfo_.Name.c_str(), path_to_utf8(file.Path).c_str());
     return false;
   }
 }
@@ -425,7 +426,7 @@ void StatisticDb::updateStatsDiskCache(const char *name, std::deque<CStatsFile> 
 
   FileDescriptor fd;
   if (!fd.open(statsFile.Path)) {
-    LOG_F(ERROR, "StatisticDb: can't write file %s", statsFile.Path.u8string().c_str());
+    LOG_F(ERROR, "StatisticDb: can't write file %s", path_to_utf8(statsFile.Path).c_str());
     return;
   }
 
@@ -442,7 +443,7 @@ void StatisticDb::updateStatsDiskCache(const char *name, std::deque<CStatsFile> 
   auto removeTimePoint = timeLabel - std::chrono::seconds(_cfg.StatisticKeepTime).count();
   while (!cache.empty() && cache.front().TimeLabel < removeTimePoint) {
     if (isDebugStatistic())
-      LOG_F(1, "Removing old statistic cache file %s", cache.front().Path.u8string().c_str());
+      LOG_F(1, "Removing old statistic cache file %s", path_to_utf8(cache.front().Path).c_str());
     std::filesystem::remove(cache.front().Path);
     cache.pop_front();
   }

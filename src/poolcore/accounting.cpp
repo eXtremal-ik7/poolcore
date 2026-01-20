@@ -1,6 +1,7 @@
 #include "poolcore/accounting.h"
 #include "poolcommon/coroutineJoin.h"
 #include "poolcommon/mergeSorted.h"
+#include "poolcommon/path.h"
 #include "poolcommon/utils.h"
 #include "poolcore/base58.h"
 #include "poolcore/priceFetcher.h"
@@ -72,8 +73,8 @@ bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
   CurrentScores_.clear();
 
   FileDescriptor fd;
-  if (!fd.open(file.Path.u8string().c_str())) {
-    LOG_F(ERROR, "AccountingDb: can't open file %s", file.Path.u8string().c_str());
+  if (!fd.open(path_to_utf8(file.Path).c_str())) {
+    LOG_F(ERROR, "AccountingDb: can't open file %s", path_to_utf8(file.Path).c_str());
     return false;
   }
 
@@ -82,7 +83,7 @@ bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
   size_t bytesRead = fd.read(stream.reserve(fileSize), 0, fileSize);
   fd.close();
   if (bytesRead != fileSize) {
-    LOG_F(ERROR, "AccountingDb: can't read file %s", file.Path.u8string().c_str());
+    LOG_F(ERROR, "AccountingDb: can't read file %s", path_to_utf8(file.Path).c_str());
     return false;
   }
 
@@ -172,7 +173,7 @@ void AccountingDb::flushAccountingStorageFile(int64_t timeLabel)
   auto removeTimePoint = timeLabel - std::chrono::seconds(300).count();
   while (!AccountingDiskStorage_.empty() && AccountingDiskStorage_.front().TimeLabel < removeTimePoint) {
     if (isDebugAccounting())
-      LOG_F(1, "Removing old accounting file %s", AccountingDiskStorage_.front().Path.u8string().c_str());
+      LOG_F(1, "Removing old accounting file %s", path_to_utf8(AccountingDiskStorage_.front().Path).c_str());
     std::filesystem::remove(AccountingDiskStorage_.front().Path);
     AccountingDiskStorage_.pop_front();
   }
@@ -229,7 +230,7 @@ AccountingDb::AccountingDb(asyncBase *base,
     unsigned payoutsNum = 0;
     _payoutsFd.open(_cfg.dbPath / "payouts.raw");
     if (!_payoutsFd.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", (_cfg.dbPath / "payouts.raw").u8string().c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open payouts file %s (%s)", path_to_utf8(_cfg.dbPath / "payouts.raw").c_str(), strerror(errno));
 
     auto fileSize = _payoutsFd.size();
     if (fileSize > 0) {

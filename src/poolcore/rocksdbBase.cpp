@@ -1,4 +1,5 @@
 #include "poolcore/rocksdbBase.h"
+#include "poolcommon/path.h"
 #include "loguru.hpp"
 
 rocksdbBase::IteratorType::~IteratorType()
@@ -151,8 +152,7 @@ rocksdb::DB *rocksdbBase::open(rocksdbBase::partition &partition)
     
       rocksdb::Options options;
       options.create_if_missing = true;
-      std::string partitionPathUtf8(reinterpret_cast<const char*>(partitionPath.u8string().data()), partitionPath.u8string().size());
-      rocksdb::Status status = rocksdb::DB::Open(options, partitionPathUtf8, &partition.db);
+      rocksdb::Status status = rocksdb::DB::Open(options, path_to_utf8(partitionPath), &partition.db);
     }
   }
   
@@ -275,7 +275,7 @@ rocksdbBase::~rocksdbBase()
   for (auto &p: _partitions) {
     delete p.db;
     if (p.db)
-      LOG_F(INFO, "partition %s / %s was closed", _path.u8string().c_str(), p.id.c_str());
+      LOG_F(INFO, "partition %s / %s was closed", path_to_utf8(_path).c_str(), p.id.c_str());
   }
 }
 
