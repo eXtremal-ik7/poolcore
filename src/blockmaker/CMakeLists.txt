@@ -43,14 +43,22 @@ add_library(blockmaker STATIC
   zec.cpp
 
   stratumWork.cpp
+
+  protocol.proto
 )
 
 target_link_libraries(blockmaker
   OpenSSL::SSL
   OpenSSL::Crypto
   libsodium::libsodium
+  protobuf::libprotobuf
   ${BIGNUM_LIBRARIES}
-  poolinstances
 )
+
+protobuf_generate(TARGET blockmaker)
+
+if (MSVC)
+  set_source_files_properties("protocol.pb.cc" PROPERTIES COMPILE_FLAGS "/wd4244 /wd4267")
+endif()
 
 target_include_directories(blockmaker PUBLIC ${RAPIDJSON_INCLUDE_DIRECTORY})

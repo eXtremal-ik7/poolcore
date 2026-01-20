@@ -151,7 +151,8 @@ rocksdb::DB *rocksdbBase::open(rocksdbBase::partition &partition)
     
       rocksdb::Options options;
       options.create_if_missing = true;
-      rocksdb::Status status = rocksdb::DB::Open(options, partitionPath.u8string(), &partition.db);
+      std::string partitionPathUtf8(reinterpret_cast<const char*>(partitionPath.u8string().data()), partitionPath.u8string().size());
+      rocksdb::Status status = rocksdb::DB::Open(options, partitionPathUtf8, &partition.db);
     }
   }
   
@@ -261,7 +262,7 @@ rocksdbBase::rocksdbBase(const std::filesystem::path &path) : _path(path)
   for (std::filesystem::directory_iterator dirIt(path); dirIt != dirItEnd; ++dirIt) {
     if (is_directory(dirIt->status())) {
       // Add a partition
-      _partitions.push_back(partition(dirIt->path().filename().u8string()));
+      _partitions.push_back(partition(dirIt->path().filename()));
       LOG_F(INFO, "   * found partition %s for %s", dirIt->path().c_str(), path.c_str());
     }
   }

@@ -136,7 +136,7 @@ void StatisticDb::enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::
   std::error_code errc;
   std::filesystem::create_directories(directory, errc);
   for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
-    std::string fileName = I->path().filename().u8string();
+    std::string fileName = I->path().filename();
     auto dotDatPos = fileName.find(".dat");
     if (dotDatPos == fileName.npos) {
       LOG_F(ERROR, "StatisticDb: invalid statitic cache file name format: %s", fileName.c_str());
