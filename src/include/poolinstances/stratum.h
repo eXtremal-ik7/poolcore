@@ -990,13 +990,15 @@ private:
           break;
         case EStratumDecodeStatusTy::EStratumStatusJsonError : {
           std::string msg(p, stratumMsgSize);
-          LOG_F(ERROR, "%s(%s): JsonError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
+          if (isDebugInstanceStratumMessages())
+            LOG_F(1, "%s(%s): JsonError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
           result = false;
           break;
         }
         case EStratumDecodeStatusTy::EStratumStatusFormatError : {
           std::string msg(p, stratumMsgSize);
-          LOG_F(ERROR, "%s(%s): FormatError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
+          if (isDebugInstanceStratumMessages())
+            LOG_F(1, "%s(%s): FormatError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
           result = false;
           break;
         }

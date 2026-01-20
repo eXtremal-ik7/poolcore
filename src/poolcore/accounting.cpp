@@ -1285,7 +1285,7 @@ void AccountingDb::queryPPLNSPayoutsAccImpl(const std::string &login, int64_t ti
         auto &current = payoutAccs[index];
         double payoutValue = valueRecord.PayoutValue * coeff;
         current.TotalCoin += payoutValue;
-        current.TotalBTC += payoutValue * valueRecord.RateToBTC;
+        current.TotalBTC += payoutValue * valueRecord.RateToBTC * (100000000.0 / static_cast<double>(CoinInfo_.RationalPartSize));
         current.TotalUSD += (payoutValue * (valueRecord.RateToBTC * valueRecord.RateBTCToUSD)) / static_cast<double>(CoinInfo_.RationalPartSize);
         current.TotalIncomingWork += valueRecord.AcceptedWork * coeff;
         current.PrimePOWTarget = std::min(current.PrimePOWTarget, valueRecord.PrimePOWTarget);

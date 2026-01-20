@@ -220,6 +220,9 @@ bool UsersRecord::deserializeValue(const void *data, size_t size)
     if (stream.remaining()) {
       dbIoUnserialize(stream, FeePlanId);
     }
+    if (stream.remaining()) {
+      dbIoUnserialize(stream, MonitoringSessionId);
+    }
   }
 
   return !stream.eof();
@@ -244,6 +247,7 @@ void UsersRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, IsReadOnly);
   dbIoSerialize(stream, IsSuperUser);
   dbIoSerialize(stream, FeePlanId);
+  dbIoSerialize(stream, MonitoringSessionId);
 }
 
 bool UserSettingsRecord::deserializeValue(const void *data, size_t size)
@@ -381,6 +385,8 @@ bool UserSessionRecord::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, LastAccessTime);
     if (stream.remaining())
       dbIoUnserialize(stream, IsReadOnly);
+    if (stream.remaining())
+      dbIoUnserialize(stream, IsPermanent);
   }
 
   return !stream.eof();
@@ -397,6 +403,7 @@ void UserSessionRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Login);
   dbIoSerialize(stream, LastAccessTime);
   dbIoSerialize(stream, IsReadOnly);
+  dbIoSerialize(stream, IsPermanent);
 }
 
 bool UserBalanceRecord::deserializeValue(const void *data, size_t size)

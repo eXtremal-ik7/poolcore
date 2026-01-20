@@ -295,9 +295,8 @@ public:
   static EStratumDecodeStatusTy decodeStratumMessage(CStratumMessage &msg, const char *in, size_t size) {
     rapidjson::Document document;
     document.Parse(in, size);
-    if (document.HasParseError()) {
+    if (document.HasParseError() || !document.IsObject())
       return EStratumStatusJsonError;
-    }
 
     if (!(document.HasMember("id") && document.HasMember("method") && document.HasMember("params")))
       return EStratumStatusFormatError;

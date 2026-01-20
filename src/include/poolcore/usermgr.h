@@ -48,6 +48,11 @@ public:
     std::unordered_map<std::string, UserFeeConfig> CoinSpecificFee;
   };
 
+  struct UserWithAccessRights {
+    std::string Login;
+    bool IsReadOnly;
+  };
+
   // User session life time from last access (default: 30 minutes)
   static constexpr unsigned DefaultSessionLifeTime = 30*60;
   // User action(authentication data manage) life time (default 12 hours)
@@ -158,6 +163,18 @@ public:
   private:
     uint512 SessionId_;
     DefaultCb Callback_;
+  };
+
+  class UserQueryMonitoringSessionTask: public Task {
+  public:
+    using Cb = std::function<void(const std::string&, const char*)>;
+    UserQueryMonitoringSessionTask(UserManager *userMgr, const std::string &sessionId, const std::string &targetLogin, Cb callback) :
+      Task(userMgr), SessionId_(sessionId), TargetLogin_(targetLogin), Callback_(callback) {}
+    void run() final { UserMgr_->queryMonitoringSessionImpl(SessionId_, TargetLogin_, Callback_); }
+  private:
+    std::string SessionId_;
+    std::string TargetLogin_;
+    Cb Callback_;
   };
 
   class UpdateCredentialsTask: public Task {
@@ -349,6 +366,7 @@ public:
   void userResendEmail(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserResendEmailTask(this, std::move(credentials), callback)); }
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
+  void userQueryMonitoringSession(const std::string &sessionId, const std::string &targetLogin, UserQueryMonitoringSessionTask::Cb callback) { startAsyncTask(new UserQueryMonitoringSessionTask(this, sessionId, targetLogin, callback)); }
   void updateCredentials(const std::string &id, const std::string &targetLogin, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UpdateCredentialsTask(this, id, targetLogin, std::move(credentials), callback)); }
   void updateSettings(UserSettingsRecord &&settings, const std::string &totp, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), totp, callback)); }
   void enumerateUsers(const std::string &sessionId, EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, sessionId, callback)); }
@@ -360,7 +378,7 @@ public:
   // Synchronous api
   bool checkUser(const std::string &login);
   bool checkPassword(const std::string &login, const std::string &password);
-  bool validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin, bool needWriteAccess);
+  bool validateSession(const std::string &id, const std::string &targetLogin, UserWithAccessRights &result, bool needWriteAccess);
   bool getUserCredentials(const std::string &login, Credentials &out);
   bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);
   std::string getFeePlanId(const std::string &login);
@@ -372,12 +390,13 @@ private:
   // Asynchronous api implementation
   void startAsyncTask(Task *task);
   void actionImpl(const uint512 &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback);
-  void changePasswordInitiateImpl(const std::string &login, Task::DefaultCb callback);
+  void changePasswordInitiateImpl(const std::string &sessionId, Task::DefaultCb callback);
   void userChangePasswordForceImpl(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback);
   void userCreateImpl(const std::string &login, Credentials &credentials, Task::DefaultCb callback);
   void resendEmailImpl(Credentials &credentials, Task::DefaultCb callback);
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
   void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);
+  void queryMonitoringSessionImpl(const std::string &sessionId, const std::string &targetLogin, UserQueryMonitoringSessionTask::Cb callback);
   void updateCredentialsImpl(const std::string &sessionId, const std::string &targetLogin, const Credentials &credentials, Task::DefaultCb callback);
   void updateSettingsImpl(const UserSettingsRecord &settings, const std::string &totp, Task::DefaultCb callback);
   void enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback);
@@ -387,7 +406,8 @@ private:
   void deactivate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Task::DefaultCb callback);
 
   void sessionAdd(const UserSessionRecord &sessionRecord) {
-    LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
+    if (!sessionRecord.IsPermanent)
+      LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
     SessionsCache_.insert(std::make_pair(sessionRecord.Id, sessionRecord));
     UserSessionsDb_.put(sessionRecord);
   }

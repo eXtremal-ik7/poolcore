@@ -195,6 +195,7 @@ struct UsersRecord {
   bool IsReadOnly = false;
   bool IsSuperUser = false;
   std::string FeePlanId;
+  std::string MonitoringSessionId;
 
   UsersRecord() {}
   std::string getPartitionId() const { return "default"; }
@@ -283,6 +284,7 @@ struct UserSessionRecord {
   uint64_t LastAccessTime;
   bool Dirty = false;
   bool IsReadOnly = false;
+  bool IsPermanent = false;
 
   UserSessionRecord() {}
   std::string getPartitionId() const { return "default"; }

@@ -142,6 +142,10 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
         exit(1);
       }
 
+      // Ignore special users
+      if (userRecord.Name == "admin" || userRecord.Name == "observer")
+        continue;
+
       UsersCache_.insert(std::make_pair(userRecord.Login, userRecord));
       if (!userRecord.EMail.empty()) {
         if (!AllEmails_.insert(userRecord.EMail).second) {
@@ -186,7 +190,8 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
       }
 
       SessionsCache_.insert(std::make_pair(sessionRecord.Id, sessionRecord));
-      LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
+      if (!sessionRecord.IsPermanent)
+        LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
     }
 
     LOG_F(INFO, "UserManager: loaded %zu user sessions", SessionsCache_.size());
@@ -372,7 +377,7 @@ void UserManager::userManagerCleanup()
     rocksdbBase::PartitionBatchType actionBatch = UserActionsDb_.batch("default");
 
     for (const auto &session: SessionsCache_) {
-      if (currentTime - session.second.LastAccessTime >= SessionLifeTime_) {
+      if (!session.second.IsPermanent && (currentTime - session.second.LastAccessTime >= SessionLifeTime_)) {
         sessionIdForDelete.push_back(session.second.Id);
         LoginSessionMap_.erase(session.second.Login);
         UserSessionsDb_.deleteRow(sessionBatch, session.second);
@@ -562,8 +567,8 @@ void UserManager::changePasswordInitiateImpl(const std::string &login, Task::Def
 
 void UserManager::userChangePasswordForceImpl(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback)
 {
-  std::string resultLogin;
-  if (!validateSession(sessionId, "admin", resultLogin, true) || resultLogin != "admin") {
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, "admin", tokenInfo, true) || tokenInfo.Login != "admin") {
     callback("unknown_id");
     return;
   }
@@ -918,14 +923,63 @@ void UserManager::logoutImpl(const uint512 &sessionId, Task::DefaultCb callback)
     sessionRecord = sessionAccessor->second;
   }
 
-  sessionRemove(sessionRecord);
+  if (!sessionRecord.IsPermanent)
+    sessionRemove(sessionRecord);
   callback("ok");
+}
+
+void UserManager::queryMonitoringSessionImpl(const std::string &sessionId, const std::string &targetLogin, UserQueryMonitoringSessionTask::Cb callback)
+{
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, targetLogin, tokenInfo, false)) {
+    callback("", "unknown_id");
+    return;
+  }
+
+  // Check user structure for existing session id
+  {
+    decltype (UsersCache_)::accessor accessor;
+    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
+      callback("", "unknown_login");
+      return;
+    }
+
+    if (!accessor->second.MonitoringSessionId.empty()) {
+      callback(accessor->second.MonitoringSessionId, "ok");
+      return;
+    }
+  }
+
+  // We don't have monitoring session at this moment, need to create it
+  UserSessionRecord session;
+  makeRandom(session.Id);
+  session.Login = tokenInfo.Login;
+  session.LastAccessTime = time(nullptr);
+  session.IsReadOnly = true;
+  session.IsPermanent = true;
+  sessionAdd(session);
+
+  // Put session id to user structure to prevent duplicates of session id
+  UsersRecord record;
+  {
+    decltype (UsersCache_)::accessor accessor;
+    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
+      callback("", "unknown_login");
+      return;
+    }
+
+    accessor->second.MonitoringSessionId = session.Id.ToString();
+    record = accessor->second;
+  }
+
+  UsersDb_.put(record);
+  callback(session.Id.ToString(), "ok");
 }
 
 void UserManager::updateCredentialsImpl(const std::string &sessionId, const std::string &targetLogin, const Credentials &credentials, Task::DefaultCb callback)
 {
-  std::string login;
-  if (!validateSession(sessionId, targetLogin, login, true)) {
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, targetLogin, tokenInfo, true)) {
     callback("unknown_id");
     return;
   }
@@ -934,7 +988,7 @@ void UserManager::updateCredentialsImpl(const std::string &sessionId, const std:
 
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, login)) {
+    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
       callback("unknown_login");
       return;
     }
@@ -988,13 +1042,13 @@ void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, const s
 void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback)
 {
   std::vector<Credentials> result;
-  std::string login;
-  if (!validateSession(sessionId, "", login, false)) {
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, "", tokenInfo, false)) {
     callback("unknown_id", result);
     return;
   }
 
-  if (login == "admin" || login == "observer") {
+  if (tokenInfo.Login == "admin" || tokenInfo.Login == "observer") {
     for (const auto &record: UsersCache_) {
       Credentials &credentials = result.emplace_back();
       credentials.Login = record.second.Login;
@@ -1007,7 +1061,7 @@ void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUser
     }
   } else {
     std::unordered_set<std::string> linkedFeePlans;
-    collectLinkedFeePlans(login, linkedFeePlans);
+    collectLinkedFeePlans(tokenInfo.Login, linkedFeePlans);
     for (const auto &record: UsersCache_) {
       if (!linkedFeePlans.count(record.second.FeePlanId))
         continue;
@@ -1028,13 +1082,13 @@ void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUser
 
 void UserManager::updateFeePlanImpl(const std::string &sessionId, const UserFeePlanRecord &plan, Task::DefaultCb callback)
 {
-  std::string login;
-  if (!validateSession(sessionId, "", login, true)) {
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, "", tokenInfo, true)) {
     callback("unknown_id");
     return;
   }
 
-  if (login != "admin") {
+  if (tokenInfo.Login != "admin") {
     callback("unknown_id");
     return;
   }
@@ -1047,8 +1101,8 @@ void UserManager::updateFeePlanImpl(const std::string &sessionId, const UserFeeP
 
 void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback)
 {
-  std::string login;
-  if (!validateSession(sessionId, targetLogin, login, true)) {
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, targetLogin, tokenInfo, true)) {
     callback("unknown_id");
     return;
   }
@@ -1061,7 +1115,7 @@ void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::str
   UsersRecord record;
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, login)) {
+    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
       callback("unknown_login");
       return;
     }
@@ -1076,14 +1130,14 @@ void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::str
 
 void UserManager::activate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Activate2faInitiateTask::Cb callback)
 {
-  std::string login;
-  if (!validateSession(sessionId, targetLogin, login, true)) {
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, targetLogin, tokenInfo, true)) {
     callback("unknown_id", "");
     return;
   }
 
   // Don't allow special users
-  if (login == "admin" || login == "observer") {
+  if (tokenInfo.Login == "admin" || tokenInfo.Login == "observer") {
     callback("unknown_login", "");
     return;
   }
@@ -1092,7 +1146,7 @@ void UserManager::activate2faInitiateImpl(const std::string &sessionId, const st
   std::string emailAddress;
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, login)) {
+    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
       callback("unknown_login", "");
       return;
     }
@@ -1114,14 +1168,14 @@ void UserManager::activate2faInitiateImpl(const std::string &sessionId, const st
   // Create action
   UserActionRecord actionRecord;
   makeRandom(actionRecord.Id);
-  actionRecord.Login = login;
+  actionRecord.Login = tokenInfo.Login;
   actionRecord.Type = UserActionRecord::UserTwoFactorActivate;
   actionRecord.TwoFactorKey = keyBase32;
   actionRecord.CreationDate = time(nullptr);
 
   // Send email
   std::string emailSendError;
-  if (SMTP.Enabled && !sendMail(login, emailAddress, "Activate two factor authentication at ", BaseCfg.Activate2faLinkPrefix, actionRecord.Id, "For enable two factor authentication", emailSendError)) {
+  if (SMTP.Enabled && !sendMail(tokenInfo.Login, emailAddress, "Activate two factor authentication at ", BaseCfg.Activate2faLinkPrefix, actionRecord.Id, "For enable two factor authentication", emailSendError)) {
     callback(emailSendError.c_str(), "");
     return;
   }
@@ -1132,14 +1186,14 @@ void UserManager::activate2faInitiateImpl(const std::string &sessionId, const st
 
 void UserManager::deactivate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Task::DefaultCb callback)
 {
-  std::string login;
-  if (!validateSession(sessionId, targetLogin, login, true)) {
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, targetLogin, tokenInfo, true)) {
     callback("unknown_id");
     return;
   }
 
   // Don't allow special users
-  if (login == "admin" || login == "observer") {
+  if (tokenInfo.Login == "admin" || tokenInfo.Login == "observer") {
     callback("unknown_login");
     return;
   }
@@ -1148,7 +1202,7 @@ void UserManager::deactivate2faInitiateImpl(const std::string &sessionId, const 
   std::string emailAddress;
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, login)) {
+    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
       callback("unknown_login");
       return;
     }
@@ -1164,13 +1218,13 @@ void UserManager::deactivate2faInitiateImpl(const std::string &sessionId, const 
   // Create action
   UserActionRecord actionRecord;
   makeRandom(actionRecord.Id);
-  actionRecord.Login = login;
+  actionRecord.Login = tokenInfo.Login;
   actionRecord.Type = UserActionRecord::UserTwoFactorDeactivate;
   actionRecord.CreationDate = time(nullptr);
 
   // Send email
   std::string emailSendError;
-  if (SMTP.Enabled && !sendMail(login, emailAddress, "Deactivate two factor authentication at ", BaseCfg.Deactivate2faLinkPrefix, actionRecord.Id, "For drop two factor authentication", emailSendError)) {
+  if (SMTP.Enabled && !sendMail(tokenInfo.Login, emailAddress, "Deactivate two factor authentication at ", BaseCfg.Deactivate2faLinkPrefix, actionRecord.Id, "For drop two factor authentication", emailSendError)) {
     callback(emailSendError.c_str());
     return;
   }
@@ -1196,42 +1250,46 @@ bool UserManager::checkPassword(const std::string &login, const std::string &pas
   return record.PasswordHash == generateHash(login, password);
 }
 
-bool UserManager::validateSession(const std::string &id, const std::string &targetLogin, std::string &resultLogin, bool needWriteAccess)
+bool UserManager::validateSession(const std::string &id, const std::string &targetLogin, UserWithAccessRights &result, bool needWriteAccess)
 {
-  bool isReadOnly = false;
+  result.IsReadOnly = false;
   time_t currentTime = time(nullptr);
   {
     decltype (SessionsCache_)::accessor accessor;
     if (SessionsCache_.find(accessor, uint512S(id))) {
-      resultLogin = accessor->second.Login;
-      isReadOnly = accessor->second.IsReadOnly;
+      result.Login = accessor->second.Login;
+      result.IsReadOnly = accessor->second.IsReadOnly;
       accessor->second.updateLastAccessTime(currentTime);
     } else {
       return false;
     }
   }
 
-  if (isReadOnly && needWriteAccess)
+  if (result.IsReadOnly && needWriteAccess)
     return false;
 
-  bool isSuperUser = (resultLogin == "admin") || (resultLogin == "observer" && !needWriteAccess);
+  bool isAdmin = result.Login == "admin";
+  bool isObserver = result.Login == "observer" && !needWriteAccess;
+  bool isSuperUser = isAdmin || isObserver;
   if (isSuperUser) {
+    result.IsReadOnly = isObserver;
     if (!targetLogin.empty()) {
-      resultLogin = targetLogin;
+      result.Login = targetLogin;
       return UsersCache_.count(targetLogin);
     } else {
       return true;
     }
   } else if (!targetLogin.empty()) {
+    result.IsReadOnly = true;
     std::unordered_set<std::string> linkedFeePlans;
-    collectLinkedFeePlans(resultLogin, linkedFeePlans);
+    collectLinkedFeePlans(result.Login, linkedFeePlans);
 
     decltype (UsersCache_)::const_accessor accessor;
     if (!UsersCache_.find(accessor, targetLogin))
       return false;
 
     if (linkedFeePlans.count(accessor->second.FeePlanId) && !needWriteAccess) {
-      resultLogin = targetLogin;
+      result.Login = targetLogin;
       return true;
     } else {
       return false;
@@ -1284,8 +1342,8 @@ std::string UserManager::getFeePlanId(const std::string &login)
 
 bool UserManager::getFeePlan(const std::string &sessionId, const std::string &feePlanId, std::string &status, UserFeePlanRecord &result)
 {
-  std::string login;
-  if (!validateSession(sessionId, "", login, true) || login != "admin") {
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
     status = "unknown_id";
     return false;
   }
@@ -1303,8 +1361,8 @@ bool UserManager::getFeePlan(const std::string &sessionId, const std::string &fe
 
 bool UserManager::enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<UserFeePlanRecord> &result)
 {
-  std::string login;
-  if (!validateSession(sessionId, "", login, true) || login != "admin") {
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
     status = "unknown_id";
     return false;
   }
