@@ -6,7 +6,6 @@
 #include "poolcore/blockTemplate.h"
 #include "poolcore/clientDispatcher.h"
 #include "poolcommon/jsonSerializer.h"
-#include "poolcommon/uint_str.h"
 #include "asyncio/asyncio.h"
 #include "p2putils/uriParse.h"
 
@@ -255,7 +254,7 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
 
       continue;
     } else {
-      query.PublicHash = uint2Hex(block.Hash);
+      query.PublicHash = block.Hash.getHex();
     }
 
     // Get block reward
@@ -627,7 +626,7 @@ int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t heigh
         return false;
 
       if (uncleBlock.MixHash == UInt<256>::fromHex(mixHash.c_str())) {
-        publicHash = uint2Hex(uncleBlock.Hash);
+        publicHash = uncleBlock.Hash.getHex(true, false, false);
         return currentHeight;
       }
     }
@@ -955,7 +954,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionByHash(CCo
     queryObject.addField("params");
     {
       JSON::Array paramsArray(jsonStream);
-      paramsArray.addString(uint2Hex(txid, true, true));
+      paramsArray.addString(txid.getHex(true, true, false));
     }
     queryObject.addInt("id", -1);
   }
@@ -994,7 +993,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionReceipt(CC
     queryObject.addField("params");
     {
       JSON::Array paramsArray(jsonStream);
-      paramsArray.addString(uint2Hex(txid, true, true));
+      paramsArray.addString(txid.getHex(true, true, false));
     }
     queryObject.addInt("id", -1);
   }
@@ -1045,9 +1044,9 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(CConn
         JSON::Object transaction(jsonStream);
         transaction.addString("from", from);
         transaction.addString("to", to);
-        transaction.addString("value", uint2Hex(value, false, true));
-        transaction.addString("gas", uint2Hex(gas, false, true));
-        transaction.addString("gasPrice", uint2Hex(gasPrice, false, true));
+        transaction.addString("value", value.getHex(false, true, false));
+        transaction.addString("gas", gas.getHex(false, true, false));
+        transaction.addString("gasPrice", gasPrice.getHex(false, true, false));
         transaction.addIntHex("nonce", nonce, false, true);
       }
     }
@@ -1107,10 +1106,10 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction1559(CCon
         JSON::Object transaction(jsonStream);
         transaction.addString("from", from);
         transaction.addString("to", to);
-        transaction.addString("value", uint2Hex(value, false, true));
-        transaction.addString("gas", uint2Hex(gas, false, true));
-        transaction.addString("maxPriorityFeePerGas", uint2Hex(maxPriorityFeePerGas, false, true));
-        transaction.addString("maxFeePerGas", uint2Hex(maxFeePerGas, false, true));
+        transaction.addString("value", value.getHex(false, true, false));
+        transaction.addString("gas", gas.getHex(false, true, false));
+        transaction.addString("maxPriorityFeePerGas", maxPriorityFeePerGas.getHex(false, true, false));
+        transaction.addString("maxFeePerGas", maxFeePerGas.getHex(false, true, false));
         transaction.addIntHex("nonce", nonce, false, true);
       }
     }

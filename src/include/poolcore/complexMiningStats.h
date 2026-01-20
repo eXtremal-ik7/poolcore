@@ -1,4 +1,4 @@
-#pragma once 
+#pragma once
 
 #include "backendData.h"
 #include "rapidjson/document.h"
@@ -9,6 +9,7 @@ class PoolBackend;
 class ComplexMiningStats {
 public:
   virtual ~ComplexMiningStats() {}
+  virtual void start() {}
   virtual void onWork(double, PoolBackend*) {}
   virtual void onShare(double, double, const std::vector<PoolBackend*>&, const std::vector<bool>&, const uint256&) {}
 
