@@ -1,5 +1,6 @@
 #pragma once
 
+#include "poolcommon/uint.h"
 #include "stratumWork.h"
 #include "poolcommon/arith_uint256.h"
 #include "poolcommon/utils.h"
@@ -154,14 +155,14 @@ public:
 
     virtual Proto::BlockHashTy shareHash() override {
       BaseBlob<256> hash;
-      memcpy(hash.begin(), FinalHash_.begin(), 32);
+      FinalHash_.exportLE(hash.begin());
       return hash;
     }
 
     virtual std::string blockHash(size_t) override {
-      uint256 hash(MixHash_);
+      BaseBlob<256> hash(MixHash_);
       std::reverse(hash.begin(), hash.end());
-      return hash.ToString();
+      return hash.getHexLE();
     }
 
     virtual double expectedWork(size_t) override {
@@ -195,11 +196,11 @@ public:
   private:
     std::string HeaderHashHex_;
     std::string SeedHashHex_;
-    uint256 HeaderHash_;
-    arith_uint256 Target_;
+    BaseBlob<256> HeaderHash_;
+    UInt<256> Target_;
     uint64_t Nonce_ = 0;
-    arith_uint256 FinalHash_;
-    uint256 MixHash_;
+    UInt<256> FinalHash_;
+    BaseBlob<256> MixHash_;
     intrusive_ptr<EthashDagWrapper> DagFile_;
   };
 

@@ -1,4 +1,3 @@
-#include "poolcommon/arith_uint256.h"
 #include "blockmaker/dgb.h"
 #include "blockmaker/sph_skein.h"
 #include "blockmaker/sph_luffa.h"
@@ -8,6 +7,7 @@
 #include "blockmaker/sph_echo.h"
 #include "blockmaker/odocrypt.h"
 #include "blockmaker/sha3.h"
+#include "poolcommon/uint.h"
 
 static uint32_t OdoKey(uint32_t nOdoShapechangeInterval, uint32_t nTime)
 {
@@ -20,7 +20,7 @@ namespace DGB {
 template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB::Algo::EQubit>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::EQubit>::ChainParams&)
 {
   CCheckStatus status;
-  arith_uint256 result;
+  UInt<256> result;
   sph_luffa512_context	 ctx_luffa;
   sph_cubehash512_context  ctx_cubehash;
   sph_shavite512_context	 ctx_shavite;
@@ -48,15 +48,15 @@ template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB
   sph_echo512 (&ctx_echo, static_cast<const void*>(&hash[3]), 64);
   sph_echo512_close(&ctx_echo, static_cast<void*>(&hash[4]));
 
-  memcpy(result.begin(), hash[4].begin(), 32);
+  memcpy(result.rawData(), hash[4].begin(), 32);
+  for (unsigned i = 0; i < 4; i++)
+    result.data()[i] = readle(result.data()[i]);
 
-  status.ShareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
+  status.ShareDiff = BTC::difficultyFromBits(uint256GetCompact(result), 29);
 
   bool fNegative;
   bool fOverflow;
-  arith_uint256 bnTarget;
-
-  bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
+  UInt<256> bnTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)
@@ -76,7 +76,7 @@ template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB
   CCtxSha256 sha256Context;
   sph_skein512_context skeinContext;
   uint512 skeinHash;
-  arith_uint256 result;
+  UInt<256> result;
 
   sph_skein512_init(&skeinContext);
   sph_skein512(&skeinContext, &header, sizeof(Proto<DGB::Algo::ESkein>::BlockHeader));
@@ -84,15 +84,15 @@ template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB
 
   sha256Init(&sha256Context);
   sha256Update(&sha256Context, skeinHash.begin(), skeinHash.size());
-  sha256Final(&sha256Context, result.begin());
+  sha256Final(&sha256Context, result.rawData());
+  for (unsigned i = 0; i < 4; i++)
+    result.data()[i] = readle(result.data()[i]);
 
-  status.ShareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
+  status.ShareDiff = BTC::difficultyFromBits(uint256GetCompact(result), 29);
 
   bool fNegative;
   bool fOverflow;
-  arith_uint256 bnTarget;
-
-  bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
+  UInt<256> bnTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)
@@ -112,7 +112,7 @@ template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::
   uint32_t key = OdoKey(ctx.OdoShapechangeInterval, header.nTime);
 
   char cipher[100] = {};
-  arith_uint256 result;
+  UInt<256> result;
 
   size_t len = sizeof(Proto<DGB::Algo::EOdo>::BlockHeader);
   memcpy(cipher, &header, len);
@@ -121,15 +121,15 @@ template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::
   OdoCrypt(key).Encrypt(cipher, cipher);
   for (unsigned i = 22-12; i < 22; i++)
     sha3llRound800((uint32_t*)cipher, i);
-  memcpy(result.begin(), cipher, result.size());
+  memcpy(result.rawData(), cipher, result.rawSize());
+  for (unsigned i = 0; i < 4; i++)
+    result.data()[i] = readle(result.data()[i]);
 
-  status.ShareDiff = BTC::difficultyFromBits(result.GetCompact(), 29);
+  status.ShareDiff = BTC::difficultyFromBits(uint256GetCompact(result), 29);
 
   bool fNegative;
   bool fOverflow;
-  arith_uint256 bnTarget;
-
-  bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
+  UInt<256> bnTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)

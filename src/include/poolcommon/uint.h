@@ -1,5 +1,6 @@
 #pragma once
 
+#include "endiantools.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -160,6 +161,19 @@ public:
 
   const uint64_t *data() const { return Data_; }
   uint64_t *data() { return Data_; }
+  const uint8_t *rawData() const { return reinterpret_cast<const uint8_t*>(Data_); }
+  uint8_t *rawData() { return reinterpret_cast<uint8_t*>(Data_); }
+  size_t rawSize() { return sizeof(Data_); }
+
+  void exportLE(uint8_t *out) {
+    if (isLittleEndian()) {
+      memcpy(out, Data_, sizeof(Data_));
+    } else {
+      uint64_t *out64 = reinterpret_cast<uint64_t*>(out);
+      for (unsigned i = 0; i < LimbsNum; i++)
+        out64[i] = writele(Data_[i]);
+    }
+  }
 
   // Conversion functions
   uint64_t low64() const { return Data_[0]; }

@@ -1,20 +1,22 @@
-#include "poolcommon/arith_uint256.h"
 #include "blockmaker/dash.h"
 #include "blockmaker/x11.h"
+#include "poolcommon/uint.h"
 
 CCheckStatus DASH::Proto::checkPow(const BlockHeader &header, uint32_t nBits) {
     CCheckStatus status;
     // Compute X11 hash
-    arith_uint256 x11Hash;
-    x11_hash(reinterpret_cast<const uint8_t*>(&header), sizeof(header), x11Hash.begin());
+    UInt<256> x11Hash;
+    x11_hash(reinterpret_cast<const uint8_t*>(&header), sizeof(header), x11Hash.rawData());
+    for (unsigned i = 0; i < 4; i++)
+      x11Hash.data()[i] = readle(x11Hash.data()[i]);
+
     // Calculate share difficulty from bits
-    status.ShareDiff = BTC::difficultyFromBits(x11Hash.GetCompact(), 29);
+    status.ShareDiff = BTC::difficultyFromBits(uint256GetCompact(x11Hash), 29);
 
     // Build target from compact
     bool fNegative = false;
     bool fOverflow = false;
-    arith_uint256 bnTarget;
-    bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
+    UInt<256> bnTarget = uint256Compact(nBits, &fNegative, &fOverflow);
 
     // Range check
     if (fNegative || bnTarget == 0 || fOverflow)

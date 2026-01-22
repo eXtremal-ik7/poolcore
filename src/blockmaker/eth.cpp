@@ -1,5 +1,4 @@
 #include "blockmaker/eth.h"
-#include "poolcommon/arith_uint256.h"
 
 static inline double getDifficulty(uint32_t bits)
 {
@@ -41,9 +40,9 @@ bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, std::string 
 
   HeaderHashHex_ = resultValue[0].GetString() + 2;
   SeedHashHex_ = resultValue[1].GetString() + 2;
-  HeaderHash_.SetHex(HeaderHashHex_);
+  HeaderHash_.setHexLE(HeaderHashHex_.c_str());
   std::reverse(HeaderHash_.begin(), HeaderHash_.end());
-  Target_.SetHex(resultValue[2].GetString() + 2);
+  Target_.setHex(resultValue[2].GetString() + 2);
   this->Height_ = strtoul(resultValue[3].GetString()+2, nullptr, 16);
   // Block reward can't be calculated at this moment
   this->BlockReward_ = 0;
@@ -61,8 +60,8 @@ bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, std::string 
 bool Stratum::Work::prepareForSubmit(const CWorkerConfig &workerCfg, const CStratumMessage &msg)
 {
   Nonce_ = (workerCfg.ExtraNonceFixed << (64 - 8*MiningCfg_.FixedExtraNonceSize)) | msg.Submit.ETH.Nonce;
-  ethashCalculate(FinalHash_.begin(), MixHash_.begin(), HeaderHash_.begin(), Nonce_, DagFile_.get()->dag());
-  std::reverse(FinalHash_.begin(), FinalHash_.begin()+32);
+  ethashCalculate(FinalHash_.rawData(), MixHash_.begin(), HeaderHash_.begin(), Nonce_, DagFile_.get()->dag());
+  std::reverse(FinalHash_.rawData(), FinalHash_.rawData() + FinalHash_.rawSize());
   return true;
 }
 
@@ -92,7 +91,7 @@ CCheckStatus Stratum::Work::checkConsensus(size_t)
 {
   CCheckStatus status;
   // Get difficulty
-  status.ShareDiff = getDifficulty(FinalHash_.GetCompact());
+  status.ShareDiff = getDifficulty(uint256GetCompact(FinalHash_));
   status.IsBlock = FinalHash_ <= Target_;
   status.IsPendingBlock = false;
   return status;
