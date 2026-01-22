@@ -159,7 +159,7 @@ struct std::hash<uint512> {
 };
 
 template<unsigned int BitSize>
-struct TbbHash {
+struct TbbHash2 {
   size_t hash(const base_blob<BitSize> &s) const {
     return s.GetUint64(0);
   }

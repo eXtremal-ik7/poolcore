@@ -44,7 +44,7 @@ uint256 UserManager::generateHash(const std::string &login, const std::string &p
   return result;
 }
 
-bool UserManager::sendMail(const std::string &login, const std::string &emailAddress, const std::string &emailTitlePrefix, const std::string &linkPrefix, const uint512 &actionId, const std::string &mainText, std::string &error)
+bool UserManager::sendMail(const std::string &login, const std::string &emailAddress, const std::string &emailTitlePrefix, const std::string &linkPrefix, const BaseBlob<512> &actionId, const std::string &mainText, std::string &error)
 {
   HostAddress localAddress;
   localAddress.ipv4 = INADDR_ANY;
@@ -61,7 +61,7 @@ bool UserManager::sendMail(const std::string &login, const std::string &emailAdd
   std::string activationLink = BaseCfg.PoolHostProtocol + "://";
     activationLink.append(BaseCfg.PoolHostAddress);
     activationLink.append(linkPrefix);
-    activationLink.append(actionId.ToString());
+    activationLink.append(actionId.getHexLE());
 
   EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
   EMailText.append("This email generated automatically, please don't reply.\r\n");
@@ -96,7 +96,7 @@ bool UserManager::sendMail(const std::string &login, const std::string &emailAdd
 
 
   smtpClientDelete(client);
-  LOG_F(INFO, "%s %s: %s", login.c_str(), emailTitlePrefix.c_str(), actionId.ToString().c_str());
+  LOG_F(INFO, "%s %s: %s", login.c_str(), emailTitlePrefix.c_str(), actionId.getHexLE().c_str());
   return true;
 }
 
@@ -119,7 +119,7 @@ bool UserManager::check2fa(const std::string &secret, const std::string &receive
 }
 
 template<unsigned BITS>
-static void makeRandom(base_blob<BITS> &number)
+static void makeRandom(BaseBlob<BITS> &number)
 {
   RAND_bytes(number.begin(), number.size());
 }
@@ -371,8 +371,8 @@ void UserManager::userManagerCleanup()
     size_t usersDeletedCount = 0;
     size_t updatedSessions = 0;
     time_t currentTime = time(nullptr);
-    std::vector<uint512> sessionIdForDelete;
-    std::vector<uint512> actionIdForDelete;
+    std::vector<BaseBlob<512>> sessionIdForDelete;
+    std::vector<BaseBlob<512>> actionIdForDelete;
     rocksdbBase::PartitionBatchType sessionBatch = UserSessionsDb_.batch("default");
     rocksdbBase::PartitionBatchType actionBatch = UserActionsDb_.batch("default");
 
@@ -423,7 +423,7 @@ void UserManager::startAsyncTask(Task *task)
   userEventActivate(TaskQueueEvent_);
 }
 
-void UserManager::actionImpl(const uint512 &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback)
+void UserManager::actionImpl(const BaseBlob<512> &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback)
 {
   auto It = ActionsCache_.find(id);
   if (It == ActionsCache_.end()) {
@@ -510,7 +510,7 @@ void UserManager::actionImpl(const uint512 &id, const std::string &newPassword, 
     }
 
     default: {
-      LOG_F(ERROR, "Action %s detected unknown type %u", id.ToString().c_str(), actionRecord.Type);
+      LOG_F(ERROR, "Action %s detected unknown type %u", id.getHexLE().c_str(), actionRecord.Type);
       status = "unknown_type";
       break;
     }
@@ -707,7 +707,7 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
       std::string activationLink = BaseCfg.PoolHostProtocol + "://";
         activationLink.append(BaseCfg.PoolHostAddress);
         activationLink.append(BaseCfg.ActivateLinkPrefix);
-        activationLink.append(actionRecord.Id.ToString());
+        activationLink.append(actionRecord.Id.getHexLE());
 
       EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
       EMailText.append("This email generated automatically, please don't reply.\r\n");
@@ -755,7 +755,7 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
 
   UsersDb_.put(userRecord);
 
-  LOG_F(INFO, "New user: %s (%s) email: %s; actionId: %s", userRecord.Login.c_str(), userRecord.Name.c_str(), userRecord.EMail.c_str(), actionRecord.Id.ToString().c_str());
+  LOG_F(INFO, "New user: %s (%s) email: %s; actionId: %s", userRecord.Login.c_str(), userRecord.Name.c_str(), userRecord.EMail.c_str(), actionRecord.Id.getHexLE().c_str());
   callback("ok");
 }
 
@@ -819,7 +819,7 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
     std::string activationLink = BaseCfg.PoolHostProtocol + "://";
       activationLink.append(BaseCfg.PoolHostAddress);
       activationLink.append(BaseCfg.ActivateLinkPrefix);
-      activationLink.append(actionRecord.Id.ToString());
+      activationLink.append(actionRecord.Id.getHexLE());
 
     EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
     EMailText.append("This email generated automatically, please don't reply.\r\n");
@@ -855,7 +855,7 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
   }
 
   actionAdd(actionRecord);
-  LOG_F(INFO, "Resend email for %s to %s; actionId: %s", credentials.Login.c_str(), email.c_str(), actionRecord.Id.ToString().c_str());
+  LOG_F(INFO, "Resend email for %s to %s; actionId: %s", credentials.Login.c_str(), email.c_str(), actionRecord.Id.getHexLE().c_str());
   callback("ok");
 }
 
@@ -896,7 +896,7 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
 
   auto It = LoginSessionMap_.find(credentials.Login);
   if (It != LoginSessionMap_.end()) {
-    callback(It->second.ToString(), "ok", isReadOnly);
+    callback(It->second.getHexLE(), "ok", isReadOnly);
     return;
   }
 
@@ -907,10 +907,10 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
   session.LastAccessTime = time(nullptr);
   session.IsReadOnly = isReadOnly;
   sessionAdd(session);
-  callback(session.Id.ToString(), "ok", isReadOnly);
+  callback(session.Id.getHexLE(), "ok", isReadOnly);
 }
 
-void UserManager::logoutImpl(const uint512 &sessionId, Task::DefaultCb callback)
+void UserManager::logoutImpl(const BaseBlob<512> &sessionId, Task::DefaultCb callback)
 {
   UserSessionRecord sessionRecord;
   {
@@ -968,12 +968,12 @@ void UserManager::queryMonitoringSessionImpl(const std::string &sessionId, const
       return;
     }
 
-    accessor->second.MonitoringSessionId = session.Id.ToString();
+    accessor->second.MonitoringSessionId = session.Id.getHexLE();
     record = accessor->second;
   }
 
   UsersDb_.put(record);
-  callback(session.Id.ToString(), "ok");
+  callback(session.Id.getHexLE(), "ok");
 }
 
 void UserManager::updateCredentialsImpl(const std::string &sessionId, const std::string &targetLogin, const Credentials &credentials, Task::DefaultCb callback)
@@ -1256,7 +1256,7 @@ bool UserManager::validateSession(const std::string &id, const std::string &targ
   time_t currentTime = time(nullptr);
   {
     decltype (SessionsCache_)::accessor accessor;
-    if (SessionsCache_.find(accessor, uint512S(id))) {
+    if (SessionsCache_.find(accessor, BaseBlob<512>::fromHexLE(id.c_str()))) {
       result.Login = accessor->second.Login;
       result.IsReadOnly = accessor->second.IsReadOnly;
       accessor->second.updateLastAccessTime(currentTime);

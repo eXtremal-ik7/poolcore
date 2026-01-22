@@ -73,7 +73,7 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId,
   DOGELegacy_.resize(second.size());
   DOGEWitness_.resize(second.size());
 
-  DOGEHeaderHashes_.resize(virtualHashesNum, uint256());
+  DOGEHeaderHashes_.resize(virtualHashesNum, BaseBlob<256>::zero());
   DOGEWorkMap_.assign(mmChainId.begin(), mmChainId.end());
 
   for (size_t workIdx = 0; workIdx < DOGEHeader_.size(); workIdx++) {
@@ -101,7 +101,7 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId,
     // Calculate merkle root
     header.nVersion |= DOGE::Proto::BlockHeader::VERSION_AUXPOW;
     {
-      uint256 coinbaseTxHash;
+      BaseBlob<256> coinbaseTxHash;
       CCtxSha256 sha256;
       sha256Init(&sha256);
       sha256Update(&sha256, legacy.Data.data(), legacy.Data.sizeOf());
@@ -112,11 +112,11 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId,
       header.hashMerkleRoot = calculateMerkleRootWithPath(coinbaseTxHash, &work->MerklePath[0], work->MerklePath.size(), 0);
     }
 
-    DOGEHeaderHashes_[DOGEWorkMap_[workIdx]] = header.GetHash();
+    DOGEHeaderHashes_[DOGEWorkMap_[workIdx]] = header.hash();
   }
 
   // Calculate /reversed/ merkle root from DOGE header hashes
-  uint256 chainMerkleRoot = calculateMerkleRoot(&DOGEHeaderHashes_[0], DOGEHeaderHashes_.size());
+  BaseBlob<256> chainMerkleRoot = calculateMerkleRoot(&DOGEHeaderHashes_[0], DOGEHeaderHashes_.size());
   std::reverse(chainMerkleRoot.begin(), chainMerkleRoot.end());
 
   // Prepare LTC coinbase
@@ -124,7 +124,7 @@ Stratum::MergedWork::MergedWork(uint64_t stratumWorkId,
   xmstream coinbaseMsg(buffer, sizeof(buffer));
   coinbaseMsg.reset();
   coinbaseMsg.write(pchMergedMiningHeader, sizeof(pchMergedMiningHeader));
-  coinbaseMsg.write(chainMerkleRoot.begin(), sizeof(uint256));
+  coinbaseMsg.write(chainMerkleRoot.begin(), sizeof(BaseBlob<256>));
   coinbaseMsg.write<uint32_t>(virtualHashesNum);
   coinbaseMsg.write<uint32_t>(mmNonce);
   ltcWork()->buildCoinbaseTx(coinbaseMsg.data(), coinbaseMsg.sizeOf(), miningCfg, LTCLegacy_, LTCWitness_);
@@ -142,14 +142,14 @@ bool Stratum::MergedWork::prepareForSubmit(const CWorkerConfig &workerCfg, const
     LTCWitness_.Data.seekSet(0);
     BTC::unserialize(LTCWitness_.Data, header.ParentBlockCoinbaseTx);
 
-    header.HashBlock.SetNull();
+    header.HashBlock.setNull();
     header.Index = 0;
 
     header.MerkleBranch.resize(LTCMerklePath_.size());
     for (size_t j = 0, je = LTCMerklePath_.size(); j != je; ++j)
       header.MerkleBranch[j] = LTCMerklePath_[j];
 
-    std::vector<uint256> path;
+    std::vector<BaseBlob<256>> path;
     buildMerklePath(DOGEHeaderHashes_, DOGEWorkMap_[workIdx], path);
     header.ChainMerkleBranch.resize(path.size());
     for (size_t j = 0; j < path.size(); j++)

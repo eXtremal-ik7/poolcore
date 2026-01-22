@@ -2,6 +2,7 @@
 
 #include "blockmaker/serializeUtils.h"
 #include "blockmaker/xvector.h"
+#include "poolcommon/baseBlob.h"
 #include "poolcommon/uint256.h"
 #include "p2putils/xmstream.h"
 #include <string>
@@ -114,6 +115,11 @@ struct Io<T, typename std::enable_if<is_simple_numeric<T>::value, void>::type> {
 template<> struct Io<bool> {
   static inline void serialize(xmstream &stream, const bool &data) { stream.writele(static_cast<uint8_t>(data)); }
   static inline void unserialize(xmstream &stream, bool &data) { data = stream.readle<uint8_t>(); }
+};
+
+template<unsigned Bits> struct Io<BaseBlob<Bits>> {
+  static inline void serialize(xmstream &stream, const BaseBlob<Bits> &data) { stream.write(data.begin(), data.size()); }
+  static inline void unserialize(xmstream &stream, BaseBlob<Bits> &data) { stream.read(data.begin(), data.size()); }
 };
 
 // Serialization for base_blob (including uint256) types

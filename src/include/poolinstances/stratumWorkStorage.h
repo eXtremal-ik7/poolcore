@@ -29,7 +29,7 @@ public:
   using CMergedWork = StratumMergedWork;
   using CSingleWorkSequence = std::deque<std::unique_ptr<CSingleWork>>;
   using CMergedWorkSequence = std::deque<std::unique_ptr<CMergedWork>>;
-  using CAcceptedShareSet = std::unordered_set<uint256>;
+  using CAcceptedShareSet = std::unordered_set<BaseBlob<256>>;
   using CWorkIndex = std::pair<size_t, size_t>;
 
 private:
@@ -218,7 +218,7 @@ public:
     return result;
   }
 
-  bool isDuplicate(CWork *work, const uint256 &shareHash) {
+  bool isDuplicate(CWork *work, const BaseBlob<256> &shareHash) {
     bool duplicate = false;
     for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i)
       duplicate |= !AcceptedShares_[work->backendId(i)].insert(shareHash).second;

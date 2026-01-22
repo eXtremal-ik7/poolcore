@@ -3,8 +3,9 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#pragma once 
+#pragma once
 
+#include "poolcommon/baseBlob.h"
 #include "xvector.h"
 #include "poolcommon/uint256.h"
 #include <p2putils/xmstream.h>
@@ -46,8 +47,8 @@ static inline void serializeJson(xmstream &stream, const char *fieldName, const 
   stream.write('\"');
 }
 
-static inline void serializeJson(xmstream &stream, const char *fieldName, const uint256 &data) {
-  std::string hex = data.GetHex();
+static inline void serializeJson(xmstream &stream, const char *fieldName, const BaseBlob<256> &data) {
+  std::string hex = data.getHexLE();
   if (fieldName) {
     stream.write('\"');
     stream.write(fieldName, strlen(fieldName));

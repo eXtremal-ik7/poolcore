@@ -124,7 +124,7 @@ private:
     typename X::Zmq::ThreadConfig ThreadConfig;
     bool HasWork;
     std::set<Connection*> SignalSockets;
-    std::unordered_set<uint256> KnownShares;
+    std::unordered_set<BaseBlob<256>> KnownShares;
   };
 
 private:
@@ -263,7 +263,7 @@ private:
     }
 
     if (isBlock) {
-      LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.ToString().c_str(), data.Work.txNum());
+      LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.getHexLE().c_str(), data.Work.txNum());
       // Submit to nodes
       double expectedWork = work.expectedWork();
 
@@ -275,7 +275,7 @@ private:
                                 work.blockHexData().sizeOf(),
                                 [height, user, workerId, blockHash, generatedCoins, backend, shareWork, shareDiff, expectedWork, primePOWTarget](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
-          LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.ToString().c_str(), height, hostName.c_str());
+          LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.getHexLE().c_str(), height, hostName.c_str());
           if (successNum == 1) {
             // Send share with block to backend
             CShare *backendShare = new CShare;
@@ -285,7 +285,7 @@ private:
             backendShare->height = height;
             backendShare->WorkValue = shareWork;
             backendShare->isBlock = true;
-            backendShare->hash = blockHash.ToString();
+            backendShare->hash = blockHash.getHexLE();
             backendShare->generatedCoins = generatedCoins;
             backendShare->ExpectedWork = expectedWork;
             backendShare->ChainLength = shareDiff;
@@ -293,7 +293,7 @@ private:
             backend->sendShare(backendShare);
           }
         } else {
-          LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.ToString().c_str(), height, hostName.c_str(), error.c_str());
+          LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.getHexLE().c_str(), height, hostName.c_str(), error.c_str());
         }
       });
 

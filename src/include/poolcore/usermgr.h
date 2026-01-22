@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kvdb.h"
+#include "poolcommon/baseBlob.h"
 #include "poolcore/backendData.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/rocksdbBase.h"
@@ -74,11 +75,11 @@ public:
 
   class UserActionTask : public Task {
   public:
-    UserActionTask(UserManager *userMgr, const uint512 &actionId, const std::string &newPassword, const std::string &totp, DefaultCb callback) :
+    UserActionTask(UserManager *userMgr, const BaseBlob<512> &actionId, const std::string &newPassword, const std::string &totp, DefaultCb callback) :
       Task(userMgr), ActionId_(actionId), NewPassword_(newPassword), Totp_(totp), Callback_(callback) {}
     void run() final { UserMgr_->actionImpl(ActionId_, NewPassword_, Totp_, Callback_); }
   private:
-    uint512 ActionId_;
+    BaseBlob<512> ActionId_;
     std::string NewPassword_;
     std::string Totp_;
     DefaultCb Callback_;
@@ -158,10 +159,10 @@ public:
 
   class UserLogoutTask: public Task {
   public:
-    UserLogoutTask(UserManager *userMgr, const uint512 sessionId, DefaultCb callback) : Task(userMgr), SessionId_(sessionId), Callback_(callback) {}
+    UserLogoutTask(UserManager *userMgr, const BaseBlob<512> &sessionId, DefaultCb callback) : Task(userMgr), SessionId_(sessionId), Callback_(callback) {}
     void run() final { UserMgr_->logoutImpl(SessionId_, Callback_); }
   private:
-    uint512 SessionId_;
+    BaseBlob<512> SessionId_;
     DefaultCb Callback_;
   };
 
@@ -278,7 +279,7 @@ public:
 
   static uint256 generateHash(const std::string &login, const std::string &password);
 
-  bool sendMail(const std::string &login, const std::string &emailAddress, const std::string &emailTitlePrefix, const std::string &linkPrefix, const uint512 &actionId, const std::string &mainText, std::string &error);
+  bool sendMail(const std::string &login, const std::string &emailAddress, const std::string &emailTitlePrefix, const std::string &linkPrefix, const BaseBlob<512> &actionId, const std::string &mainText, std::string &error);
   bool check2fa(const std::string &secret, const std::string &receivedCode);
 
   void configAddCoin(const CCoinInfo &info, int64_t defaultMinimalPayout) {
@@ -358,14 +359,14 @@ public:
 
   // Asynchronous api
   void userAction(const std::string &actionId, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback)
-    { startAsyncTask(new UserActionTask(this, uint512S(actionId), newPassword, totp, callback)); }
+    { startAsyncTask(new UserActionTask(this, BaseBlob<512>::fromHexLE(actionId.c_str()), newPassword, totp, callback)); }
 
   void userChangePasswordInitiate(const std::string &login, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordInitiateImplTask(this, login, callback)); }
   void userChangePasswordForce(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordForceTask(this, sessionId, login, newPassword, callback)); }
   void userCreate(const std::string &login, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserCreateTask(this, login, std::move(credentials), callback)); }
   void userResendEmail(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserResendEmailTask(this, std::move(credentials), callback)); }
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
-  void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, uint512S(id), callback)); }
+  void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, BaseBlob<512>::fromHexLE(id.c_str()), callback)); }
   void userQueryMonitoringSession(const std::string &sessionId, const std::string &targetLogin, UserQueryMonitoringSessionTask::Cb callback) { startAsyncTask(new UserQueryMonitoringSessionTask(this, sessionId, targetLogin, callback)); }
   void updateCredentials(const std::string &id, const std::string &targetLogin, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UpdateCredentialsTask(this, id, targetLogin, std::move(credentials), callback)); }
   void updateSettings(UserSettingsRecord &&settings, const std::string &totp, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), totp, callback)); }
@@ -389,13 +390,13 @@ public:
 private:
   // Asynchronous api implementation
   void startAsyncTask(Task *task);
-  void actionImpl(const uint512 &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback);
+  void actionImpl(const BaseBlob<512> &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback);
   void changePasswordInitiateImpl(const std::string &sessionId, Task::DefaultCb callback);
   void userChangePasswordForceImpl(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback);
   void userCreateImpl(const std::string &login, Credentials &credentials, Task::DefaultCb callback);
   void resendEmailImpl(Credentials &credentials, Task::DefaultCb callback);
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);
-  void logoutImpl(const uint512 &sessionId, Task::DefaultCb callback);
+  void logoutImpl(const BaseBlob<512> &sessionId, Task::DefaultCb callback);
   void queryMonitoringSessionImpl(const std::string &sessionId, const std::string &targetLogin, UserQueryMonitoringSessionTask::Cb callback);
   void updateCredentialsImpl(const std::string &sessionId, const std::string &targetLogin, const Credentials &credentials, Task::DefaultCb callback);
   void updateSettingsImpl(const UserSettingsRecord &settings, const std::string &totp, Task::DefaultCb callback);
@@ -452,15 +453,15 @@ private:
   // Cached data structures
   // Concurrent access structures
   tbb::concurrent_hash_map<std::string, UsersRecord> UsersCache_;
-  tbb::concurrent_hash_map<uint512, UserSessionRecord, TbbHash<512>> SessionsCache_;
+  tbb::concurrent_hash_map<BaseBlob<512>, UserSessionRecord, TbbHash<512>> SessionsCache_;
   tbb::concurrent_hash_map<std::string, UserSettingsRecord> SettingsCache_;
   tbb::concurrent_hash_map<std::string, FeePlan> FeePlanCache_;
 
   // Thread local structures
-  std::unordered_map<uint512, UserActionRecord> ActionsCache_;
+  std::unordered_map<BaseBlob<512>, UserActionRecord> ActionsCache_;
   std::unordered_set<std::string> AllEmails_;
-  std::map<std::string, uint512> LoginSessionMap_;
-  std::map<std::string, uint512> LoginActionMap_;
+  std::map<std::string, BaseBlob<512>> LoginSessionMap_;
+  std::map<std::string, BaseBlob<512>> LoginActionMap_;
 
   // Configuration
   std::vector<CCoinInfo> CoinInfo_;

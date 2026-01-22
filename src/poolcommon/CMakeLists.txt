@@ -1,7 +1,6 @@
 add_library(poolcommon STATIC
   arith_uint256.cpp
   bech32.cpp
-  bigNum.cpp
   coroutineJoin.cpp
   file.cpp
   taskHandler.cpp

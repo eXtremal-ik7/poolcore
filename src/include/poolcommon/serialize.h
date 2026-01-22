@@ -1,5 +1,6 @@
 #pragma once
 
+#include "poolcommon/baseBlob.h"
 #include "poolcommon/uint256.h"
 #include "p2putils/xmstream.h"
 #include <list>
@@ -135,6 +136,22 @@ template<> struct DbIo<uint512> {
 template<> struct DbKeyIo<uint512> {
   // TODO: check it
   static inline void serialize(xmstream &dst, const uint512 &data) {
+    dst.write(data.begin(), data.size());
+  }
+};
+
+template<unsigned Bits> struct DbIo<BaseBlob<Bits>> {
+  static inline void serialize(xmstream &dst, const BaseBlob<Bits> &data) {
+    dst.write(data.begin(), data.size());
+  }
+
+  static inline void unserialize(xmstream &src, BaseBlob<Bits> &data) {
+    src.read(data.begin(), data.size());
+  }
+};
+
+template<unsigned Bits> struct DbKeyIo<BaseBlob<Bits>> {
+  static inline void serialize(xmstream &dst, const BaseBlob<Bits> &data) {
     dst.write(data.begin(), data.size());
   }
 };

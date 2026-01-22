@@ -1,6 +1,6 @@
 #include "blockmaker/zec.h"
 #include "blockmaker/merkleTree.h"
-#include "poolcommon/arith_uint256.h"
+#include "poolcommon/uint.h"
 #include "sodium/crypto_generichash_blake2b.h"
 
 #if ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))
@@ -40,24 +40,12 @@ static void diff_to_target_equi(uint32_t *target, double diff)
   }
 }
 
-static double target_to_diff_equi(uint32_t* target)
+static inline double target_to_diff_equi(const UInt<256> &target)
 {
-  uint8_t* tgt = (uint8_t*) target;
-  uint64_t m =
-    (uint64_t)tgt[30] << 24 |
-    (uint64_t)tgt[29] << 16 |
-    (uint64_t)tgt[28] << 8  |
-    (uint64_t)tgt[27] << 0;
-
+  uint32_t m = static_cast<uint32_t>(target.data()[3] >> 24);
   if (!m)
-    return 0.;
-  else
-    return (double)0xffff0000UL/m;
-}
-
-static inline double targetToDiff(uint256 *target)
-{
-  return target_to_diff_equi(reinterpret_cast<uint32_t*>(target->begin()));
+    return 0.0;
+  return static_cast<double>(0xffff0000UL) / m;
 }
 
 inline constexpr size_t equihash_solution_size(unsigned int N, unsigned int K) {
@@ -571,6 +559,15 @@ void BTC::Io<ZEC::Proto::Transaction>::unserialize(xmstream &src, ZEC::Proto::Tr
 
 
 namespace ZEC {
+static inline UInt<256> powValue(const ZEC::Proto::BlockHeader &header)
+{
+  UInt<256> result;
+  header.getHash(reinterpret_cast<uint8_t*>(result.data()));
+  for (unsigned i = 0; i < 4; i++)
+    result.data()[i] = readle(result.data()[i]);
+  return result;
+}
+
 CCheckStatus Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx &consensusCtx, ZEC::Proto::ChainParams&)
 {
   static Equihash<200,9> Eh200_9;
@@ -602,12 +599,10 @@ CCheckStatus Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckC
 
   bool fNegative;
   bool fOverflow;
-  arith_uint256 bnTarget;
-  bnTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
-  Proto::BlockHashTy hash256 = header.GetHash();
+  UInt<256> bnTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
-  arith_uint256 hash = UintToArith256(hash256);
-  status.ShareDiff = targetToDiff(&hash256);
+  UInt<256> hash = powValue(header);
+  status.ShareDiff = target_to_diff_equi(hash);
 
   // Check range
   if (fNegative || bnTarget == 0 || fOverflow)
@@ -621,7 +616,7 @@ CCheckStatus Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckC
   return status;
 }
 
-bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<uint256> &merklePath, rapidjson::Value &blockTemplate)
+bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<BaseBlob<256>> &merklePath, rapidjson::Value &blockTemplate)
 {
   // Check fields:
   // header:
@@ -642,9 +637,9 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
   rapidjson::Value &bits = blockTemplate["bits"];
 
   header.nVersion = version.GetUint();
-  header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
+  header.hashPrevBlock.setHexLE(hashPrevBlock.GetString());
   {
-    uint256 coinbaseTxHash;
+    BaseBlob<256> coinbaseTxHash;
     CCtxSha256 sha256;
     sha256Init(&sha256);
     sha256Update(&sha256, legacy.Data.data(), legacy.Data.sizeOf());
@@ -656,13 +651,13 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
   }
   header.nTime = curtime.GetUint();
   header.nBits = strtoul(bits.GetString(), nullptr, 16);
-  header.nNonce.SetNull();
+  header.nNonce.setNull();
   header.nSolution.resize(0);
 
   if (blockTemplate.HasMember("finalsaplingroothash") && blockTemplate["finalsaplingroothash"].IsString())
-    header.hashLightClientRoot.SetHex(blockTemplate["finalsaplingroothash"].GetString());
+    header.hashLightClientRoot.setHexLE(blockTemplate["finalsaplingroothash"].GetString());
   else
-    header.hashLightClientRoot.SetNull();
+    header.hashLightClientRoot.setNull();
 
   *jobVersion = header.nVersion;
   return true;
@@ -746,7 +741,7 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
   BTC::Io<typename Proto::Transaction>::serialize(witness.Data, CoinbaseTx);
 }
 
-void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, const std::vector<uint256>&, const CMiningConfig&, bool resetPreviousWork, xmstream &notifyMessage)
+void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, const std::vector<BaseBlob<256>>&, const CMiningConfig&, bool resetPreviousWork, xmstream &notifyMessage)
 {
   // {"id": null, "method": "mining.notify", "params": ["JOB_ID", "VERSION", "PREVHASH", "MERKLEROOT", "RESERVED", "TIME", "BITS", CLEAN_JOBS]}
 
@@ -812,7 +807,7 @@ void Stratum::Notify::build(CWork *source, typename Proto::BlockHeader &header, 
   notifyMessage.write('\n');
 }
 
-bool Stratum::Prepare::prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, BTC::CoinbaseTx&, const std::vector<uint256>&, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg)
+bool Stratum::Prepare::prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, BTC::CoinbaseTx&, const std::vector<BaseBlob<256>>&, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg)
 {
   header.nTime = swab32(msg.Submit.ZEC.Time);
 

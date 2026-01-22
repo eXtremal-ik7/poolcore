@@ -18,8 +18,8 @@ struct BlockSubmitData {
 
 class Proto {
 public:
-  using BlockHashTy = uint256;
-  using AddressTy = uint256;
+  using BlockHashTy = BaseBlob<256>;
+  using AddressTy = BaseBlob<256>;
   static bool decodeHumanReadableAddress(const std::string&, const std::vector<uint8_t>&, AddressTy&) { return true; }
 };
 
@@ -153,7 +153,7 @@ public:
     }
 
     virtual Proto::BlockHashTy shareHash() override {
-      uint256 hash;
+      BaseBlob<256> hash;
       memcpy(hash.begin(), FinalHash_.begin(), 32);
       return hash;
     }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "poolcommon/baseBlob.h"
 #include "poolcore/blockTemplate.h"
 #include "poolinstances/stratumMsg.h"
 #include "poolcommon/uint256.h"
@@ -50,7 +51,7 @@ public:
 
   bool initialized() { return Initialized_; }
   virtual size_t backendsNum() = 0;
-  virtual uint256 shareHash() = 0;
+  virtual BaseBlob<256> shareHash() = 0;
   virtual std::string blockHash(size_t workIdx) = 0;
   virtual PoolBackend *backend(size_t workIdx) = 0;
   virtual size_t backendId(size_t workIdx) = 0;
@@ -198,7 +199,7 @@ public:
                          const CMiningConfig &miningCfg,
                          const std::vector<uint8_t>&,
                          const std::string&) : StratumSingleWork(stratumWorkId, uniqueWorkId, backend, backendId, miningCfg) {}
-  virtual uint256 shareHash() final { return uint256(); }
+  virtual BaseBlob<256> shareHash() final { return BaseBlob<256>::zero(); }
   virtual std::string blockHash(size_t) final { return std::string(); }
   virtual double expectedWork(size_t) final { return 0.0; }
   virtual void buildBlock(size_t, xmstream&) final {}
@@ -219,7 +220,7 @@ public:
                          StratumSingleWork *first,
                          StratumSingleWork *second,
                          CMiningConfig &cfg) : StratumMergedWork(stratumWorkId, first, second, cfg) {}
-  virtual uint256 shareHash() final { return uint256(); }
+  virtual BaseBlob<256> shareHash() final { return BaseBlob<256>::zero(); }
   virtual std::string blockHash(size_t) final { return std::string(); }
   virtual void buildBlock(size_t, xmstream&) final {}
   virtual void mutate() final {}

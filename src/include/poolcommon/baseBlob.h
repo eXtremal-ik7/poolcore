@@ -24,6 +24,18 @@ public:
     return result;
   }
 
+  static BaseBlob fromHexRaw(const char *in) {
+    BaseBlob result;
+    result.setHexRaw(in);
+    return result;
+  }
+
+  static BaseBlob fromHexLE(const char *in) {
+    BaseBlob result;
+    result.setHexLE(in);
+    return result;
+  }
+
   void setNull() { memset(Data_, 0, Size); }
 
   bool isNull() const {
@@ -106,7 +118,16 @@ public:
   size_t size() const { return Size; }
 
   uint64_t get64(int pos) const {
-    return readle(*reinterpret_cast<const uint64_t*>(Data_ + pos * 8));
+    size_t offset = pos * 8;
+    if (offset + 8 <= Size) {
+      return readle(*reinterpret_cast<const uint64_t*>(Data_ + offset));
+    }
+    // Побайтовое чтение когда данных меньше 8 байт
+    uint64_t result = 0;
+    for (size_t i = 0; i + offset < Size && i < 8; ++i) {
+      result |= static_cast<uint64_t>(Data_[offset + i]) << (i * 8);
+    }
+    return result;
   }
 
 private:
@@ -131,16 +152,9 @@ private:
   }
 };
 
-template<>
-struct std::hash<BaseBlob<160>> {
-  size_t operator()(const BaseBlob<160> &s) const {
-    return s.get64(0);
-  }
-};
-
-template<>
-struct std::hash<BaseBlob<256>> {
-  size_t operator()(const BaseBlob<256> &s) const {
+template<unsigned Bits>
+struct std::hash<BaseBlob<Bits>> {
+  size_t operator()(const BaseBlob<Bits> &s) const {
     return s.get64(0);
   }
 };

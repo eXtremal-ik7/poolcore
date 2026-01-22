@@ -6,9 +6,10 @@
 #include "blockmaker/btc.h"
 #include "blockmaker/merkleTree.h"
 #include "blockmaker/serializeJson.h"
-#include "poolcommon/arith_uint256.h"
+#include "poolcommon/uint.h"
 #include "poolcore/base58.h"
 #include "poolcommon/bech32.h"
+#include <cmath>
 
 namespace BTC {
 
@@ -126,18 +127,16 @@ void Io<Proto::Transaction>::unserialize(xmstream &src, BTC::Proto::Transaction 
   BTC::unserialize(src, data.lockTime);
 }
 
-static arith_uint256 rttComputeNextTarget(int64_t now,
-                                          uint32_t prevBits,
-                                          const int64_t prevHeaderTime[4],
-                                          uint32_t headerBits)
+static UInt<256> rttComputeNextTarget(int64_t now,
+                                      uint32_t prevBits,
+                                      const int64_t prevHeaderTime[4],
+                                      uint32_t headerBits)
 {
   int64_t one = 1;
-  arith_uint256 prev256;
-  arith_uint256 header256;
-  prev256.SetCompact(prevBits);
-  header256.SetCompact(headerBits);
-  double prevTarget = prev256.getdouble();
-  double headerTarget = header256.getdouble();
+  UInt<256> prev256 = uint256Compact(prevBits);
+  UInt<256> header256 = uint256Compact(headerBits);
+  double prevTarget = prev256.getDouble();
+  double headerTarget = header256.getDouble();
 
   int64_t diffTime0 = std::max(one, now - prevHeaderTime[0]);
   double target0 = prevTarget * 4.9192018423e-14 * pow(diffTime0, 5);
@@ -156,7 +155,7 @@ static arith_uint256 rttComputeNextTarget(int64_t now,
   // The real time target is never higher (less difficult) than the normal
   // target.
   if (nextTarget < headerTarget)
-    return arith_uint256(nextTarget);
+    return UInt<256>::fromDouble(nextTarget);
   else
     return header256;
 }
@@ -205,22 +204,32 @@ size_t Proto::Transaction::getFirstScriptSigOffset(bool serializeWitness)
   return result;
 }
 
+static inline UInt<256> powValue(const BTC::Proto::BlockHeader &header)
+{
+  UInt<256> result;
+  header.getHash(reinterpret_cast<uint8_t*>(result.data()));
+  for (unsigned i = 0; i < 4; i++)
+    result.data()[i] = readle(result.data()[i]);
+  return result;
+}
+
 CCheckStatus Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx &ctx, ChainParams&)
 {
   CCheckStatus status;
   bool fNegative;
   bool fOverflow;
-  arith_uint256 defaultTarget;
-  arith_uint256 hash = UintToArith256(header.GetHash());
-  defaultTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
-  status.ShareDiff = BTC::difficultyFromBits(hash.GetCompact(), 29);
+  UInt<256> hash = powValue(header);
+  UInt<256> defaultTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
+
+  // defaultTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
+  status.ShareDiff = BTC::difficultyFromBits(uint256GetCompact(hash), 29);
 
   // Check range
   if (fNegative || defaultTarget == 0 || fOverflow)
     return status;
 
   if (ctx.HasRtt) {
-    arith_uint256 adjustedTarget = rttComputeNextTarget(time(nullptr), ctx.PrevBits, ctx.PrevHeaderTime, header.nBits);
+    UInt<256> adjustedTarget = rttComputeNextTarget(time(nullptr), ctx.PrevBits, ctx.PrevHeaderTime, header.nBits);
     status.IsBlock = hash <= adjustedTarget;
     status.IsPendingBlock = hash <= defaultTarget;
   } else {
@@ -235,8 +244,8 @@ CCheckStatus Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsen
 double Proto::expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx &ctx)
 {
   if (ctx.HasRtt) {
-    arith_uint256 adjustedTarget = rttComputeNextTarget(time(nullptr), ctx.PrevBits, ctx.PrevHeaderTime, header.nBits);
-    return BTC::difficultyFromBits(adjustedTarget.GetCompact(), 29);
+    UInt<256> adjustedTarget = rttComputeNextTarget(time(nullptr), ctx.PrevBits, ctx.PrevHeaderTime, header.nBits);
+    return BTC::difficultyFromBits(uint256GetCompact(adjustedTarget), 29);
   } else {
     return BTC::difficultyFromBits(header.nBits, 29);
   }
@@ -337,7 +346,7 @@ static void processStakingReward(rapidjson::Value &blockTemplate, int64_t *block
   }
 }
 
-bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, CoinbaseTx&, const std::vector<uint256>&, rapidjson::Value &blockTemplate)
+bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, CoinbaseTx&, const std::vector<BaseBlob<256> > &, rapidjson::Value &blockTemplate)
 {
   // Check fields:
   // header:
@@ -358,8 +367,8 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
   rapidjson::Value &bits = blockTemplate["bits"];
 
   header.nVersion = version.GetUint();
-  header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
-  header.hashMerkleRoot.SetNull();
+  header.hashPrevBlock.setHexLE(hashPrevBlock.GetString());
+  header.hashMerkleRoot.setNull();
   header.nTime = curtime.GetUint();
   header.nBits = strtoul(bits.GetString(), nullptr, 16);
   header.nNonce = 0;
@@ -409,7 +418,7 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
   {
     coinbaseTx.txIn.resize(1);
     typename Proto::TxIn &txIn = coinbaseTx.txIn[0];
-    txIn.previousOutputHash.SetNull();
+    txIn.previousOutputHash.setNull();
     txIn.previousOutputIndex = std::numeric_limits<uint32_t>::max();
 
     if (segwitEnabled) {
@@ -483,7 +492,7 @@ void Stratum::CoinbaseBuilder::build(int64_t height,
   BTC::Io<typename Proto::Transaction>::serialize(witness.Data, coinbaseTx, true);
 }
 
-void Stratum::Notify::build(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage)
+void Stratum::Notify::build(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<BaseBlob<256> > &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage)
 {
   {
     notifyMessage.reset();
@@ -544,7 +553,7 @@ void Stratum::Notify::build(StratumWork *source, typename Proto::BlockHeader &he
   notifyMessage.write('\n');
 }
 
-bool Stratum::Prepare::prepare(BTC::Proto::BlockHeader &header, uint32_t jobVersion, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg)
+bool Stratum::Prepare::prepare(BTC::Proto::BlockHeader &header, uint32_t jobVersion, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<BaseBlob<256>> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg)
 {
   if (msg.Submit.BTC.MutableExtraNonce.size() != miningCfg.MutableExtraNonceSize)
     return false;
@@ -565,7 +574,7 @@ bool Stratum::Prepare::prepare(BTC::Proto::BlockHeader &header, uint32_t jobVers
 
   // Calculate merkle root and build header
   {
-    uint256 coinbaseTxHash;
+    BaseBlob<256> coinbaseTxHash;
     CCtxSha256 sha256;
     sha256Init(&sha256);
     sha256Update(&sha256, legacy.Data.data(), legacy.Data.sizeOf());

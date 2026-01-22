@@ -28,11 +28,11 @@ bool transactionChecker(rapidjson::Value::Array transactions, std::vector<TxData
     result[i].HexDataSize = txSrc["data"].GetStringLength();
 
     if (txSrc.HasMember("txid") && txSrc["txid"].IsString()) {
-      result[i].TxId.SetHex(txSrc["txid"].GetString());
+      result[i].TxId.setHexLE(txSrc["txid"].GetString());
       if (txSrc.HasMember("hash"))
-        result[i].WitnessHash.SetHex(txSrc["hash"].GetString());
+        result[i].WitnessHash.setHexLE(txSrc["hash"].GetString());
     } else if (txSrc.HasMember("hash") && txSrc["hash"].IsString()) {
-      result[i].TxId.SetHex(txSrc["hash"].GetString());
+      result[i].TxId.setHexLE(txSrc["hash"].GetString());
     } else {
       return false;
     }
@@ -74,16 +74,16 @@ bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, bool txFilter, 
     hex2bin(originalWitnessCommitment, originalWitnessCommitmentSize, witnessCommitment.reserve(originalWitnessCommitmentSize/2));
   } else {
     // Collect witness hashes to array
-    std::vector<uint256> witnessHashes;
+    std::vector<BaseBlob<256>> witnessHashes;
     witnessHashes.emplace_back();
-    witnessHashes.back().SetNull();
+    witnessHashes.back().setNull();
     for (const auto &tx: processedTransactions)
       witnessHashes.push_back(tx.WitnessHash);
 
     // Calculate witness merkle root
-    uint256 witnessMerkleRoot = calculateMerkleRoot(&witnessHashes[0], witnessHashes.size());
+    BaseBlob<256> witnessMerkleRoot = calculateMerkleRoot(&witnessHashes[0], witnessHashes.size());
     // Calculate witness commitment
-    uint256 commitment;
+    BaseBlob<256> commitment;
     {
       uint8_t defaultWitnessNonce[32];
       memset(defaultWitnessNonce, 0, sizeof(defaultWitnessNonce));
@@ -105,11 +105,11 @@ bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, bool txFilter, 
   return true;
 }
 
-void collectTransactions(const std::vector<TxData> &processedTransactions, xmstream &txHexData, std::vector<uint256> &merklePath, size_t &txNum)
+void collectTransactions(const std::vector<TxData> &processedTransactions, xmstream &txHexData, std::vector<BaseBlob<256>> &merklePath, size_t &txNum)
 {
-  std::vector<uint256> txHashes;
+  std::vector<BaseBlob<256>> txHashes;
   txHashes.emplace_back();
-  txHashes.back().SetNull();
+  txHashes.back().setNull();
   for (const auto &tx: processedTransactions) {
     txHexData.write(tx.HexData, tx.HexDataSize);
     txHashes.push_back(tx.TxId);

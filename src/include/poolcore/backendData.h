@@ -1,6 +1,7 @@
 #ifndef __BACKEND_DATA_H_
 #define __BACKEND_DATA_H_
 
+#include "poolcommon/baseBlob.h"
 #include "poolcommon/serialize.h"
 #include "poolcommon/uint256.h"
 #include <list>
@@ -263,7 +264,7 @@ struct UserActionRecord {
     UserTwoFactorDeactivate
   };
 
-  uint512 Id;
+  BaseBlob<512> Id;
   std::string Login;
   uint32_t Type;
   uint64_t CreationDate;
@@ -279,7 +280,7 @@ struct UserActionRecord {
 struct UserSessionRecord {
   enum { CurrentRecordVersion = 1 };
 
-  uint512 Id;
+  BaseBlob<512> Id;
   std::string Login;
   uint64_t LastAccessTime;
   bool Dirty = false;

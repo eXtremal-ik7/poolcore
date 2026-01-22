@@ -24,10 +24,10 @@ public:
     static const int32_t VERSION_AUXPOW = (1 << 8);
     // AuxPow
     Transaction ParentBlockCoinbaseTx;
-    uint256 HashBlock;
-    xvector<uint256> MerkleBranch;
+    BaseBlob<256> HashBlock;
+    xvector<BaseBlob<256>> MerkleBranch;
     int Index;
-    xvector<uint256> ChainMerkleBranch;
+    xvector<BaseBlob<256>> ChainMerkleBranch;
     int ChainIndex;
     PureBlockHeader ParentBlock;
   };
@@ -66,14 +66,14 @@ public:
                const CMiningConfig &miningCfg);
 
     virtual Proto::BlockHashTy shareHash() override {
-      return LTCHeader_.GetHash();
+      return LTCHeader_.hash();
     }
 
     virtual std::string blockHash(size_t workIdx) override {
       if (workIdx == 0)
-        return LTCHeader_.GetHash().ToString();
+        return LTCHeader_.hash().getHexLE();
       else if (workIdx - 1 < DOGEHeader_.size())
-        return DOGEHeader_[workIdx-1].GetHash().ToString();
+        return DOGEHeader_[workIdx-1].hash().getHexLE();
       else
         return std::string();
     }
@@ -113,13 +113,13 @@ public:
     LTC::Proto::BlockHeader LTCHeader_;
     BTC::CoinbaseTx LTCLegacy_;
     BTC::CoinbaseTx LTCWitness_;
-    std::vector<uint256> LTCMerklePath_;
+    std::vector<BaseBlob<256>> LTCMerklePath_;
     LTC::Proto::CheckConsensusCtx LTCConsensusCtx_;
 
     std::vector<DOGE::Proto::BlockHeader> DOGEHeader_;
     std::vector<BTC::CoinbaseTx> DOGELegacy_;
     std::vector<BTC::CoinbaseTx> DOGEWitness_;
-    std::vector<uint256> DOGEHeaderHashes_;
+    std::vector<BaseBlob<256>> DOGEHeaderHashes_;
     std::vector<int> DOGEWorkMap_;
     DOGE::Proto::CheckConsensusCtx DOGEConsensusCtx_;
   };

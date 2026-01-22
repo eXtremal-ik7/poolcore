@@ -5,6 +5,8 @@
 #include <string.h>
 #include <algorithm>
 #include <limits>
+#include <cfloat>
+#include <cmath>
 
 #include <assert.h>
 
@@ -136,11 +138,41 @@ public:
     return result;
   }
 
+  static UInt<Bits> fromDouble(double d) {
+    static double multiplier = std::pow(FLT_RADIX, DBL_MANT_DIG);
+
+    int exponent = 0;
+    uint64_t mantissa = static_cast<uint64_t>(std::frexp(d, &exponent) * multiplier);
+    exponent -= DBL_MANT_DIG;
+
+    UInt<Bits> result;
+    result.Data_[0] = mantissa;
+    for (size_t i = 1; i < LimbsNum; i++)
+      result.Data_[i] = 0;
+
+    if (exponent < 0)
+      result.shr(-exponent);
+    else
+      result.shl(exponent);
+
+    return result;
+  }
+
   const uint64_t *data() const { return Data_; }
   uint64_t *data() { return Data_; }
 
   // Conversion functions
   uint64_t low64() const { return Data_[0]; }
+
+  double getDouble() const {
+    double ret = 0.0;
+    double fact = 1.0;
+    for (size_t i = 0; i < LimbsNum; i++) {
+      ret += fact * Data_[i];
+      fact *= 18446744073709551616.0; // 2^64
+    }
+    return ret;
+  }
 
   unsigned bits() const {
     for (size_t i = LimbsNum; i > 0; --i) {

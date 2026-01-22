@@ -25,8 +25,8 @@ public:
 #pragma pack(push, 1)
   struct BlockHeader {
     int32_t nVersion;
-    uint256 hashPrevBlock;
-    uint256 hashMerkleRoot;
+    BaseBlob<256> hashPrevBlock;
+    BaseBlob<256> hashMerkleRoot;
     uint32_t nTime;
     uint32_t nBits;
     uint32_t nNonce;
@@ -34,7 +34,7 @@ public:
 
     BlockHashTy GetHash() const {
       uint8_t buffer[256];
-      uint256 result;
+      BaseBlob<256> result;
       xmstream localStream(buffer, sizeof(buffer));
       localStream.reset();
       BTC::serialize(localStream, bnPrimeChainMultiplier);
@@ -51,17 +51,19 @@ public:
       return result;
     }
 
-    BlockHashTy GetOriginalHeaderHash() const {
-        uint256 result;
-        CCtxSha256 sha256;
-        sha256Init(&sha256);
-        sha256Update(&sha256, this, 4+32+32+4+4+4);
-        sha256Final(&sha256, result.begin());
+    UInt<256> GetOriginalHeaderHash() const {
+      UInt<256>  result;
+      CCtxSha256 sha256;
+      sha256Init(&sha256);
+      sha256Update(&sha256, this, 4+32+32+4+4+4);
+      sha256Final(&sha256, reinterpret_cast<uint8_t*>(result.data()));
 
-        sha256Init(&sha256);
-        sha256Update(&sha256, result.begin(), sizeof(result));
-        sha256Final(&sha256, result.begin());
-        return result;
+      sha256Init(&sha256);
+      sha256Update(&sha256, result.data(), sizeof(result));
+      sha256Final(&sha256, reinterpret_cast<uint8_t*>(result.data()));
+      for (unsigned i = 0; i < 4; i++)
+        result.data()[i] = readle(result.data()[i]);
+      return result;
     }
   };
 #pragma pack(pop)
@@ -115,7 +117,7 @@ public:
   };
 
   struct ThreadConfig {
-    std::unordered_map<uint256, uint64_t> ExtraNonceMap;
+    std::unordered_map<BaseBlob<256>, uint64_t> ExtraNonceMap;
     uint64_t ExtraNonceCurrent;
     unsigned ThreadsNum;
   };
@@ -158,7 +160,7 @@ public:
     int64_t BlockReward;
 
     Proto::BlockHeader Header;
-    std::vector<uint256> MerklePath;
+    std::vector<BaseBlob<256>> MerklePath;
     xmstream CoinbaseTx;
     xmstream TxHexData;
     xmstream BlockHexData;
@@ -166,7 +168,7 @@ public:
   public:
     PoolBackend *backend() { return Backend; }
     uint64_t height() { return Height; }
-    uint256 hash() { return Header.GetHash(); }
+    BaseBlob<256> hash() { return Header.GetHash(); }
     size_t txNum() { return TransactionsNum; }
     int64_t blockReward() { return BlockReward; }
     const xmstream &blockHexData() { return BlockHexData; }

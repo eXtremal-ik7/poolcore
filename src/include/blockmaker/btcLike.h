@@ -30,8 +30,8 @@ struct CoinbaseTx {
 struct TxData {
   const char *HexData;
   size_t HexDataSize;
-  uint256 TxId;
-  uint256 WitnessHash;
+  BaseBlob<256> TxId;
+  BaseBlob<256> WitnessHash;
 };
 
 struct TxTree {
@@ -45,7 +45,7 @@ bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<T
 bool transactionChecker(rapidjson::Value::Array transactions, std::vector<TxData> &result);
 bool isSegwitEnabled(rapidjson::Value::Array transactions);
 bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, bool txFilter, std::vector<TxData> &processedTransactions, xmstream &witnessCommitment, std::string &error);
-void collectTransactions(const std::vector<TxData> &processedTransactions, xmstream &txHexData, std::vector<uint256> &merklePath, size_t &txNum);
+void collectTransactions(const std::vector<TxData> &processedTransactions, xmstream &txHexData, std::vector<BaseBlob<256> > &merklePath, size_t &txNum);
 
 template<typename Proto>
 bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, std::vector<TxData> &result, int64_t *blockReward, bool sortByHash)
@@ -54,7 +54,7 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
   std::unique_ptr<TxTree[]> txTree(new TxTree[txNum]);
 
   // Build hashmap txid -> index
-  std::unordered_map<uint256, size_t> txidMap;
+  std::unordered_map<BaseBlob<256>, size_t> txidMap;
   for (size_t i = 0; i < txNum; i++) {
     rapidjson::Value &txSrc = transactions[i];
 
@@ -64,11 +64,11 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
     txTree[i].Data.HexDataSize = txSrc["data"].GetStringLength();
 
     if (txSrc.HasMember("txid") && txSrc["txid"].IsString()) {
-      txTree[i].Data.TxId.SetHex(txSrc["txid"].GetString());
+      txTree[i].Data.TxId.setHexLE(txSrc["txid"].GetString());
       if (txSrc.HasMember("hash"))
-        txTree[i].Data.WitnessHash.SetHex(txSrc["hash"].GetString());
+        txTree[i].Data.WitnessHash.setHexLE(txSrc["hash"].GetString());
     } else if (txSrc.HasMember("hash") && txSrc["hash"].IsString()) {
-      txTree[i].Data.TxId.SetHex(txSrc["hash"].GetString());
+      txTree[i].Data.TxId.setHexLE(txSrc["hash"].GetString());
     } else {
       return false;
     }
@@ -118,7 +118,7 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
   if (sortByHash)
     std::sort(result.begin(), result.end(), [](const TxData &l, const TxData &r) {
       // TODO: use binary representation of txid
-      return l.TxId.GetHex() < r.TxId.GetHex();
+      return l.TxId.getHexLE() < r.TxId.getHexLE();
     });
 
   return true;
@@ -134,8 +134,8 @@ public:
     if (this->Initialized_)
       memcpy(MiningAddress_.begin(), &miningAddress[0], miningAddress.size());
   }
-  virtual typename Proto::BlockHashTy shareHash() override { return Header.GetHash(); }
-  virtual std::string blockHash(size_t) override { return Header.GetHash().ToString(); }
+  virtual typename Proto::BlockHashTy shareHash() override { return Header.hash(); }
+  virtual std::string blockHash(size_t) override { return Header.hash().getHexLE(); }
   virtual double expectedWork(size_t) override { return Proto::expectedWork(Header, ConsensusCtx_); }
   virtual bool ready() override { return this->Backend_ != nullptr; }
 
@@ -253,11 +253,11 @@ public:
     return Proto::checkConsensus(header, consensusCtx, params);
   }
 
-  static void buildNotifyMessageImpl(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
+  static void buildNotifyMessageImpl(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<BaseBlob<256>> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
     NotifyTy::build(source, header, asicBoostData, legacy, merklePath, cfg, resetPreviousWork, notifyMessage);
   }
 
-  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg) {
+  static bool prepareForSubmitImpl(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<BaseBlob<256>> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg) {
     return PrepareForSubmitTy::prepare(header, asicBoostData, legacy, witness, merklePath, workerCfg, miningCfg, msg);
   }
 
@@ -295,7 +295,7 @@ public:
   uint32_t JobVersion;
   // Various block template data
   bool SegwitEnabled = false;
-  std::vector<uint256> MerklePath;
+  std::vector<BaseBlob<256>> MerklePath;
   // Coinbase data
   typename Proto::AddressTy MiningAddress_;
   std::string CoinbaseMessage_;

@@ -2,6 +2,7 @@
 
 #include "btcLike.h"
 #include "sha256.h"
+#include "poolcommon/baseBlob.h"
 
 struct CCoinInfo;
 struct PoolBackendConfig;
@@ -31,36 +32,40 @@ class Proto {
 public:
   static constexpr const char *TickerName = "BTC";
 
-  using BlockHashTy = ::uint256;
-  using TxHashTy = ::uint256;
-  using AddressTy = ::uint160;
+  using BlockHashTy = ::BaseBlob<256>;
+  using TxHashTy = ::BaseBlob<256>;
+  using AddressTy = ::BaseBlob<160>;
 
 #pragma pack(push, 1)
   struct BlockHeader {
     uint32_t nVersion;
-    uint256 hashPrevBlock;
-    uint256 hashMerkleRoot;
+    BaseBlob<256> hashPrevBlock;
+    BaseBlob<256> hashMerkleRoot;
     uint32_t nTime;
     uint32_t nBits;
     uint32_t nNonce;
 
-    BlockHashTy GetHash() const {
-      uint256 result;
+    void getHash(uint8_t *hash) const {
       CCtxSha256 sha256;
       sha256Init(&sha256);
       sha256Update(&sha256, this, sizeof(*this));
-      sha256Final(&sha256, result.begin());
+      sha256Final(&sha256, hash);
 
       sha256Init(&sha256);
-      sha256Update(&sha256, result.begin(), sizeof(result));
-      sha256Final(&sha256, result.begin());
+      sha256Update(&sha256, hash, 32);
+      sha256Final(&sha256, hash);
+    }
+
+    BlockHashTy hash() const {
+      BaseBlob<256> result;
+      getHash(result.begin());
       return result;
     }
   };
 #pragma pack(pop)
 
   struct TxIn {
-    uint256 previousOutputHash;
+    BaseBlob<256> previousOutputHash;
     uint32_t previousOutputIndex;
     xvector<uint8_t> scriptSig;
     xvector<xvector<uint8_t>> witnessStack;
@@ -95,10 +100,7 @@ public:
     }
 
     BlockHashTy GetHash() {
-      if (!Hash.IsNull())
-         return Hash;
-
-      uint256 result;
+      BaseBlob<256> result;
       uint8_t buffer[4096];
       xmstream stream(buffer, sizeof(buffer));
       stream.reset();
@@ -111,7 +113,6 @@ public:
       sha256Init(&sha256);
       sha256Update(&sha256, result.begin(), sizeof(result));
       sha256Final(&sha256, result.begin());
-      Hash = result;
       return result;
     }
 
@@ -227,7 +228,7 @@ public:
 
   // TODO: Use this for headers non-compatible with BTC
   struct HeaderBuilder {
-    static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, rapidjson::Value &blockTemplate);
+    static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, CoinbaseTx &legacy, const std::vector<BaseBlob<256>> &merklePath, rapidjson::Value &blockTemplate);
   };
 
   struct CoinbaseBuilder {
@@ -254,11 +255,11 @@ public:
   };
 
   struct Notify {
-    static void build(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<uint256> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage);
+    static void build(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<BaseBlob<256>> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage);
   };
 
   struct Prepare {
-    static bool prepare(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<uint256> &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg);
+    static bool prepare(typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, CoinbaseTx &witness, const std::vector<BaseBlob<256> > &merklePath, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg);
   };
 
   using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare>;

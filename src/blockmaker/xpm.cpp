@@ -422,17 +422,14 @@ bool Proto::checkConsensus(const Proto::BlockHeader &header,
   if (TargetGetLength(header.nBits) < chainParams.minimalChainLength || TargetGetLength(header.nBits) > 99)
     return false;
 
-  XPM::Proto::BlockHashTy hash = header.GetOriginalHeaderHash();
+  UInt<256> hash = header.GetOriginalHeaderHash();
 
-  {
-    // Check header hash limit (most significant bit of hash must be 1)
-    uint8_t hiByte = *(hash.begin() + 31);
-    if (!(hiByte & 0x80))
-      return false;
-  }
+  // Check header hash limit (most significant bit of hash must be 1)
+  if (!(hash.data()[3] & 0x8000000000000000ULL))
+    return false;
 
   // Check target for prime proof-of-work
-  uint256ToBN(ctx.bnPrimeChainOrigin, hash);
+  uintToMpz(ctx.bnPrimeChainOrigin, hash);
   mpz_mul(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, header.bnPrimeChainMultiplier.get_mpz_t());
 
   auto bnPrimeChainOriginBitSize = mpz_sizeinbase(ctx.bnPrimeChainOrigin, 2);
@@ -496,8 +493,8 @@ void Zmq::resetThreadConfig(ThreadConfig &cfg)
 void Zmq::buildBlockProto(Work &work, MiningConfig &miningCfg, pool::proto::Block &proto)
 {
   proto.set_height(static_cast<uint32_t>(work.Height));
-  proto.set_hash(work.Header.hashPrevBlock.ToString());
-  proto.set_prevhash(work.Header.hashPrevBlock.ToString());
+  proto.set_hash(work.Header.hashPrevBlock.getHexLE());
+  proto.set_prevhash(work.Header.hashPrevBlock.getHexLE());
   proto.set_reqdiff(0);
   proto.set_minshare(miningCfg.MinShareLength);
 }
@@ -506,7 +503,7 @@ void Zmq::buildWorkProto(Work &work, pool::proto::Work &proto)
 {
   proto.set_version(work.Header.nVersion);
   proto.set_height(static_cast<uint32_t>(work.Height));
-  proto.set_merkle(work.Header.hashMerkleRoot.ToString().c_str());
+  proto.set_merkle(work.Header.hashMerkleRoot.getHexLE().c_str());
   proto.set_time(std::max(static_cast<uint32_t>(time(0)), work.Header.nTime));
   proto.set_bits(work.Header.nBits);
 }
@@ -521,7 +518,7 @@ void Zmq::generateNewWork(Work &work, WorkerConfig &workerCfg, ThreadConfig &thr
 
   // Recalculate merkle root
   {
-    uint256 coinbaseTxHash;
+    BaseBlob<256> coinbaseTxHash;
     CCtxSha256 sha256;
     sha256Init(&sha256);
     sha256Update(&sha256, work.CoinbaseTx.data(), work.CoinbaseTx.sizeOf());
@@ -543,7 +540,7 @@ bool Zmq::prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &min
   Proto::BlockHeader &header = work.Header;
   header.nTime = share.time();
   header.nNonce = share.nonce();
-  header.hashMerkleRoot = uint256S(share.merkle());
+  header.hashMerkleRoot = BaseBlob<256>::fromHexLE(share.merkle().c_str());
   header.bnPrimeChainMultiplier.set_str(share.multi().c_str(), 16);
 
   // merkle must be present at extraNonce map
@@ -624,8 +621,8 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   work.Height = height.GetUint64();
   Proto::BlockHeader &header = work.Header;
   header.nVersion = version.GetUint();
-  header.hashPrevBlock.SetHex(hashPrevBlock.GetString());
-  header.hashMerkleRoot.SetNull();
+  header.hashPrevBlock.setHexLE(hashPrevBlock.GetString());
+  header.hashMerkleRoot.setNull();
   header.nTime = curtime.GetUint();
   header.nBits = strtoul(bits.GetString(), nullptr, 16);
   header.nNonce = 0;
@@ -648,7 +645,7 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   {
     coinbaseTx.txIn.resize(1);
     BTC::Proto::TxIn &txIn = coinbaseTx.txIn[0];
-    txIn.previousOutputHash.SetNull();
+    txIn.previousOutputHash.setNull();
     txIn.previousOutputIndex = std::numeric_limits<uint32_t>::max();
 
     // scriptsig
@@ -706,9 +703,9 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   bin2hexLowerCase(work.CoinbaseTx.data(), work.TxHexData.reserve<char>(work.CoinbaseTx.sizeOf()*2), work.CoinbaseTx.sizeOf());
 
   // Transactions
-  std::vector<uint256> txHashes;
+  std::vector<BaseBlob<256>> txHashes;
   txHashes.emplace_back();
-  txHashes.back().SetNull();
+  txHashes.back().setNull();
   for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
     rapidjson::Value &txSrc = transactions[i];
     if (!txSrc.HasMember("data") || !txSrc["data"].IsString()) {
@@ -723,7 +720,7 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
     }
 
     txHashes.emplace_back();
-    txHashes.back().SetHex(txSrc["txid"].GetString());
+    txHashes.back().setHexLE(txSrc["txid"].GetString());
   }
 
   // Build merkle path
@@ -752,9 +749,8 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
 {
   constexpr unsigned ShareWindowSize = 128;
 
-  XPM::Proto::BlockHashTy hash = Header.GetOriginalHeaderHash();
-
-  uint256ToBN(ctx.bnPrimeChainOrigin, hash);
+  UInt<256> hash = Header.GetOriginalHeaderHash();
+  uintToMpz(ctx.bnPrimeChainOrigin, hash);
   mpz_mul(ctx.bnPrimeChainOrigin, ctx.bnPrimeChainOrigin, Header.bnPrimeChainMultiplier.get_mpz_t());
   unsigned bnPrimeChainOriginBitSize = mpz_sizeinbase(ctx.bnPrimeChainOrigin, 2);
   unsigned chainLength = static_cast<unsigned>(shareDiff);

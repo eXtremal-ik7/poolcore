@@ -1,6 +1,7 @@
 #pragma once
 
 #include "btc.h"
+#include "poolcommon/uint.h"
 #include <array>
 
 namespace ZEC {
@@ -61,17 +62,16 @@ public:
 
   public:
     int32_t nVersion;
-    uint256 hashPrevBlock;
-    uint256 hashMerkleRoot;
-    uint256 hashLightClientRoot;
+    BaseBlob<256> hashPrevBlock;
+    BaseBlob<256> hashMerkleRoot;
+    BaseBlob<256> hashLightClientRoot;
     uint32_t nTime;
     uint32_t nBits;
-    uint256 nNonce;
+    BaseBlob<256> nNonce;
     xvector<uint8_t> nSolution;
 
-    BlockHashTy GetHash() const {
+    void getHash(uint8_t *result) const {
       uint8_t buffer[2048];
-      uint256 result;
       xmstream localStream(buffer, sizeof(buffer));
       localStream.reset();
       BTC::serialize(localStream, nSolution);
@@ -80,11 +80,16 @@ public:
       sha256Init(&sha256);
       sha256Update(&sha256, this, HEADER_SIZE);
       sha256Update(&sha256, localStream.data(), localStream.sizeOf());
-      sha256Final(&sha256, result.begin());
+      sha256Final(&sha256, result);
 
       sha256Init(&sha256);
-      sha256Update(&sha256, result.begin(), sizeof(result));
-      sha256Final(&sha256, result.begin());
+      sha256Update(&sha256, result, 32);
+      sha256Final(&sha256, result);
+    }
+
+    BaseBlob<256> hash() const {
+      BaseBlob<256> result;
+      getHash(result.begin());
       return result;
     }
   };
@@ -94,18 +99,18 @@ public:
   using TxOut = BTC::Proto::TxOut;
 
   struct SpendDescription {
-    uint256 cv;
-    uint256 anchor;
-    uint256 nullifer;
-    uint256 rk;
+    BaseBlob<256> cv;
+    BaseBlob<256> anchor;
+    BaseBlob<256> nullifer;
+    BaseBlob<256> rk;
     std::array<uint8_t, GROTH_PROOF_SIZE> zkproof;
     std::array<uint8_t, 64> spendAuthSig;
   };
 
   struct OutputDescription {
-    uint256 cv;
-    uint256 cmu;
-    uint256 ephemeralKey;
+    BaseBlob<256> cv;
+    BaseBlob<256> cmu;
+    BaseBlob<256> ephemeralKey;
     std::array<uint8_t, ZC_SAPLING_ENCCIPHERTEXT_SIZE> encCiphertext;
     std::array<uint8_t, ZC_SAPLING_OUTCIPHERTEXT_SIZE> outCiphertext;
     std::array<uint8_t, GROTH_PROOF_SIZE> zkproof;
@@ -135,17 +140,17 @@ public:
   struct JSDescription {
     int64_t vpub_old;
     int64_t vpub_new;
-    uint256 anchor;
-    uint256 nullifier1;
-    uint256 nullifier2;
-    uint256 commitment1;
-    uint256 commitment2;
-    uint256 ephemeralKey;
+    BaseBlob<256> anchor;
+    BaseBlob<256> nullifier1;
+    BaseBlob<256> nullifier2;
+    BaseBlob<256> commitment1;
+    BaseBlob<256> commitment2;
+    BaseBlob<256> ephemeralKey;
     std::array<uint8_t, ZCNoteEncryption::CLEN> ciphertext1;
     std::array<uint8_t, ZCNoteEncryption::CLEN> ciphertext2;
-    uint256 randomSeed;
-    uint256 mac1;
-    uint256 mac2;
+    BaseBlob<256> randomSeed;
+    BaseBlob<256> mac1;
+    BaseBlob<256> mac2;
 
     PHGRProof phgrProof;
     std::array<uint8_t, GROTH_PROOF_SIZE> zkproof;
@@ -351,7 +356,7 @@ public:
   using CWork = StratumWork;
 
   struct HeaderBuilder {
-    static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<uint256> &merklePath, rapidjson::Value &blockTemplate);
+    static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<BaseBlob<256> > &merklePath, rapidjson::Value &blockTemplate);
   };
 
   struct CoinbaseBuilder {
@@ -375,11 +380,11 @@ public:
   };
 
   struct Notify {
-    static void build(CWork *source, typename Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, const std::vector<uint256>&, const CMiningConfig&, bool resetPreviousWork, xmstream &notifyMessage);
+    static void build(CWork *source, typename Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx&, const std::vector<BaseBlob<256> > &, const CMiningConfig&, bool resetPreviousWork, xmstream &notifyMessage);
   };
 
   struct Prepare {
-    static bool prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx &legacy, BTC::CoinbaseTx &, const std::vector<uint256> &, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg);
+    static bool prepare(Proto::BlockHeader &header, uint32_t, BTC::CoinbaseTx &legacy, BTC::CoinbaseTx &, const std::vector<BaseBlob<256> > &, const CWorkerConfig &workerCfg, const CMiningConfig &miningCfg, const CStratumMessage &msg);
   };
 
   using Work = BTC::WorkTy<ZEC::Proto, HeaderBuilder, CoinbaseBuilder, ZEC::Stratum::Notify, ZEC::Stratum::Prepare>;
