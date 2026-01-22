@@ -3,7 +3,6 @@
 #include "blockmaker/serializeUtils.h"
 #include "blockmaker/xvector.h"
 #include "poolcommon/baseBlob.h"
-#include "poolcommon/uint256.h"
 #include "p2putils/xmstream.h"
 #include <string>
 
@@ -120,12 +119,6 @@ template<> struct Io<bool> {
 template<unsigned Bits> struct Io<BaseBlob<Bits>> {
   static inline void serialize(xmstream &stream, const BaseBlob<Bits> &data) { stream.write(data.begin(), data.size()); }
   static inline void unserialize(xmstream &stream, BaseBlob<Bits> &data) { stream.read(data.begin(), data.size()); }
-};
-
-// Serialization for base_blob (including uint256) types
-template<unsigned int BITS> struct Io<base_blob<BITS>> {
-  static inline void serialize(xmstream &stream, const base_blob<BITS> &data) { stream.write(data.begin(), data.size()); }
-  static inline void unserialize(xmstream &stream, base_blob<BITS> &data) { stream.read(data.begin(), data.size()); }
 };
 
 // string

@@ -47,10 +47,10 @@ public:
   template<size_t MLEN>
   struct NoteEncryption {
       enum { CLEN=MLEN+NOTEENCRYPTION_AUTH_BYTES };
-      uint256 epk;
-      uint256 esk;
+      BaseBlob<256> epk;
+      BaseBlob<256> esk;
       unsigned char nonce;
-      uint256 hSig;
+      BaseBlob<256> hSig;
   };
 
   using ZCNoteEncryption = NoteEncryption<ZC_NOTEPLAINTEXT_SIZE>;
@@ -118,12 +118,12 @@ public:
 
   struct CompressedG1 {
     bool y_lsb;
-    base_blob<256> x;
+    BaseBlob<256> x;
   };
 
   struct CompressedG2 {
     bool y_gt;
-    base_blob<512> x;
+    BaseBlob<512> x;
   };
 
   struct PHGRProof {

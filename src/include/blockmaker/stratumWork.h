@@ -3,7 +3,6 @@
 #include "poolcommon/baseBlob.h"
 #include "poolcore/blockTemplate.h"
 #include "poolinstances/stratumMsg.h"
-#include "poolcommon/uint256.h"
 #include "p2putils/xmstream.h"
 #include <string>
 #include <vector>

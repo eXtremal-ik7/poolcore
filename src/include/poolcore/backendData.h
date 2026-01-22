@@ -3,7 +3,6 @@
 
 #include "poolcommon/baseBlob.h"
 #include "poolcommon/serialize.h"
-#include "poolcommon/uint256.h"
 #include <list>
 #include <string>
 #include <vector>
@@ -190,7 +189,7 @@ struct UsersRecord {
   std::string Name;
   std::string TwoFactorAuthData;
   std::string ParentUser;
-  uint256 PasswordHash;
+  BaseBlob<256> PasswordHash;
   int64_t RegistrationDate;
   bool IsActive;
   bool IsReadOnly = false;

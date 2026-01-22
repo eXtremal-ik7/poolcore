@@ -26,7 +26,7 @@ template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB
   sph_shavite512_context	 ctx_shavite;
   sph_simd512_context		 ctx_simd;
   sph_echo512_context		 ctx_echo;
-  uint512 hash[5];
+  BaseBlob<512> hash[5];
 
   sph_luffa512_init(&ctx_luffa);
   sph_luffa512(&ctx_luffa, &header, sizeof(Proto<DGB::Algo::ESkein>::BlockHeader));
@@ -75,7 +75,7 @@ template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB
   CCheckStatus status;
   CCtxSha256 sha256Context;
   sph_skein512_context skeinContext;
-  uint512 skeinHash;
+  BaseBlob<512> skeinHash;
   UInt<256> result;
 
   sph_skein512_init(&skeinContext);

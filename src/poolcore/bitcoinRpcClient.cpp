@@ -2,7 +2,6 @@
 
 #include "poolcore/blockTemplate.h"
 #include "poolcore/clientDispatcher.h"
-#include "poolcommon/arith_uint256.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcommon/utils.h"
 #include "asyncio/asyncio.h"
@@ -926,11 +925,10 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   // Get unique work id
   uint64_t workId = blockTemplate->UniqueWorkId = readHexBE<uint64_t>(prevBlockHash.c_str(), 16);
 
-  arith_uint256 powLimit = UintToArith256(CoinInfo_.PowLimit);
-  arith_uint256 target;
-  target.SetCompact(strtoul(bits.c_str(), nullptr, 16));
+  UInt<256> powLimit = CoinInfo_.PowLimit;
+  UInt<256> target = uint256Compact(strtoul(bits.c_str(), nullptr, 16));
   powLimit /= target;
-  double difficulty = powLimit.getdouble();
+  double difficulty = powLimit.getDouble();
 
   blockTemplate->Difficulty = difficulty;
 

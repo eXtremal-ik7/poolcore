@@ -2,7 +2,6 @@
 
 #include "poolcommon/uint.h"
 #include "stratumWork.h"
-#include "poolcommon/arith_uint256.h"
 #include "poolcommon/utils.h"
 #include "poolinstances/stratumMsg.h"
 #include "poolcommon/jsonSerializer.h"

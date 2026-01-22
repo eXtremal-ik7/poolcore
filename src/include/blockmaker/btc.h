@@ -1,6 +1,7 @@
 #pragma once
 
 #include "btcLike.h"
+#include "poolcommon/uint.h"
 #include "sha256.h"
 #include "poolcommon/baseBlob.h"
 
@@ -146,7 +147,7 @@ public:
   };
 
   struct ChainParams {
-    uint256 powLimit;
+    UInt<256> powLimit;
   };
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}

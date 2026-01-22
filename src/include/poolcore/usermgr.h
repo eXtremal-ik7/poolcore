@@ -5,7 +5,6 @@
 #include "poolcore/backendData.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/rocksdbBase.h"
-#include "poolcommon/uint256.h"
 #include "asyncio/asyncio.h"
 #include <tbb/concurrent_queue.h>
 #include <tbb/concurrent_hash_map.h>
@@ -277,7 +276,7 @@ public:
   void start();
   void stop();
 
-  static uint256 generateHash(const std::string &login, const std::string &password);
+  static BaseBlob<256> generateHash(const std::string &login, const std::string &password);
 
   bool sendMail(const std::string &login, const std::string &emailAddress, const std::string &emailTitlePrefix, const std::string &linkPrefix, const BaseBlob<512> &actionId, const std::string &mainText, std::string &error);
   bool check2fa(const std::string &secret, const std::string &receivedCode);
@@ -323,7 +322,7 @@ public:
     if (name) {
       UsersRecord adminRecord;
       adminRecord.Login = name;
-      adminRecord.PasswordHash = uint256S(hash);
+      adminRecord.PasswordHash = BaseBlob<256>::fromHexLE(hash.c_str());
       adminRecord.Name = name;
       adminRecord.RegistrationDate = 0;
       adminRecord.IsActive = true;

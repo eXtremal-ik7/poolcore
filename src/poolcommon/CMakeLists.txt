@@ -1,11 +1,9 @@
 add_library(poolcommon STATIC
-  arith_uint256.cpp
   bech32.cpp
   coroutineJoin.cpp
   file.cpp
   taskHandler.cpp
   totp.cpp
-  uint256.cpp
   utils.cpp
 )
 

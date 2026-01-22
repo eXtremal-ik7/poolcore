@@ -7,7 +7,6 @@
 
 #include "poolcommon/baseBlob.h"
 #include "xvector.h"
-#include "poolcommon/uint256.h"
 #include <p2putils/xmstream.h>
 #include <p2putils/strExtras.h>
 

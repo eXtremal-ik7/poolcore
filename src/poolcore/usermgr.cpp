@@ -12,9 +12,9 @@ static bool validEmail(const std::string &email)
   return std::regex_match(email, pattern);
 }
 
-uint256 UserManager::generateHash(const std::string &login, const std::string &password)
+BaseBlob<256> UserManager::generateHash(const std::string &login, const std::string &password)
 {
-  uint256 result;
+  BaseBlob<256> result;
 
   {
     // generate login hash (as a salt)

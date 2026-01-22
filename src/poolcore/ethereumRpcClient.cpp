@@ -536,18 +536,18 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
         !resultValue[3].IsString())
       break;
 
-    uint256 headerHash;
-    uint256 seedHash;
-    headerHash.SetHex(resultValue[0].GetString() + 2);
-    seedHash.SetHex(resultValue[1].GetString() + 2);
+    BaseBlob<256> headerHash;
+    BaseBlob<256> seedHash;
+    headerHash.setHexLE(resultValue[0].GetString() + 2);
+    seedHash.setHexLE(resultValue[1].GetString() + 2);
     std::reverse(seedHash.begin(), seedHash.end());
 
     // TODO optimize it
-    arith_uint256 target;
-    static arith_uint256 twoPow255("8000000000000000000000000000000000000000000000000000000000000000");
-    target.SetHex(resultValue[2].GetString() + 2);
-    arith_uint256 diff = twoPow255 / target;
-    difficulty = diff.getdouble() * 2.0;
+    UInt<256> target;
+    static UInt<256> twoPow255 = UInt<256>::fromHex("8000000000000000000000000000000000000000000000000000000000000000");
+    target.setHex(resultValue[2].GetString() + 2);
+    UInt<256> diff = twoPow255 / target;
+    difficulty = diff.getDouble() * 2.0;
 
     height = strtoul(resultValue[3].GetString()+2, nullptr, 16);
     // Use height as unique block identifier
@@ -556,7 +556,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     // Check DAG presence
     int epochNumber = ethashGetEpochNumber(seedHash.begin());
     if (epochNumber == -1) {
-      LOG_F(ERROR, "Can't find epoch number for seed %s", seedHash.ToString().c_str());
+      LOG_F(ERROR, "Can't find epoch number for seed %s", seedHash.getHexLE().c_str());
       break;
     }
 

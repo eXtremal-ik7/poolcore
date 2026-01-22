@@ -1,7 +1,7 @@
 #pragma once
 
+#include "poolcommon/uint.h"
 #include "workTypes.h"
-#include "poolcommon/uint256.h"
 #include "p2putils/xmstream.h"
 #include "poolcore/thread.h"
 #include <atomic>
@@ -53,7 +53,7 @@ struct CCoinInfo {
   unsigned MinimalConfirmationsNumber = 6;
   bool HasExtendedFundRawTransaction = true;
   double WorkMultiplier = 4294967296.0;
-  uint256 PowLimit;
+  UInt<256> PowLimit;
   // ETH configuration
   bool HasDagFile = false;
   bool BigEpoch = false;
