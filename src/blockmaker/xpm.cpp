@@ -732,16 +732,16 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   return true;
 }
 
-double Zmq::Work::expectedWork()
+UInt<256> Zmq::Work::expectedWork()
 {
   int headerChainLength = TargetGetLength(Header.nBits);
   double difficulty = getPrimeDifficulty(Header.nBits);
   double fracDiff = difficulty - floor(difficulty);
-  double expectedWork = pow(10, headerChainLength - 7) / (0.97 * (1 - fracDiff) + 0.03);
-  return expectedWork;
+  double work = pow(10, headerChainLength - 7) / (0.97 * (1 - fracDiff) + 0.03);
+  return UInt<256>::fromDouble(work * 4294967296.0);
 }
 
-double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
+UInt<256> Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
                             double shareDiff,
                             double shareTarget,
                             const CExtraInfo &info,
@@ -764,7 +764,7 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
                                                 0,
                                                 workerConfig.WeaveDepth);
   if (smallestDivisor != -1U)
-    return 0.0;
+    return UInt<256>::zero();
 
   workerConfig.SharesBitSize.push_back(bnPrimeChainOriginBitSize);
   if (workerConfig.SharesBitSize.size() >= ShareWindowSize)
@@ -782,7 +782,7 @@ double Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
   double ppRatio = pow(primeProbTarget, headerChainLength) / pow(primeProb7, 7.0);
   double primeProb = headerChainLength != 7 ? pow(ppRatio, 1.0 / (headerChainLength - 7)) : 1.0;
   double shareValue = pow(primeProb / 0.1, headerChainLength - 7) * pow(primeProb, 7 - floor(shareTarget));
-  return shareValue;
+  return UInt<256>::fromDouble(shareValue * 4294967296.0);
 }
 
 uint32_t Zmq::Work::primePOWTarget()

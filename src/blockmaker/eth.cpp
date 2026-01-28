@@ -45,7 +45,7 @@ bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, std::string 
   Target_.setHex(resultValue[2].GetString() + 2);
   this->Height_ = strtoul(resultValue[3].GetString()+2, nullptr, 16);
   // Block reward can't be calculated at this moment
-  this->BlockReward_ = 0;
+  this->BlockReward_ = UInt<384>::zero();
 
   // Copy reference to DAG file & check it
   DagFile_ = blockTemplate.DagFile;
@@ -87,11 +87,10 @@ void Stratum::Work::buildBlock(size_t, xmstream &blockHexData)
   data->MixHash[64+2] = 0;
 }
 
-CCheckStatus Stratum::Work::checkConsensus(size_t)
+CCheckStatus Stratum::Work::checkConsensus(size_t, const UInt<256> &shareTarget)
 {
   CCheckStatus status;
-  // Get difficulty
-  status.ShareDiff = getDifficulty(uint256GetCompact(FinalHash_));
+  status.IsShare = FinalHash_ <= shareTarget;
   status.IsBlock = FinalHash_ <= Target_;
   status.IsPendingBlock = false;
   return status;

@@ -21,18 +21,21 @@ class CPriceFetcher;
 class StatisticDb;
 
 class AccountingDb {
+private:
+  inline static const std::string CurrentAccountingStoragePath = "accounting.storage.3";
+
 public:
   struct UserBalanceInfo {
     UserBalanceRecord Data;
-    int64_t Queued;
+    UInt<384> Queued;
   };
 
   struct CPPLNSPayoutAcc {
     int64_t IntervalEnd = 0;
-    int64_t TotalCoin = 0;
-    int64_t TotalBTC = 0.0;
-    double TotalUSD = 0.0;
-    double TotalIncomingWork = 0.0;
+    UInt<384> TotalCoin = UInt<384>::zero();
+    UInt<384> TotalBTC = UInt<384>::zero();
+    UInt<384> TotalUSD = UInt<384>::zero();
+    UInt<256> TotalIncomingWork = UInt<256>::zero();
     uint64_t AvgHashRate = 0;
     uint32_t PrimePOWTarget = -1U;
   };
@@ -44,6 +47,15 @@ public:
     uint64_t LastShareId;
     int64_t LastBlockTime;
     std::vector<StatisticDb::CStatsExportData> Recent;
+    std::map<std::string, UInt<256>> CurrentScores;
+  };
+
+  struct CAccountingFileDataOld2 {
+    enum { CurrentRecordVersion = 1 };
+
+    uint64_t LastShareId;
+    int64_t LastBlockTime;
+    std::vector<StatisticDb::CStatsExportDataOld2> Recent;
     std::map<std::string, double> CurrentScores;
   };
 
@@ -71,8 +83,10 @@ private:
   struct CAccountingFile {
     int64_t TimeLabel = 0;
     uint64_t LastShareId = 0;
-    // TEMPORARY
-    bool IsOldFormat = false;
+    // Version 1: old format (isOldFormat=true)
+    // Version 2: previous format (isOldFormat=false)
+    // Version 3: current format
+    unsigned Version = 3;
     std::filesystem::path Path;
   };
 
@@ -170,7 +184,7 @@ private:
 
   int64_t LastBlockTime_ = 0;
   std::deque<CAccountingFile> AccountingDiskStorage_;
-  std::map<std::string, double> CurrentScores_;
+  std::map<std::string, UInt<256>> CurrentScores_;
   std::vector<StatisticDb::CStatsExportData> RecentStats_;
   CFlushInfo FlushInfo_;
 
@@ -214,16 +228,16 @@ public:
   uint64_t lastAggregatedShareId() { return !AccountingDiskStorage_.empty() ? AccountingDiskStorage_.back().LastShareId : 0; }
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
-  void enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory, bool isOldFormat);
+  void enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory, unsigned version, bool createIfNotExists);
   void start();
   void stop();
   void updatePayoutFile();
   void cleanupRounds();
   
-  bool requestPayout(const std::string &address, int64_t value, bool force = false);
+  bool requestPayout(const std::string &address, const UInt<384> &value, bool force = false);
 
   bool hasUnknownReward();
-  void calculatePayments(MiningRound *R, int64_t generatedCoins);
+  void calculatePayments(MiningRound *R, const UInt<384> &generatedCoins);
   void addShare(const CShare &share);
   void replayShare(const CShare &share);
   void initializationFinish(int64_t timeLabel);
@@ -277,6 +291,22 @@ private:
 template<>
 struct DbIo<AccountingDb::CAccountingFileData> {
   static inline void unserialize(xmstream &in, AccountingDb::CAccountingFileData &data) {
+    uint32_t version;
+    DbIo<uint32_t>::unserialize(in, version);
+    if (version == 1) {
+      DbIo<decltype(data.LastShareId)>::unserialize(in, data.LastShareId);
+      DbIo<decltype(data.LastBlockTime)>::unserialize(in, data.LastBlockTime);
+      DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
+      DbIo<decltype(data.CurrentScores)>::unserialize(in, data.CurrentScores);
+    } else {
+      in.seekEnd(0, true);
+    }
+  }
+};
+
+template<>
+struct DbIo<AccountingDb::CAccountingFileDataOld2> {
+  static inline void unserialize(xmstream &in, AccountingDb::CAccountingFileDataOld2 &data) {
     uint32_t version;
     DbIo<uint32_t>::unserialize(in, version);
     if (version == 1) {

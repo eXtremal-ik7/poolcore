@@ -58,7 +58,7 @@ CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioListUnspent(asyncBa
   return status;
 }
 
-CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, CNetworkClient::BuildTransactionResult &result)
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, CNetworkClient::BuildTransactionResult &result)
 {
   CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
   unsigned threadId = GetGlobalThreadId();
@@ -103,7 +103,7 @@ CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioWalletService(async
   return status;
 }
 
-CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error)
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error)
 {
   CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
   unsigned threadId = GetGlobalThreadId();
@@ -126,7 +126,7 @@ void CNetworkClientDispatcher::aioSubmitBlock(asyncBase *base, const void *data,
 }
 
 // ZEC specific
-CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioZGetBalance(asyncBase *base, const std::string &address, int64_t *result)
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioZGetBalance(asyncBase *base, const std::string &address, UInt<384> *result)
 {
   CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
   unsigned threadId = GetGlobalThreadId();
@@ -141,7 +141,7 @@ CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioZGetBalance(asyncBa
   return status;
 }
 
-CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioZSendMoney(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result)
+CNetworkClient::EOperationStatus CNetworkClientDispatcher::ioZSendMoney(asyncBase *base, const std::string &source, const std::string &destination, const UInt<384> &amount, const std::string &memo, uint64_t minConf, const UInt<384> &fee, CNetworkClient::ZSendMoneyResult &result)
 {
   CNetworkClient::EOperationStatus status = CNetworkClient::EStatusUnknownError;
   unsigned threadId = GetGlobalThreadId();

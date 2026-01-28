@@ -151,10 +151,10 @@ public:
   };
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static CCheckStatus checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx &ctx, ChainParams&);
-  static CCheckStatus checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, ChainParams &params) { return checkConsensus(block.header, ctx, params); }
+  static CCheckStatus checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx &ctx, ChainParams&, const UInt<256> &shareTarget);
+  static CCheckStatus checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, ChainParams &params, const UInt<256> &shareTarget) { return checkConsensus(block.header, ctx, params, shareTarget); }
   static double getDifficulty(const Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 29); }
-  static double expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&);
+  static UInt<256> expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&);
   static std::string makeHumanReadableAddress(uint8_t pubkeyAddressPrefix, const BTC::Proto::AddressTy &address);
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address);
   static bool decodeWIF(const std::string &privateKey, const std::vector<uint8_t> &prefix, uint8_t *result);
@@ -225,7 +225,7 @@ template<typename T> struct Io<Proto::BlockTy<T>> {
 
 class Stratum {
 public:
-  static constexpr double DifficultyFactor = 1.0;
+  inline static const UInt<256> StratumMultiplier = UInt<256>(1u) << 32;
 
   // TODO: Use this for headers non-compatible with BTC
   struct HeaderBuilder {
@@ -234,10 +234,10 @@ public:
 
   struct CoinbaseBuilder {
   public:
-    bool prepare(int64_t *blockReward, rapidjson::Value &blockTemplate);
+    bool prepare(uint64_t *blockReward, rapidjson::Value &blockTemplate);
 
     void build(int64_t height,
-               int64_t blockReward,
+               uint64_t blockReward,
                void *coinbaseData,
                size_t coinbaseSize,
                const std::string &coinbaseMessage,
@@ -249,8 +249,8 @@ public:
                BTC::CoinbaseTx &witness);
 
   private:
-    int64_t DevFee = 0;
-    int64_t StakingReward = 0;
+    uint64_t DevFee = 0;
+    uint64_t StakingReward = 0;
     xmstream DevScriptPubKey;
     xmstream StakingRewardScriptPubkey;
   };
@@ -266,7 +266,7 @@ public:
   using Work = BTC::WorkTy<BTC::Proto, HeaderBuilder, CoinbaseBuilder, Notify, Prepare>;
 
   static constexpr bool MergedMiningSupport = false;
-  static void buildSendTargetMessage(xmstream &stream, double difficulty) { buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
+  static void buildSendTargetMessage(xmstream &stream, double difficulty) { buildSendTargetMessageImpl(stream, difficulty); }
 
 public:
   static Work *newPrimaryWork(int64_t stratumId,
@@ -517,15 +517,20 @@ public:
     subscribeInfo = std::to_string(workerCfg.ExtraNonceFixed);
   }
 
-  static void buildSendTargetMessageImpl(xmstream &stream, double difficulty, double factor) {
+  static void buildSendTargetMessageImpl(xmstream &stream, double difficulty) {
     JSON::Object object(stream);
     object.addString("method", "mining.set_difficulty");
     object.addNull("id");
     object.addField("params");
     {
       JSON::Array params(stream);
-      params.addDouble(difficulty * factor);
+      params.addDouble(difficulty);
     }
+  }
+
+  static UInt<256> targetFromDifficulty(const UInt<256> &difficulty) {
+    static const UInt<256> maxTarget = UInt<256>::fromHex("ffff000000000000000000000000000000000000000000000000000000000000");
+    return maxTarget / difficulty;
   }
 };
 

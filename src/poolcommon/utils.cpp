@@ -1,105 +1,85 @@
 #include "poolcommon/utils.h"
+#include "poolcommon/uint.h"
 
-
-std::string vstrprintf(const char *format, va_list ap)
+std::string FormatMoney(const UInt<384> &n, unsigned decimalDigits, bool fPlus)
 {
-    char buffer[50000];
-    char* p = buffer;
-    int limit = sizeof(buffer);
-    int ret;
-    for (;;)
-    {
-        va_list arg_ptr;
-        va_copy(arg_ptr, ap);
-#ifdef WIN32
-        ret = _vsnprintf(p, limit, format, arg_ptr);
-#else
-        ret = vsnprintf(p, limit, format, arg_ptr);
-#endif
-        va_end(arg_ptr);
-        if (ret >= 0 && ret < limit)
-            break;
-        if (p != buffer)
-            delete[] p;
-        limit *= 2;
-        p = new char[limit];
-        if (p == NULL)
-            throw std::bad_alloc();
-    }
-    std::string str(p, p+ret);
-    if (p != buffer)
-        delete[] p;
-    return str;
-}
+  // Discard lower 256 bits (fractional satoshi), keep upper 128 bits (satoshi count)
+  UInt<128> satoshi = UInt<128>::truncate(n >> 256);
 
-std::string real_strprintf(const std::string &format, int dummy, ...)
-{
-    va_list arg_ptr;
-    va_start(arg_ptr, dummy);
-    std::string str = vstrprintf(format.c_str(), arg_ptr);
-    va_end(arg_ptr);
-    return str;
-}
+  // Check for negative (MSB set means underflow/negative in two's complement)
+  bool isNegative = satoshi.isNegative();
+  if (isNegative)
+    satoshi.negate();
 
-std::string FormatMoney(int64_t n, int64_t rationalPartSize, bool fPlus)
-{
   std::string result;
-  int64_t n_abs = (n > 0 ? n : -n);
-  int64_t quotient = n_abs/rationalPartSize;
-  int64_t remainder = n_abs%rationalPartSize;
   result.reserve(64);
-  if (n < 0)
+
+  if (isNegative)
     result.push_back('-');
   else if (fPlus)
     result.push_back('+');
 
-  auto begin = result.begin() + result.size();
-  do {
-    result.push_back('0' + quotient % 10);
-    quotient /= 10;
-  } while (quotient);
-  std::reverse(begin, result.end());
+  // Compute rationalPartSize = 10^decimalDigits
+  UInt<128> rationalPartSize(1u);
+  for (unsigned i = 0; i < decimalDigits; i++)
+    rationalPartSize.mul64(10u);
 
-  if (remainder) {
+  // Compute quotient (coins) and remainder (fractional coins in satoshi)
+  UInt<128> quotient;
+  UInt<128> remainder;
+  satoshi.divmod(rationalPartSize, &quotient, &remainder);
+
+  // Format integer part
+  result += quotient.getDecimal();
+
+  // Format fractional part (if any)
+  if (!remainder.isZero()) {
     result.push_back('.');
-    auto begin = result.begin() + result.size();
-    bool printZeroes = false;
-    do {
-      char digit = remainder % 10;
-      printZeroes |= digit != 0;
-      if (printZeroes)
-        result.push_back('0' + digit);
-      remainder /= 10;
-      rationalPartSize /= 10;
-    } while (rationalPartSize > 1);
 
-    std::reverse(begin, result.end());
+    std::string fractional = remainder.getDecimal();
+
+    // Add leading zeros
+    for (size_t i = fractional.length(); i < decimalDigits; i++)
+      result.push_back('0');
+
+    // Remove trailing zeros from fracStr and append
+    size_t lastNonZero = fractional.find_last_not_of('0');
+    if (lastNonZero != std::string::npos)
+      result += fractional.substr(0, lastNonZero + 1);
   }
 
   return result;
 }
 
-bool parseMoneyValue(const char *value, const int64_t rationalPartSize, int64_t *out)
+bool parseMoneyValue(const char *value, unsigned decimalDigits, UInt<384> *out)
 {
-  *out = 0;
-  int64_t fractionalMultiplier = rationalPartSize;
-  int64_t rationalPart = 0;
-  int64_t fractionalPart = 0;
+  *out = UInt<384>();
+
+  // Compute rationalPartSize = 10^decimalDigits
+  UInt<128> rationalPartSize(1u);
+  for (unsigned i = 0; i < decimalDigits; i++)
+    rationalPartSize.mul64(10u);
+
+  UInt<128> fractionalMultiplier = rationalPartSize;
+  UInt<128> integerPart;
+  UInt<128> fractionalPart;
   const char *p = value;
   char s;
 
-  // Parse rational part
+  // Parse integer part (coins)
   if (*p == 0)
     return false;
   for (;; p++) {
     s = *p;
     if (s >= '0' && s <= '9') {
-      rationalPart *= 10;
-      rationalPart += s - '0';
+      integerPart.mul64(10u);
+      integerPart.add64(static_cast<unsigned>(s - '0'));
     } else if (s == '.') {
       break;
     } else if (s == '\0') {
-      *out = rationalPart * rationalPartSize;
+      // No fractional part: result = integerPart * rationalPartSize
+      integerPart.mul(rationalPartSize);
+      *out = UInt<384>(integerPart) << 256;
       return true;
     } else {
       return false;
@@ -111,10 +91,10 @@ bool parseMoneyValue(const char *value, const int64_t rationalPartSize, int64_t 
   for (;; p++) {
     s = *p;
     if (s >= '0' && s <= '9') {
-      fractionalPart *= 10;
-      fractionalPart += s - '0';
-      fractionalMultiplier /= 10;
-      if (fractionalMultiplier == 0)
+      fractionalPart.mul64(10u);
+      fractionalPart.add64(static_cast<unsigned>(s - '0'));
+      fractionalMultiplier.divmod64(10u);
+      if (fractionalMultiplier.isZero())
         return false;
     } else if (s == '\0') {
       break;
@@ -123,6 +103,10 @@ bool parseMoneyValue(const char *value, const int64_t rationalPartSize, int64_t 
     }
   }
 
-  *out = rationalPart*rationalPartSize + fractionalPart*fractionalMultiplier;
+  // Result in satoshi = integerPart * rationalPartSize + fractionalPart * fractionalMultiplier
+  integerPart.mul(rationalPartSize);
+  fractionalPart.mul(fractionalMultiplier);
+  integerPart.add(fractionalPart);
+  *out = UInt<384>(integerPart) << 256;
   return true;
 }

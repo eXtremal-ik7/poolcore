@@ -6,6 +6,7 @@ add_library(poolcore STATIC
   accounting.cpp
   backend.cpp
   backendData.cpp
+  dbFormat.cpp
   base58.cpp
   clientDispatcher.cpp
   kvdb.cpp

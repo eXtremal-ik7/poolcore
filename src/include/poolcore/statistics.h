@@ -17,6 +17,10 @@
 struct CShare;
 
 class StatisticDb {
+private:
+  inline static const std::string CurrentPoolStoragePath = "stats.pool.cache.3";
+  inline static const std::string CurrentWorkersStoragePath = "stats.workers.cache.3";
+
 public:
   enum EStatsColumn {
     EStatsColumnName = 0,
@@ -50,7 +54,7 @@ public:
     uint32_t WorkersNum = 0;
     uint64_t AveragePower = 0;
     double SharesPerSecond = 0.0;
-    double SharesWork = 0.0;
+    UInt<256> SharesWork = UInt<256>::zero();
     int64_t LastShareTime = 0;
     int64_t Time = 0;
   };
@@ -60,13 +64,13 @@ public:
     enum { CurrentRecordVersion = 1 };
 
     uint32_t SharesNum = 0;
-    double SharesWork = 0.0;
+    UInt<256> SharesWork = UInt<256>::zero();
     int64_t TimeLabel = 0;
     uint32_t PrimePOWTarget = -1U;
     std::vector<uint32_t> PrimePOWSharesNum;
     void reset() {
       SharesNum = 0;
-      SharesWork = 0.0;
+      SharesWork = UInt<256>::zero();
       PrimePOWTarget = -1U;
       PrimePOWSharesNum.clear();
     }
@@ -77,7 +81,7 @@ public:
     CStatsElement Current;
     int64_t LastShareTime = 0;
 
-    void addShare(double workValue, int64_t time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
+    void addShare(const UInt<256> &workValue, int64_t time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
       Current.SharesNum++;
       Current.SharesWork += workValue;
       if (isPrimePOW) {
@@ -93,7 +97,7 @@ public:
 
   struct CSharesWorkWithTime {
     int64_t TimeLabel;
-    double SharesWork;
+    UInt<256> SharesWork;
   };
 
   // +file serialization
@@ -103,8 +107,8 @@ public:
     std::string UserId;
     std::vector<CSharesWorkWithTime> Recent;
 
-    double recentShareValue(int64_t acceptSharesTime) const {
-      double shareValue = 0.0;
+    UInt<256> recentShareValue(int64_t acceptSharesTime) const {
+      UInt<256> shareValue = UInt<256>::zero();
       for (auto &statsElement: Recent) {
         if (statsElement.TimeLabel > acceptSharesTime)
           shareValue += statsElement.SharesWork;
@@ -116,6 +120,41 @@ public:
     }
   };
 
+  // TEMPORARY
+  // Previous version format
+  // +file serialization
+  struct CStatsFileRecordOld2 {
+    enum { CurrentRecordVersion = 1 };
+
+    std::string Login;
+    std::string WorkerId;
+    int64_t Time;
+    uint64_t ShareCount;
+    double ShareWork;
+    uint32_t PrimePOWTarget;
+    std::vector<uint64_t> PrimePOWShareCount;
+  };
+
+  // +file serialization
+  struct CStatsFileDataOld2 {
+    enum { CurrentRecordVersion = 1 };
+
+    uint64_t LastShareId;
+    std::vector<CStatsFileRecordOld2> Records;
+  };
+
+  struct CSharesWorkWithTimeOld2 {
+    int64_t TimeLabel;
+    double SharesWork;
+  };
+
+  struct CStatsExportDataOld2 {
+    enum { CurrentRecordVersion = 1 };
+
+    std::string UserId;
+    std::vector<CSharesWorkWithTimeOld2> Recent;
+  };
+
   // +file serialization
   struct CStatsFileRecord {
     enum { CurrentRecordVersion = 1 };
@@ -124,7 +163,7 @@ public:
     std::string WorkerId;
     int64_t Time;
     uint64_t ShareCount;
-    double ShareWork;
+    UInt<256> ShareWork;
     uint32_t PrimePOWTarget;
     std::vector<uint64_t> PrimePOWShareCount;
   };
@@ -146,8 +185,10 @@ private:
   struct CStatsFile {
     int64_t TimeLabel;
     uint64_t LastShareId;
-    // TEMPORARY
-    bool IsOldFormat = false;
+    // Version 1: old format (isOldFormat=true)
+    // Version 2: new format (isOldFormat=false)
+    // Version 3: UInt<256> for ShareWork
+    unsigned Version = 3;
     std::filesystem::path Path;
   };
 
@@ -227,15 +268,19 @@ private:
 
   bool parseStatsCacheFile(CStatsFile &file);
 
-  void enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::filesystem::path &directory, bool isOldFormat);
+  void enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::filesystem::path &directory, unsigned version, bool createIfNotExists);
   void updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, time_t currentTime, xmstream &statsFileData);
   void calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, std::chrono::seconds calculateInterval, std::chrono::seconds aggregateTime, CStats &result);
   void writeStatsToDb(const std::string &loginId, const std::string &workerId, const CStatsElement &element);
   void writeStatsToCache(const std::string &loginId, const std::string &workerId, const CStatsElement &element, int64_t lastShareTime, xmstream &statsFileData);
 
-  void updateStatsDiskCache(const char *name, std::deque<CStatsFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size);
-  void updateWorkersStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) { updateStatsDiskCache("stats.workers.cache.2", WorkersStatsCache_, timeLabel, shareId, data, size); }
-  void updatePoolStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) { updateStatsDiskCache("stats.pool.cache.2", PoolStatsCache_, timeLabel, shareId, data, size); }
+  void updateStatsDiskCache(const std::string &name, std::deque<CStatsFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size);
+  void updateWorkersStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) {
+    updateStatsDiskCache(CurrentWorkersStoragePath, WorkersStatsCache_, timeLabel, shareId, data, size);
+  }
+  void updatePoolStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) {
+    updateStatsDiskCache(CurrentPoolStoragePath, PoolStatsCache_, timeLabel, shareId, data, size);
+  }
 
 public:
   // Initialization
@@ -333,6 +378,36 @@ struct DbIo<StatisticDb::CStatsFileRecord> {
 };
 
 template<>
+struct DbIo<StatisticDb::CStatsFileRecordOld2> {
+  static inline void serialize(xmstream &out, const StatisticDb::CStatsFileRecordOld2 &data) {
+    DbIo<uint32_t>::serialize(out, data.CurrentRecordVersion);
+    DbIo<decltype(data.Login)>::serialize(out, data.Login);
+    DbIo<decltype(data.WorkerId)>::serialize(out, data.WorkerId);
+    DbIo<decltype(data.Time)>::serialize(out, data.Time);
+    DbIo<decltype(data.ShareCount)>::serialize(out, data.ShareCount);
+    DbIo<decltype(data.ShareWork)>::serialize(out, data.ShareWork);
+    DbIo<decltype(data.PrimePOWTarget)>::serialize(out, data.PrimePOWTarget);
+    DbIo<decltype(data.PrimePOWShareCount)>::serialize(out, data.PrimePOWShareCount);
+  }
+
+  static inline void unserialize(xmstream &in, StatisticDb::CStatsFileRecordOld2 &data) {
+    uint32_t version;
+    DbIo<uint32_t>::unserialize(in, version);
+    if (version == 1) {
+      DbIo<decltype(data.Login)>::unserialize(in, data.Login);
+      DbIo<decltype(data.WorkerId)>::unserialize(in, data.WorkerId);
+      DbIo<decltype(data.Time)>::unserialize(in, data.Time);
+      DbIo<decltype(data.ShareCount)>::unserialize(in, data.ShareCount);
+      DbIo<decltype(data.ShareWork)>::unserialize(in, data.ShareWork);
+      DbIo<decltype(data.PrimePOWTarget)>::unserialize(in, data.PrimePOWTarget);
+      DbIo<decltype(data.PrimePOWShareCount)>::unserialize(in, data.PrimePOWShareCount);
+    } else {
+      in.seekEnd(0, true);
+    }
+  }
+};
+
+template<>
 struct DbIo<StatisticDb::CSharesWorkWithTime> {
   static inline void serialize(xmstream &out, const StatisticDb::CSharesWorkWithTime &data) {
     DbIo<decltype(data.SharesWork)>::serialize(out, data.SharesWork);
@@ -366,6 +441,39 @@ struct DbIo<StatisticDb::CStatsExportData> {
 };
 
 template<>
+struct DbIo<StatisticDb::CSharesWorkWithTimeOld2> {
+  static inline void serialize(xmstream &out, const StatisticDb::CSharesWorkWithTimeOld2 &data) {
+    DbIo<decltype(data.SharesWork)>::serialize(out, data.SharesWork);
+    DbIo<decltype(data.TimeLabel)>::serialize(out, data.TimeLabel);
+  }
+
+  static inline void unserialize(xmstream &in, StatisticDb::CSharesWorkWithTimeOld2 &data) {
+    DbIo<decltype(data.SharesWork)>::unserialize(in, data.SharesWork);
+    DbIo<decltype(data.TimeLabel)>::unserialize(in, data.TimeLabel);
+  }
+};
+
+template<>
+struct DbIo<StatisticDb::CStatsExportDataOld2> {
+  static inline void serialize(xmstream &out, const StatisticDb::CStatsExportDataOld2 &data) {
+    DbIo<uint32_t>::serialize(out, data.CurrentRecordVersion);
+    DbIo<decltype(data.UserId)>::serialize(out, data.UserId);
+    DbIo<decltype(data.Recent)>::serialize(out, data.Recent);
+  }
+
+  static inline void unserialize(xmstream &in, StatisticDb::CStatsExportDataOld2 &data) {
+    uint32_t version;
+    DbIo<uint32_t>::unserialize(in, version);
+    if (version == 1) {
+      DbIo<decltype(data.UserId)>::unserialize(in, data.UserId);
+      DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
+    } else {
+      in.seekEnd(0, true);
+    }
+  }
+};
+
+template<>
 struct DbIo<StatisticDb::CStatsFileData> {
   static inline void unserialize(xmstream &in, StatisticDb::CStatsFileData &data) {
     uint32_t version;
@@ -375,6 +483,23 @@ struct DbIo<StatisticDb::CStatsFileData> {
       while (in.remaining()) {
         StatisticDb::CStatsFileRecord &record = data.Records.emplace_back();
         DbIo<StatisticDb::CStatsFileRecord>::unserialize(in, record);
+      }
+    } else {
+      in.seekEnd(0, true);
+    }
+  }
+};
+
+template<>
+struct DbIo<StatisticDb::CStatsFileDataOld2> {
+  static inline void unserialize(xmstream &in, StatisticDb::CStatsFileDataOld2 &data) {
+    uint32_t version;
+    DbIo<uint32_t>::unserialize(in, version);
+    if (version == 1) {
+      DbIo<decltype(data.LastShareId)>::unserialize(in, data.LastShareId);
+      while (in.remaining()) {
+        StatisticDb::CStatsFileRecordOld2 &record = data.Records.emplace_back();
+        DbIo<StatisticDb::CStatsFileRecordOld2>::unserialize(in, record);
       }
     } else {
       in.seekEnd(0, true);

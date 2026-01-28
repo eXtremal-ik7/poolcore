@@ -213,7 +213,7 @@ static inline UInt<256> powValue(const BTC::Proto::BlockHeader &header)
   return result;
 }
 
-CCheckStatus Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx &ctx, ChainParams&)
+CCheckStatus Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx &ctx, ChainParams&, const UInt<256> &shareTarget)
 {
   CCheckStatus status;
   bool fNegative;
@@ -221,17 +221,17 @@ CCheckStatus Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsen
   UInt<256> hash = powValue(header);
   UInt<256> defaultTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
-  // defaultTarget.SetCompact(header.nBits, &fNegative, &fOverflow);
-  status.ShareDiff = BTC::difficultyFromBits(uint256GetCompact(hash), 29);
+  status.IsShare = hash <= shareTarget;
 
   // Check range
-  if (fNegative || defaultTarget == 0 || fOverflow)
+  if (fNegative || defaultTarget == 0u || fOverflow)
     return status;
 
   if (ctx.HasRtt) {
     UInt<256> adjustedTarget = rttComputeNextTarget(time(nullptr), ctx.PrevBits, ctx.PrevHeaderTime, header.nBits);
     status.IsBlock = hash <= adjustedTarget;
     status.IsPendingBlock = hash <= defaultTarget;
+    status.Hash = hash;
   } else {
     status.IsBlock = hash <= defaultTarget;
     status.IsPendingBlock = false;
@@ -241,30 +241,30 @@ CCheckStatus Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsen
   return status;
 }
 
-double Proto::expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx &ctx)
+UInt<256> Proto::expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx &ctx)
 {
   if (ctx.HasRtt) {
     UInt<256> adjustedTarget = rttComputeNextTarget(time(nullptr), ctx.PrevBits, ctx.PrevHeaderTime, header.nBits);
-    return BTC::difficultyFromBits(uint256GetCompact(adjustedTarget), 29);
+    return uint256GetCompact(adjustedTarget);
   } else {
-    return BTC::difficultyFromBits(header.nBits, 29);
+    return uint256GetCompact(header.nBits);
   }
 }
 
-static void processCoinbaseDevReward(rapidjson::Value &blockTemplate, int64_t *devFee, xmstream &devScriptPubKey)
+static void processCoinbaseDevReward(rapidjson::Value &blockTemplate, uint64_t *devFee, xmstream &devScriptPubKey)
 {
   if (blockTemplate.HasMember("coinbasedevreward") && blockTemplate["coinbasedevreward"].IsObject()) {
     rapidjson::Value &devReward = blockTemplate["coinbasedevreward"];
     if (devReward.HasMember("value") && devReward["value"].IsInt64() &&
         devReward.HasMember("scriptpubkey") && devReward["scriptpubkey"].IsString()) {
-      *devFee = devReward["value"].GetInt64();
+      *devFee = devReward["value"].GetUint64();
       size_t scriptPubKeyLength = devReward["scriptpubkey"].GetStringLength();
       hex2bin(devReward["scriptpubkey"].GetString(), scriptPubKeyLength, devScriptPubKey.reserve<uint8_t>(scriptPubKeyLength/2));
     }
   }
 }
 
-static void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockReward, int64_t *devFee, xmstream &devScriptPubKey)
+static void processMinerFund(rapidjson::Value &blockTemplate, uint64_t *blockReward, uint64_t *devFee, xmstream &devScriptPubKey)
 {
   if (blockTemplate.HasMember("coinbasetxn") && blockTemplate["coinbasetxn"].IsObject()) {
     rapidjson::Value &coinbasetxn = blockTemplate["coinbasetxn"];
@@ -288,7 +288,7 @@ static void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockRewa
             // Decode bch bech32 address
             auto feeAddr = bech32::DecodeCashAddrContent(addresses[0].GetString(), addrPrefix);
             if (feeAddr.type == bech32::SCRIPT_TYPE) {
-              *devFee = minimumvalue.GetInt64();
+              *devFee = minimumvalue.GetUint64();
               devScriptPubKey.write<uint8_t>(BTC::Script::OP_HASH160);
               devScriptPubKey.write<uint8_t>(0x14);
               devScriptPubKey.write(&feeAddr.hash[0], feeAddr.hash.size());
@@ -302,7 +302,7 @@ static void processMinerFund(rapidjson::Value &blockTemplate, int64_t *blockRewa
   }
 }
 
-static void processDevelopmentFund(rapidjson::Value &blockTemplate, int64_t *blockReward, int64_t *devFee, xmstream &devScriptPubKey)
+static void processDevelopmentFund(rapidjson::Value &blockTemplate, uint64_t *blockReward, uint64_t *devFee, xmstream &devScriptPubKey)
 {
   if (blockTemplate.HasMember("coinbasetxn") && blockTemplate["coinbasetxn"].IsObject()) {
     rapidjson::Value &coinbasetxn = blockTemplate["coinbasetxn"];
@@ -313,7 +313,7 @@ static void processDevelopmentFund(rapidjson::Value &blockTemplate, int64_t *blo
       if (addresses.Size() >= 1 && addresses[0].IsString()) {
         BTC::Proto::AddressTy address;
         if (BTC::Proto::decodeHumanReadableAddress(addresses[0].GetString(), {5}, address)) {
-          *devFee = developmentfund.GetInt64();
+          *devFee = developmentfund.GetUint64();
           devScriptPubKey.write<uint8_t>(BTC::Script::OP_HASH160);
           devScriptPubKey.write<uint8_t>(0x14);
           devScriptPubKey.write(address.begin(), address.size());
@@ -325,7 +325,7 @@ static void processDevelopmentFund(rapidjson::Value &blockTemplate, int64_t *blo
   }
 }
 
-static void processStakingReward(rapidjson::Value &blockTemplate, int64_t *blockReward, int64_t *stakingReward, xmstream &stakingRewardScriptPubkey)
+static void processStakingReward(rapidjson::Value &blockTemplate, uint64_t *blockReward, uint64_t *stakingReward, xmstream &stakingRewardScriptPubkey)
 {
   if (blockTemplate.HasMember("coinbasetxn") && blockTemplate["coinbasetxn"].IsObject()) {
     rapidjson::Value &coinbasetxn = blockTemplate["coinbasetxn"];
@@ -338,7 +338,7 @@ static void processStakingReward(rapidjson::Value &blockTemplate, int64_t *block
         if (payoutScript.HasMember("hex") && payoutScript["hex"].IsString() && payoutScript["hex"].GetStringLength() % 2 == 0) {
           rapidjson::SizeType size = payoutScript["hex"].GetStringLength();
           hex2bin(payoutScript["hex"].GetString(), size, stakingRewardScriptPubkey.reserve(size / 2));
-          *stakingReward = minimumvalue.GetInt64();
+          *stakingReward = minimumvalue.GetUint64();
           *blockReward -= *stakingReward;
         }
       }
@@ -376,7 +376,7 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
   return true;
 }
 
-bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward, rapidjson::Value &blockTemplate)
+bool Stratum::CoinbaseBuilder::prepare(uint64_t *blockReward, rapidjson::Value &blockTemplate)
 {
   if (!blockTemplate.HasMember("coinbasevalue"))
     return false;
@@ -385,7 +385,7 @@ bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward, rapidjson::Value &b
   if (!coinbaseValue.IsInt64())
     return false;
 
-  *blockReward = coinbaseValue.GetInt64();
+  *blockReward = coinbaseValue.GetUint64();
 
   // "coinbasedevreward" (FreeCash/FCH)
   processCoinbaseDevReward(blockTemplate, &DevFee, DevScriptPubKey);
@@ -399,16 +399,16 @@ bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward, rapidjson::Value &b
 }
 
 void Stratum::CoinbaseBuilder::build(int64_t height,
-    int64_t blockReward,
-    void *coinbaseData,
-    size_t coinbaseSize,
-    const std::string &coinbaseMessage,
-    const Proto::AddressTy &miningAddress,
-    const CMiningConfig &miningCfg,
-    bool segwitEnabled,
-    const xmstream &witnessCommitment,
-    CoinbaseTx &legacy,
-    CoinbaseTx &witness)
+                                     uint64_t blockReward,
+                                     void *coinbaseData,
+                                     size_t coinbaseSize,
+                                     const std::string &coinbaseMessage,
+                                     const Proto::AddressTy &miningAddress,
+                                     const CMiningConfig &miningCfg,
+                                     bool segwitEnabled,
+                                     const xmstream &witnessCommitment,
+                                     CoinbaseTx &legacy,
+                                     CoinbaseTx &witness)
 {
   BTC::Proto::Transaction coinbaseTx;
 

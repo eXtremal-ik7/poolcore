@@ -157,7 +157,7 @@ public:
     unsigned TxExtraNonceOffset;
     unsigned BlockHexExtraNonceOffset;
     size_t TransactionsNum;
-    int64_t BlockReward;
+    uint64_t BlockReward;
 
     Proto::BlockHeader Header;
     std::vector<BaseBlob<256>> MerklePath;
@@ -170,9 +170,9 @@ public:
     uint64_t height() { return Height; }
     BaseBlob<256> hash() { return Header.GetHash(); }
     size_t txNum() { return TransactionsNum; }
-    int64_t blockReward() { return BlockReward; }
+    UInt<384> blockReward() { return fromRational(BlockReward); }
     const xmstream &blockHexData() { return BlockHexData; }
-    double expectedWork();
+    UInt<256> expectedWork();
 
     bool checkConsensus(Proto::CheckConsensusCtx &ctx, double *shareDiff, CExtraInfo *info) {
       Proto::ChainParams params;
@@ -180,7 +180,7 @@ public:
       return XPM::Proto::checkConsensus(Header, ctx, params, shareDiff, &info->ChainType);
     }
 
-    double shareWork(Proto::CheckConsensusCtx &ctx, double shareDiff, double shareTarget, const CExtraInfo &info, WorkerConfig &workerConfig);
+    UInt<256> shareWork(Proto::CheckConsensusCtx &ctx, double shareDiff, double shareTarget, const CExtraInfo &info, WorkerConfig &workerConfig);
     uint32_t primePOWTarget();
   };
 

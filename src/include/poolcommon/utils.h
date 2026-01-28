@@ -1,18 +1,16 @@
 #pragma once
 
-#include <inttypes.h>
 #include <stdarg.h>
 #include <string>
-#include <p2putils/strExtras.h>
+#include "poolcommon/uint.h"
+#include "p2putils/strExtras.h"
 
-std::string real_strprintf(const std::string &format, int dummy, ...);
-#define strprintf(format, ...) real_strprintf(format, 0, __VA_ARGS__)
+static inline UInt<384> fromRational(uint64_t value) {
+  return UInt<384>(value) << 256;
+}
 
-std::string vstrprintf(const char *format, va_list ap);
-std::string real_strprintf(const std::string &format, int dummy, ...);
-std::string FormatMoney(int64_t n, int64_t rationalPartSize, bool fPlus=false);
-bool parseMoneyValue(const char *value, const int64_t rationalPartSize, int64_t *out);
-
+std::string FormatMoney(const UInt<384> &n, unsigned decimalDigits, bool fPlus=false);
+bool parseMoneyValue(const char *value, unsigned decimalDigits, UInt<384> *out);
 
 static inline uint8_t hexDigit2bin(char c)
 {
@@ -43,6 +41,14 @@ static inline void bin2hexLowerCase(const void *in, char *out, size_t size)
     out[i*2] = bin2hexLowerCaseDigit(pIn[i] >> 4);
     out[i*2+1] = bin2hexLowerCaseDigit(pIn[i] & 0xF);
   }
+}
+
+static inline std::string bin2hexLowerCase(const void *in, size_t size)
+{
+  std::string result;
+  result.resize(size * 2);
+  bin2hexLowerCase(in, result.data(), size);
+  return result;
 }
 
 template<typename T>
@@ -100,3 +106,4 @@ void writeBinBE(T value, unsigned sizeInBytes, void *out)
     value >>= 8;
   }
 }
+

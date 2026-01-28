@@ -568,16 +568,11 @@ static inline UInt<256> powValue(const ZEC::Proto::BlockHeader &header)
   return result;
 }
 
-CCheckStatus Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx &consensusCtx, ZEC::Proto::ChainParams&)
+CCheckStatus Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx &consensusCtx, ZEC::Proto::ChainParams&, const UInt<256> &shareTarget)
 {
   static Equihash<200,9> Eh200_9;
   static Equihash<48,5> Eh48_5;
   CCheckStatus status;
-
-  // Check equihash solution
-  // Here used original code from ZCash repository, it causes high CPU load
-  // TODO: optimize it
-  status.ShareDiff = 0;
   crypto_generichash_blake2b_state state;
   if (consensusCtx.N == 200 && consensusCtx.K == 9) {
     Eh200_9.InitialiseState(state);
@@ -602,10 +597,10 @@ CCheckStatus Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckC
   UInt<256> bnTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
   UInt<256> hash = powValue(header);
-  status.ShareDiff = target_to_diff_equi(hash);
+  status.IsShare = hash <= shareTarget;
 
   // Check range
-  if (fNegative || bnTarget == 0 || fOverflow)
+  if (fNegative || bnTarget == 0u || fOverflow)
     return status;
 
   // Check proof of work matches claimed amount
@@ -663,7 +658,7 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
   return true;
 }
 
-bool Stratum::CoinbaseBuilder::prepare(int64_t *blockReward, rapidjson::Value &blockTemplate)
+bool Stratum::CoinbaseBuilder::prepare(uint64_t *blockReward, rapidjson::Value &blockTemplate)
 {
   if (!blockTemplate.HasMember("coinbasetxn") || !blockTemplate["coinbasetxn"].IsObject())
     return false;

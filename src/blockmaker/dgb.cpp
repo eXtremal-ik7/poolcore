@@ -17,7 +17,7 @@ static uint32_t OdoKey(uint32_t nOdoShapechangeInterval, uint32_t nTime)
 
 namespace DGB {
 
-template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB::Algo::EQubit>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::EQubit>::ChainParams&)
+template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB::Algo::EQubit>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::EQubit>::ChainParams&, const UInt<256> &shareTarget)
 {
   CCheckStatus status;
   UInt<256> result;
@@ -52,14 +52,14 @@ template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB
   for (unsigned i = 0; i < 4; i++)
     result.data()[i] = readle(result.data()[i]);
 
-  status.ShareDiff = BTC::difficultyFromBits(uint256GetCompact(result), 29);
+  status.IsShare = result <= shareTarget;
 
   bool fNegative;
   bool fOverflow;
   UInt<256> bnTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
   // Check range
-  if (fNegative || bnTarget == 0 || fOverflow)
+  if (fNegative || bnTarget == 0u || fOverflow)
     return status;
 
   // Check proof of work matches claimed amount
@@ -70,7 +70,7 @@ template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB
   return status;
 }
 
-template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB::Algo::ESkein>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::ESkein>::ChainParams&)
+template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB::Algo::ESkein>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::ESkein>::ChainParams&, const UInt<256> &shareTarget)
 {
   CCheckStatus status;
   CCtxSha256 sha256Context;
@@ -88,14 +88,14 @@ template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB
   for (unsigned i = 0; i < 4; i++)
     result.data()[i] = readle(result.data()[i]);
 
-  status.ShareDiff = BTC::difficultyFromBits(uint256GetCompact(result), 29);
+  status.IsShare = result <= shareTarget;
 
   bool fNegative;
   bool fOverflow;
   UInt<256> bnTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
   // Check range
-  if (fNegative || bnTarget == 0 || fOverflow)
+  if (fNegative || bnTarget == 0u || fOverflow)
     return status;
 
   // Check proof of work matches claimed amount
@@ -106,7 +106,7 @@ template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB
   return status;
 }
 
-template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::Algo::EOdo>::BlockHeader &header, CheckConsensusCtx &ctx, DGB::Proto<DGB::Algo::EOdo>::ChainParams&)
+template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::Algo::EOdo>::BlockHeader &header, CheckConsensusCtx &ctx, DGB::Proto<DGB::Algo::EOdo>::ChainParams&, const UInt<256> &shareTarget)
 {
   CCheckStatus status;
   uint32_t key = OdoKey(ctx.OdoShapechangeInterval, header.nTime);
@@ -125,14 +125,14 @@ template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::
   for (unsigned i = 0; i < 4; i++)
     result.data()[i] = readle(result.data()[i]);
 
-  status.ShareDiff = BTC::difficultyFromBits(uint256GetCompact(result), 29);
+  status.IsShare = result <= shareTarget;
 
   bool fNegative;
   bool fOverflow;
   UInt<256> bnTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
   // Check range
-  if (fNegative || bnTarget == 0 || fOverflow)
+  if (fNegative || bnTarget == 0u || fOverflow)
     return status;
 
   // Check proof of work matches claimed amount

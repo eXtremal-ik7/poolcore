@@ -44,26 +44,17 @@ public:
   using ChainParams = BTC::Proto::ChainParams;
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static CCheckStatus checkConsensus(const BlockHeader&, CheckConsensusCtx&, ChainParams&);
-  static CCheckStatus checkConsensus(const Block &block, CheckConsensusCtx &ctx, ChainParams &chainParams) { return checkConsensus(block.header, ctx, chainParams); }
+  static CCheckStatus checkConsensus(const BlockHeader&, CheckConsensusCtx&, ChainParams&, const UInt<256> &shareTarget);
+  static CCheckStatus checkConsensus(const Block &block, CheckConsensusCtx &ctx, ChainParams &chainParams, const UInt<256> &shareTarget) { return checkConsensus(block.header, ctx, chainParams, shareTarget); }
   static double getDifficulty(const Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 29); }
-  static double expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&) { return getDifficulty(header); }
+  static UInt<256> expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&) { return uint256Compact(header.nBits); }
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 
 template<Algo algo>
 class Stratum {
-private:
-  static constexpr double factor() {
-    switch(algo) {
-      case Algo::EQubit : return 1.0;
-      case Algo::ESkein : return 1.0;
-      case Algo::EOdo : return 1.0;
-    }
-  }
-
 public:
-  static constexpr double DifficultyFactor = factor();
+  inline static const UInt<256> StratumMultiplier = UInt<256>(1u) << 32;
 
   using Work = BTC::WorkTy<Proto<algo>, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare>;
 
@@ -101,7 +92,8 @@ public:
   static void workerConfigOnSubscribe(CWorkerConfig &workerCfg, CMiningConfig &miningCfg, CStratumMessage &msg, xmstream &out, std::string &subscribeInfo) {
     BTC::Stratum::workerConfigOnSubscribe(workerCfg, miningCfg, msg, out, subscribeInfo);
   }
-  static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
+  static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty); }
+  static UInt<256> targetFromDifficulty(const UInt<256> &difficulty) { return BTC::Stratum::targetFromDifficulty(difficulty); }
 };
 
 template<Algo algo>

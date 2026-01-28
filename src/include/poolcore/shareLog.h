@@ -9,6 +9,7 @@
 #include "loguru.hpp"
 #include "asyncio/asyncio.h"
 #include "p2putils/xmstream.h"
+#include "poolcore/poolCore.h"
 #include <inttypes.h>
 
 struct asyncBase;
@@ -25,6 +26,13 @@ struct ShareLogIo<CShare> {
   static void unserialize(xmstream &in, CShare &data);
 };
 
+
+template<>
+struct ShareLogIo<CShareV1> {
+  static void serialize(xmstream &out, const CShareV1 &data);
+  static void unserialize(xmstream &in, CShareV1 &data);
+};
+
 template<typename CConfig>
 class ShareLog {
 private:
@@ -33,70 +41,35 @@ private:
     uint64_t FirstId;
     uint64_t LastId;
     FileDescriptor Fd;
-    // TEMPORARY
-    bool IsOldFormat = false;
+    // Version 1: old format (double work)
+    // Version 2: previous format (CShareV1)
+    // Version 3: current format (CShare with UInt<256>)
+    unsigned Version = 3;
   };
 
 public:
   ShareLog() {}
-  void init(const std::filesystem::path &path,
-            const std::filesystem::path &oldPath,
+  void init(const std::filesystem::path &basePath,
             const std::string &backendName,
             asyncBase *base,
             std::chrono::seconds shareLogFlushInterval,
             int64_t shareLogFileSizeLimit,
-            const CConfig &config) {
-    Path_ = path;
+            const CConfig &config,
+            const CCoinInfo &coinInfo) {
+    Path_ = basePath / "shares.log.3";
     BackendName_ = backendName;
     Base_ = base;
     ShareLogFlushInterval_ = shareLogFlushInterval;
     ShareLogFileSizeLimit_ = shareLogFileSizeLimit;
     Config_ = config;
+    CoinInfo_ = coinInfo;
 
     {
-      // TEMPORARY: load shares in old format
-      // TODO: remove this code
-      std::error_code errc;
-      std::filesystem::path directory(oldPath);
-      if (std::filesystem::exists(directory)) {
-        for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
-          std::string fileName = I->path().filename().generic_string();
-          auto dotDatPos = fileName.find(".dat");
-          if (dotDatPos == fileName.npos) {
-            LOG_F(WARNING, "Ignore shares file: %s", path_to_utf8(I->path()).c_str());
-            continue;
-          }
-
-          fileName.resize(dotDatPos);
-          auto &file = ShareLog_.emplace_back();
-          file.Path = *I;
-          file.FirstId = xatoi<uint64_t>(fileName.c_str());
-          file.LastId = 0;
-          file.IsOldFormat = true;
-        }
-      }
+      // TODO: remove this code after full migration
+      enumerateShareFiles(ShareLog_, basePath / "shares.log", 1, false);
+      enumerateShareFiles(ShareLog_, basePath / "shares.log.v1", 2, false);
     }
-
-    {
-      std::error_code errc;
-      std::filesystem::path directory(path);
-      std::filesystem::create_directories(directory, errc);
-      for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
-        std::string fileName = I->path().filename().generic_string();
-        auto dotDatPos = fileName.find(".dat");
-        if (dotDatPos == fileName.npos) {
-          LOG_F(WARNING, "Ignore shares file: %s", path_to_utf8(I->path()).c_str());
-          continue;
-        }
-
-        fileName.resize(dotDatPos);
-        auto &file = ShareLog_.emplace_back();
-        file.Path = *I;
-        file.FirstId = xatoi<uint64_t>(fileName.c_str());
-        file.LastId = 0;
-        file.IsOldFormat = false;
-      }
-    }
+    enumerateShareFiles(ShareLog_, basePath / "shares.log.3", 3, true);
 
     std::sort(ShareLog_.begin(), ShareLog_.end(), [](const CShareLogFile &l, const CShareLogFile &r) { return l.FirstId < r.FirstId; });
     if (ShareLog_.empty())
@@ -104,7 +77,7 @@ public:
 
     uint64_t currentTime = time(nullptr);
     for (auto &file: ShareLog_)
-      replayShares(file);
+      replayShares(file, CoinInfo_);
 
     Config_.initializationFinish(currentTime);
     CurrentShareId_ = Config_.lastKnownShareId() + 1;
@@ -163,7 +136,7 @@ public:
   }
 
 private:
-  void replayShares(CShareLogFile &file) {
+  void replayShares(CShareLogFile &file, const CCoinInfo &coinInfo) {
     if (isDebugBackend())
       LOG_F(1, "%s: Replaying shares from file %s", BackendName_.c_str(), path_to_utf8(file.Path).c_str());
 
@@ -189,15 +162,28 @@ private:
     stream.seekSet(0);
     while (stream.remaining()) {
       CShare share;
-      if (file.IsOldFormat) {
-        // TEMPORARY
-        // TODO: Remove this code
+      if (file.Version == 1) {
+        // Old format: manual parsing with double work
         share.UniqueShareId = stream.readle<uint64_t>();
         DbIo<std::string>::unserialize(stream, share.userId);
         DbIo<std::string>::unserialize(stream, share.workerId);
-        share.WorkValue = stream.read<double>();
+        double workValue = stream.read<double>();
         DbIo<int64_t>::unserialize(stream, share.Time);
+        // Convert work double -> UInt<256>
+        share.WorkValue = UInt<256>::fromDouble(coinInfo.WorkMultiplier);
+        share.WorkValue.mulfp(workValue);
+      } else if (file.Version == 2) {
+        // Previous format: CShareV1
+        CShareV1 shareV1;
+        ShareLogIo<CShareV1>::unserialize(stream, shareV1);
+        share.UniqueShareId = shareV1.UniqueShareId;
+        share.userId = std::move(shareV1.userId);
+        share.workerId = std::move(shareV1.workerId);
+        share.WorkValue = UInt<256>::fromDouble(coinInfo.WorkMultiplier);
+        share.WorkValue.mulfp(shareV1.WorkValue);
+        share.Time = shareV1.Time;
       } else {
+        // Version 3: current format with UInt<256>
         ShareLogIo<CShare>::unserialize(stream, share);
       }
       if (stream.eof()) {
@@ -245,6 +231,30 @@ private:
     }
   }
 
+  void enumerateShareFiles(std::deque<CShareLogFile> &cache, const std::filesystem::path &directory, unsigned version, bool createIfNotExists) {
+    std::error_code errc;
+    if (createIfNotExists) {
+      std::filesystem::create_directories(directory, errc);
+    } else if (!std::filesystem::exists(directory)) {
+      return;
+    }
+    for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
+      std::string fileName = I->path().filename().generic_string();
+      auto dotDatPos = fileName.find(".dat");
+      if (dotDatPos == fileName.npos) {
+        LOG_F(WARNING, "Ignore shares file: %s", path_to_utf8(I->path()).c_str());
+        continue;
+      }
+
+      fileName.resize(dotDatPos);
+      auto &file = cache.emplace_back();
+      file.Path = *I;
+      file.FirstId = xatoi<uint64_t>(fileName.c_str());
+      file.LastId = 0;
+      file.Version = version;
+    }
+  }
+
 private:
   std::filesystem::path Path_;
   std::string BackendName_;
@@ -252,6 +262,7 @@ private:
   std::chrono::seconds ShareLogFlushInterval_;
   uint64_t ShareLogFileSizeLimit_;
   CConfig Config_;
+  CCoinInfo CoinInfo_;
 
   xmstream ShareLogInMemory_;
   std::deque<CShareLogFile> ShareLog_;

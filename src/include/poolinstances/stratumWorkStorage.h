@@ -15,8 +15,8 @@ public:
   struct CPendingShare {
     std::string User;
     std::string WorkerName;
-    double RealDifficulty = 0.0;
-    double StratumDifficulty;
+    UInt<256> Hash = UInt<256>::max();
+    UInt<256> StratumDifficulty;
     int64_t MajorJobId;
     CWorkerConfig WorkerConfig;
     CStratumMessage Msg;
@@ -228,16 +228,16 @@ public:
   bool updatePending(size_t index,
                      const std::string &user,
                      const std::string &workerName,
-                     double realDifficulty,
-                     double stratumDifficulty,
+                     const UInt<256> &hash,
+                     const UInt<256> &stratumDifficulty,
                      int64_t majorJobId,
                      const CWorkerConfig &workerConfig,
                      const CStratumMessage &msg) {
     CPendingShare &share = PendingShares_[index];
-    if (!share.HasShare || share.RealDifficulty < realDifficulty) {
+    if (!share.HasShare || hash < share.Hash) {
       share.User = user;
       share.WorkerName = workerName;
-      share.RealDifficulty = realDifficulty;
+      share.Hash = hash;
       share.StratumDifficulty = stratumDifficulty;
       share.MajorJobId = majorJobId;
       share.WorkerConfig = workerConfig;
@@ -319,7 +319,7 @@ private:
     sequence.clear();
     AcceptedShares_[backendIdx].clear();
     PendingShares_[backendIdx].HasShare = false;
-    PendingShares_[backendIdx].RealDifficulty = 0.0;
+    PendingShares_[backendIdx].Hash = UInt<256>::max();
   }
 
 private:

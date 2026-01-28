@@ -18,19 +18,19 @@ public:
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
   virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &queries) override;
   virtual bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &queries) override;
-  virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) override;
+  virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, BuildTransactionResult &result) override;
   virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string &txId, std::string &error) override;
-  virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error) override;
+  virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error) override;
   virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) override;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation) override;
 
   virtual EOperationStatus ioListUnspent(asyncBase*, ListUnspentResult&) final {
     return CNetworkClient::EOperationStatus::EStatusUnknownError;
   }
-  virtual EOperationStatus ioZSendMany(asyncBase*, const std::string&, const std::string&, int64_t, const std::string&, uint64_t, int64_t, CNetworkClient::ZSendMoneyResult&) final {
+  virtual EOperationStatus ioZSendMany(asyncBase*, const std::string&, const std::string&, const UInt<384>&, const std::string&, uint64_t, const UInt<384>&, CNetworkClient::ZSendMoneyResult&) final {
     return CNetworkClient::EOperationStatus::EStatusUnknownError;
   }
-  virtual EOperationStatus ioZGetBalance(asyncBase*, const std::string&, int64_t*) final {
+  virtual EOperationStatus ioZGetBalance(asyncBase*, const std::string&, UInt<384>*) final {
     return CNetworkClient::EOperationStatus::EStatusUnknownError;
   }
 
@@ -176,34 +176,31 @@ private:
 
   // Raw Ethereum API - structures
   struct ETHTransaction {
-    UInt<128> GasPrice;
+    UInt<384> GasPrice;
     UInt<256> Hash;
   };
 
   struct ETHTransactionReceipt {
     uint64_t BlockNumber;
-    UInt<128> GasUsed;
+    uint64_t GasUsed;
   };
 
   struct ETHBlock {
     UInt<256> MixHash;
     UInt<256> Hash;
-    UInt<128> GasUsed;
-    UInt<128> BaseFeePerGas = 0u;
+    uint64_t GasUsed;
+    UInt<384> BaseFeePerGas = UInt<384>::zero();
     std::vector<ETHTransaction> Transactions;
     std::vector<UInt<256>> Uncles;
   };
 
   int64_t ioSearchUncle(CConnection *connection, int64_t height, const std::string &hash, int64_t bestBlockHeight, std::string &publicHash);
-  UInt<128> getConstBlockReward(int64_t height);
-
-  uint64_t gwei(UInt<128> value) { return (value / 1000000000U).low64(); }
-  UInt<128> fromGWei(uint64_t value) { return UInt<128>(value) * 1000000000U; }
+  UInt<384> getConstBlockReward(int64_t height);
 
   // Raw Ethereum API - methods
-  CNetworkClient::EOperationStatus ethGetBalance(CConnection *connection, const std::string &address, UInt<128> *balance);
-  CNetworkClient::EOperationStatus ethGasPrice(CConnection *connection, UInt<128> *gasPrice);
-  CNetworkClient::EOperationStatus ethMaxPriorityFeePerGas(CConnection *connection, UInt<128> *maxPriorityFeePerGas);
+  CNetworkClient::EOperationStatus ethGetBalance(CConnection *connection, const std::string &address, UInt<384> *balance);
+  CNetworkClient::EOperationStatus ethGasPrice(CConnection *connection, UInt<384> *gasPrice);
+  CNetworkClient::EOperationStatus ethMaxPriorityFeePerGas(CConnection *connection, UInt<384> *maxPriorityFeePerGas);
   CNetworkClient::EOperationStatus ethGetTransactionCount(CConnection *connection, const std::string &address, uint64_t *count);
   CNetworkClient::EOperationStatus ethBlockNumber(CConnection *connection, uint64_t *blockNumber);
   CNetworkClient::EOperationStatus ethGetBlockByNumber(CConnection *connection, uint64_t height, ETHBlock &block);
@@ -214,9 +211,9 @@ private:
   CNetworkClient::EOperationStatus ethSignTransactionOld(CConnection *connection,
                                                          const std::string &from,
                                                          const std::string &to,
-                                                         UInt<128> value,
-                                                         UInt<128> gas,
-                                                         UInt<128> gasPrice,
+                                                         const UInt<384> &value,
+                                                         uint64_t gas,
+                                                         const UInt<384> &gasPrice,
                                                          uint64_t nonce,
                                                          std::string &txData,
                                                          std::string &txId);
@@ -224,10 +221,10 @@ private:
   CNetworkClient::EOperationStatus ethSignTransaction1559(CConnection *connection,
                                                           const std::string &from,
                                                           const std::string &to,
-                                                          UInt<128> value,
-                                                          UInt<128> gas,
-                                                          UInt<128> maxPriorityFeePerGas,
-                                                          UInt<128> maxFeePerGas,
+                                                          const UInt<384> &value,
+                                                          uint64_t gas,
+                                                          const UInt<384> &maxPriorityFeePerGas,
+                                                          const UInt<384> &maxFeePerGas,
                                                           uint64_t nonce,
                                                           std::string &txData,
                                                           std::string &txId);

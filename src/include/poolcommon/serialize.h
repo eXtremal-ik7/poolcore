@@ -2,6 +2,7 @@
 
 #include "poolcommon/baseBlob.h"
 #include "p2putils/xmstream.h"
+#include "poolcommon/uint.h"
 #include <list>
 #include <map>
 #include <string>
@@ -125,6 +126,16 @@ template<unsigned Bits> struct DbIo<BaseBlob<Bits>> {
 template<unsigned Bits> struct DbKeyIo<BaseBlob<Bits>> {
   static inline void serialize(xmstream &dst, const BaseBlob<Bits> &data) {
     dst.write(data.begin(), data.size());
+  }
+};
+
+template<unsigned Bits> struct DbIo<UInt<Bits>> {
+  static inline void serialize(xmstream &dst, const UInt<Bits> &data) {
+    dst.write(data.rawData(), data.rawSize());
+  }
+
+  static inline void unserialize(xmstream &src, UInt<Bits> &data) {
+    src.read(data.rawData(), data.rawSize());
   }
 };
 

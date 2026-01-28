@@ -20,6 +20,20 @@ static constexpr int64_t ByzantiumHeight = 4370000;
 static constexpr int64_t ConstantinopleHeight = 7280000;
 static constexpr int64_t ETC256Height = 15000001;
 
+static const UInt<384> gwei = UInt<384>(1000000000ULL) << 256;
+
+// Parse hex string (with or without "0x" prefix) as wei and return UInt<384> with wei in upper 128 bits
+static UInt<384> fromWeiHex(const char *hex) {
+  if (hex[0] == '0' && hex[1] == 'x')
+    hex += 2;
+  return UInt<384>::fromHex(hex) << 256;
+}
+
+// Convert UInt<384> (wei in upper 128 bits) to hex string with "0x" prefix
+static std::string toWeiHex(const UInt<384> &value) {
+  return (value >> 256).getHex(false, true, false);
+}
+
 static std::string buildPostQuery(const std::string address, const char *data, size_t size, const std::string &host)
 {
   char dataLength[16];
@@ -168,12 +182,12 @@ bool CEthereumRpcClient::ioGetBalance(asyncBase *base, GetBalanceResult &result)
   if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
     return false;
 
-  UInt<128> balance;
+  UInt<384> balance;
   if (ethGetBalance(connection.get(), MiningAddress_, &balance) != EStatusOk)
     return false;
 
-  result.Balance = gwei(balance);
-  result.Immatured = 0;
+  result.Balance = balance;
+  result.Immatured = UInt<384>::zero();
   return true;
 }
 
@@ -242,9 +256,9 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
     if (block.MixHash != UInt<256>::fromHex(query.Hash.c_str())) {
       int64_t uncleHeight = ioSearchUncle(connection.get(), query.Height, query.Hash, bestBlockHeight, query.PublicHash);
       if (uncleHeight) {
-        UInt<128> reward = getConstBlockReward(uncleHeight) * (8 - (uncleHeight-query.Height)) / 8u;
+        UInt<384> reward = getConstBlockReward(uncleHeight) * (8 - (uncleHeight-query.Height)) / 8u;
         query.Confirmations = bestBlockHeight - uncleHeight;
-        query.BlockReward = gwei(reward);
+        query.BlockReward = reward;
       // TODO: remove static_cast
       } else if (bestBlockHeight - query.Height < static_cast<uint64_t>(orphanAgeLimit)) {
         query.Confirmations = -3;
@@ -258,8 +272,8 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
     }
 
     // Get block reward
-    UInt<128> constReward = getConstBlockReward(query.Height);
-    UInt<128> totalTxFee = fromGWei(query.TxFee);
+    UInt<384> constReward = getConstBlockReward(query.Height);
+    UInt<384> totalTxFee = query.TxFee;
     if (totalTxFee == 0u) {
       for (const auto &txObject: block.Transactions) {
         // Get receipt for each transaction
@@ -271,22 +285,22 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
       }
 
       // TODO: use 128 bit integer everywhere for accounting
-      totalTxFee = fromGWei(gwei(totalTxFee));
+      // totalTxFee = fromGWei(gwei(totalTxFee));
     }
 
-    UInt<128> unclesReward = (constReward / 32u) * static_cast<uint32_t>(block.Uncles.size());
-    UInt<128> gasFee = block.GasUsed * block.BaseFeePerGas;
-    UInt<128> blockReward = constReward + unclesReward + totalTxFee - gasFee;
+    UInt<384> unclesReward = (constReward / 32u) * static_cast<uint64_t>(block.Uncles.size());
+    UInt<384> gasFee = block.GasUsed * block.BaseFeePerGas;
+    UInt<384> blockReward = constReward + unclesReward + totalTxFee - gasFee;
 
-    query.TxFee = gwei(totalTxFee);
-    query.BlockReward = gwei(blockReward);
+    query.TxFee = totalTxFee;
+    query.BlockReward = blockReward;
     query.Confirmations = bestBlockHeight - query.Height;
   }
 
   return true;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string&, const int64_t value, BuildTransactionResult &result)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string&, const UInt<384> &value, BuildTransactionResult &result)
 {
   EOperationStatus status;
   std::unique_ptr<CConnection> connection(getConnection(base));
@@ -297,13 +311,13 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
 
   // Check balance first
   // We require payout value + 5% at balance
-  UInt<128> balance;
+  UInt<384> balance;
   status = ethGetBalance(connection.get(), MiningAddress_, &balance);
   if (status != CNetworkClient::EStatusOk) {
     result.Error = connection->LastError;
     return status;
   }
-  if (gwei(balance) < static_cast<uint64_t>(value+value/20))
+  if (balance < (value + value/20u))
     return CNetworkClient::EStatusInsufficientFunds;
 
   // We need those values:
@@ -311,10 +325,10 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
   //   * max priority fee per gas (eth.maxPriorityFeePerGas)
   //   * max fee per gas (eth.maxPriorityFeePerGas + 2*baseFeePerGas)
   //   * nonce (eth.getTransactionCount)
-  UInt<128> gasPrice = 0u;
-  UInt<128> baseFeePerGas = 0u;
-  UInt<128> maxPriorityFeePerGas = 0u;
-  UInt<128> maxFeePerGas = 0u;
+  UInt<384> gasPrice = 0u;
+  UInt<384> baseFeePerGas = 0u;
+  UInt<384> maxPriorityFeePerGas = 0u;
+  UInt<384> maxFeePerGas = 0u;
   uint64_t nonce = 0;
 
   if ((status = ethGasPrice(connection.get(), &gasPrice)) != CNetworkClient::EStatusOk ||
@@ -332,7 +346,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
     status = ethSignTransaction1559(connection.get(),
                                     MiningAddress_,
                                     address,
-                                    fromGWei(value),
+                                    value,
                                     21000u,
                                     maxPriorityFeePerGas,
                                     maxFeePerGas,
@@ -343,7 +357,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
     status = ethSignTransactionOld(connection.get(),
                                    MiningAddress_,
                                    address,
-                                   fromGWei(value),
+                                   value,
                                    21000u,
                                    gasPrice,
                                    nonce,
@@ -358,7 +372,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
 
   // Can't determine fee at this moment
   result.Value = value;
-  result.Fee = 0;
+  result.Fee = UInt<384>::zero();
   return CNetworkClient::EStatusOk;
 }
 
@@ -395,7 +409,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioSendTransaction(asyncBase
   return CNetworkClient::EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error)
 {
   CNetworkClient::EOperationStatus status;
   char buffer[1024];
@@ -428,7 +442,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncB
   }
 
   *confirmations = bestBlockHeight - receipt.BlockNumber;
-  *txFee = gwei(receipt.GasUsed * tx.GasPrice);
+  *txFee = receipt.GasUsed * tx.GasPrice;
   return CNetworkClient::EStatusOk;
 }
 
@@ -635,24 +649,24 @@ int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t heigh
   return 0;
 }
 
-UInt<128> CEthereumRpcClient::getConstBlockReward(int64_t height)
+UInt<384> CEthereumRpcClient::getConstBlockReward(int64_t height)
 {
   if (CoinInfo_.Name == "ETC") {
     if (height < ETC256Height)
-      return fromGWei(3200000000ULL);
+      return 3200000000ULL * gwei;
     else
-      return fromGWei(2560000000ULL);
+      return 2560000000ULL * gwei;
   }
 
   if (height < ByzantiumHeight)
-    return fromGWei(5 * 1000000000ULL);
+    return 5 * 1000000000ULL * gwei;
   else if (height < ConstantinopleHeight)
-    return fromGWei(3 * 1000000000ULL);
+    return 3 * 1000000000ULL * gwei;
   else
-    return fromGWei(2 * 1000000000ULL);
+    return 2 * 1000000000ULL * gwei;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(CConnection *connection, const std::string &address, UInt<128> *balance)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(CConnection *connection, const std::string &address, UInt<384> *balance)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -679,11 +693,11 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(CConnection *
   if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() < 3)
     return EStatusProtocolError;
 
-  *balance = UInt<128>::fromHex(document["result"].GetString() + 2);
+  *balance = fromWeiHex(document["result"].GetString());
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethGasPrice(CConnection *connection, UInt<128> *gasPrice)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethGasPrice(CConnection *connection, UInt<384> *gasPrice)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -708,11 +722,11 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGasPrice(CConnection *co
   if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() < 3)
     return EStatusProtocolError;
 
-  *gasPrice = UInt<128>::fromHex(document["result"].GetString() + 2);
+  *gasPrice = fromWeiHex(document["result"].GetString());
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethMaxPriorityFeePerGas(CConnection *connection, UInt<128> *maxPriorityFeePerGas)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethMaxPriorityFeePerGas(CConnection *connection, UInt<384> *maxPriorityFeePerGas)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -737,7 +751,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethMaxPriorityFeePerGas(CCo
   if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() < 3)
     return EStatusProtocolError;
 
-  *maxPriorityFeePerGas = UInt<128>::fromHex(document["result"].GetString() + 2);
+  *maxPriorityFeePerGas = fromWeiHex(document["result"].GetString());
   return EStatusOk;
 }
 
@@ -838,9 +852,9 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
     return EStatusProtocolError;
   }
 
-  block.Hash = UInt<256>::fromHex(blockObject["hash"].GetString() + 2);
-  block.MixHash = UInt<256>::fromHex(blockObject["mixHash"].GetString() + 2);
-  block.GasUsed = UInt<128>::fromHex(blockObject["gasUsed"].GetString() + 2);
+  block.Hash = UInt<256>::fromHex(blockObject["hash"].GetString());
+  block.MixHash = UInt<256>::fromHex(blockObject["mixHash"].GetString());
+  block.GasUsed = strtoull(blockObject["gasUsed"].GetString() + 2, nullptr, 16);
 
   if (blockObject.HasMember("baseFeePerGas")) {
     if (!blockObject["baseFeePerGas"].IsString() || blockObject["gasUsed"].GetStringLength() < 3) {
@@ -848,7 +862,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
       return EStatusProtocolError;
     }
 
-    block.BaseFeePerGas = UInt<128>::fromHex(blockObject["baseFeePerGas"].GetString() + 2);
+    block.BaseFeePerGas = fromWeiHex(blockObject["baseFeePerGas"].GetString());
   }
 
   // transactions
@@ -867,8 +881,8 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
 
     // use gwei for transaction fee
     ETHTransaction &tx = block.Transactions.emplace_back();
-    tx.GasPrice = UInt<128>::fromHex(txObject["gasPrice"].GetString() + 2);
-    tx.Hash = UInt<256>::fromHex(txObject["hash"].GetString() + 2);
+    tx.GasPrice = fromWeiHex(txObject["gasPrice"].GetString());
+    tx.Hash = UInt<256>::fromHex(txObject["hash"].GetString());
   }
 
   // uncles
@@ -883,7 +897,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
       return EStatusProtocolError;
     }
 
-    block.Uncles.emplace_back(UInt<256>::fromHex(uncle.GetString() + 2));
+    block.Uncles.emplace_back(UInt<256>::fromHex(uncle.GetString()));
   }
 
   return EStatusOk;
@@ -925,9 +939,9 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetUncleByBlockNumberAnd
     return EStatusProtocolError;
   }
 
-  block.Hash = UInt<256>::fromHex(blockObject["hash"].GetString() + 2);
-  block.MixHash = UInt<256>::fromHex(blockObject["mixHash"].GetString() + 2);
-  block.GasUsed = UInt<128>::fromHex(blockObject["gasUsed"].GetString() + 2);
+  block.Hash = UInt<256>::fromHex(blockObject["hash"].GetString());
+  block.MixHash = UInt<256>::fromHex(blockObject["mixHash"].GetString());
+  block.GasUsed = strtoull(blockObject["gasUsed"].GetString() + 2, nullptr, 16);
 
   if (blockObject.HasMember("baseFeePerGas")) {
     if (!blockObject["baseFeePerGas"].IsString() || blockObject["gasUsed"].GetStringLength() < 3) {
@@ -935,7 +949,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetUncleByBlockNumberAnd
       return EStatusProtocolError;
     }
 
-    block.BaseFeePerGas = UInt<128>::fromHex(blockObject["baseFeePerGas"].GetString() + 2);
+    block.BaseFeePerGas = fromWeiHex(blockObject["baseFeePerGas"].GetString());
   }
 
   return EStatusOk;
@@ -975,7 +989,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionByHash(CCo
   if (!resultObject.HasMember("gasPrice") || !resultObject["gasPrice"].IsString() || resultObject["gasPrice"].GetStringLength() < 3)
     return CNetworkClient::EStatusProtocolError;
 
-  tx.GasPrice = UInt<128>::fromHex(resultObject["gasPrice"].GetString() + 2);
+  tx.GasPrice = fromWeiHex(resultObject["gasPrice"].GetString());
   tx.Hash = txid;
   return EStatusOk;
 }
@@ -1013,7 +1027,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionReceipt(CC
       !resultObject.HasMember("blockNumber") || !resultObject["blockNumber"].IsString() || resultObject["blockNumber"].GetStringLength() < 3)
     return EStatusProtocolError;
 
-  receipt.GasUsed = UInt<128>::fromHex(resultObject["gasUsed"].GetString() + 2);
+  receipt.GasUsed = strtoull(resultObject["gasUsed"].GetString() + 2, nullptr, 16);
   receipt.BlockNumber = strtoull(resultObject["blockNumber"].GetString() + 2, 0, 16);
   return EStatusOk;
 }
@@ -1021,9 +1035,9 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionReceipt(CC
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(CConnection *connection,
                                                                            const std::string &from,
                                                                            const std::string &to,
-                                                                           UInt<128> value,
-                                                                           UInt<128> gas,
-                                                                           UInt<128> gasPrice,
+                                                                           const UInt<384> &value,
+                                                                           uint64_t gas,
+                                                                           const UInt<384> &gasPrice,
                                                                            uint64_t nonce,
                                                                            std::string &txData,
                                                                            std::string &txId)
@@ -1044,9 +1058,9 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(CConn
         JSON::Object transaction(jsonStream);
         transaction.addString("from", from);
         transaction.addString("to", to);
-        transaction.addString("value", value.getHex(false, true, false));
-        transaction.addString("gas", gas.getHex(false, true, false));
-        transaction.addString("gasPrice", gasPrice.getHex(false, true, false));
+        transaction.addString("value", toWeiHex(value));
+        transaction.addIntHex("gas", gas, false, true);
+        transaction.addString("gasPrice", toWeiHex(gasPrice));
         transaction.addIntHex("nonce", nonce, false, true);
       }
     }
@@ -1082,10 +1096,10 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(CConn
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction1559(CConnection *connection,
                                                                             const std::string &from,
                                                                             const std::string &to,
-                                                                            UInt<128> value,
-                                                                            UInt<128> gas,
-                                                                            UInt<128> maxPriorityFeePerGas,
-                                                                            UInt<128> maxFeePerGas,
+                                                                            const UInt<384> &value,
+                                                                            uint64_t gas,
+                                                                            const UInt<384> &maxPriorityFeePerGas,
+                                                                            const UInt<384> &maxFeePerGas,
                                                                             uint64_t nonce,
                                                                             std::string &txData,
                                                                             std::string &txId)
@@ -1106,10 +1120,10 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction1559(CCon
         JSON::Object transaction(jsonStream);
         transaction.addString("from", from);
         transaction.addString("to", to);
-        transaction.addString("value", value.getHex(false, true, false));
-        transaction.addString("gas", gas.getHex(false, true, false));
-        transaction.addString("maxPriorityFeePerGas", maxPriorityFeePerGas.getHex(false, true, false));
-        transaction.addString("maxFeePerGas", maxFeePerGas.getHex(false, true, false));
+        transaction.addString("value", toWeiHex(value));
+        transaction.addIntHex("gas", gas, false, true);
+        transaction.addString("maxPriorityFeePerGas", toWeiHex(maxPriorityFeePerGas));
+        transaction.addString("maxFeePerGas", toWeiHex(maxFeePerGas));
         transaction.addIntHex("nonce", nonce, false, true);
       }
     }

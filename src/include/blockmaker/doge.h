@@ -38,21 +38,21 @@ public:
   using ChainParams = BTC::Proto::ChainParams;
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static CCheckStatus checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, Proto::ChainParams&) {
+  static CCheckStatus checkConsensus(const Proto::BlockHeader &header, CheckConsensusCtx&, Proto::ChainParams&, const UInt<256> &shareTarget) {
     return header.nVersion & Proto::BlockHeader::VERSION_AUXPOW ?
-      LTC::Proto::checkPow(header.ParentBlock, header.nBits) :
-      LTC::Proto::checkPow(header, header.nBits);
+      LTC::Proto::checkPow(header.ParentBlock, header.nBits, shareTarget) :
+      LTC::Proto::checkPow(header, header.nBits, shareTarget);
   }
 
-  static CCheckStatus checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, Proto::ChainParams &chainParams) { return checkConsensus(block.header, ctx, chainParams); }
+  static CCheckStatus checkConsensus(const Proto::Block &block, CheckConsensusCtx &ctx, Proto::ChainParams &chainParams, const UInt<256> &shareTarget) { return checkConsensus(block.header, ctx, chainParams, shareTarget); }
   static double getDifficulty(const Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 29); }
-  static double expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&) { return getDifficulty(header); }
+  static UInt<256> expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&) { return uint256Compact(header.nBits); }
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 
 class Stratum {
 public:
-  static constexpr double DifficultyFactor = 65536.0;
+  inline static const UInt<256> StratumMultiplier = UInt<256>(1u) << 16;
   using DogeWork = BTC::WorkTy<DOGE::Proto, BTC::Stratum::HeaderBuilder, BTC::Stratum::CoinbaseBuilder, BTC::Stratum::Notify, BTC::Stratum::Prepare>;
 
   class MergedWork : public StratumMergedWork {
@@ -97,11 +97,11 @@ public:
       }
     }
 
-    virtual CCheckStatus checkConsensus(size_t workIdx) override {
+    virtual CCheckStatus checkConsensus(size_t workIdx, const UInt<256> &shareTarget) override {
       if (workIdx == 0 && ltcWork())
-        return LTC::Stratum::Work::checkConsensusImpl(LTCHeader_, DOGEConsensusCtx_);
+        return LTC::Stratum::Work::checkConsensusImpl(LTCHeader_, DOGEConsensusCtx_, shareTarget);
       else if (dogeWork(workIdx - 1))
-        return DOGE::Stratum::DogeWork::checkConsensusImpl(DOGEHeader_[workIdx - 1], LTCConsensusCtx_);
+        return DOGE::Stratum::DogeWork::checkConsensusImpl(DOGEHeader_[workIdx - 1], LTCConsensusCtx_, shareTarget);
       return CCheckStatus();
     }
 
@@ -198,7 +198,8 @@ public:
     return new MergedWork(stratumId, primaryWork, secondaryWorks, chainMap, nonce, virtualHashesNum, miningCfg);
   }
 
-  static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor); }
+  static void buildSendTargetMessage(xmstream &stream, double difficulty) { BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty); }
+  static UInt<256> targetFromDifficulty(const UInt<256> &difficulty) { return BTC::Stratum::targetFromDifficulty(difficulty); }
 };
 
 struct X {

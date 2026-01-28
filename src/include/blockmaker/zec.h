@@ -202,16 +202,16 @@ public:
   using ChainParams = BTC::Proto::ChainParams;
 
   static void checkConsensusInitialize(CheckConsensusCtx&) {}
-  static CCheckStatus checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx&consensusCtx, ZEC::Proto::ChainParams&);
-  static CCheckStatus checkConsensus(const ZEC::Proto::Block &block, CheckConsensusCtx &ctx, ZEC::Proto::ChainParams &chainParams) { return checkConsensus(block.header, ctx, chainParams); }
+  static CCheckStatus checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx&consensusCtx, ZEC::Proto::ChainParams&, const UInt<256> &shareTarget);
+  static CCheckStatus checkConsensus(const ZEC::Proto::Block &block, CheckConsensusCtx &ctx, ZEC::Proto::ChainParams &chainParams, const UInt<256> &shareTarget) { return checkConsensus(block.header, ctx, chainParams, shareTarget); }
   static double getDifficulty(const ZEC::Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 32); }
-  static double expectedWork(const ZEC::Proto::BlockHeader &header, const CheckConsensusCtx&) { return getDifficulty(header); }
+  static UInt<256> expectedWork(const ZEC::Proto::BlockHeader &header, const CheckConsensusCtx&) { return uint256Compact(header.nBits); }
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 
 class Stratum {
 public:
-  static constexpr double DifficultyFactor = 1.0;
+  inline static const UInt<256> StratumMultiplier = UInt<256>(1u) << 8;
 
   static EStratumDecodeStatusTy decodeStratumMessage(CStratumMessage &msg, const char *in, size_t size) {
     rapidjson::Document document;
@@ -361,7 +361,7 @@ public:
 
   struct CoinbaseBuilder {
   public:
-    bool prepare(int64_t *blockReward, rapidjson::Value &blockTemplate);
+    bool prepare(uint64_t *blockReward, rapidjson::Value &blockTemplate);
 
     void build(int64_t height,
                int64_t blockReward,
@@ -412,6 +412,7 @@ public:
   static StratumMergedWork *newMergedWork(int64_t, StratumSingleWork*, std::vector<StratumSingleWork*>&, const CMiningConfig&, std::string&) { return nullptr; }
 
   static void buildSendTargetMessage(xmstream &stream, double difficulty);
+  static UInt<256> targetFromDifficulty(const UInt<256> &difficulty) { return BTC::Stratum::targetFromDifficulty(difficulty); }
 };
 
 struct X {

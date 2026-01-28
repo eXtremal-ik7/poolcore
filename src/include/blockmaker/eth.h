@@ -25,7 +25,7 @@ public:
 
 class Stratum {
 public:
-
+  inline static const UInt<256> StratumMultiplier = UInt<256>(1u) << 32;
 
   static EStratumDecodeStatusTy decodeStratumMessage(CStratumMessage &msg, const char *in, size_t size) {
     rapidjson::Document document;
@@ -164,9 +164,9 @@ public:
       return hash.getHexLE();
     }
 
-    virtual double expectedWork(size_t) override {
+    virtual UInt<256> expectedWork(size_t) override {
       // TODO: implement
-      return 0.0;
+      return UInt<256>::zero();
     }
 
     virtual bool ready() override {
@@ -177,7 +177,7 @@ public:
 
     virtual void mutate() override {}
 
-    virtual CCheckStatus checkConsensus(size_t) override;
+    virtual CCheckStatus checkConsensus(size_t, const UInt<256> &shareTarget) override;
 
     virtual bool hasRtt(size_t) override { return false; }
 
@@ -192,6 +192,8 @@ public:
       return 0.00000001;
     }
 
+    UInt<384> blockReward(size_t) final { return BlockReward_; }
+
   private:
     std::string HeaderHashHex_;
     std::string SeedHashHex_;
@@ -201,6 +203,7 @@ public:
     UInt<256> FinalHash_;
     BaseBlob<256> MixHash_;
     intrusive_ptr<EthashDagWrapper> DagFile_;
+    UInt<384> BlockReward_ = UInt<384>::zero();
   };
 
   static constexpr bool MergedMiningSupport = false;
@@ -235,6 +238,12 @@ public:
       JSON::Array params(stream);
       params.addDouble(difficulty);
     }
+  }
+
+  static UInt<256> targetFromDifficulty(const UInt<256> &difficulty) {
+    // Same as BTC
+    static const UInt<256> maxTarget = UInt<256>::fromHex("ffff000000000000000000000000000000000000000000000000000000000000");
+    return maxTarget / difficulty;
   }
 
   using SecondWork = StratumSingleWorkEmpty;

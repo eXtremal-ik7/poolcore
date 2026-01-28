@@ -1,6 +1,7 @@
 #pragma once
 
 #include "poolcommon/baseBlob.h"
+#include "poolcommon/uint.h"
 #include "poolcore/blockTemplate.h"
 #include "poolinstances/stratumMsg.h"
 #include "p2putils/xmstream.h"
@@ -34,10 +35,10 @@ struct CWorkerConfig {
 
 struct CCheckStatus {
   bool IsBlock = false;
-  double ShareDiff = 0.0;
+  bool IsShare = false;
   // For XEC rtt
   bool IsPendingBlock = false;
-
+  UInt<256> Hash;
 };
 
 class StratumMergedWork;
@@ -56,12 +57,12 @@ public:
   virtual size_t backendId(size_t workIdx) = 0;
   virtual uint64_t height(size_t workIdx) = 0;
   virtual size_t txNum(size_t workIdx) = 0;
-  virtual int64_t blockReward(size_t workIdx) = 0;
-  virtual double expectedWork(size_t workIdx) = 0;
+  virtual UInt<384> blockReward(size_t workIdx) = 0;
+  virtual UInt<256> expectedWork(size_t workIdx) = 0;
   virtual void buildBlock(size_t workIdx, xmstream &stream) = 0;
   virtual bool ready() = 0;
   virtual void mutate() = 0;
-  virtual CCheckStatus checkConsensus(size_t workIdx) = 0;
+  virtual CCheckStatus checkConsensus(size_t workIdx, const UInt<256> &shareTarget) = 0;
   virtual void buildNotifyMessage(bool resetPreviousWork) = 0;
   virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const CStratumMessage &msg) = 0;
   virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) = 0;
@@ -89,7 +90,7 @@ public:
   virtual size_t backendId(size_t) final { return BackendId_; }
   virtual uint64_t height(size_t) final { return Height_; }
   virtual size_t txNum(size_t) final { return TxNum_; }
-  virtual int64_t blockReward(size_t) final { return BlockReward_; }
+  // virtual UInt<384> blockReward(size_t) final { return BlockReward_; }
 
   virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, std::string &error) = 0;
 
@@ -112,7 +113,6 @@ protected:
   std::vector<StratumMergedWork*> LinkedWorks_;
   uint64_t Height_ = 0;
   size_t TxNum_ = 0;
-  int64_t BlockReward_ = 0;
 };
 
 class StratumMergedWork : public StratumWork {
@@ -161,8 +161,8 @@ public:
   virtual size_t backendId(size_t workIdx) final { return Works_[workIdx].Id; }
   virtual uint64_t height(size_t workIdx) final { return Works_[workIdx].Work->height(0); }
   virtual size_t txNum(size_t workIdx) final { return Works_[workIdx].Work->txNum(0); }
-  virtual int64_t blockReward(size_t workIdx) final { return Works_[workIdx].Work->blockReward(0); }
-  virtual double expectedWork(size_t workIdx) final { return Works_[workIdx].Work->expectedWork(0); }
+  virtual UInt<384> blockReward(size_t workIdx) final { return Works_[workIdx].Work->blockReward(0); }
+  virtual UInt<256> expectedWork(size_t workIdx) final { return Works_[workIdx].Work->expectedWork(0); }
   virtual bool ready() final { return true; }
   virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) final { return Works_[workIdx].Work->getAbstractProfitValue(0, price, coeff); }
   virtual bool hasRtt(size_t workIdx) final { return Works_[workIdx].Work->hasRtt(0); }
@@ -200,11 +200,11 @@ public:
                          const std::string&) : StratumSingleWork(stratumWorkId, uniqueWorkId, backend, backendId, miningCfg) {}
   virtual BaseBlob<256> shareHash() final { return BaseBlob<256>::zero(); }
   virtual std::string blockHash(size_t) final { return std::string(); }
-  virtual double expectedWork(size_t) final { return 0.0; }
+  virtual UInt<256> expectedWork(size_t) final { return UInt<256>::zero(); }
   virtual void buildBlock(size_t, xmstream&) final {}
   virtual bool ready() final { return false; }
   virtual void mutate() final {}
-  virtual CCheckStatus checkConsensus(size_t) final { return CCheckStatus(); }
+  virtual CCheckStatus checkConsensus(size_t, const UInt<256>&) final { return CCheckStatus(); }
   virtual void buildNotifyMessage(bool) final {}
   virtual bool prepareForSubmit(const CWorkerConfig&, const CStratumMessage&) final { return false; }
   virtual bool loadFromTemplate(CBlockTemplate&, std::string&) final { return false; }
@@ -225,5 +225,5 @@ public:
   virtual void mutate() final {}
   virtual void buildNotifyMessage(bool) final {}
   virtual bool prepareForSubmit(const CWorkerConfig&, const CStratumMessage&) final { return false; }
-  virtual CCheckStatus checkConsensus(size_t) final { return CCheckStatus(); }
+  virtual CCheckStatus checkConsensus(size_t, const UInt<256>&) final { return CCheckStatus(); }
 };

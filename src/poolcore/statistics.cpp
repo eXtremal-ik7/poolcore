@@ -29,7 +29,8 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
   CStatsFileData fileData;
 
   // parse stats file
-  if (file.IsOldFormat) {
+  if (file.Version == 1) {
+    // Old format: manual parsing with double ShareWork converted to UInt<256>
     DbIo<decltype(fileData.LastShareId)>::unserialize(stream, fileData.LastShareId);
     while (stream.remaining()) {
       uint32_t version;
@@ -39,9 +40,29 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
       DbIo<decltype(record.WorkerId)>::unserialize(stream, record.WorkerId);
       DbIo<decltype(record.Time)>::unserialize(stream, record.Time);
       DbIo<decltype(record.ShareCount)>::unserialize(stream, record.ShareCount);
-      DbIo<decltype(record.ShareWork)>::unserialize(stream, record.ShareWork);
+      double shareWork;
+      DbIo<double>::unserialize(stream, shareWork);
+      record.ShareWork = UInt<256>::fromDouble(CoinInfo_.WorkMultiplier);
+      record.ShareWork.mulfp(shareWork);
+    }
+  } else if (file.Version == 2) {
+    // Format with double ShareWork - deserialize and convert to new format
+    CStatsFileDataOld2 oldData;
+    DbIo<CStatsFileDataOld2>::unserialize(stream, oldData);
+    fileData.LastShareId = oldData.LastShareId;
+    for (const auto &oldRecord : oldData.Records) {
+      CStatsFileRecord &record = fileData.Records.emplace_back();
+      record.Login = oldRecord.Login;
+      record.WorkerId = oldRecord.WorkerId;
+      record.Time = oldRecord.Time;
+      record.ShareCount = oldRecord.ShareCount;
+      record.ShareWork = UInt<256>::fromDouble(CoinInfo_.WorkMultiplier);
+      record.ShareWork.mulfp(oldRecord.ShareWork);
+      record.PrimePOWTarget = oldRecord.PrimePOWTarget;
+      record.PrimePOWShareCount = oldRecord.PrimePOWShareCount;
     }
   } else {
+    // Version 3: UInt<256> ShareWork
     DbIo<CStatsFileData>::unserialize(stream, fileData);
   }
 
@@ -71,12 +92,12 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
       stats.PrimePOWTarget = record.PrimePOWTarget;
       stats.PrimePOWSharesNum.assign(record.PrimePOWShareCount.begin(), record.PrimePOWShareCount.end());
       if (isDebugStatistic()) {
-        LOG_F(1, "<%s> Loaded data from statistic cache: %s/%s shares: %" PRIu64 " work: %.3lf",
+        LOG_F(1, "<%s> Loaded data from statistic cache: %s/%s shares: %" PRIu64 " work: %s",
               CoinInfo_.Name.c_str(),
               !record.Login.empty() ? record.Login.c_str() : "<empty>",
               !record.WorkerId.empty() ? record.WorkerId.c_str() : "<empty>",
               record.ShareCount,
-              record.ShareWork);
+              record.ShareWork.getDecimal().c_str());
       }
     }
 
@@ -89,8 +110,8 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
 }
 
 StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo) : _cfg(config), CoinInfo_(coinInfo),
-  WorkerStatsDb_(_cfg.dbPath / "workerStats"),
-  PoolStatsDb_(_cfg.dbPath / "poolstats"),
+  WorkerStatsDb_(_cfg.dbPath / "workerStats.2"),
+  PoolStatsDb_(_cfg.dbPath / "poolstats.2"),
   TaskHandler_(this, base)
 {
   WorkerStatsUpdaterEvent_ = newUserEvent(base, 1, nullptr, nullptr);
@@ -100,8 +121,12 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   WorkersFlushInfo_.Time = currentTime;
   WorkersFlushInfo_.ShareId = 0;
   std::deque<CStatsFile> workerStatsCache;
-  enumerateStatsFiles(workerStatsCache, config.dbPath / "stats.workers.cache", true);
-  enumerateStatsFiles(workerStatsCache, config.dbPath / "stats.workers.cache.2", false);
+  {
+    // TODO: remove this code after full migration
+    enumerateStatsFiles(workerStatsCache, config.dbPath / "stats.workers.cache", 1, false);
+    enumerateStatsFiles(workerStatsCache, config.dbPath / "stats.workers.cache.2", 2, false);
+  }
+  enumerateStatsFiles(workerStatsCache, config.dbPath / CurrentWorkersStoragePath, 3, true);
   for (auto &file: workerStatsCache) {
     if (parseStatsCacheFile(file)) {
       WorkersFlushInfo_.Time = file.TimeLabel;
@@ -115,8 +140,12 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   PoolFlushInfo_.Time = currentTime;
   PoolFlushInfo_.ShareId = 0;
   std::deque<CStatsFile> poolStatsCache;
-  enumerateStatsFiles(poolStatsCache, config.dbPath / "stats.pool.cache", true);
-  enumerateStatsFiles(poolStatsCache, config.dbPath / "stats.pool.cache.2", false);
+  {
+    // TODO: remove this code after full migration
+    enumerateStatsFiles(poolStatsCache, config.dbPath / "stats.pool.cache", 1, false);
+    enumerateStatsFiles(poolStatsCache, config.dbPath / "stats.pool.cache.2", 2, false);
+  }
+  enumerateStatsFiles(poolStatsCache, config.dbPath / CurrentPoolStoragePath, 3, true);
   for (auto &file: poolStatsCache) {
     if (parseStatsCacheFile(file)) {
       PoolFlushInfo_.Time = file.TimeLabel;
@@ -132,10 +161,14 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
     LOG_F(1, "%s: last aggregated id: %" PRIu64 " last known id: %" PRIu64 "", coinInfo.Name.c_str(), lastAggregatedShareId(), lastKnownShareId());
 }
 
-void StatisticDb::enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::filesystem::path &directory, bool isOldFormat)
+void StatisticDb::enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::filesystem::path &directory, unsigned version, bool createIfNotExists)
 {
   std::error_code errc;
-  std::filesystem::create_directories(directory, errc);
+  if (createIfNotExists) {
+    std::filesystem::create_directories(directory, errc);
+  } else if (!std::filesystem::exists(directory)) {
+    return;
+  }
   for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
     std::string fileName = I->path().filename();
     auto dotDatPos = fileName.find(".dat");
@@ -149,7 +182,7 @@ void StatisticDb::enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::
     cache.emplace_back();
     cache.back().Path = *I;
     cache.back().TimeLabel = xatoi<uint64_t>(fileName.c_str());
-    cache.back().IsOldFormat = isOldFormat;
+    cache.back().Version = version;
   }
 
   std::sort(cache.begin(), cache.end(), [](const CStatsFile &l, const CStatsFile &r){ return l.TimeLabel < r.TimeLabel; });
@@ -160,7 +193,12 @@ void StatisticDb::updateAcc(const std::string &login, const std::string &workerI
   // Push current accumulated data to ring buffer
   if ((currentTime - acc.LastShareTime) < std::chrono::seconds(_cfg.StatisticKeepWorkerNamesTime).count()) {
     if (isDebugStatistic())
-      LOG_F(1, "Update statistics for %s/%s (shares=%u, work=%.3lf)", !login.empty() ? login.c_str() : "<none>", !workerId.empty() ? workerId.c_str() : "<none>", acc.Current.SharesNum, acc.Current.SharesWork);
+      LOG_F(1,
+            "Update statistics for %s/%s (shares=%u, work=%s)",
+            !login.empty() ? login.c_str() : "<none>",
+            !workerId.empty() ? workerId.c_str() : "<none>",
+            acc.Current.SharesNum,
+            acc.Current.SharesWork.getDecimal().c_str());
 
     // Update in-memory data
     acc.Current.TimeLabel = currentTime;
@@ -187,7 +225,7 @@ void StatisticDb::calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, 
   // Calculate sum of shares number and work for last N minutes (interval usually defined in config)
   uint32_t primePOWTarget = acc.Current.PrimePOWTarget;
   uint32_t workerSharesNum = acc.Current.SharesNum;
-  double workerSharesWork = acc.Current.SharesWork;
+  UInt<256> workerSharesWork = acc.Current.SharesWork;
 
   int64_t startTimePoint = time(nullptr);
   int64_t stopTimePoint = startTimePoint - calculateInterval.count();
@@ -206,7 +244,12 @@ void StatisticDb::calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, 
 
   uint64_t timeInterval = startTimePoint - lastTimePoint;
   if (isDebugStatistic())
-    LOG_F(1, "  * use %u statistic rounds; interval: %" PRIi64 "; shares num: %u; shares work: %.3lf", counter, timeInterval, workerSharesNum, workerSharesWork);
+    LOG_F(1,
+          "  * use %u statistic rounds; interval: %" PRIi64 "; shares num: %u; shares work: %s",
+          counter,
+          timeInterval,
+          workerSharesNum,
+          workerSharesWork.getDecimal().c_str());
 
   result.SharesPerSecond = (double)workerSharesNum / timeInterval;
   result.AveragePower = CoinInfo_.calculateAveragePower(workerSharesWork, timeInterval, primePOWTarget);
@@ -413,7 +456,7 @@ void StatisticDb::updatePoolStats(int64_t timeLabel)
         PoolStatsCached_.SharesPerSecond);
 }
 
-void StatisticDb::updateStatsDiskCache(const char *name, std::deque<CStatsFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size)
+void StatisticDb::updateStatsDiskCache(const std::string &name, std::deque<CStatsFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size)
 {
   // Don't write empty files to disk
   if (!size)
@@ -579,7 +622,11 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
       break;
 
     if (isDebugStatistic())
-      LOG_F(1, "getHistory: use row with time=%" PRIi64 " shares=%" PRIu64 " work=%.3lf", valueRecord.Time, valueRecord.ShareCount, valueRecord.ShareWork);
+      LOG_F(1,
+            "getHistory: use row with time=%" PRIi64 " shares=%" PRIu64 " work=%s",
+            valueRecord.Time,
+            valueRecord.ShareCount,
+            valueRecord.ShareWork.getDecimal().c_str());
 
     int64_t alignedTimeLabel = valueRecord.Time + groupByInterval - (valueRecord.Time % groupByInterval);
     size_t index = (alignedTimeLabel - firstTimeLabel) / groupByInterval;
@@ -723,7 +770,7 @@ StatisticServer::StatisticServer(asyncBase *base, const PoolBackendConfig &confi
 {
   Statistics_.reset(new StatisticDb(Base_, config, CoinInfo_));
   StatisticShareLogConfig shareLogConfig(Statistics_.get());
-  ShareLog_.init(config.dbPath / "shares.log.v1", config.dbPath / "shares.log", coinInfo.Name, Base_, config.ShareLogFlushInterval, config.ShareLogFileSizeLimit, shareLogConfig);
+  ShareLog_.init(config.dbPath, coinInfo.Name, Base_, config.ShareLogFlushInterval, config.ShareLogFileSizeLimit, shareLogConfig, coinInfo);
 }
 
 void StatisticServer::start()

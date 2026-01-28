@@ -3,6 +3,7 @@
 
 #include "poolcommon/baseBlob.h"
 #include "poolcommon/serialize.h"
+#include "poolcommon/uint.h"
 #include <list>
 #include <string>
 #include <vector>
@@ -15,6 +16,22 @@ std::string partByTime(time_t time);
 typedef bool CheckAddressProcTy(const char*);
 
 struct CShare {
+  enum { CurrentRecordVersion = 1 };
+  uint64_t UniqueShareId = 0;
+  std::string userId;
+  std::string workerId;
+  int64_t height;
+  UInt<256> WorkValue;
+  bool isBlock;
+  std::string hash;
+  UInt<384> generatedCoins;
+  int64_t Time;
+  UInt<256> ExpectedWork = UInt<256>::zero();
+  uint32_t ChainLength;
+  uint32_t PrimePOWTarget;
+};
+
+struct CShareV1 {
   enum { CurrentRecordVersion = 1 };
   uint64_t UniqueShareId = 0;
   std::string userId;
@@ -70,8 +87,8 @@ struct PoolBackendConfig {
   uint64_t ShareLogFileSizeLimit = 4194304;
 
   unsigned RequiredConfirmations;
-  int64_t DefaultPayoutThreshold;
-  int64_t MinimalAllowedPayout;
+  UInt<384> DefaultPayoutThreshold;
+  UInt<384> MinimalAllowedPayout;
   unsigned KeepRoundTime;
   unsigned KeepStatsTime;
   unsigned ConfirmationsCheckInterval;
@@ -94,10 +111,10 @@ struct PoolBackendConfig {
 
 struct UserShareValue {
   std::string UserId;
-  double ShareValue;
-  double IncomingWork;
+  UInt<256> ShareValue;
+  UInt<256> IncomingWork;
   UserShareValue() {}
-  UserShareValue(const std::string &userId, double shareValue, double incomingWork) :
+  UserShareValue(const std::string &userId, UInt<256> shareValue, UInt<256> incomingWork) :
     UserId(userId), ShareValue(shareValue), IncomingWork(incomingWork) {}
 };
 
@@ -113,12 +130,12 @@ struct PayoutDbRecord {
 
   std::string UserId;
   int64_t Time;
-  int64_t Value;
+  UInt<384> Value;
   std::string TransactionId;
   std::string TransactionData;
   uint32_t Status = EInitialized;
   // Version 2
-  int64_t TxFee = 0;
+  UInt<384> TxFee = UInt<384>::zero();
 
   std::string getPartitionId() const { return partByTime(Time); }
   bool deserializeValue(const void *data, size_t size);
@@ -127,7 +144,7 @@ struct PayoutDbRecord {
   void serializeValue(xmstream &stream) const;
 
   PayoutDbRecord() {}
-  PayoutDbRecord(const std::string &userId, int64_t value) : UserId(userId), Value(value) {}
+  PayoutDbRecord(const std::string &userId, const UInt<384> &value) : UserId(userId), Value(value) {}
 };
 
 struct shareInfo {
@@ -137,11 +154,11 @@ struct shareInfo {
 
 struct CUserPayout {
   std::string UserId;
-  int64_t Value;
-  int64_t ValueWithoutFee;
-  double AcceptedWork;
-  CUserPayout() : Value(0) {}
-  CUserPayout(const std::string &userId, int64_t value, int64_t valueWithoutFee, double acceptedWork) :
+  UInt<384> Value;
+  UInt<384> ValueWithoutFee;
+  UInt<256> AcceptedWork;
+  CUserPayout() {}
+  CUserPayout(const std::string &userId, const UInt<384> &value, const UInt<384> &valueWithoutFee, const UInt<256> &acceptedWork) :
     UserId(userId), Value(value), ValueWithoutFee(valueWithoutFee), AcceptedWork(acceptedWork) {}
 };
 
@@ -154,14 +171,14 @@ struct MiningRound {
   int64_t StartTime;
     
   // aggregated share and payment value
-  double TotalShareValue;
-  int64_t AvailableCoins;
+  UInt<256> TotalShareValue;
+  UInt<384> AvailableCoins;
 
   // ETH specific
   std::string FoundBy;
-  double ExpectedWork;
-  double AccumulatedWork;
-  int64_t TxFee = 0;
+  UInt<256> ExpectedWork;
+  UInt<256> AccumulatedWork;
+  UInt<384> TxFee = UInt<384>::zero();
 
   // XPM specific
   uint32_t PrimePOWTarget;
@@ -178,7 +195,7 @@ struct MiningRound {
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;
-  void dump();
+  void dump(unsigned fractionalPart);
 };
 
 struct UsersRecord {
@@ -304,7 +321,7 @@ struct UserSettingsRecord {
   std::string Login;
   std::string Coin;
   std::string Address;
-  int64_t MinimalPayout;
+  UInt<384> MinimalPayout;
   bool AutoPayout;
 
   UserSettingsRecord() {}
@@ -336,13 +353,13 @@ struct UserBalanceRecord {
   enum { CurrentRecordVersion = 1 };
   
   std::string Login;
-  FixedPointInteger Balance;
-  int64_t Requested;
-  int64_t Paid;
+  UInt<384> Balance;
+  UInt<384> Requested;
+  UInt<384> Paid;
 
   UserBalanceRecord() {}
-  UserBalanceRecord(const std::string &userIdArg, int64_t) :
-    Login(userIdArg), Balance(0), Requested(0), Paid(0) {}
+  UserBalanceRecord(const std::string &userIdArg, const UInt<384>&) :
+    Login(userIdArg), Balance(UInt<384>::zero()), Requested(UInt<384>::zero()), Paid(UInt<384>::zero()) {}
       
   std::string getPartitionId() const { return "default"; }
   bool deserializeValue(const void *data, size_t size);
@@ -357,10 +374,10 @@ struct FoundBlockRecord {
   uint64_t Height;
   std::string Hash;
   int64_t Time;
-  int64_t AvailableCoins;
+  UInt<384> AvailableCoins;
   std::string FoundBy;
-  double ExpectedWork = 0.0;
-  double AccumulatedWork = 0.0;
+  UInt<256> ExpectedWork = UInt<256>::zero();
+  UInt<256> AccumulatedWork = UInt<256>::zero();
   std::string PublicHash;
   
   std::string getPartitionId() const { return partByHeight(Height); }
@@ -373,12 +390,12 @@ struct PoolBalanceRecord {
   enum { CurrentRecordVersion = 1 };
   
   int64_t Time;
-  int64_t Balance;
-  int64_t Immature;
-  int64_t Users;
-  int64_t Queued;
-  int64_t ConfirmationWait;
-  int64_t Net;
+  UInt<384> Balance;
+  UInt<384> Immature;
+  UInt<384> Users;
+  UInt<384> Queued;
+  UInt<384> ConfirmationWait;
+  UInt<384> Net;
 
   std::string getPartitionId() const { return partByTime(Time); }
   bool deserializeValue(const void *data, size_t size);
@@ -393,7 +410,7 @@ struct StatsRecord {
   std::string WorkerId;
   int64_t Time;
   uint64_t ShareCount;
-  double ShareWork;
+  UInt<256> ShareWork;
   uint32_t PrimePOWTarget;
   std::vector<uint64_t> PrimePOWShareCount;
   
@@ -413,9 +430,9 @@ struct CPPLNSPayout {
   // Value part
   uint64_t BlockHeight;
   int64_t RoundEndTime;
-  int64_t PayoutValue;
-  int64_t PayoutValueWithoutFee;
-  double AcceptedWork;
+  UInt<384> PayoutValue;
+  UInt<384> PayoutValueWithoutFee;
+  UInt<256> AcceptedWork;
   uint32_t PrimePOWTarget;
   double RateToBTC;
   double RateBTCToUSD;

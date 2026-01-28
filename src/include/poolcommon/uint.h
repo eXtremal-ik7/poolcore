@@ -22,6 +22,7 @@
 #endif
 
 #include <string>
+#include <type_traits>
 
 static_assert(sizeof(unsigned int) == sizeof(uint32_t));
 static_assert(sizeof(unsigned long long) == sizeof(uint64_t));
@@ -118,12 +119,29 @@ static inline unsigned clz64(uint64_t x)
 template<unsigned Bits>
 class UInt {
 public:
-  UInt() {}
+  UInt() {
+    memset(Data_, 0, sizeof(Data_));
+  }
 
-  UInt(uint64_t n) {
-    Data_[0] = n;
+  // Allow construction from unsigned integral types only
+  template<typename T, std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>, int> = 0>
+  UInt(T n) {
+    Data_[0] = static_cast<uint64_t>(n);
     for (size_t i = 1; i < LimbsNum; i++)
       Data_[i] = 0;
+  }
+
+  // Prevent implicit conversion from signed integers and floating point
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  UInt(T) = delete;
+
+  // Allow implicit construction only from smaller or equal size UInt
+  template<unsigned OtherBits, std::enable_if_t<(OtherBits <= Bits), int> = 0>
+  UInt(const UInt<OtherBits> &other) {
+    constexpr size_t copyLimbs = UInt<OtherBits>::LimbsNum;
+    memcpy(Data_, other.data(), copyLimbs * sizeof(uint64_t));
+    if constexpr (LimbsNum > copyLimbs)
+      memset(Data_ + copyLimbs, 0, (LimbsNum - copyLimbs) * sizeof(uint64_t));
   }
 
   // static constructors
@@ -133,9 +151,23 @@ public:
     return result;
   }
 
+  static UInt<Bits> max() {
+    UInt<Bits> result;
+    memset(result.Data_, 0xFF, sizeof(result.Data_));
+    return result;
+  }
+
   static UInt<Bits> fromHex(const char *hex) {
     UInt<Bits> result;
     result.setHex(hex);
+    return result;
+  }
+
+  // Truncate from larger UInt (explicit conversion)
+  template<unsigned OtherBits, std::enable_if_t<(OtherBits > Bits), int> = 0>
+  static UInt<Bits> truncate(const UInt<OtherBits> &other) {
+    UInt<Bits> result;
+    memcpy(result.Data_, other.data(), LimbsNum * sizeof(uint64_t));
     return result;
   }
 
@@ -163,7 +195,7 @@ public:
   uint64_t *data() { return Data_; }
   const uint8_t *rawData() const { return reinterpret_cast<const uint8_t*>(Data_); }
   uint8_t *rawData() { return reinterpret_cast<uint8_t*>(Data_); }
-  size_t rawSize() { return sizeof(Data_); }
+  size_t rawSize() const { return sizeof(Data_); }
 
   void exportLE(uint8_t *out) {
     if (isLittleEndian()) {
@@ -186,6 +218,38 @@ public:
       fact *= 18446744073709551616.0; // 2^64
     }
     return ret;
+  }
+
+  // Divide two UInts and return result as double with minimal precision loss
+  template<unsigned BitsA, unsigned BitsB>
+  static double fpdiv(const UInt<BitsA> &dividend, const UInt<BitsB> &divisor) {
+    if (divisor.isZero() || dividend.isZero())
+      return 0.0;
+
+    unsigned bitsA = dividend.bits();
+    unsigned bitsB = divisor.bits();
+
+    // Normalize both to fit in 64 bits for maximum precision
+    UInt<BitsA> normA = dividend;
+    UInt<BitsB> normB = divisor;
+    int shiftA = 0;
+    int shiftB = 0;
+
+    if (bitsA > 64) {
+      shiftA = bitsA - 64;
+      normA >>= shiftA;
+    }
+    if (bitsB > 64) {
+      shiftB = bitsB - 64;
+      normB >>= shiftB;
+    }
+
+    double result = static_cast<double>(normA.low64()) / static_cast<double>(normB.low64());
+
+    // Adjust for shifts: dividend was shifted right by shiftA, divisor by shiftB
+    // So result needs to be multiplied by 2^(shiftA - shiftB)
+    int totalShift = shiftA - shiftB;
+    return std::ldexp(result, totalShift);
   }
 
   unsigned bits() const {
@@ -238,6 +302,32 @@ public:
     return data;
   }
 
+  // Decimal conversion
+  std::string getDecimal() const {
+    // Estimate decimal digits from bit count using: digits ≈ bits * log10(2)
+    // Integer approximation: 77/256 ≈ 0.30078 ≈ log10(2)
+    // For zero: bits()=0, minDigits=1, one iteration produces "0"
+    unsigned numBits = bits();
+    size_t maxDigits = (static_cast<size_t>(numBits) * 77) / 256 + 2;
+    size_t minDigits = numBits > 3 ? (static_cast<size_t>(numBits - 1) * 77) / 256 + 1 : 1;
+
+    char buffer[Bits / 3 + 2];
+    UInt<Bits> tmp = *this;
+    size_t pos = maxDigits;
+
+    // Extract minDigits without checking isZero (guaranteed to have at least this many)
+    for (size_t i = 0; i < minDigits; i++) {
+      buffer[--pos] = '0' + static_cast<char>(tmp.divmod64(10u));
+    }
+
+    // Extract remaining 0-2 digits
+    while (tmp.nonZero()) {
+      buffer[--pos] = '0' + static_cast<char>(tmp.divmod64(10u));
+    }
+
+    return std::string(buffer + pos, maxDigits - pos);
+  }
+
   void setHex(const char *hex) {
     if (hex[0] == '0' && hex[1] == 'x')
       hex += 2;
@@ -272,6 +362,28 @@ public:
   }
 
   // Compare functions
+  bool isZero() const {
+    for (size_t i = 0; i < LimbsNum; i++) {
+      if (Data_[i] != 0)
+        return false;
+    }
+    return true;
+  }
+
+  bool nonZero() const {
+    for (size_t i = 0; i < LimbsNum; i++) {
+      if (Data_[i] != 0)
+        return true;
+    }
+    return false;
+  }
+
+  // UInt is unsigned, but this function can be used to detect
+  // underflow after subtraction (MSB set means wrapped around)
+  bool isNegative() const {
+    return (Data_[LimbsNum - 1] >> 63) != 0;
+  }
+
   int cmp64(uint64_t n) const {
     for (size_t i = LimbsNum; i > 1; --i) {
       if (Data_[i - 1] != 0)
@@ -337,6 +449,37 @@ public:
     }
   }
 
+  // Multiply by double with minimal precision loss
+  // Extracts 53-bit mantissa, multiplies as integer, then shifts by exponent
+  void mulfp(double d) {
+    static const double multiplier = std::pow(FLT_RADIX, DBL_MANT_DIG);
+
+    int exponent = 0;
+    uint64_t mantissa = static_cast<uint64_t>(std::frexp(d, &exponent) * multiplier);
+    exponent -= DBL_MANT_DIG;
+
+    if (Data_[LimbsNum - 1] == 0) {
+      // No overflow risk, multiply in place
+      mul64(mantissa);
+
+      if (exponent < 0)
+        shr(-exponent);
+      else if (exponent > 0)
+        shl(exponent);
+    } else {
+      // Use extended precision to avoid overflow
+      UInt<Bits + 64> tmp(*this);
+      tmp.mul64(mantissa);
+
+      if (exponent < 0)
+        tmp.shr(-exponent);
+      else if (exponent > 0)
+        tmp.shl(exponent);
+
+      *this = truncate(tmp);
+    }
+  }
+
   template<unsigned OperandBits>
   void mul(const UInt<OperandBits> &n) {
     // Use product scan
@@ -367,20 +510,22 @@ public:
     memcpy(Data_, result.Data_, sizeof(uint64_t)*LimbsNum);
   }
 
-  // Division
-  void div64(uint64_t n) {
-    uint64_t mod = 0;
-    for (size_t i = 0; i < LimbsNum; i++)
-      divmod64(Data_[LimbsNum - i - 1], mod, n, reinterpret_cast<uint64_t*>(&Data_[LimbsNum - i - 1]), &mod);
+  // Division by 64-bit value
+  // Non-const version: stores quotient in *this, returns remainder
+  uint64_t divmod64(uint64_t n) {
+    uint64_t rem = 0;
+    for (size_t i = LimbsNum; i > 0; --i)
+      ::divmod64(Data_[i - 1], rem, n, &Data_[i - 1], &rem);
+    return rem;
   }
 
-  uint64_t mod64(uint64_t n) const {
-    uint64_t mod = 0;
-    for (size_t i = 0; i < LimbsNum; i++) {
-      uint64_t q;
-      divmod64(Data_[LimbsNum - i - 1], mod, n, &q, &mod);
-    }
-    return mod;
+  // Const version: stores quotient in *quotient (if not null), returns remainder
+  uint64_t divmod64(uint64_t n, UInt<Bits> *quotient = nullptr) const {
+    uint64_t rem = 0;
+    uint64_t q;
+    for (size_t i = LimbsNum; i > 0; --i)
+      ::divmod64(Data_[i - 1], rem, n, quotient ? &quotient->Data_[i - 1] : &q, &rem);
+    return rem;
   }
 
   template<unsigned OperandBits>
@@ -465,7 +610,7 @@ public:
         addc64(&rhat, v[divisorLimbs - 1], &c);
         rhat_ge_B = (c != 0); // rhat >= B => correction check not needed
       } else {
-        divmod64(ujn1, ujn, v[divisorLimbs - 1], &qhat, &rhat);
+        ::divmod64(ujn1, ujn, v[divisorLimbs - 1], &qhat, &rhat);
       }
 
       // Correction of qhat (Knuth D3)
@@ -579,7 +724,8 @@ public:
   UInt<Bits> operator+=(uint64_t n) { add64(n); return *this; }
   template<unsigned OperandBits>
     UInt<Bits> operator+=(const UInt<OperandBits> &n) { add(n); return *this; }
-  UInt<Bits> friend operator+(const UInt<Bits> &a, uint64_t b) { return UInt<Bits>(a) += b; }
+  template<typename T, std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>, int> = 0>
+    UInt<Bits> friend operator+(const UInt<Bits> &a, T b) { return UInt<Bits>(a) += b; }
   template<unsigned OperandBits>
     friend UInt<Bits> operator+(const UInt<Bits> &a, const UInt<OperandBits> &b) { return UInt<Bits>(a) += b; }
 
@@ -587,7 +733,8 @@ public:
   UInt<Bits> operator-=(uint64_t n) { sub64(n); return *this; }
   template<unsigned OperandBits>
     UInt<Bits> operator-=(const UInt<OperandBits> &n) { sub(n); return *this; }
-  UInt<Bits> friend operator-(const UInt<Bits> &a, uint64_t b) { return UInt<Bits>(a) -= b; }
+  template<typename T, std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>, int> = 0>
+    UInt<Bits> friend operator-(const UInt<Bits> &a, T b) { return UInt<Bits>(a) -= b; }
   template<unsigned OperandBits>
     friend UInt<Bits> operator-(const UInt<Bits> &a, const UInt<OperandBits> &b) { return UInt<Bits>(a) -= b; }
 
@@ -599,7 +746,8 @@ public:
 
   // multiplication short
   UInt<Bits> operator*=(uint64_t n) { mul64(n); return *this; }
-  UInt<Bits> friend operator*(const UInt<Bits> &a, uint64_t b) { return UInt<Bits>(a) *= b; }
+  template<typename T, std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>, int> = 0>
+    UInt<Bits> friend operator*(const UInt<Bits> &a, T b) { return UInt<Bits>(a) *= b; }
 
   // multiplication long
   template<unsigned OperandBits>
@@ -608,11 +756,13 @@ public:
     friend UInt<Bits> operator*(const UInt<Bits> &a, const UInt<OperandBits> &b) { return UInt<Bits>(a) *= b; }
 
   // division short
-  UInt<Bits> operator/=(uint64_t n) { div64(n); return *this; }
-  UInt<Bits> friend operator/(const UInt<Bits> &a, uint64_t b) { return UInt<Bits>(a) /= b; }
+  UInt<Bits> operator/=(uint64_t n) { divmod64(n); return *this; }
+  template<typename T, std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>, int> = 0>
+    UInt<Bits> friend operator/(const UInt<Bits> &a, T b) { return UInt<Bits>(a) /= b; }
 
   // modulo short
-  uint64_t operator%(uint64_t n) const { return mod64(n); }
+  uint64_t operator%(uint64_t n) const { return divmod64(n); }
+
 
   // division long
   template<unsigned OperandBits>
@@ -651,6 +801,57 @@ public:
     result.not_();
     return result;
   }
+
+  // Two's complement negation (in-place)
+  void negate() {
+    not_();
+    add64(1u);
+  }
+
+  // Unary minus
+  UInt<Bits> operator-() const {
+    UInt<Bits> result(*this);
+    result.negate();
+    return result;
+  }
+
+  // Prevent operations with signed integers and floating point types
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  bool operator==(T) const = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  bool operator!=(T) const = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  bool operator<(T) const = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  bool operator<=(T) const = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  bool operator>(T) const = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  bool operator>=(T) const = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  UInt<Bits> operator+=(T) = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  UInt<Bits> operator-=(T) = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  UInt<Bits> operator*=(T) = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  UInt<Bits> operator/=(T) = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  uint64_t operator%(T) const = delete;
+
+  // Prevent member functions with signed/floating point arguments
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  int cmp64(T) const = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  void add64(T) = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  void sub64(T) = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  void mul64(T) = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  uint64_t divmod64(T) = delete;
+  template<typename T, std::enable_if_t<std::is_signed_v<T> || std::is_floating_point_v<T>, int> = 0>
+  uint64_t divmod64(T, UInt<Bits>*) const = delete;
 
 private:
   static constexpr size_t LimbSize = 8 * sizeof(uint64_t);

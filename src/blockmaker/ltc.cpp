@@ -11,18 +11,18 @@ static inline UInt<256> powValue(const LTC::Proto::BlockHeader &header)
   return value;
 }
 
-CCheckStatus LTC::Proto::checkPow(const Proto::BlockHeader &header, uint32_t nBits)
+CCheckStatus LTC::Proto::checkPow(const Proto::BlockHeader &header, uint32_t nBits, const UInt<256> &shareTarget)
 {
   CCheckStatus status;
   UInt<256> scryptHash = powValue(header);
-  status.ShareDiff = BTC::difficultyFromBits(uint256GetCompact(scryptHash), 29);
+  status.IsShare = scryptHash <= shareTarget;
 
   bool fNegative;
   bool fOverflow;
   UInt<256> bnTarget = uint256Compact(nBits, &fNegative, &fOverflow);
 
   // Check range
-  if (fNegative || bnTarget == 0 || fOverflow)
+  if (fNegative || bnTarget == 0u || fOverflow)
     return status;
 
   // Check proof of work matches claimed amount

@@ -19,7 +19,7 @@ public:
   };
 
   struct BackendParameters {
-    int64_t DefaultMinimalPayout;
+    UInt<384> DefaultMinimalPayout;
   };
 
   struct Credentials {
@@ -281,7 +281,7 @@ public:
   bool sendMail(const std::string &login, const std::string &emailAddress, const std::string &emailTitlePrefix, const std::string &linkPrefix, const BaseBlob<512> &actionId, const std::string &mainText, std::string &error);
   bool check2fa(const std::string &secret, const std::string &receivedCode);
 
-  void configAddCoin(const CCoinInfo &info, int64_t defaultMinimalPayout) {
+  void configAddCoin(const CCoinInfo &info, const UInt<384> &defaultMinimalPayout) {
     BackendParameters backendParameters;
     backendParameters.DefaultMinimalPayout = defaultMinimalPayout;
     CoinInfo_.push_back(info);

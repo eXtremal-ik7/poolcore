@@ -245,7 +245,7 @@ private:
     // check proof of work
     std::string workerId = share.name();
     double shareDiff = 0.0;
-    double shareWork = 0.0;
+    UInt<256> shareWork = UInt<256>::zero();
     uint32_t primePOWTarget = 0;
 
     typename X::Zmq::Work::CExtraInfo info;
@@ -257,7 +257,7 @@ private:
 
     primePOWTarget = std::max(work.primePOWTarget(), MiningCfg_.MinShareLength);
     shareWork = work.shareWork(data.CheckConsensusCtx, shareDiff, MiningCfg_.MinShareLength, info, connection->WorkerConfig);
-    if (shareWork == 0.0) {
+    if (shareWork.isZero()) {
       rep.set_error(pool::proto::Reply::INVALID);
       return;
     }
@@ -265,10 +265,10 @@ private:
     if (isBlock) {
       LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.getHexLE().c_str(), data.Work.txNum());
       // Submit to nodes
-      double expectedWork = work.expectedWork();
+      UInt<256> expectedWork = work.expectedWork();
 
       std::string user = share.addr();
-      int64_t generatedCoins = work.blockReward();
+      UInt<384> generatedCoins = work.blockReward();
       CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
       dispatcher.aioSubmitBlock(data.WorkerBase,
                                 work.blockHexData().data(),

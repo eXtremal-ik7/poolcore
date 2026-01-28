@@ -1,5 +1,6 @@
 #include "poolcore/backendData.h"
 #include "poolcommon/serialize.h"
+#include "poolcommon/utils.h"
 #include <inttypes.h>
 #include <time.h>
 
@@ -129,7 +130,7 @@ bool MiningRound::deserializeValue(const void *data, size_t size)
   uint32_t version;
   dbIoUnserialize(stream, version);
   if (version == 1) {
-    std::vector<UserShareValue1> userShares1;
+    std::vector<UserShareValue> userShares1;
     std::vector<PayoutDbRecord> payouts1;
 
     dbIoUnserialize(stream, Height);
@@ -144,13 +145,13 @@ bool MiningRound::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, userShares1);
     {
       for (const auto &s: userShares1)
-        UserShares.emplace_back(s.userId, s.shareValue, 0.0);
+        UserShares.emplace_back(s.UserId, s.ShareValue, UInt<256>::zero());
     }
 
     dbIoUnserialize(stream, payouts1);
     {
       for (const auto &p: payouts1)
-        Payouts.emplace_back(p.UserId, p.Value, p.Value, 0.0);
+        Payouts.emplace_back(p.UserId, p.Value, p.Value, UInt<256>::zero());
     }
 
     if (stream.remaining()) {
@@ -180,24 +181,24 @@ bool MiningRound::deserializeValue(const void *data, size_t size)
   return !stream.eof();
 }
 
-void MiningRound::dump()
+void MiningRound::dump(unsigned int fractionalPart)
 {
   fprintf(stderr, "height=%u\n", (unsigned)Height);
   fprintf(stderr, "blockhash=%s\n", BlockHash.c_str());
   fprintf(stderr, "time=%u\n", (unsigned)EndTime);
-  fprintf(stderr, "totalShareValue=%.3lf\n", TotalShareValue);
-  fprintf(stderr, "availableCoins=%" PRId64 "\n", AvailableCoins);
+  fprintf(stderr, "totalShareValue=%s\n", TotalShareValue.getDecimal().c_str());
+  fprintf(stderr, "availableCoins=%s\n", FormatMoney(AvailableCoins, fractionalPart).c_str());
   for (auto r: UserShares) {
     fprintf(stderr, " *** round element ***\n");
     fprintf(stderr, " * userId: %s\n", r.UserId.c_str());
-    fprintf(stderr, " * shareValue: %.6lf\n", r.ShareValue);
-    fprintf(stderr, " * incomingWork: %.6lf\n", r.IncomingWork);
+    fprintf(stderr, " * shareValue: %s\n", r.ShareValue.getDecimal().c_str());
+    fprintf(stderr, " * incomingWork: %s\n", r.IncomingWork.getDecimal().c_str());
   }
   for (auto p: Payouts) {
     fprintf(stderr, " *** payout element ***\n");
     fprintf(stderr, " * userId: %s\n", p.UserId.c_str());
-    fprintf(stderr, " * payoutValue: %" PRId64 "\n", p.Value);
-    fprintf(stderr, " * valueWithoutFee: %" PRId64 "\n", p.ValueWithoutFee);
+    fprintf(stderr, " * payoutValue: %s\n", FormatMoney(p.Value, fractionalPart).c_str());
+    fprintf(stderr, " * valueWithoutFee: %s\n", FormatMoney(p.ValueWithoutFee, fractionalPart).c_str());
   }  
 }
 
@@ -410,14 +411,12 @@ bool UserBalanceRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
   uint32_t version;
-  int64_t balance;
   dbIoUnserialize(stream, version);
   if (version >= 1) { 
     dbIoUnserialize(stream, Login);
-    dbIoUnserialize(stream, balance);
+    dbIoUnserialize(stream, Balance);
     dbIoUnserialize(stream, Requested);
     dbIoUnserialize(stream, Paid);
-    Balance.set(balance);
   }
   
   return !stream.eof();
@@ -434,7 +433,7 @@ void UserBalanceRecord::serializeValue(xmstream &stream) const
 {
   dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
   dbIoSerialize(stream, Login);
-  dbIoSerialize(stream, Balance.get());
+  dbIoSerialize(stream, Balance);
   dbIoSerialize(stream, Requested);
   dbIoSerialize(stream, Paid);
 }

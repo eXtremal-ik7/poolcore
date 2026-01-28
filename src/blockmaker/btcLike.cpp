@@ -2,7 +2,7 @@
 #include "blockmaker/merkleTree.h"
 
 namespace BTC {
-bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<TxData> &result, int64_t *blockReward)
+bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<TxData> &result, uint64_t *blockReward)
 {
   // TODO: keep transactions depend on other transactions in same block
   if (tree[index].Visited || tree[index].DependsOn != std::numeric_limits<size_t>::max())

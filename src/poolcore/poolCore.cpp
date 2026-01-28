@@ -84,16 +84,23 @@ const char *CCoinInfo::getPowerUnitName() const
   return "???";
 }
 
-uint64_t CCoinInfo::calculateAveragePower(double work, uint64_t timeInterval, unsigned int primePOWTarget) const
+uint64_t CCoinInfo::calculateAveragePower(const UInt<256> &work, uint64_t timeInterval, unsigned int primePOWTarget) const
 {
   switch (PowerUnitType) {
-    case EHash :
-      return static_cast<uint64_t>(work / timeInterval * (WorkMultiplier / pow(10.0, PowerMultLog10)));
+    case EHash : {
+      UInt<256> power = work / timeInterval;
+      power /= static_cast<uint64_t>(pow(10.0, PowerMultLog10));
+      return power.low64();
+    }
     case ECPD : {
-      if (primePOWTarget == -1U)
+      if (primePOWTarget == -1U) {
         return 0;
-      else
-        return 1000.0 * (work / timeInterval * pow(0.1, primePOWTarget - 7) * 24*3600);
+      } else {
+        UInt<256> power = (work * 1000ull * 24ull * 3600ull) / timeInterval;
+        power.mulfp(pow(0.1, primePOWTarget - 7));
+        power >>= 32;
+        return power.low64();
+      }
     }
   }
 

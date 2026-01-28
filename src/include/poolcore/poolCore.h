@@ -33,8 +33,9 @@ struct CCoinInfo {
 
   std::string Name;
   std::string FullName;
-  int64_t RationalPartSize;
-  int64_t ExtraMultiplier = 100;
+  unsigned FractionalPartSize;
+  // int64_t RationalPartSize;
+  // int64_t ExtraMultiplier = 100;
   EAddressType PayoutAddressType;
   bool SegwitEnabled;
   bool MWebEnabled = false;
@@ -67,7 +68,7 @@ struct CCoinInfo {
 
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;
-  uint64_t calculateAveragePower(double work, uint64_t timeInterval, unsigned int primePOWTarget) const;
+  uint64_t calculateAveragePower(const UInt<256> &work, uint64_t timeInterval, unsigned int primePOWTarget) const;
 };
 
 class CNetworkClient {
@@ -101,39 +102,39 @@ public:
     std::string Hash;
     uint64_t Height;
     // Input & output
-    int64_t TxFee;
-    int64_t BlockReward;
+    UInt<384> TxFee;
+    UInt<384> BlockReward;
     // Output
     int64_t Confirmations;
     std::string PublicHash;
 
     GetBlockExtraInfoQuery() {}
-    GetBlockExtraInfoQuery(const std::string &hash, uint64_t height, int64_t txFee, int64_t lastKnownBlockReward) :
+    GetBlockExtraInfoQuery(const std::string &hash, uint64_t height, const UInt<384> &txFee, const UInt<384> &lastKnownBlockReward) :
       Hash(hash), Height(height), TxFee(txFee), BlockReward(lastKnownBlockReward) {}
   };
 
   struct GetBalanceResult {
-    int64_t Balance;
-    int64_t Immatured;
+    UInt<384> Balance;
+    UInt<384> Immatured;
   };
 
   struct SendMoneyResult {
     std::string TxId;
     std::string Error;
-    int64_t Fee;
+    UInt<384> Fee;
   };
 
   struct BuildTransactionResult {
     std::string TxId;
     std::string TxData;
     std::string Error;
-    int64_t Value;
-    int64_t Fee;
+    UInt<384> Value;
+    UInt<384> Fee;
   };
 
   struct ListUnspentElement {
     std::string Address;
-    int64_t Amount;
+    UInt<384> Amount;
     bool IsCoinbase;
   };
 
@@ -167,12 +168,12 @@ public:
   virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &query) = 0;
   virtual bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &query) = 0;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
-  virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) = 0;
+  virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, BuildTransactionResult &result) = 0;
   virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string &txId, std::string &error) = 0;
-  virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error) = 0;
+  virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error) = 0;
   virtual EOperationStatus ioListUnspent(asyncBase *base, ListUnspentResult &result) = 0;
-  virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result) = 0;
-  virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, int64_t *balance) = 0;
+  virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, const UInt<384> &amount, const std::string &memo, uint64_t minConf, const UInt<384> &fee, CNetworkClient::ZSendMoneyResult &result) = 0;
+  virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance) = 0;
   virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) = 0;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, CSubmitBlockOperation *operation) = 0;
 

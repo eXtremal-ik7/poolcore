@@ -1,4 +1,5 @@
 #include "poolcore/backend.h"
+#include "poolcommon/utils.h"
 #include "poolcore/backendData.h"
 #include "poolcore/thread.h"
 #include "poolcommon/debug.h"
@@ -7,18 +8,18 @@
 #include "p2putils/xmstream.h"
 #include "loguru.hpp"
 
-static void checkConsistency(AccountingDb *accounting)
+static void checkConsistency(AccountingDb *accounting, const CCoinInfo &coinInfo)
 {
-  std::map<std::string, int64_t> balancesRequested;
-  std::map<std::string, int64_t> queueRequested;
+  std::map<std::string, UInt<384>> balancesRequested;
+  std::map<std::string, UInt<384>> queueRequested;
 
-  int64_t totalQueued = 0;
+  UInt<384> totalQueued = UInt<384>::zero();
   for (auto &p: accounting->getPayoutsQueue()) {
     queueRequested[p.UserId] += p.Value;
     totalQueued += p.Value;
   }
 
-  int64_t totalInBalance = 0;
+  UInt<384> totalInBalance = UInt<384>::zero();
   auto &balanceDb = accounting->getBalanceDb();
   {
     auto *It = balanceDb.iterator();
@@ -34,8 +35,8 @@ static void checkConsistency(AccountingDb *accounting)
     }
   }
 
-  LOG_F(INFO, "totalQueued: %li", totalQueued);
-  LOG_F(INFO, "totalRequested: %li", totalInBalance);
+  LOG_F(INFO, "totalQueued: %s", FormatMoney(totalQueued, coinInfo.FractionalPartSize).c_str());
+  LOG_F(INFO, "totalRequested: %s", FormatMoney(totalInBalance, coinInfo.FractionalPartSize).c_str());
 }
 
 
@@ -57,7 +58,7 @@ PoolBackend::PoolBackend(asyncBase *base,
   _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, *_statistics.get(), priceFetcher));
 
   ShareLogConfig shareLogConfig(_accounting.get(), _statistics.get());
-  ShareLog_.init(cfg.dbPath / "shares.log.v1", cfg.dbPath / "shares.log", info.Name, _base, _cfg.ShareLogFlushInterval, _cfg.ShareLogFileSizeLimit, shareLogConfig);
+  ShareLog_.init(cfg.dbPath, info.Name, _base, _cfg.ShareLogFlushInterval, _cfg.ShareLogFileSizeLimit, shareLogConfig, CoinInfo_);
 
   ProfitSwitchCoeff_ = CoinInfo_.ProfitSwitchDefaultCoeff;
 
@@ -103,7 +104,7 @@ void PoolBackend::backendMain()
   coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->payoutHandler(); }, this, 0x100000, coroutineFinishCb, &PayoutHandlerFinished_));
 
   LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
-  checkConsistency(_accounting.get());
+  checkConsistency(_accounting.get(), CoinInfo_);
   asyncLoop(_base);
 }
 

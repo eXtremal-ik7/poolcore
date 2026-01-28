@@ -39,19 +39,19 @@ public:
     using CheckConsensusCtx = BTC::Proto::CheckConsensusCtx;
     using ChainParams       = BTC::Proto::ChainParams;
 
-    static CCheckStatus checkPow(const BlockHeader &header, uint32_t nBits);
+    static CCheckStatus checkPow(const BlockHeader &header, uint32_t nBits, const UInt<256> &shareTarget);
     static void checkConsensusInitialize(CheckConsensusCtx&) {}
-    static CCheckStatus checkConsensus(const BlockHeader &header, CheckConsensusCtx&, ChainParams&) {
-        return checkPow(header, header.nBits);
+    static CCheckStatus checkConsensus(const BlockHeader &header, CheckConsensusCtx&, ChainParams&, const UInt<256> &shareTarget) {
+        return checkPow(header, header.nBits, shareTarget);
     }
-    static CCheckStatus checkConsensus(const Block &block, CheckConsensusCtx&, ChainParams&) {
-        return checkPow(block.header, block.header.nBits);
+    static CCheckStatus checkConsensus(const Block &block, CheckConsensusCtx&, ChainParams&, const UInt<256> &shareTarget) {
+        return checkPow(block.header, block.header.nBits, shareTarget);
     }
     static double getDifficulty(const BlockHeader &header) {
         return BTC::difficultyFromBits(header.nBits, 29);
     }
-    static double expectedWork(const BlockHeader &header, const CheckConsensusCtx&) {
-        return getDifficulty(header);
+    static UInt<256> expectedWork(const BlockHeader &header, const CheckConsensusCtx&) {
+      return uint256Compact(header.nBits);
     }
     static bool decodeHumanReadableAddress(const std::string &hrAddress,
                                            const std::vector<uint8_t> &prefix,
@@ -97,7 +97,7 @@ namespace DASH {
 
 class Stratum {
 public:
-    static constexpr double DifficultyFactor = 1.0;
+    inline static const UInt<256> StratumMultiplier = UInt<256>(1u) << 16;
     using Work = BTC::WorkTy<DASH::Proto,
                              BTC::Stratum::HeaderBuilder,
                              BTC::Stratum::CoinbaseBuilder,
@@ -173,8 +173,9 @@ public:
     }
 
     static void buildSendTargetMessage(xmstream &stream, double difficulty) {
-        BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty, DifficultyFactor);
+        BTC::Stratum::buildSendTargetMessageImpl(stream, difficulty);
     }
+    static UInt<256> targetFromDifficulty(const UInt<256> &difficulty) { return BTC::Stratum::targetFromDifficulty(difficulty); }
 };
 
 struct X {

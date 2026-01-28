@@ -36,19 +36,19 @@ struct TxData {
 
 struct TxTree {
   TxData Data;
-  int64_t Fee;
+  uint64_t Fee;
   size_t DependsOn = std::numeric_limits<size_t>::max();
   bool Visited = false;
 };
 
-bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<TxData> &result, int64_t *blockReward);
+bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<TxData> &result, uint64_t *blockReward);
 bool transactionChecker(rapidjson::Value::Array transactions, std::vector<TxData> &result);
 bool isSegwitEnabled(rapidjson::Value::Array transactions);
 bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, bool txFilter, std::vector<TxData> &processedTransactions, xmstream &witnessCommitment, std::string &error);
 void collectTransactions(const std::vector<TxData> &processedTransactions, xmstream &txHexData, std::vector<BaseBlob<256> > &merklePath, size_t &txNum);
 
 template<typename Proto>
-bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, std::vector<TxData> &result, int64_t *blockReward, bool sortByHash)
+bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, std::vector<TxData> &result, uint64_t *blockReward, bool sortByHash)
 {
   size_t txNum = transactions.Size();
   std::unique_ptr<TxTree[]> txTree(new TxTree[txNum]);
@@ -75,7 +75,7 @@ bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, 
 
     if (!txSrc.HasMember("fee") || !txSrc["fee"].IsInt64())
       return false;
-    txTree[i].Fee = txSrc["fee"].GetInt64();
+    txTree[i].Fee = txSrc["fee"].GetUint64();
 
     txidMap[txTree[i].Data.TxId] = i;
     *blockReward -= txTree[i].Fee;
@@ -136,7 +136,7 @@ public:
   }
   virtual typename Proto::BlockHashTy shareHash() override { return Header.hash(); }
   virtual std::string blockHash(size_t) override { return Header.hash().getHexLE(); }
-  virtual double expectedWork(size_t) override { return Proto::expectedWork(Header, ConsensusCtx_); }
+  virtual UInt<256> expectedWork(size_t) override { return Proto::expectedWork(Header, ConsensusCtx_); }
   virtual bool ready() override { return this->Backend_ != nullptr; }
 
   virtual void buildBlock(size_t, xmstream &blockHexData) override { buildBlockImpl(Header, CBTxWitness_, blockHexData); }
@@ -146,7 +146,7 @@ public:
     buildNotifyMessageImpl(this, Header, JobVersion, CBTxLegacy_, MerklePath, this->MiningCfg_, true, this->NotifyMessage_);
   }
 
-  virtual CCheckStatus checkConsensus(size_t) override { return checkConsensusImpl(Header, ConsensusCtx_); }
+  virtual CCheckStatus checkConsensus(size_t, const UInt<256> &shareTarget) override { return checkConsensusImpl(Header, ConsensusCtx_, shareTarget); }
 
   virtual bool hasRtt(size_t) override { return ConsensusCtx_.hasRtt(); }
 
@@ -188,7 +188,7 @@ public:
     SegwitEnabled = isSegwitEnabled(transactions);
 
     // Checking/filtering transactions
-    int64_t blockRewardDelta = 0;
+    uint64_t blockRewardDelta = 0;
     bool txFilter = this->MiningCfg_.TxNumLimit && transactions.Size() > this->MiningCfg_.TxNumLimit;
     std::vector<TxData> processedTransactions;
     bool needSortByHash = (blockTemplate.Ticker == "BCHN" || blockTemplate.Ticker == "BCHABC");
@@ -241,6 +241,8 @@ public:
     return price * this->BlockReward_ / Proto::getDifficulty(Header) * coeff;
   }
 
+  UInt<384> blockReward(size_t) final { return fromRational(BlockReward_); }
+
 public:
   // Implementation
   /// Build & serialize custom coinbase transaction
@@ -248,9 +250,9 @@ public:
     CoinbaseBuilder_.build(this->Height_, this->BlockReward_, coinbaseData, coinbaseSize, this->CoinbaseMessage_, this->MiningAddress_, miningCfg, SegwitEnabled, WitnessCommitment, legacy, witness);
   }
 
-  static CCheckStatus checkConsensusImpl(const typename Proto::BlockHeader &header, typename Proto::CheckConsensusCtx &consensusCtx) {
+  static CCheckStatus checkConsensusImpl(const typename Proto::BlockHeader &header, typename Proto::CheckConsensusCtx &consensusCtx, const UInt<256> &shareTarget) {
     typename Proto::ChainParams params;
-    return Proto::checkConsensus(header, consensusCtx, params);
+    return Proto::checkConsensus(header, consensusCtx, params, shareTarget);
   }
 
   static void buildNotifyMessageImpl(StratumWork *source, typename Proto::BlockHeader &header, uint32_t asicBoostData, CoinbaseTx &legacy, const std::vector<BaseBlob<256>> &merklePath, const CMiningConfig &cfg, bool resetPreviousWork, xmstream &notifyMessage) {
@@ -309,6 +311,8 @@ public:
   xmstream MimbleWimbleData;
   // PoW check context
   typename Proto::CheckConsensusCtx ConsensusCtx_;
+
+  uint64_t BlockReward_ = 0;
 };
 
 }

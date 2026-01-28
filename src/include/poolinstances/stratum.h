@@ -218,7 +218,7 @@ public:
       LOG_F(1, "%s: new connection from %s", Name_.c_str(), connection->AddressHr.c_str());
 
     // Initialize share difficulty
-    connection->ShareDifficulty = ConstantShareDiff_;
+    connection->setStratumDifficulty(ConstantShareDiff_);
 
     aioRead(connection->Socket, connection->Buffer, sizeof(connection->Buffer), afNone, 3000000, reinterpret_cast<aioCb*>(readCb), connection);
   }
@@ -367,6 +367,13 @@ private:
       }
     }
 
+    void setStratumDifficulty(double difficulty) {
+      StratumDifficultyFp = difficulty;
+      StratumDifficultyInt = X::Stratum::StratumMultiplier;
+      StratumDifficultyInt.mulfp(difficulty);
+      ShareTarget = X::Stratum::targetFromDifficulty(StratumDifficultyInt);
+    }
+
     bool Initialized = false;
     StratumInstance *Instance;
     // Network
@@ -385,7 +392,9 @@ private:
     // Mining info
     CWorkerConfig WorkerConfig;
     // Current share difficulty (one for all workers on connection)
-    double ShareDifficulty;
+    double StratumDifficultyFp;
+    UInt<256> StratumDifficultyInt;
+    UInt<256> ShareTarget;
     // Workers
     std::unordered_map<std::string, Worker> Workers;
     // Share statistic
@@ -434,13 +443,15 @@ private:
     if (msg.Subscribe.minerUserAgent.find("NiceHash") != std::string::npos) {
       connection->IsNiceHash = true;
       if (AlgoMetaStatistic_->coinInfo().Name == "sha256") {
-        connection->ShareDifficulty = std::max(500000.0, connection->ShareDifficulty);
+        connection->setStratumDifficulty(std::max(connection->StratumDifficultyFp, 500000.0));
       } else if (AlgoMetaStatistic_->coinInfo().Name == "scrypt") {
-        connection->ShareDifficulty = std::max(10.0, connection->ShareDifficulty);
+        connection->setStratumDifficulty(std::max(connection->StratumDifficultyFp, 655360.0));
       } else if (AlgoMetaStatistic_->coinInfo().Name == "equihash.200.9") {
-        connection->ShareDifficulty = std::max(131072.0, connection->ShareDifficulty);
+        // TODO: check nicehash x11 threshold
+        connection->setStratumDifficulty(std::max(connection->StratumDifficultyFp, 131072.0));
       } else if (AlgoMetaStatistic_->coinInfo().Name == "x11") {
-        connection->ShareDifficulty = std::max(256.0, connection->ShareDifficulty);
+        // TODO: check nicehash x11 threshold
+        connection->setStratumDifficulty(std::max(connection->StratumDifficultyFp, 256.0));
       }
     }
 
@@ -574,7 +585,7 @@ private:
                          std::string userName,
                          std::string workerName,
                          int64_t majorJobId,
-                         double stratumDifficulty,
+                         const UInt<256> &stratumDifficulty,
                          const CWorkerConfig &workerConfig,
                          CStratumMessage msg) {
     ThreadData &data = Data_[GetLocalThreadId()];
@@ -592,7 +603,8 @@ private:
     if (!work->hasRtt(backendIdx))
       return;
 
-    CCheckStatus checkStatus = work->checkConsensus(backendIdx);
+    // Check for block only, share target not need here
+    CCheckStatus checkStatus = work->checkConsensus(backendIdx, UInt<256>::zero());
     if (checkStatus.IsBlock) {
       std::string blockHash = work->blockHash(backendIdx);
       LOG_F(INFO, "%s: pending proof of work %s sending; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work->txNum(backendIdx));
@@ -601,8 +613,8 @@ private:
       xmstream blockHexData;
       work->buildBlock(backendIdx, blockHexData);
       uint64_t height = work->height(backendIdx);
-      double expectedWork = work->expectedWork(backendIdx);
-      int64_t generatedCoins = work->blockReward(backendIdx);
+      UInt<256> expectedWork = work->expectedWork(backendIdx);
+      UInt<384> generatedCoins = work->blockReward(backendIdx);
       CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
       dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(), [height, blockHash, generatedCoins, expectedWork, backend, stratumDifficulty, userName, workerName](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
@@ -699,19 +711,17 @@ private:
       blockHash = work->blockHash(i);
 
       height = work->height(i);
-      checkStatus = work->checkConsensus(i);
+      checkStatus = work->checkConsensus(i, connection->ShareTarget);
 
-      if (checkStatus.ShareDiff < connection->ShareDifficulty) {
+      if (!checkStatus.IsShare) {
         if (isDebugInstanceStratumRejects())
           LOG_F(1,
-                "%s(%s) %s/%s sub-reject(%s): invalid share difficulty %lg (%lg required)",
+                "%s(%s) %s/%s sub-reject(%s): invalid share (below target)",
                 connection->Instance->Name_.c_str(),
                 connection->AddressHr.c_str(),
                 worker.User.c_str(),
                 worker.WorkerName.c_str(),
-                backend->getCoinInfo().Name.c_str(),
-                checkStatus.ShareDiff,
-                connection->ShareDifficulty);
+                backend->getCoinInfo().Name.c_str());
         continue;
       }
 
@@ -723,9 +733,9 @@ private:
         xmstream blockHexData;
         work->buildBlock(i, blockHexData);
 
-        int64_t generatedCoins = work->blockReward(i);
-        double shareDifficulty = connection->ShareDifficulty;
-        double expectedWork = work->expectedWork(i);
+        UInt<384> generatedCoins = work->blockReward(i);
+        UInt<256> shareDifficulty = connection->StratumDifficultyInt;
+        UInt<256> expectedWork = work->expectedWork(i);
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
         dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(), [height, blockHash, generatedCoins, expectedWork, backend, shareDifficulty, worker](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
           if (success) {
@@ -761,12 +771,12 @@ private:
         backendShare->userId = worker.User;
         backendShare->workerId = worker.WorkerName;
         backendShare->height = height;
-        backendShare->WorkValue = connection->ShareDifficulty;
+        backendShare->WorkValue = connection->StratumDifficultyInt;
         backendShare->isBlock = false;
         backend->sendShare(backendShare);
 
         if (checkStatus.IsPendingBlock) {
-          if (data.WorkStorage.updatePending(i, worker.User, worker.WorkerName, checkStatus.ShareDiff, connection->ShareDifficulty, xatoi<uint64_t>(msg.Submit.JobId.c_str()), connection->WorkerConfig, msg))
+          if (data.WorkStorage.updatePending(i, worker.User, worker.WorkerName, checkStatus.Hash, connection->StratumDifficultyInt, xatoi<uint64_t>(msg.Submit.JobId.c_str()), connection->WorkerConfig, msg))
             LOG_F(INFO, "%s: new pending block %s found; hash: %s", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str());
         }
       }
@@ -781,7 +791,7 @@ private:
       backendShare->userId = worker.User;
       backendShare->workerId = worker.WorkerName;
       backendShare->height = height;
-      backendShare->WorkValue = connection->ShareDifficulty;
+      backendShare->WorkValue = connection->StratumDifficultyInt;
       backendShare->isBlock = false;
       if (AlgoMetaStatistic_)
         AlgoMetaStatistic_->sendShare(backendShare);
@@ -789,8 +799,9 @@ private:
       // Share
       // All affected coins by this share
       // Difficulty of all affected coins
+      // TEMPORARY DISABLED
       if (MiningStats_)
-        MiningStats_->onShare(checkStatus.ShareDiff, connection->ShareDifficulty, LinkedBackends_, foundBlockMask, shareHash);
+        MiningStats_->onShare(0.0, 0.0, LinkedBackends_, foundBlockMask, BaseBlob<256>::zero());
     }
 
     return shareAccepted;
@@ -900,7 +911,7 @@ private:
 
   void stratumSendTarget(Connection *connection) {
     xmstream stream;
-    X::Stratum::buildSendTargetMessage(stream, connection->ShareDifficulty);
+    X::Stratum::buildSendTargetMessage(stream, connection->StratumDifficultyFp);
     stream.write('\n');
     send(connection, stream);
   }

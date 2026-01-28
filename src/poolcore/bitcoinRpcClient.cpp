@@ -141,15 +141,15 @@ static std::string buildGetBlockTemplate(const std::string &longPollId, bool seg
   return std::string(stream.data<char>(), stream.sizeOf());
 }
 
-std::string CBitcoinRpcClient::buildSendToAddress(const std::string &destination, int64_t amount)
+std::string CBitcoinRpcClient::buildSendToAddress(const std::string &destination, const UInt<384> &amount)
 {
   std::string result = "{";
-  std::string amountFormatted = FormatMoney(amount, CoinInfo_.RationalPartSize);
+  std::string amountFormatted = FormatMoney(amount, CoinInfo_.FractionalPartSize);
 
   result.append(R"_("method": "sendtoaddress", )_");
   result.append(R"_("params": [)_");
     result.push_back('\"'); result.append(destination); result.append("\",");
-    result.append(FormatMoney(amount, CoinInfo_.RationalPartSize));
+    result.append(FormatMoney(amount, CoinInfo_.FractionalPartSize));
   result.append("]}");
   return result;
 }
@@ -321,8 +321,8 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
       jsonParseString(value, "balance", balance, true, &errorAcc);
       jsonParseString(value, "immature_balance", immatureBalance, true, &errorAcc);
       if (errorAcc &&
-          parseMoneyValue(balance.c_str(), CoinInfo_.RationalPartSize, &result.Balance) &&
-          parseMoneyValue(immatureBalance.c_str(), CoinInfo_.RationalPartSize, &result.Immatured)) {
+          parseMoneyValue(balance.c_str(), CoinInfo_.FractionalPartSize, &result.Balance) &&
+          parseMoneyValue(immatureBalance.c_str(), CoinInfo_.FractionalPartSize, &result.Immatured)) {
         return true;
       } else {
         LOG_F(WARNING, "%s %s: getwalletinfo invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
@@ -348,13 +348,13 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
         ioQueryJson<rapidjson::kParseNumbersAsStringsFlag>(*connection, BalanceQueryWithImmatured_, fullBalanceValue, 10000000) == EStatusOk) {
       std::string balanceS;
       std::string balanceFullS;
-      int64_t balanceFull;
+      UInt<384> balanceFull;
       bool errorAcc = true;
       jsonParseString(balanceValue, "result", balanceS, true, &errorAcc);
       jsonParseString(fullBalanceValue, "result", balanceFullS, true, &errorAcc);
       if (errorAcc &&
-          parseMoneyValue(balanceS.c_str(), CoinInfo_.RationalPartSize, &result.Balance) &&
-          parseMoneyValue(balanceFullS.c_str(), CoinInfo_.RationalPartSize, &balanceFull)) {
+          parseMoneyValue(balanceS.c_str(), CoinInfo_.FractionalPartSize, &result.Balance) &&
+          parseMoneyValue(balanceFullS.c_str(), CoinInfo_.FractionalPartSize, &balanceFull)) {
         result.Immatured = balanceFull - result.Balance;
         return true;
       } else {
@@ -438,7 +438,7 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphanA
   return true;
 }
 
-CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result)
+CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, BuildTransactionResult &result)
 {
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
@@ -454,7 +454,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
   result.Value = value;
   xmstream postData;
 
-  while (result.Value) {
+  while (result.Value.nonZero()) {
     postData.reset();
     {
       JSON::Object object(postData);
@@ -470,7 +470,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
         params.addField();
         {
           JSON::Object mainOutput(postData);
-          mainOutput.addCustom(address.c_str(), FormatMoney(result.Value, CoinInfo_.RationalPartSize));
+          mainOutput.addCustom(address.c_str(), FormatMoney(result.Value, CoinInfo_.FractionalPartSize));
         }
       }
     }
@@ -524,20 +524,20 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
         return CNetworkClient::EStatusProtocolError;
 
       fundedTransaction = fundTxResult["hex"].GetString();
-      if (!parseMoneyValue(fundTxResult["fee"].GetString(), CoinInfo_.RationalPartSize, &result.Fee))
+      if (!parseMoneyValue(fundTxResult["fee"].GetString(), CoinInfo_.FractionalPartSize, &result.Fee))
         return CNetworkClient::EStatusProtocolError;
     }
 
     if (result.Value + result.Fee > value) {
+      if (result.Value <= result.Fee) {
+        result.Error = "too big fee";
+        return CNetworkClient::EStatusUnknownError;
+      }
+
       result.Value -= result.Fee;
     } else {
       break;
     }
-  }
-
-  if (result.Value <= 0) {
-    result.Error = "too big fee";
-    return CNetworkClient::EStatusUnknownError;
   }
 
   // signrawtransaction
@@ -622,10 +622,10 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioSendTransaction(asyncBase 
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CBitcoinRpcClient::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error)
+CNetworkClient::EOperationStatus CBitcoinRpcClient::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error)
 {
   // Not used here
-  *txFee = 0;
+  *txFee = 0u;
 
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
@@ -736,7 +736,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioListUnspent(asyncBase *bas
 
     ListUnspentElement &element = result.Outs.emplace_back();
     element.Address = output["address"].GetString();
-    if (!parseMoneyValue(output["amount"].GetString(), CoinInfo_.RationalPartSize, &element.Amount))
+    if (!parseMoneyValue(output["amount"].GetString(), CoinInfo_.FractionalPartSize, &element.Amount))
       return CNetworkClient::EStatusProtocolError;
     element.IsCoinbase = output["generated"].GetBool();
   }
@@ -744,7 +744,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioListUnspent(asyncBase *bas
   return CNetworkClient::EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result)
+CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, const UInt<384> &amount, const std::string &memo, uint64_t minConf, const UInt<384> &fee, CNetworkClient::ZSendMoneyResult &result)
 {
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
@@ -767,13 +767,13 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZSendMany(asyncBase *base,
         {
           JSON::Object singleDstArg(postData);
           singleDstArg.addString("address", destination);
-          singleDstArg.addCustom("amount", FormatMoney(amount, CoinInfo_.RationalPartSize));
+          singleDstArg.addCustom("amount", FormatMoney(amount, CoinInfo_.FractionalPartSize));
           if (!memo.empty())
             singleDstArg.addString("memo", memo);
         }
       }
       params.addInt(minConf);
-      params.addCustom(FormatMoney(fee, CoinInfo_.RationalPartSize));
+      params.addCustom(FormatMoney(fee, CoinInfo_.FractionalPartSize));
     }
   }
 
@@ -800,7 +800,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZSendMany(asyncBase *base,
   }
 }
 
-CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZGetBalance(asyncBase *base, const std::string &address, int64_t *balance)
+CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance)
 {
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
@@ -826,7 +826,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZGetBalance(asyncBase *bas
 
   if (!document.HasMember("result") || !document["result"].IsString())
     return CNetworkClient::EStatusProtocolError;
-  if (!parseMoneyValue(document["result"].GetString(), CoinInfo_.RationalPartSize, balance))
+  if (!parseMoneyValue(document["result"].GetString(), CoinInfo_.FractionalPartSize, balance))
     return CNetworkClient::EStatusProtocolError;
   return CNetworkClient::EStatusOk;
 }
@@ -843,7 +843,6 @@ void CBitcoinRpcClient::poll()
   WorkFetcher_.Client = httpClientNew(WorkFetcherBase_, object);
   WorkFetcher_.LongPollId = HasLongPoll_ ? "0000000000000000000000000000000000000000000000000000000000000000" : "";
   WorkFetcher_.WorkId = 0;
-  WorkFetcher_.LastTemplateTime = std::chrono::time_point<std::chrono::steady_clock>::min();
   dynamicBufferClear(&WorkFetcher_.ParseCtx.buffer);
 
   aioHttpConnect(WorkFetcher_.Client, &Address_, nullptr, 3000000, [](AsyncOpStatus status, HTTPClient*, void *arg){
@@ -897,8 +896,6 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     return;
   }
 
-  auto now = std::chrono::steady_clock::now();
-
   int64_t height = 0;
   std::string prevBlockHash;
   std::string bits;
@@ -924,7 +921,6 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 
   // Get unique work id
   uint64_t workId = blockTemplate->UniqueWorkId = readHexBE<uint64_t>(prevBlockHash.c_str(), 16);
-
   UInt<256> powLimit = CoinInfo_.PowLimit;
   UInt<256> target = uint256Compact(strtoul(bits.c_str(), nullptr, 16));
   powLimit /= target;
@@ -933,22 +929,11 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   blockTemplate->Difficulty = difficulty;
 
   // Check new work available
-  if (!WorkFetcher_.LongPollId.empty()) {
-    // With long polling enabled now we check time since last response
-    uint64_t timeInterval = std::chrono::duration_cast<std::chrono::seconds>(now - WorkFetcher_.LastTemplateTime).count();
-    if (timeInterval) {
-      LOG_F(INFO, "%s: new work available; previous block: %s; height: %u; difficulty: %lf", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height), difficulty);
-      Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
-    }
-  } else {
-    // Without long polling we send new task to miner on new block found
-    if (WorkFetcher_.WorkId != workId) {
-      LOG_F(INFO, "%s: new work available; previous block: %s; height: %u; difficulty: %lf", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height), difficulty);
-      Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
-    }
+  if (WorkFetcher_.WorkId != workId) {
+    LOG_F(INFO, "%s: new work available; previous block: %s; height: %u; difficulty: %lf", CoinInfo_.Name.c_str(), prevBlockHash.c_str(), static_cast<unsigned>(height), difficulty);
+    Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
   }
 
-  WorkFetcher_.LastTemplateTime = now;
   WorkFetcher_.WorkId = workId;
 
   // Send next request

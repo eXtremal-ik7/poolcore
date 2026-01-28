@@ -17,13 +17,13 @@ public:
   virtual CPreparedQuery *prepareBlock(const void *data, size_t size) override;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
   virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &query) override;
-  virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const int64_t value, BuildTransactionResult &result) override;
+  virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, BuildTransactionResult &result) override;
   virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string&, std::string &error) override;
-  virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, int64_t *txFee, std::string &error) override;
+  virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error) override;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation) override;
   virtual EOperationStatus ioListUnspent(asyncBase *base, ListUnspentResult &result) override;
-  virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, int64_t amount, const std::string &memo, uint64_t minConf, int64_t fee, CNetworkClient::ZSendMoneyResult &result) override;
-  virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, int64_t *balance) override;
+  virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, const UInt<384> &amount, const std::string &memo, uint64_t minConf, const UInt<384> &fee, CNetworkClient::ZSendMoneyResult &result) override;
+  virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance) override;
   virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) override;
 
   virtual bool ioGetBlockExtraInfo(asyncBase*, int64_t, std::vector<GetBlockExtraInfoQuery>&) override {
@@ -37,7 +37,6 @@ private:
     HTTPParseDefaultContext ParseCtx;
     std::string LongPollId;
     uint64_t WorkId;
-    std::chrono::time_point<std::chrono::steady_clock> LastTemplateTime;
     aioUserEvent *TimerEvent;
   };
 
@@ -71,7 +70,7 @@ private:
 
 
 private:
-  std::string buildSendToAddress(const std::string &destination, int64_t amount);
+  std::string buildSendToAddress(const std::string &destination, const UInt<384> &amount);
   std::string buildGetTransaction(const std::string &txId);
   EOperationStatus signRawTransaction(CConnection *connection, const std::string &fundedTransaction, std::string &signedTransaction, std::string &error);
 

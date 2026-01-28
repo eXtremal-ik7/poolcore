@@ -67,7 +67,7 @@ public:
       info.Name = "ARRR";
       info.FullName = "Pirate Chain";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -85,7 +85,7 @@ public:
       info.Name = "ARRR.testnet";
       info.FullName = "Pirate Chain";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -102,7 +102,7 @@ public:
       info.Name = "ARRR.regtest";
       info.FullName = "Pirate Chain";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -119,7 +119,7 @@ public:
       info.Name = "BTC";
       info.FullName = "Bitcoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -136,7 +136,7 @@ public:
       info.Name = "BTC.testnet";
       info.FullName = "Bitcoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -151,7 +151,7 @@ public:
       info.Name = "BTC.regtest";
       info.FullName = "Bitcoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -166,7 +166,7 @@ public:
       info.Name = "BCHN";
       info.FullName = "Bitcoin Cash Node";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EBCH);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -181,7 +181,7 @@ public:
       info.Name = "BELLS";
       info.FullName = "Bellscoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -200,7 +200,7 @@ public:
       info.Name = "BELLS.testnet";
       info.FullName = "Bellscoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -217,7 +217,7 @@ public:
       info.Name = "BELLS.regtest";
       info.FullName = "Bellscoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -234,7 +234,7 @@ public:
       info.Name = "BSV";
       info.FullName = "Bitcoin SV";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EBCH);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -249,7 +249,7 @@ public:
       info.Name = "BSV.testnet";
       info.FullName = "Bitcoin SV";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EBCH);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -263,7 +263,7 @@ public:
       info.Name = "DASH";
       info.FullName = "Dash";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -280,7 +280,7 @@ public:
       info.Name = "DGB.sha256";
       info.FullName = "Digibyte(sha256)";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -298,7 +298,7 @@ public:
       info.Name = "DGB.sha256.testnet";
       info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -314,7 +314,7 @@ public:
       info.Name = "DGB.scrypt";
       info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -332,7 +332,7 @@ public:
       info.Name = "DGB.scrypt.testnet";
       info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -348,7 +348,7 @@ public:
       info.Name = "DGB.qubit";
       info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -366,7 +366,7 @@ public:
       info.Name = "DGB.qubit.testnet";
       info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -382,7 +382,7 @@ public:
       info.Name = "DGB.skein";
       info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -400,7 +400,7 @@ public:
       info.Name = "DGB.skein.testnet";
       info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -416,7 +416,7 @@ public:
       info.Name = "DGB.odo";
       info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -434,7 +434,7 @@ public:
       info.Name = "DGB.odo.testnet";
       info.FullName = "Digibyte";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -450,7 +450,7 @@ public:
       info.Name = "DINGO";
       info.FullName = "Dingocoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -469,7 +469,7 @@ public:
       info.Name = "DINGO.testnet";
       info.FullName = "Dingocoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -486,7 +486,7 @@ public:
       info.Name = "DOGE";
       info.FullName = "Dogecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -504,7 +504,7 @@ public:
       info.Name = "DOGE.testnet";
       info.FullName = "Dogecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -520,7 +520,7 @@ public:
       info.Name = "DOGE.regtest";
       info.FullName = "Dogecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -536,7 +536,7 @@ public:
       info.Name = "DTC";
       info.FullName = "Datacoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = -3;
@@ -551,7 +551,7 @@ public:
       info.Name = "DTC";
       info.FullName = "Datacoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = -3;
@@ -566,8 +566,7 @@ public:
       info.Name = "ETC";
       info.FullName = "Ethereum Classic";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EEth);
-      info.RationalPartSize = 1000000000;
-      info.ExtraMultiplier = 1;
+      info.FractionalPartSize = 18;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
       info.DefaultRpcPort = 8545;
@@ -582,7 +581,7 @@ public:
       info.Name = "FCH";
       info.FullName = "FreeCash";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -598,7 +597,7 @@ public:
       info.Name = "FB";
       info.FullName = "Fractal Bitcoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -615,7 +614,7 @@ public:
       info.Name = "HOOT";
       info.FullName = "Hootchain";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -632,7 +631,7 @@ public:
       info.Name = "JKC";
       info.FullName = "Junkcoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -651,7 +650,7 @@ public:
       info.Name = "JKC.testnet";
       info.FullName = "Junkcoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -668,7 +667,7 @@ public:
       info.Name = "KMD";
       info.FullName = "Komodo";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -686,7 +685,7 @@ public:
       info.Name = "KMD.testnet";
       info.FullName = "Komodo";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -703,7 +702,7 @@ public:
       info.Name = "KMD.regtest";
       info.FullName = "Komodo";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -720,7 +719,7 @@ public:
       info.Name = "LCC";
       info.FullName = "LitecoinCash";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -736,7 +735,7 @@ public:
       info.Name = "LKY";
       info.FullName = "Luckycoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -755,7 +754,7 @@ public:
       info.Name = "LKY.testnet";
       info.FullName = "Luckycoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -772,7 +771,7 @@ public:
       info.Name = "LTC";
       info.FullName = "Litecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.MWebEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
@@ -791,7 +790,7 @@ public:
       info.Name = "LTC.testnet";
       info.FullName = "Litecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.MWebEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
@@ -808,7 +807,7 @@ public:
       info.Name = "LTC.regtest";
       info.FullName = "Litecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.MWebEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
@@ -825,7 +824,7 @@ public:
       info.Name = "MAXI";
       info.FullName = "Maximus";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -842,7 +841,7 @@ public:
       info.Name = "OSMI";
       info.FullName = "Osmium";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -859,7 +858,7 @@ public:
       info.Name = "PEP";
       info.FullName = "Pepecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -878,7 +877,7 @@ public:
       info.Name = "PEP.testnet";
       info.FullName = "Pepecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
@@ -895,7 +894,7 @@ public:
       info.Name = "SPACE";
       info.FullName = "MVC";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -909,7 +908,7 @@ public:
       info.Name = "XEC";
       info.FullName = "eCash";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EECash);
-      info.RationalPartSize = 100;
+      info.FractionalPartSize = 2;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -925,7 +924,7 @@ public:
       info.FullName = "eCash testnet";
       info.Name = "XEC.testnet";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EECash);
-      info.RationalPartSize = 100;
+      info.FractionalPartSize = 2;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
@@ -940,7 +939,7 @@ public:
       info.Name = "XPM";
       info.FullName = "Primecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = -3;
@@ -955,7 +954,7 @@ public:
       info.Name = "XPM.testnet";
       info.FullName = "Primecoin";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = -3;
@@ -968,7 +967,7 @@ public:
       info.Name = "ZEC";
       info.FullName = "ZCash";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -986,7 +985,7 @@ public:
       info.Name = "ZEC.testnet";
       info.FullName = "ZCash";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -1003,7 +1002,7 @@ public:
       info.Name = "ZEC.regtest";
       info.FullName = "ZCash";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -1020,7 +1019,7 @@ public:
       info.Name = "ZEN";
       info.FullName = "Horizen";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -1038,7 +1037,7 @@ public:
       info.Name = "ZEN.testnet";
       info.FullName = "Horizen";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;
@@ -1055,7 +1054,7 @@ public:
       info.Name = "ZEN.regtest";
       info.FullName = "Horizen";
       info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
-      info.RationalPartSize = 100000000;
+      info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 0;

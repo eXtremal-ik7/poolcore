@@ -3,7 +3,6 @@
 #include "poolcommon/mergeSorted.h"
 #include "poolcommon/path.h"
 #include "poolcommon/utils.h"
-#include "poolcore/base58.h"
 #include "poolcore/priceFetcher.h"
 #include "poolcore/statistics.h"
 #include "loguru.hpp"
@@ -12,7 +11,7 @@
 #include "poolcommon/debug.h"
 #include <math.h>
 
-#define ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE   10000
+static const UInt<384> ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE = fromRational(10000u);
 
 struct CSharesWorkWithTimeOld {
   int64_t TimeLabel;
@@ -57,7 +56,7 @@ void AccountingDb::printRecentStatistic()
     for (const auto &stat: user.Recent) {
       if (!firstIter)
         line.append(", ");
-      line.append(std::to_string(stat.SharesWork));
+      line.append(stat.SharesWork.getDecimal());
       firstIter = false;
     }
 
@@ -90,7 +89,7 @@ bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
   stream.seekSet(0);
   CAccountingFileData fileData;
 
-  if (file.IsOldFormat) {
+  if (file.Version == 1) {
     // Unserialize, we need read:
     //   * LastShareId (file.LastShareId)
     //   * LastBlockTime
@@ -106,7 +105,8 @@ bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
         fileData.Recent[i].UserId = std::move(recentStatsOld[i].UserId);
         fileData.Recent[i].Recent.resize(recentStatsOld[i].Recent.size());
         for (size_t j = 0; j < recentStatsOld[i].Recent.size(); j++) {
-          fileData.Recent[i].Recent[j].SharesWork = recentStatsOld[i].Recent[j].SharesWork;
+          fileData.Recent[i].Recent[j].SharesWork.fromDouble(CoinInfo_.WorkMultiplier);
+          fileData.Recent[i].Recent[j].SharesWork.mulfp(recentStatsOld[i].Recent[j].SharesWork);
           fileData.Recent[i].Recent[j].TimeLabel = recentStatsOld[i].Recent[j].TimeLabel;
         }
       }
@@ -120,10 +120,38 @@ bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
         double score;
         DbIo<std::string>::unserialize(stream, userId);
         DbIo<double>::unserialize(stream, score);
-        fileData.CurrentScores[userId] = score;
+        fileData.CurrentScores[userId] = UInt<256>::fromDouble(CoinInfo_.WorkMultiplier);
+        fileData.CurrentScores[userId].mulfp(score);
       }
     }
+  } else if (file.Version == 2) {
+    // Previous format with double SharesWork and double CurrentScores
+    CAccountingFileDataOld2 oldData;
+    DbIo<CAccountingFileDataOld2>::unserialize(stream, oldData);
+
+    // Convert to new format
+    fileData.LastShareId = oldData.LastShareId;
+    fileData.LastBlockTime = oldData.LastBlockTime;
+
+    // Convert Recent: CStatsExportDataOld2 -> CStatsExportData
+    fileData.Recent.resize(oldData.Recent.size());
+    for (size_t i = 0; i < oldData.Recent.size(); i++) {
+      fileData.Recent[i].UserId = std::move(oldData.Recent[i].UserId);
+      fileData.Recent[i].Recent.resize(oldData.Recent[i].Recent.size());
+      for (size_t j = 0; j < oldData.Recent[i].Recent.size(); j++) {
+        fileData.Recent[i].Recent[j].SharesWork = UInt<256>::fromDouble(CoinInfo_.WorkMultiplier);
+        fileData.Recent[i].Recent[j].SharesWork.mulfp(oldData.Recent[i].Recent[j].SharesWork);
+        fileData.Recent[i].Recent[j].TimeLabel = oldData.Recent[i].Recent[j].TimeLabel;
+      }
+    }
+
+    // Convert CurrentScores: double -> UInt<256>
+    for (const auto &score : oldData.CurrentScores) {
+      fileData.CurrentScores[score.first] = UInt<256>::fromDouble(CoinInfo_.WorkMultiplier);
+      fileData.CurrentScores[score.first].mulfp(score.second);
+    }
   } else {
+    // Version 3: current format
     DbIo<CAccountingFileData>::unserialize(stream, fileData);
   }
 
@@ -147,7 +175,7 @@ bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
 void AccountingDb::flushAccountingStorageFile(int64_t timeLabel)
 {
   CAccountingFile &file = AccountingDiskStorage_.emplace_back();
-  file.Path = _cfg.dbPath / "accounting.storage.2" / (std::to_string(timeLabel) + ".dat");
+  file.Path = _cfg.dbPath / CurrentAccountingStoragePath / (std::to_string(timeLabel) + ".dat");
   file.LastShareId = LastKnownShareId_;
   file.TimeLabel = timeLabel;
 
@@ -193,12 +221,12 @@ AccountingDb::AccountingDb(asyncBase *base,
   ClientDispatcher_(clientDispatcher),
   StatisticDb_(statisticDb),
   PriceFetcher_(priceFetcher),
-  _roundsDb(config.dbPath / "rounds.v2"),
-  _balanceDb(config.dbPath / "balance"),
-  _foundBlocksDb(config.dbPath / "foundBlocks"),
-  _poolBalanceDb(config.dbPath / "poolBalance"),
-  _payoutDb(config.dbPath / "payouts"),
-  PPLNSPayoutsDb(config.dbPath / "pplns.payouts"),
+  _roundsDb(config.dbPath / "rounds.3"),
+  _balanceDb(config.dbPath / "balance.2"),
+  _foundBlocksDb(config.dbPath / "foundBlocks.2"),
+  _poolBalanceDb(config.dbPath / "poolBalance.2"),
+  _payoutDb(config.dbPath / "payouts.2"),
+  PPLNSPayoutsDb(config.dbPath / "pplns.payouts.2"),
   TaskHandler_(this, base)
 {
   FlushTimerEvent_ = newUserEvent(base, 1, nullptr, nullptr);
@@ -208,10 +236,11 @@ AccountingDb::AccountingDb(asyncBase *base,
   FlushInfo_.ShareId = 0;
 
   {
-    // TEMPORARY
-    enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / "accounting.storage", true);
+    // TODO: remove this code after full migration
+    enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / "accounting.storage", 1, false);
+    enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / "accounting.storage.2", 2, false);
   }
-  enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / "accounting.storage.2", false);
+  enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / CurrentAccountingStoragePath, 3, true);
 
   while (!AccountingDiskStorage_.empty()) {
     auto &file = AccountingDiskStorage_.back();
@@ -228,9 +257,9 @@ AccountingDb::AccountingDb(asyncBase *base,
 
   {
     unsigned payoutsNum = 0;
-    _payoutsFd.open(_cfg.dbPath / "payouts.raw");
+    _payoutsFd.open(_cfg.dbPath / "payouts.raw.2");
     if (!_payoutsFd.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", path_to_utf8(_cfg.dbPath / "payouts.raw").c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open payouts file %s (%s)", path_to_utf8(_cfg.dbPath / "payouts.raw.2").c_str(), strerror(errno));
 
     auto fileSize = _payoutsFd.size();
     if (fileSize > 0) {
@@ -248,7 +277,7 @@ AccountingDb::AccountingDb(asyncBase *base,
       }
     }
 
-    LOG_F(INFO, "loaded %u payouts from payouts.raw file", payoutsNum);
+    LOG_F(INFO, "loaded %u payouts from payouts.raw.2 file", payoutsNum);
     if (payoutsNum != _payoutQueue.size())
       updatePayoutFile();
   }
@@ -286,10 +315,14 @@ AccountingDb::AccountingDb(asyncBase *base,
   }
 }
 
-void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory, bool isOldFormat)
+void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory, unsigned version, bool createIfNotExists)
 {
   std::error_code errc;
-  std::filesystem::create_directories(directory, errc);
+  if (createIfNotExists) {
+    std::filesystem::create_directories(directory, errc);
+  } else if (!std::filesystem::exists(directory)) {
+    return;
+  }
   for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
     std::string fileName = I->path().filename();
     auto dotDatPos = fileName.find(".dat");
@@ -303,7 +336,7 @@ void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const
     cache.emplace_back();
     cache.back().Path = *I;
     cache.back().TimeLabel = xatoi<uint64_t>(fileName.c_str());
-    cache.back().IsOldFormat = isOldFormat;
+    cache.back().Version = version;
   }
 
   std::sort(cache.begin(), cache.end(), [](const CAccountingFile &l, const CAccountingFile &r){ return l.TimeLabel < r.TimeLabel; });
@@ -365,21 +398,24 @@ bool AccountingDb::hasUnknownReward()
   return CoinInfo_.HasDagFile;
 }
 
-void AccountingDb::calculatePayments(MiningRound *R, int64_t generatedCoins)
+void AccountingDb::calculatePayments(MiningRound *R, const UInt<384> &generatedCoins)
 {
-  int64_t rationalPartSize = CoinInfo_.RationalPartSize * CoinInfo_.ExtraMultiplier;
-
   R->AvailableCoins = generatedCoins;
   R->Payouts.clear();
 
-  int64_t totalPayout = 0;
+  if (R->TotalShareValue.isZero()) {
+    LOG_F(ERROR, "Block found but TotalShareValue is zero, skipping payouts");
+    return;
+  }
+
+  UInt<384> totalPayout = UInt<384>::zero();
   std::vector<CUserPayout> payouts;
-  std::map<std::string, int64_t> feePayouts;
+  std::map<std::string, UInt<384>> feePayouts;
   std::unordered_map<std::string, UserManager::UserFeeConfig> feePlans;
+  UInt<384> minShareCost = R->AvailableCoins / R->TotalShareValue;
   for (const auto &record: R->UserShares) {
     // Calculate payout
-    int64_t payoutValue = static_cast<int64_t>(R->AvailableCoins * (record.ShareValue / R->TotalShareValue));
-
+    UInt<384> payoutValue = minShareCost * record.ShareValue;
     totalPayout += payoutValue;
 
     // get fee plan for user
@@ -390,10 +426,11 @@ void AccountingDb::calculatePayments(MiningRound *R, int64_t generatedCoins)
 
     UserManager::UserFeeConfig &feeRecord = It->second;
 
-    int64_t feeValuesSum = 0;
-    std::vector<int64_t> feeValues;
+    UInt<384> feeValuesSum = UInt<384>::zero();
+    std::vector<UInt<384>> feeValues;
     for (const auto &poolFeeRecord: feeRecord) {
-      int64_t value = static_cast<int64_t>(payoutValue * (poolFeeRecord.Percentage / 100.0));
+      UInt<384> value = payoutValue;
+        value.mulfp(poolFeeRecord.Percentage / 100.0);
       feeValues.push_back(value);
       feeValuesSum += value;
     }
@@ -403,55 +440,67 @@ void AccountingDb::calculatePayments(MiningRound *R, int64_t generatedCoins)
       for (size_t i = 0, ie = feeRecord.size(); i != ie; ++i) {
         debugString.append(feeRecord[i].UserId);
         debugString.push_back('(');
-        debugString.append(FormatMoney(feeValues[i], rationalPartSize));
+        debugString.append(FormatMoney(feeValues[i], CoinInfo_.FractionalPartSize));
         debugString.append(") ");
         feePayouts[feeRecord[i].UserId] += feeValues[i];
       }
 
       payoutValue -= feeValuesSum;
     } else {
-      feeValuesSum = 0;
+      feeValuesSum = UInt<384>::zero();
       feeValues.clear();
       debugString = "NONE";
       LOG_F(ERROR, "   * user %s: fee over 100%% can't be applied", record.UserId.c_str());
     }
 
     payouts.emplace_back(record.UserId, payoutValue, payoutValue, record.IncomingWork);
-    LOG_F(INFO, " * %s %s -> %sremaining %s", record.UserId.c_str(), FormatMoney(payoutValue+feeValuesSum, rationalPartSize).c_str(), debugString.c_str(), FormatMoney(payoutValue, rationalPartSize).c_str());
+    LOG_F(INFO, " * %s %s -> %sremaining %s", record.UserId.c_str(), FormatMoney(payoutValue+feeValuesSum, CoinInfo_.FractionalPartSize).c_str(), debugString.c_str(), FormatMoney(payoutValue, CoinInfo_.FractionalPartSize).c_str());
   }
 
   mergeSorted(payouts.begin(), payouts.end(), feePayouts.begin(), feePayouts.end(),
-    [](const CUserPayout &l, const std::pair<std::string, int64_t> &r) { return l.UserId < r.first; },
-    [](const std::pair<std::string, int64_t> &l, const CUserPayout &r) { return l.first < r.UserId; },
+    [](const CUserPayout &l, const std::pair<std::string, UInt<384>> &r) { return l.UserId < r.first; },
+    [](const std::pair<std::string, UInt<384>> &l, const CUserPayout &r) { return l.first < r.UserId; },
     [R](const CUserPayout &record) {
-      if (record.Value)
+      if (!record.Value.isZero())
         R->Payouts.emplace_back(record);
-    }, [R](const std::pair<std::string, int64_t> &fee) {
-      if (fee.second)
-        R->Payouts.emplace_back(fee.first, fee.second, 0, 0.0);
-    }, [R](const CUserPayout &record, const std::pair<std::string, int64_t> &fee) {
-      if (record.Value + fee.second)
+    }, [R](const std::pair<std::string, UInt<384>> &fee) {
+      if (!fee.second.isZero())
+        R->Payouts.emplace_back(fee.first, fee.second, UInt<384>::zero(), UInt<256>::zero());
+    }, [R](const CUserPayout &record, const std::pair<std::string, UInt<384>> &fee) {
+    if (!(record.Value + fee.second).isZero())
         R->Payouts.emplace_back(record.UserId, record.Value + fee.second, record.Value, record.AcceptedWork);
     });
 
   // Correct payouts for use all available coins
   if (!R->Payouts.empty()) {
-    int64_t diff = totalPayout - generatedCoins;
-    int64_t div = diff / (int64_t)R->Payouts.size();
-    int64_t mv = diff >= 0 ? 1 : -1;
-    int64_t mod = (diff > 0 ? diff : -diff) % R->Payouts.size();
+    UInt<384> diff;
+    UInt<384> div;
+    bool needSubtract = totalPayout > generatedCoins;
 
-    totalPayout = 0;
-    int64_t i = 0;
+    if (needSubtract) {
+      diff = totalPayout - generatedCoins;
+    } else {
+      diff = generatedCoins - totalPayout;
+    }
+    uint64_t mod = diff.divmod64(R->Payouts.size(), &div);
+
+    totalPayout = UInt<384>();
+    uint64_t i = 0;
     for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I, ++i) {
-      I->Value -= div;
-      if (i < mod)
-        I->Value -= mv;
+      if (needSubtract) {
+        I->Value -= div;
+        if (i < mod)
+          I->Value -= 1u;
+      } else {
+        I->Value += div;
+        if (i < mod)
+          I->Value += 1u;
+      }
       totalPayout += I->Value;
-      LOG_F(INFO, "   * %s: payout: %s", I->UserId.c_str(), FormatMoney(I->Value, rationalPartSize).c_str());
+      LOG_F(INFO, "   * %s: payout: %s", I->UserId.c_str(), FormatMoney(I->Value, CoinInfo_.FractionalPartSize).c_str());
     }
 
-    LOG_F(INFO, " * total payout (after correct): %s", FormatMoney(totalPayout, rationalPartSize).c_str());
+    LOG_F(INFO, " * total payout (after correct): %s", FormatMoney(totalPayout, CoinInfo_.FractionalPartSize).c_str());
   }
 }
 
@@ -462,7 +511,7 @@ void AccountingDb::addShare(const CShare &share)
   LastKnownShareId_ = share.UniqueShareId;
 
   if (share.isBlock) {
-    double accumulatedWork = 0.0;
+    UInt<256> accumulatedWork = UInt<256>::zero();
     for (const auto &score: CurrentScores_)
       accumulatedWork += score.second;
 
@@ -483,9 +532,7 @@ void AccountingDb::addShare(const CShare &share)
 
     MiningRound *R = new MiningRound;
 
-    int64_t rationalPartSize = CoinInfo_.RationalPartSize * CoinInfo_.ExtraMultiplier;
-    int64_t generatedCoins = share.generatedCoins * CoinInfo_.ExtraMultiplier;
-    LOG_F(INFO, " * block height: %u, hash: %s, value: %s", (unsigned)share.height, share.hash.c_str(), FormatMoney(generatedCoins, rationalPartSize).c_str());
+    LOG_F(INFO, " * block height: %u, hash: %s, value: %s", (unsigned)share.height, share.hash.c_str(), FormatMoney(share.generatedCoins, CoinInfo_.FractionalPartSize).c_str());
 
     R->Height = share.height;
     R->BlockHash = share.hash.c_str();
@@ -493,7 +540,7 @@ void AccountingDb::addShare(const CShare &share)
     R->FoundBy = share.userId;
     R->ExpectedWork = share.ExpectedWork;
     R->AccumulatedWork = accumulatedWork;
-    R->TotalShareValue = 0;
+    R->TotalShareValue = UInt<256>::zero();
     R->PrimePOWTarget = share.PrimePOWTarget;
 
     if (!_allRounds.empty())
@@ -505,18 +552,18 @@ void AccountingDb::addShare(const CShare &share)
     {
       int64_t acceptSharesTime = share.Time - 1800;
       mergeSorted(RecentStats_.begin(), RecentStats_.end(), CurrentScores_.begin(), CurrentScores_.end(),
-        [](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, double> &scores) { return stats.UserId < scores.first; },
-        [](const std::pair<std::string, double> &scores, const StatisticDb::CStatsExportData &stats) { return scores.first < stats.UserId; },
+        [](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) { return stats.UserId < scores.first; },
+        [](const std::pair<std::string, UInt<256>> &scores, const StatisticDb::CStatsExportData &stats) { return scores.first < stats.UserId; },
         [&](const StatisticDb::CStatsExportData &stats) {
           // User disconnected recently, no new shares
-          double shareValue = stats.recentShareValue(acceptSharesTime);
-          if (shareValue != 0.0) {
-            R->UserShares.emplace_back(stats.UserId, shareValue, 0.0);
+          UInt<256> shareValue = stats.recentShareValue(acceptSharesTime);
+          if (shareValue.nonZero()) {
+            R->UserShares.emplace_back(stats.UserId, shareValue, UInt<256>::zero());
           }
-        }, [&](const std::pair<std::string, double> &scores) {
+        }, [&](const std::pair<std::string, UInt<256>> &scores) {
           // User joined recently, no extra shares in statistic
           R->UserShares.emplace_back(scores.first, scores.second, scores.second);
-        }, [&](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, double> &scores) {
+        }, [&](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) {
           // Need merge new shares and recent share statistics
           R->UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime), scores.second);
         });
@@ -530,7 +577,7 @@ void AccountingDb::addShare(const CShare &share)
 
     // Calculate payments
     if (!hasUnknownReward())
-      calculatePayments(R, generatedCoins);
+      calculatePayments(R, share.generatedCoins);
 
     // store round to DB and clear shares map
     _allRounds.emplace_back(R);
@@ -577,7 +624,7 @@ void AccountingDb::initializationFinish(int64_t timeLabel)
   if (!CurrentScores_.empty()) {
     LOG_F(INFO, "[%s] current scores:", CoinInfo_.Name.c_str());
     for (const auto &It: CurrentScores_) {
-      LOG_F(INFO, " * %s: %.3lf", It.first.c_str(), It.second);
+      LOG_F(INFO, " * %s: %s", It.first.c_str(), It.second.getDecimal().c_str());
     }
   } else {
     LOG_F(INFO, "[%s] current scores is empty", CoinInfo_.Name.c_str());
@@ -623,8 +670,10 @@ void AccountingDb::checkBlockConfirmations()
 
         // update payout table
         if (R->StartTime != 0) {
-          FixedPointInteger payoutValue(I->Value);
-          FixedPointInteger payoutValueWithoutFee(I->ValueWithoutFee);
+          UInt<384> payoutValue = I->Value;
+          UInt<384> payoutValueWithoutFee = I->ValueWithoutFee;
+          // FixedPointInteger payoutValue(I->Value);
+          // FixedPointInteger payoutValueWithoutFee(I->ValueWithoutFee);
 
           CPPLNSPayout record;
           record.Login = I->UserId;
@@ -632,8 +681,8 @@ void AccountingDb::checkBlockConfirmations()
           record.BlockHash = R->BlockHash;
           record.BlockHeight = R->Height;
           record.RoundEndTime = R->EndTime;
-          record.PayoutValue = payoutValue.getRational(CoinInfo_.ExtraMultiplier);
-          record.PayoutValueWithoutFee = payoutValueWithoutFee.getRational(CoinInfo_.ExtraMultiplier);
+          record.PayoutValue = payoutValue;
+          record.PayoutValueWithoutFee = payoutValueWithoutFee;
           record.AcceptedWork = I->AcceptedWork;
           record.PrimePOWTarget = R->PrimePOWTarget;
           record.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
@@ -720,8 +769,8 @@ void AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
           "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
           index,
           payout.UserId.c_str(),
-          FormatMoney(payout.Value, CoinInfo_.RationalPartSize).c_str(),
-          FormatMoney(_cfg.MinimalAllowedPayout, CoinInfo_.RationalPartSize).c_str());
+          FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(),
+          FormatMoney(_cfg.MinimalAllowedPayout, CoinInfo_.FractionalPartSize).c_str());
     *needSkipPayout = true;
     return;
   }
@@ -753,13 +802,16 @@ void AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
     LOG_F(INFO, "No money left to pay");
     return;
   } else {
-    LOG_F(ERROR, "Payment %s to %s failed with error \"%s\"", FormatMoney(payout.Value, CoinInfo_.RationalPartSize).c_str(), settings.Address.c_str(), transaction.Error.c_str());
+    LOG_F(ERROR, "Payment %s to %s failed with error \"%s\"", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), settings.Address.c_str(), transaction.Error.c_str());
     return;
   }
 
-  int64_t delta = payout.Value - (transaction.Value + transaction.Fee);
-  if (delta > 0) {
+  // int64_t delta = payout.Value - (transaction.Value + transaction.Fee);
+  UInt<384> transactionTotalValue = transaction.Value + transaction.Fee;
+
+  if (payout.Value > transactionTotalValue) {
     // Correct payout value and request balance
+    UInt<384> delta = payout.Value - transactionTotalValue;
     payout.Value -= delta;
 
     // Update user balance
@@ -769,12 +821,12 @@ void AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
       return;
     }
 
-    LOG_F(INFO, "   * correct requested balance for %s by %s", payout.UserId.c_str(), FormatMoney(delta, CoinInfo_.RationalPartSize).c_str());
+    LOG_F(INFO, "   * correct requested balance for %s by %s", payout.UserId.c_str(), FormatMoney(delta, CoinInfo_.FractionalPartSize).c_str());
     UserBalanceRecord &balance = It->second;
     balance.Requested -= delta;
     _balanceDb.put(balance);
-  } else if (delta < 0) {
-    LOG_F(ERROR, "Payment %s to %s failed: too big transaction amount", FormatMoney(payout.Value, CoinInfo_.RationalPartSize).c_str(), settings.Address.c_str());
+  } else if (payout.Value < transactionTotalValue) {
+    LOG_F(ERROR, "Payment %s to %s failed: too big transaction amount", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), settings.Address.c_str());
     return;
   }
 
@@ -863,7 +915,8 @@ bool AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
     }
 
     UserBalanceRecord &balance = It->second;
-    balance.Balance.subRational(payout.Value + payout.TxFee, CoinInfo_.ExtraMultiplier);
+    // TODO: remove potintial overflow here
+    balance.Balance -= (payout.Value + payout.TxFee);
     balance.Requested -= payout.Value;
     balance.Paid += payout.Value;
     _balanceDb.put(balance);
@@ -879,8 +932,9 @@ void AccountingDb::makePayout()
     LOG_F(INFO, "Accounting: checking %u payout requests...", (unsigned)_payoutQueue.size());
 
     // Merge small payouts and payouts to invalid address
+    // TODO: merge small payouts with normal also
     {
-      std::map<std::string, int64_t> payoutAccMap;
+      std::map<std::string, UInt<384>> payoutAccMap;
       for (auto I = _payoutQueue.begin(), IE = _payoutQueue.end(); I != IE;) {
         if (I->Status != PayoutDbRecord::EInitialized) {
           ++I;
@@ -891,9 +945,9 @@ void AccountingDb::makePayout()
           payoutAccMap[I->UserId] += I->Value;
           LOG_F(INFO,
                 "Accounting: merge payout %s for %s (total already %s)",
-                FormatMoney(I->Value, CoinInfo_.RationalPartSize).c_str(),
+                FormatMoney(I->Value, CoinInfo_.FractionalPartSize).c_str(),
                 I->UserId.c_str(),
-                FormatMoney(payoutAccMap[I->UserId], CoinInfo_.RationalPartSize).c_str());
+                FormatMoney(payoutAccMap[I->UserId], CoinInfo_.FractionalPartSize).c_str());
           _payoutQueue.erase(I++);
         } else {
           ++I;
@@ -919,7 +973,7 @@ void AccountingDb::makePayout()
           // Send transaction and change it status to 'Sent'
           // For bitcoin-based API it's 'sendrawtransaction'
           if (sendTransaction(payout))
-            LOG_F(INFO, " * sent %s to %s(%s) with txid %s", FormatMoney(payout.Value, CoinInfo_.RationalPartSize).c_str(), payout.UserId.c_str(), recipientAddress.c_str(), payout.TransactionId.c_str());
+            LOG_F(INFO, " * sent %s to %s(%s) with txid %s", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), payout.UserId.c_str(), recipientAddress.c_str(), payout.TransactionId.c_str());
         } else {
           break;
         }
@@ -953,7 +1007,7 @@ void AccountingDb::makePayout()
     // move all to Z-Addr
     CNetworkClient::ListUnspentResult unspent;
     if (ClientDispatcher_.ioListUnspent(Base_, unspent) == CNetworkClient::EStatusOk && !unspent.Outs.empty()) {
-      std::unordered_map<std::string, int64_t> coinbaseFunds;
+      std::unordered_map<std::string, UInt<384>> coinbaseFunds;
       for (const auto &out: unspent.Outs) {
         if (out.IsCoinbase)
           coinbaseFunds[out.Address] += out.Amount;
@@ -964,11 +1018,11 @@ void AccountingDb::makePayout()
           continue;
 
         CNetworkClient::ZSendMoneyResult zsendResult;
-        CNetworkClient::EOperationStatus status = ClientDispatcher_.ioZSendMoney(Base_, out.first, _cfg.poolZAddr, out.second, "", 1, 0, zsendResult);
+        CNetworkClient::EOperationStatus status = ClientDispatcher_.ioZSendMoney(Base_, out.first, _cfg.poolZAddr, out.second, "", 1, UInt<384>::zero(), zsendResult);
         if (status == CNetworkClient::EStatusOk && !zsendResult.AsyncOperationId.empty()) {
           LOG_F(INFO,
                 " * moving %s coins from %s to %s started (%s)",
-                FormatMoney(out.second, CoinInfo_.RationalPartSize).c_str(),
+                FormatMoney(out.second, CoinInfo_.FractionalPartSize).c_str(),
                 out.first.c_str(),
                 _cfg.poolZAddr.c_str(),
                 zsendResult.AsyncOperationId.c_str());
@@ -978,20 +1032,20 @@ void AccountingDb::makePayout()
                 !zsendResult.Error.empty() ? zsendResult.Error.c_str() : "<unknown error>",
                 out.first.c_str(),
                 _cfg.poolZAddr.c_str(),
-                FormatMoney(out.second, CoinInfo_.RationalPartSize).c_str());
+                FormatMoney(out.second, CoinInfo_.FractionalPartSize).c_str());
         }
       }
     }
 
     // move Z-Addr to T-Addr
-    int64_t zbalance;
-    if (ClientDispatcher_.ioZGetBalance(Base_, _cfg.poolZAddr, &zbalance) == CNetworkClient::EStatusOk && zbalance > 0) {
-      LOG_F(INFO, "Accounting: move %s coins to transparent address", FormatMoney(zbalance, CoinInfo_.RationalPartSize).c_str());
+    UInt<384> zbalance;
+    if (ClientDispatcher_.ioZGetBalance(Base_, _cfg.poolZAddr, &zbalance) == CNetworkClient::EStatusOk && zbalance.nonZero()) {
+      LOG_F(INFO, "Accounting: move %s coins to transparent address", FormatMoney(zbalance, CoinInfo_.FractionalPartSize).c_str());
       CNetworkClient::ZSendMoneyResult zsendResult;
-      if (ClientDispatcher_.ioZSendMoney(Base_, _cfg.poolZAddr, _cfg.poolTAddr, zbalance, "", 1, 0, zsendResult) == CNetworkClient::EStatusOk) {
+      if (ClientDispatcher_.ioZSendMoney(Base_, _cfg.poolZAddr, _cfg.poolTAddr, zbalance, "", 1, UInt<384>::zero(), zsendResult) == CNetworkClient::EStatusOk) {
         LOG_F(INFO,
               "moving %s coins from %s to %s started (%s)",
-              FormatMoney(zbalance, CoinInfo_.RationalPartSize).c_str(),
+              FormatMoney(zbalance, CoinInfo_.FractionalPartSize).c_str(),
               _cfg.poolZAddr.c_str(),
               _cfg.poolTAddr.c_str(),
               !zsendResult.AsyncOperationId.empty() ? zsendResult.AsyncOperationId.c_str() : "<none>");
@@ -1001,18 +1055,18 @@ void AccountingDb::makePayout()
 
   // Check consistency
   bool needRebuild = false;
-  std::unordered_map<std::string, int64_t> enqueued;
+  std::unordered_map<std::string, UInt<384>> enqueued;
   for (const auto &payout: _payoutQueue)
     enqueued[payout.UserId] += payout.Value;
 
   for (auto &userIt: _balanceMap) {
-    int64_t enqueuedBalance = enqueued[userIt.first];
+    UInt<384> enqueuedBalance = enqueued[userIt.first];
     if (userIt.second.Requested != enqueuedBalance) {
       LOG_F(ERROR,
             "User %s: enqueued: %s, control sum: %s",
             userIt.first.c_str(),
-            FormatMoney(enqueuedBalance, CoinInfo_.RationalPartSize).c_str(),
-            FormatMoney(userIt.second.Requested, CoinInfo_.RationalPartSize).c_str());
+            FormatMoney(enqueuedBalance, CoinInfo_.FractionalPartSize).c_str(),
+            FormatMoney(userIt.second.Requested, CoinInfo_.FractionalPartSize).c_str());
     }
   }
 
@@ -1029,16 +1083,16 @@ void AccountingDb::makePayout()
 
 void AccountingDb::checkBalance()
 {
-  int64_t balance = 0;
-  int64_t requestedInBalance = 0;
-  int64_t requestedInQueue = 0;
-  int64_t confirmationWait = 0;
-  int64_t immature = 0;
-  int64_t userBalance = 0;
-  int64_t queued = 0;
-  int64_t net = 0;
+  UInt<384> balance = UInt<384>::zero();
+  UInt<384> requestedInBalance = UInt<384>::zero();
+  UInt<384> requestedInQueue = UInt<384>::zero();
+  UInt<384> confirmationWait = UInt<384>::zero();
+  UInt<384> immature = UInt<384>::zero();
+  UInt<384> userBalance = UInt<384>::zero();
+  UInt<384> queued = UInt<384>::zero();
+  UInt<384> net = UInt<384>::zero();
 
-  int64_t zbalance = 0;
+  UInt<384> zbalance = UInt<384>::zero();
   if (!_cfg.poolZAddr.empty()) {
     if (ClientDispatcher_.ioZGetBalance(Base_, _cfg.poolZAddr, &zbalance) != CNetworkClient::EStatusOk) {
       LOG_F(ERROR, "can't get balance of Z-address %s", _cfg.poolZAddr.c_str());
@@ -1056,10 +1110,10 @@ void AccountingDb::checkBalance()
   immature = getBalanceResult.Immatured;
 
   for (auto &userIt: _balanceMap) {
-    userBalance += userIt.second.Balance.get();
+    userBalance += userIt.second.Balance;
     requestedInBalance += userIt.second.Requested;
   }
-  userBalance /= CoinInfo_.ExtraMultiplier;
+  // userBalance /= CoinInfo_.ExtraMultiplier;
 
   for (auto &p: _payoutQueue) {
     requestedInQueue += p.Value;
@@ -1071,7 +1125,7 @@ void AccountingDb::checkBalance()
     for (auto &pIt: roundIt->Payouts)
       queued += pIt.Value;
   }
-  queued /= CoinInfo_.ExtraMultiplier;
+  // queued /= CoinInfo_.ExtraMultiplier;
 
   net = balance + immature - userBalance - queued + confirmationWait;
 
@@ -1089,17 +1143,17 @@ void AccountingDb::checkBalance()
 
   LOG_F(INFO,
         "accounting: balance=%s req/balance=%s req/queue=%s immature=%s users=%s queued=%s, confwait=%s, net=%s",
-        FormatMoney(balance, CoinInfo_.RationalPartSize).c_str(),
-        FormatMoney(requestedInBalance, CoinInfo_.RationalPartSize).c_str(),
-        FormatMoney(requestedInQueue, CoinInfo_.RationalPartSize).c_str(),
-        FormatMoney(immature, CoinInfo_.RationalPartSize).c_str(),
-        FormatMoney(userBalance, CoinInfo_.RationalPartSize).c_str(),
-        FormatMoney(queued, CoinInfo_.RationalPartSize).c_str(),
-        FormatMoney(confirmationWait, CoinInfo_.RationalPartSize).c_str(),
-        FormatMoney(net, CoinInfo_.RationalPartSize).c_str());
+        FormatMoney(balance, CoinInfo_.FractionalPartSize).c_str(),
+        FormatMoney(requestedInBalance, CoinInfo_.FractionalPartSize).c_str(),
+        FormatMoney(requestedInQueue, CoinInfo_.FractionalPartSize).c_str(),
+        FormatMoney(immature, CoinInfo_.FractionalPartSize).c_str(),
+        FormatMoney(userBalance, CoinInfo_.FractionalPartSize).c_str(),
+        FormatMoney(queued, CoinInfo_.FractionalPartSize).c_str(),
+        FormatMoney(confirmationWait, CoinInfo_.FractionalPartSize).c_str(),
+        FormatMoney(net, CoinInfo_.FractionalPartSize).c_str());
 }
 
-bool AccountingDb::requestPayout(const std::string &address, int64_t value, bool force)
+bool AccountingDb::requestPayout(const std::string &address, const UInt<384> &value, bool force)
 {
   bool result = false;
   auto It = _balanceMap.find(address);
@@ -1107,12 +1161,12 @@ bool AccountingDb::requestPayout(const std::string &address, int64_t value, bool
     It = _balanceMap.insert(It, std::make_pair(address, UserBalanceRecord(address, _cfg.DefaultPayoutThreshold)));
 
   UserBalanceRecord &balance = It->second;
-  balance.Balance.add(value);
+  balance.Balance += value;
 
   UserSettingsRecord settings;
   bool hasSettings = UserManager_.getUserCoinSettings(balance.Login, CoinInfo_.Name, settings);
-  int64_t nonQueuedBalance = balance.Balance.getRational(CoinInfo_.ExtraMultiplier) - balance.Requested;
-  if (hasSettings && (force || (settings.AutoPayout && nonQueuedBalance >= settings.MinimalPayout))) {
+  UInt<384> nonQueuedBalance = balance.Balance - balance.Requested;
+  if (!nonQueuedBalance.isNegative() && hasSettings && (force || (settings.AutoPayout && nonQueuedBalance >= settings.MinimalPayout))) {
     _payoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
     balance.Requested += nonQueuedBalance;
     result = true;
@@ -1127,9 +1181,9 @@ void AccountingDb::manualPayoutImpl(const std::string &user, DefaultCb callback)
   auto It = _balanceMap.find(user);
   if (It != _balanceMap.end()) {
     auto &B = It->second;
-    int64_t nonQueuedBalance = B.Balance.getRational(CoinInfo_.ExtraMultiplier) - B.Requested;
-    if (nonQueuedBalance >= _cfg.MinimalAllowedPayout) {
-      bool result = requestPayout(user, 0, true);
+    UInt<384> nonQueuedBalance = B.Balance - B.Requested;
+    if (!nonQueuedBalance.isNegative() && nonQueuedBalance >= _cfg.MinimalAllowedPayout) {
+      bool result = requestPayout(user, UInt<384>::zero(), true);
       const char *status = result ? "ok" : "payout_error";
       if (result) {
         LOG_F(INFO, "Manual payout success for %s", user.c_str());
@@ -1284,11 +1338,25 @@ void AccountingDb::queryPPLNSPayoutsAccImpl(const std::string &login, int64_t ti
 
       if (index < payoutAccs.size()) {
         auto &current = payoutAccs[index];
-        double payoutValue = valueRecord.PayoutValue * coeff;
+        // double payoutValue = valueRecord.PayoutValue * coeff;
+        UInt<384> payoutValue = valueRecord.PayoutValue;
+        payoutValue.mulfp(coeff);
+
         current.TotalCoin += payoutValue;
-        current.TotalBTC += payoutValue * valueRecord.RateToBTC * (100000000.0 / static_cast<double>(CoinInfo_.RationalPartSize));
-        current.TotalUSD += (payoutValue * (valueRecord.RateToBTC * valueRecord.RateBTCToUSD)) / static_cast<double>(CoinInfo_.RationalPartSize);
-        current.TotalIncomingWork += valueRecord.AcceptedWork * coeff;
+
+        UInt<384> btcValue = payoutValue;
+        btcValue.mulfp(valueRecord.RateToBTC * std::pow(10.0, 8 - static_cast<int>(CoinInfo_.FractionalPartSize)));
+        current.TotalBTC += btcValue;
+
+        UInt<384> usdValue = payoutValue;
+        usdValue.mulfp(valueRecord.RateToBTC * valueRecord.RateBTCToUSD / std::pow(10.0, CoinInfo_.FractionalPartSize));
+        current.TotalUSD += usdValue;
+
+        {
+          UInt<256> w = valueRecord.AcceptedWork;
+          w.mulfp(coeff);
+          current.TotalIncomingWork += w;
+        }
         current.PrimePOWTarget = std::min(current.PrimePOWTarget, valueRecord.PrimePOWTarget);
       }
 
@@ -1320,8 +1388,8 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
     return;
   }
 
-  double acceptedWork = 0.0;
-  double expectedWork = 0.0;
+  UInt<256> acceptedWork = UInt<256>::zero();
+  UInt<256> expectedWork = UInt<256>::zero();
   for (const auto &score: CurrentScores_)
     acceptedWork += score.second;
 
@@ -1333,7 +1401,7 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
       break;
 
     while (dbBlock.Time < currentTimePoint) {
-      result.push_back(expectedWork != 0.0 ? acceptedWork / expectedWork : 0.0);
+      result.push_back(expectedWork.nonZero() ? UInt<256>::fpdiv(acceptedWork, expectedWork) : 0.0);
       if (++intervalIt == intervals.end()) {
         callback(result);
         return;
@@ -1342,7 +1410,7 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
       currentTimePoint = currentTime - *intervalIt;
     }
 
-    if (dbBlock.ExpectedWork != 0.0) {
+    if (dbBlock.ExpectedWork.nonZero()) {
       acceptedWork += dbBlock.AccumulatedWork;
       expectedWork += dbBlock.ExpectedWork;
     }
@@ -1351,7 +1419,7 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
   }
 
   while (intervalIt++ != intervals.end())
-    result.push_back(expectedWork != 0.0 ? acceptedWork / expectedWork : 0.0);
+    result.push_back(expectedWork.nonZero() ? UInt<256>::fpdiv(acceptedWork, expectedWork) : 0.0);
   callback(result);
 }
 
@@ -1360,13 +1428,13 @@ void AccountingDb::queryBalanceImpl(const std::string &user, QueryBalanceCallbac
   UserBalanceInfo info;
 
   // Calculate queued balance
-  info.Queued = 0;
+  info.Queued = UInt<384>::zero();
   for (const auto &It: UnpayedRounds_) {
     auto payout = std::lower_bound(It->Payouts.begin(), It->Payouts.end(), user, [](const CUserPayout &record, const std::string &user) -> bool { return record.UserId < user; });
     if (payout != It->Payouts.end() && payout->UserId == user)
       info.Queued += payout->Value;
   }
-  info.Queued /= CoinInfo_.ExtraMultiplier;
+  // info.Queued /= CoinInfo_.ExtraMultiplier;
 
   auto &balanceMap = getUserBalanceMap();
   auto It = balanceMap.find(user);
@@ -1375,9 +1443,9 @@ void AccountingDb::queryBalanceImpl(const std::string &user, QueryBalanceCallbac
   } else {
     UserBalanceRecord record;
     info.Data.Login = user;
-    info.Data.Balance = 0;
-    info.Data.Requested = 0;
-    info.Data.Paid = 0;
+    info.Data.Balance = UInt<384>::zero();
+    info.Data.Requested = UInt<384>::zero();
+    info.Data.Paid = UInt<384>::zero();
   }
 
   callback(info);
