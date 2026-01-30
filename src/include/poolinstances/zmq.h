@@ -9,7 +9,7 @@
 #include "blockmaker/merkleTree.h"
 #include <asyncio/socket.h>
 #include <asyncioextras/zmtp.h>
-#include "protocol.pb.h"
+#include "blockmaker/protocol.pb.h"
 
 static constexpr unsigned REQUIRED_MINER_VERSION = 1061;
 
