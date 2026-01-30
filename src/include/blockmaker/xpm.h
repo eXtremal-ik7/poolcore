@@ -8,7 +8,7 @@
 #include "blockmaker/btc.h"
 #include "blockmaker/divisionChecker.h"
 #include "poolcommon/bigNum.h"
-#include "poolinstances/protocol.pb.h"
+#include "blockmaker/protocol.pb.h"
 #include "blockmaker/sha256.h"
 #include <deque>
 
