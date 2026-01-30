@@ -46,17 +46,13 @@ struct DbIo<PayoutDbRecord> {
   static inline void unserialize(xmstream &stream, PayoutDbRecord &data) {
     uint32_t version;
     dbIoUnserialize(stream, version);
-    if (version >= 1) {
-      dbIoUnserialize(stream, data.UserId);
-      dbIoUnserialize(stream, data.Time);
-      dbIoUnserialize(stream, data.Value);
-      dbIoUnserialize(stream, data.TransactionId);
-      dbIoUnserialize(stream, data.TransactionData);
-      dbIoUnserialize(stream, data.Status);
-      if (version >= 2) {
-        dbIoUnserialize(stream, data.TxFee);
-      }
-    }
+    dbIoUnserialize(stream, data.UserId);
+    dbIoUnserialize(stream, data.Time);
+    dbIoUnserialize(stream, data.Value);
+    dbIoUnserialize(stream, data.TransactionId);
+    dbIoUnserialize(stream, data.TransactionData);
+    dbIoUnserialize(stream, data.Status);
+    dbIoUnserialize(stream, data.TxFee);
   }
 };
 
@@ -129,55 +125,19 @@ bool MiningRound::deserializeValue(const void *data, size_t size)
 
   uint32_t version;
   dbIoUnserialize(stream, version);
-  if (version == 1) {
-    std::vector<UserShareValue> userShares1;
-    std::vector<PayoutDbRecord> payouts1;
-
-    dbIoUnserialize(stream, Height);
-    dbIoUnserialize(stream, BlockHash);
-    dbIoUnserialize(stream, EndTime);
-
-    StartTime = 0;
-
-    dbIoUnserialize(stream, TotalShareValue);
-    dbIoUnserialize(stream, AvailableCoins);
-
-    dbIoUnserialize(stream, userShares1);
-    {
-      for (const auto &s: userShares1)
-        UserShares.emplace_back(s.UserId, s.ShareValue, UInt<256>::zero());
-    }
-
-    dbIoUnserialize(stream, payouts1);
-    {
-      for (const auto &p: payouts1)
-        Payouts.emplace_back(p.UserId, p.Value, p.Value, UInt<256>::zero());
-    }
-
-    if (stream.remaining()) {
-      dbIoUnserialize(stream, FoundBy);
-      dbIoUnserialize(stream, ExpectedWork);
-      dbIoUnserialize(stream, AccumulatedWork);
-      dbIoUnserialize(stream, TxFee);
-    }
-
-    PrimePOWTarget = -1U;
-  } else if (version == 2) {
-    dbIoUnserialize(stream, Height);
-    dbIoUnserialize(stream, BlockHash);
-    dbIoUnserialize(stream, EndTime);
-    dbIoUnserialize(stream, StartTime);
-    dbIoUnserialize(stream, TotalShareValue);
-    dbIoUnserialize(stream, AvailableCoins);
-    dbIoUnserialize(stream, UserShares);
-    dbIoUnserialize(stream, Payouts);
-    dbIoUnserialize(stream, FoundBy);
-    dbIoUnserialize(stream, ExpectedWork);
-    dbIoUnserialize(stream, AccumulatedWork);
-    dbIoUnserialize(stream, TxFee);
-    dbIoUnserialize(stream, PrimePOWTarget);
-  }
-  
+  dbIoUnserialize(stream, Height);
+  dbIoUnserialize(stream, BlockHash);
+  dbIoUnserialize(stream, EndTime);
+  dbIoUnserialize(stream, StartTime);
+  dbIoUnserialize(stream, TotalShareValue);
+  dbIoUnserialize(stream, AvailableCoins);
+  dbIoUnserialize(stream, UserShares);
+  dbIoUnserialize(stream, Payouts);
+  dbIoUnserialize(stream, FoundBy);
+  dbIoUnserialize(stream, ExpectedWork);
+  dbIoUnserialize(stream, AccumulatedWork);
+  dbIoUnserialize(stream, TxFee);
+  dbIoUnserialize(stream, PrimePOWTarget);
   return !stream.eof();
 }
 
@@ -256,14 +216,11 @@ bool UserSettingsRecord::deserializeValue(const void *data, size_t size)
   xmstream stream(const_cast<void*>(data), size);
   uint32_t version;
   dbIoUnserialize(stream, version);
-  if (version >= 1) {
-    dbIoUnserialize(stream, Login);
-    dbIoUnserialize(stream, Coin);
-    dbIoUnserialize(stream, Address);
-    dbIoUnserialize(stream, MinimalPayout);
-    dbIoUnserialize(stream, AutoPayout);
-  }
-
+  dbIoUnserialize(stream, Login);
+  dbIoUnserialize(stream, Coin);
+  dbIoUnserialize(stream, Address);
+  dbIoUnserialize(stream, MinimalPayout);
+  dbIoUnserialize(stream, AutoPayout);
   return !stream.eof();
 }
 
@@ -412,12 +369,10 @@ bool UserBalanceRecord::deserializeValue(const void *data, size_t size)
   xmstream stream((void*)data, size);
   uint32_t version;
   dbIoUnserialize(stream, version);
-  if (version >= 1) { 
-    dbIoUnserialize(stream, Login);
-    dbIoUnserialize(stream, Balance);
-    dbIoUnserialize(stream, Requested);
-    dbIoUnserialize(stream, Paid);
-  }
+  dbIoUnserialize(stream, Login);
+  dbIoUnserialize(stream, Balance);
+  dbIoUnserialize(stream, Requested);
+  dbIoUnserialize(stream, Paid);
   
   return !stream.eof();
 }
@@ -451,13 +406,9 @@ bool FoundBlockRecord::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, Time);
     dbIoUnserialize(stream, AvailableCoins);
     dbIoUnserialize(stream, FoundBy);
-    if (stream.remaining()) {
-      dbIoUnserialize(stream, ExpectedWork);
-      dbIoUnserialize(stream, AccumulatedWork);
-      if (stream.remaining()) {
-        dbIoUnserialize(stream, PublicHash);
-      }
-    }
+    dbIoUnserialize(stream, ExpectedWork);
+    dbIoUnserialize(stream, AccumulatedWork);
+    dbIoUnserialize(stream, PublicHash);
   }
   
   return !stream.eof();
@@ -532,10 +483,8 @@ bool StatsRecord::deserializeValue(xmstream &stream)
     dbIoUnserialize(stream, Time);
     dbIoUnserialize(stream, ShareCount);
     dbIoUnserialize(stream, ShareWork);
-    if (stream.remaining()) {
-      dbIoUnserialize(stream, PrimePOWTarget);
-      dbIoUnserialize(stream, PrimePOWShareCount);
-    }
+    dbIoUnserialize(stream, PrimePOWTarget);
+    dbIoUnserialize(stream, PrimePOWShareCount);
   }
 
   return !stream.eof();

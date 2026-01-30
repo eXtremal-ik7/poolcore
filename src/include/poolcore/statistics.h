@@ -120,41 +120,6 @@ public:
     }
   };
 
-  // TEMPORARY
-  // Previous version format
-  // +file serialization
-  struct CStatsFileRecordOld2 {
-    enum { CurrentRecordVersion = 1 };
-
-    std::string Login;
-    std::string WorkerId;
-    int64_t Time;
-    uint64_t ShareCount;
-    double ShareWork;
-    uint32_t PrimePOWTarget;
-    std::vector<uint64_t> PrimePOWShareCount;
-  };
-
-  // +file serialization
-  struct CStatsFileDataOld2 {
-    enum { CurrentRecordVersion = 1 };
-
-    uint64_t LastShareId;
-    std::vector<CStatsFileRecordOld2> Records;
-  };
-
-  struct CSharesWorkWithTimeOld2 {
-    int64_t TimeLabel;
-    double SharesWork;
-  };
-
-  struct CStatsExportDataOld2 {
-    enum { CurrentRecordVersion = 1 };
-
-    std::string UserId;
-    std::vector<CSharesWorkWithTimeOld2> Recent;
-  };
-
   // +file serialization
   struct CStatsFileRecord {
     enum { CurrentRecordVersion = 1 };
@@ -185,10 +150,7 @@ private:
   struct CStatsFile {
     int64_t TimeLabel;
     uint64_t LastShareId;
-    // Version 1: old format (isOldFormat=true)
-    // Version 2: new format (isOldFormat=false)
-    // Version 3: UInt<256> for ShareWork
-    unsigned Version = 3;
+    unsigned Version;
     std::filesystem::path Path;
   };
 
@@ -378,36 +340,6 @@ struct DbIo<StatisticDb::CStatsFileRecord> {
 };
 
 template<>
-struct DbIo<StatisticDb::CStatsFileRecordOld2> {
-  static inline void serialize(xmstream &out, const StatisticDb::CStatsFileRecordOld2 &data) {
-    DbIo<uint32_t>::serialize(out, data.CurrentRecordVersion);
-    DbIo<decltype(data.Login)>::serialize(out, data.Login);
-    DbIo<decltype(data.WorkerId)>::serialize(out, data.WorkerId);
-    DbIo<decltype(data.Time)>::serialize(out, data.Time);
-    DbIo<decltype(data.ShareCount)>::serialize(out, data.ShareCount);
-    DbIo<decltype(data.ShareWork)>::serialize(out, data.ShareWork);
-    DbIo<decltype(data.PrimePOWTarget)>::serialize(out, data.PrimePOWTarget);
-    DbIo<decltype(data.PrimePOWShareCount)>::serialize(out, data.PrimePOWShareCount);
-  }
-
-  static inline void unserialize(xmstream &in, StatisticDb::CStatsFileRecordOld2 &data) {
-    uint32_t version;
-    DbIo<uint32_t>::unserialize(in, version);
-    if (version == 1) {
-      DbIo<decltype(data.Login)>::unserialize(in, data.Login);
-      DbIo<decltype(data.WorkerId)>::unserialize(in, data.WorkerId);
-      DbIo<decltype(data.Time)>::unserialize(in, data.Time);
-      DbIo<decltype(data.ShareCount)>::unserialize(in, data.ShareCount);
-      DbIo<decltype(data.ShareWork)>::unserialize(in, data.ShareWork);
-      DbIo<decltype(data.PrimePOWTarget)>::unserialize(in, data.PrimePOWTarget);
-      DbIo<decltype(data.PrimePOWShareCount)>::unserialize(in, data.PrimePOWShareCount);
-    } else {
-      in.seekEnd(0, true);
-    }
-  }
-};
-
-template<>
 struct DbIo<StatisticDb::CSharesWorkWithTime> {
   static inline void serialize(xmstream &out, const StatisticDb::CSharesWorkWithTime &data) {
     DbIo<decltype(data.SharesWork)>::serialize(out, data.SharesWork);
@@ -441,39 +373,6 @@ struct DbIo<StatisticDb::CStatsExportData> {
 };
 
 template<>
-struct DbIo<StatisticDb::CSharesWorkWithTimeOld2> {
-  static inline void serialize(xmstream &out, const StatisticDb::CSharesWorkWithTimeOld2 &data) {
-    DbIo<decltype(data.SharesWork)>::serialize(out, data.SharesWork);
-    DbIo<decltype(data.TimeLabel)>::serialize(out, data.TimeLabel);
-  }
-
-  static inline void unserialize(xmstream &in, StatisticDb::CSharesWorkWithTimeOld2 &data) {
-    DbIo<decltype(data.SharesWork)>::unserialize(in, data.SharesWork);
-    DbIo<decltype(data.TimeLabel)>::unserialize(in, data.TimeLabel);
-  }
-};
-
-template<>
-struct DbIo<StatisticDb::CStatsExportDataOld2> {
-  static inline void serialize(xmstream &out, const StatisticDb::CStatsExportDataOld2 &data) {
-    DbIo<uint32_t>::serialize(out, data.CurrentRecordVersion);
-    DbIo<decltype(data.UserId)>::serialize(out, data.UserId);
-    DbIo<decltype(data.Recent)>::serialize(out, data.Recent);
-  }
-
-  static inline void unserialize(xmstream &in, StatisticDb::CStatsExportDataOld2 &data) {
-    uint32_t version;
-    DbIo<uint32_t>::unserialize(in, version);
-    if (version == 1) {
-      DbIo<decltype(data.UserId)>::unserialize(in, data.UserId);
-      DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
-    } else {
-      in.seekEnd(0, true);
-    }
-  }
-};
-
-template<>
 struct DbIo<StatisticDb::CStatsFileData> {
   static inline void unserialize(xmstream &in, StatisticDb::CStatsFileData &data) {
     uint32_t version;
@@ -483,23 +382,6 @@ struct DbIo<StatisticDb::CStatsFileData> {
       while (in.remaining()) {
         StatisticDb::CStatsFileRecord &record = data.Records.emplace_back();
         DbIo<StatisticDb::CStatsFileRecord>::unserialize(in, record);
-      }
-    } else {
-      in.seekEnd(0, true);
-    }
-  }
-};
-
-template<>
-struct DbIo<StatisticDb::CStatsFileDataOld2> {
-  static inline void unserialize(xmstream &in, StatisticDb::CStatsFileDataOld2 &data) {
-    uint32_t version;
-    DbIo<uint32_t>::unserialize(in, version);
-    if (version == 1) {
-      DbIo<decltype(data.LastShareId)>::unserialize(in, data.LastShareId);
-      while (in.remaining()) {
-        StatisticDb::CStatsFileRecordOld2 &record = data.Records.emplace_back();
-        DbIo<StatisticDb::CStatsFileRecordOld2>::unserialize(in, record);
       }
     } else {
       in.seekEnd(0, true);

@@ -31,22 +31,6 @@ struct CShare {
   uint32_t PrimePOWTarget;
 };
 
-struct CShareV1 {
-  enum { CurrentRecordVersion = 1 };
-  uint64_t UniqueShareId = 0;
-  std::string userId;
-  std::string workerId;
-  int64_t height;
-  double WorkValue;
-  bool isBlock;
-  std::string hash;
-  int64_t generatedCoins;
-  int64_t Time;
-  double ExpectedWork = 0.0;
-  uint32_t ChainLength;
-  uint32_t PrimePOWTarget;
-};
-
 struct CMiningAddress {
   std::string MiningAddress;
   std::string PrivateKey;
@@ -111,7 +95,9 @@ struct PoolBackendConfig {
 
 struct UserShareValue {
   std::string UserId;
+  // PPLNS-adjusted work (work for the last block search session + work for a defined interval, e.g. last hour)
   UInt<256> ShareValue;
+  // Work accumulated only during the last block search session
   UInt<256> IncomingWork;
   UserShareValue() {}
   UserShareValue(const std::string &userId, UInt<256> shareValue, UInt<256> incomingWork) :
@@ -119,7 +105,7 @@ struct UserShareValue {
 };
 
 struct PayoutDbRecord {
-  enum { CurrentRecordVersion = 2 };
+  enum { CurrentRecordVersion = 1 };
   enum EStatus {
     EInitialized = 0,
     ETxCreated,
@@ -163,24 +149,29 @@ struct CUserPayout {
 };
 
 struct MiningRound {
-  static constexpr uint32_t CurrentRecordVersion = 2;
+  static constexpr uint32_t CurrentRecordVersion = 1;
   
   uint64_t Height;
   std::string BlockHash;
   int64_t EndTime;
   int64_t StartTime;
     
-  // aggregated share and payment value
+  // Sum of PPLNS-adjusted work of all users
   UInt<256> TotalShareValue;
+  // Full block reward
   UInt<384> AvailableCoins;
 
   // ETH specific
+  // ===
   std::string FoundBy;
+  // Expected work to find a block, calculated from block difficulty (e.g. nBits header field)
   UInt<256> ExpectedWork;
+  // Total work accumulated during the block search session
   UInt<256> AccumulatedWork;
   UInt<384> TxFee = UInt<384>::zero();
 
   // XPM specific
+  // ===
   uint32_t PrimePOWTarget;
 
   std::vector<UserShareValue> UserShares;
@@ -376,7 +367,9 @@ struct FoundBlockRecord {
   int64_t Time;
   UInt<384> AvailableCoins;
   std::string FoundBy;
+  // Expected work to find a block, calculated from block difficulty (e.g. nBits header field)
   UInt<256> ExpectedWork = UInt<256>::zero();
+  // Total work accumulated during the block search session
   UInt<256> AccumulatedWork = UInt<256>::zero();
   std::string PublicHash;
   

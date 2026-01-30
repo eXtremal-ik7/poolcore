@@ -28,43 +28,7 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
 
   CStatsFileData fileData;
 
-  // parse stats file
-  if (file.Version == 1) {
-    // Old format: manual parsing with double ShareWork converted to UInt<256>
-    DbIo<decltype(fileData.LastShareId)>::unserialize(stream, fileData.LastShareId);
-    while (stream.remaining()) {
-      uint32_t version;
-      CStatsFileRecord &record = fileData.Records.emplace_back();
-      DbIo<decltype(version)>::unserialize(stream, version);
-      DbIo<decltype(record.Login)>::unserialize(stream, record.Login);
-      DbIo<decltype(record.WorkerId)>::unserialize(stream, record.WorkerId);
-      DbIo<decltype(record.Time)>::unserialize(stream, record.Time);
-      DbIo<decltype(record.ShareCount)>::unserialize(stream, record.ShareCount);
-      double shareWork;
-      DbIo<double>::unserialize(stream, shareWork);
-      record.ShareWork = UInt<256>::fromDouble(CoinInfo_.WorkMultiplier);
-      record.ShareWork.mulfp(shareWork);
-    }
-  } else if (file.Version == 2) {
-    // Format with double ShareWork - deserialize and convert to new format
-    CStatsFileDataOld2 oldData;
-    DbIo<CStatsFileDataOld2>::unserialize(stream, oldData);
-    fileData.LastShareId = oldData.LastShareId;
-    for (const auto &oldRecord : oldData.Records) {
-      CStatsFileRecord &record = fileData.Records.emplace_back();
-      record.Login = oldRecord.Login;
-      record.WorkerId = oldRecord.WorkerId;
-      record.Time = oldRecord.Time;
-      record.ShareCount = oldRecord.ShareCount;
-      record.ShareWork = UInt<256>::fromDouble(CoinInfo_.WorkMultiplier);
-      record.ShareWork.mulfp(oldRecord.ShareWork);
-      record.PrimePOWTarget = oldRecord.PrimePOWTarget;
-      record.PrimePOWShareCount = oldRecord.PrimePOWShareCount;
-    }
-  } else {
-    // Version 3: UInt<256> ShareWork
-    DbIo<CStatsFileData>::unserialize(stream, fileData);
-  }
+  DbIo<CStatsFileData>::unserialize(stream, fileData);
 
   if (!stream.remaining() && !stream.eof()) {
     file.LastShareId = fileData.LastShareId;
@@ -121,11 +85,6 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   WorkersFlushInfo_.Time = currentTime;
   WorkersFlushInfo_.ShareId = 0;
   std::deque<CStatsFile> workerStatsCache;
-  {
-    // TODO: remove this code after full migration
-    enumerateStatsFiles(workerStatsCache, config.dbPath / "stats.workers.cache", 1, false);
-    enumerateStatsFiles(workerStatsCache, config.dbPath / "stats.workers.cache.2", 2, false);
-  }
   enumerateStatsFiles(workerStatsCache, config.dbPath / CurrentWorkersStoragePath, 3, true);
   for (auto &file: workerStatsCache) {
     if (parseStatsCacheFile(file)) {
@@ -140,11 +99,6 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   PoolFlushInfo_.Time = currentTime;
   PoolFlushInfo_.ShareId = 0;
   std::deque<CStatsFile> poolStatsCache;
-  {
-    // TODO: remove this code after full migration
-    enumerateStatsFiles(poolStatsCache, config.dbPath / "stats.pool.cache", 1, false);
-    enumerateStatsFiles(poolStatsCache, config.dbPath / "stats.pool.cache.2", 2, false);
-  }
   enumerateStatsFiles(poolStatsCache, config.dbPath / CurrentPoolStoragePath, 3, true);
   for (auto &file: poolStatsCache) {
     if (parseStatsCacheFile(file)) {

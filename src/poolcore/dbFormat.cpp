@@ -18,7 +18,7 @@ bool isDbFormatOutdated(const std::filesystem::path &dbPath, const std::vector<s
     "pplns.payouts.2",
     "workerStats.2",
     "poolstats.2",
-    "payouts.raw.2"
+    "payoutQueue.raw"
   };
 
   // Check root directory entries

@@ -50,15 +50,6 @@ public:
     std::map<std::string, UInt<256>> CurrentScores;
   };
 
-  struct CAccountingFileDataOld2 {
-    enum { CurrentRecordVersion = 1 };
-
-    uint64_t LastShareId;
-    int64_t LastBlockTime;
-    std::vector<StatisticDb::CStatsExportDataOld2> Recent;
-    std::map<std::string, double> CurrentScores;
-  };
-
 private:
   using DefaultCb = std::function<void(const char*)>;
   using ManualPayoutCallback = std::function<void(bool)>;
@@ -83,10 +74,7 @@ private:
   struct CAccountingFile {
     int64_t TimeLabel = 0;
     uint64_t LastShareId = 0;
-    // Version 1: old format (isOldFormat=true)
-    // Version 2: previous format (isOldFormat=false)
-    // Version 3: current format
-    unsigned Version = 3;
+    unsigned Version;
     std::filesystem::path Path;
   };
 
@@ -184,6 +172,7 @@ private:
 
   int64_t LastBlockTime_ = 0;
   std::deque<CAccountingFile> AccountingDiskStorage_;
+  // Accumulated share work per user for the current block search session; cleared on block found
   std::map<std::string, UInt<256>> CurrentScores_;
   std::vector<StatisticDb::CStatsExportData> RecentStats_;
   CFlushInfo FlushInfo_;
@@ -291,22 +280,6 @@ private:
 template<>
 struct DbIo<AccountingDb::CAccountingFileData> {
   static inline void unserialize(xmstream &in, AccountingDb::CAccountingFileData &data) {
-    uint32_t version;
-    DbIo<uint32_t>::unserialize(in, version);
-    if (version == 1) {
-      DbIo<decltype(data.LastShareId)>::unserialize(in, data.LastShareId);
-      DbIo<decltype(data.LastBlockTime)>::unserialize(in, data.LastBlockTime);
-      DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
-      DbIo<decltype(data.CurrentScores)>::unserialize(in, data.CurrentScores);
-    } else {
-      in.seekEnd(0, true);
-    }
-  }
-};
-
-template<>
-struct DbIo<AccountingDb::CAccountingFileDataOld2> {
-  static inline void unserialize(xmstream &in, AccountingDb::CAccountingFileDataOld2 &data) {
     uint32_t version;
     DbIo<uint32_t>::unserialize(in, version);
     if (version == 1) {

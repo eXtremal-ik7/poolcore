@@ -13,34 +13,6 @@
 
 static const UInt<384> ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE = fromRational(10000u);
 
-struct CSharesWorkWithTimeOld {
-  int64_t TimeLabel;
-  double SharesWork;
-};
-
-struct CStatsExportDataOld {
-  std::string UserId;
-  std::vector<CSharesWorkWithTimeOld> Recent;
-};
-
-template<>
-struct DbIo<CSharesWorkWithTimeOld> {
-  static inline void unserialize(xmstream &in, CSharesWorkWithTimeOld &data) {
-    uint32_t sharesNum;
-    DbIo<decltype(sharesNum)>::unserialize(in, sharesNum);
-    DbIo<decltype(data.SharesWork)>::unserialize(in, data.SharesWork);
-    DbIo<decltype(data.TimeLabel)>::unserialize(in, data.TimeLabel);
-  }
-};
-
-template<>
-struct DbIo<CStatsExportDataOld> {
-  static inline void unserialize(xmstream &in, CStatsExportDataOld &data) {
-    DbIo<decltype(data.UserId)>::unserialize(in, data.UserId);
-    DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
-  }
-};
-
 void AccountingDb::printRecentStatistic()
 {
   if (RecentStats_.empty()) {
@@ -89,71 +61,7 @@ bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
   stream.seekSet(0);
   CAccountingFileData fileData;
 
-  if (file.Version == 1) {
-    // Unserialize, we need read:
-    //   * LastShareId (file.LastShareId)
-    //   * LastBlockTime
-    //   * RecentStats
-    //   * Scores
-    DbIo<decltype(fileData.LastShareId)>::unserialize(stream, fileData.LastShareId);
-    DbIo<decltype(fileData.LastBlockTime)>::unserialize(stream, fileData.LastBlockTime);
-    {
-      std::vector<CStatsExportDataOld> recentStatsOld;
-      DbIo<decltype(recentStatsOld)>::unserialize(stream, recentStatsOld);
-      fileData.Recent.resize(recentStatsOld.size());
-      for (size_t i = 0; i < recentStatsOld.size(); i++) {
-        fileData.Recent[i].UserId = std::move(recentStatsOld[i].UserId);
-        fileData.Recent[i].Recent.resize(recentStatsOld[i].Recent.size());
-        for (size_t j = 0; j < recentStatsOld[i].Recent.size(); j++) {
-          fileData.Recent[i].Recent[j].SharesWork.fromDouble(CoinInfo_.WorkMultiplier);
-          fileData.Recent[i].Recent[j].SharesWork.mulfp(recentStatsOld[i].Recent[j].SharesWork);
-          fileData.Recent[i].Recent[j].TimeLabel = recentStatsOld[i].Recent[j].TimeLabel;
-        }
-      }
-    }
-
-    {
-      uint64_t size;
-      DbIo<decltype(size)>::unserialize(stream, size);
-      for (uint64_t i = 0; i < size; i++) {
-        std::string userId;
-        double score;
-        DbIo<std::string>::unserialize(stream, userId);
-        DbIo<double>::unserialize(stream, score);
-        fileData.CurrentScores[userId] = UInt<256>::fromDouble(CoinInfo_.WorkMultiplier);
-        fileData.CurrentScores[userId].mulfp(score);
-      }
-    }
-  } else if (file.Version == 2) {
-    // Previous format with double SharesWork and double CurrentScores
-    CAccountingFileDataOld2 oldData;
-    DbIo<CAccountingFileDataOld2>::unserialize(stream, oldData);
-
-    // Convert to new format
-    fileData.LastShareId = oldData.LastShareId;
-    fileData.LastBlockTime = oldData.LastBlockTime;
-
-    // Convert Recent: CStatsExportDataOld2 -> CStatsExportData
-    fileData.Recent.resize(oldData.Recent.size());
-    for (size_t i = 0; i < oldData.Recent.size(); i++) {
-      fileData.Recent[i].UserId = std::move(oldData.Recent[i].UserId);
-      fileData.Recent[i].Recent.resize(oldData.Recent[i].Recent.size());
-      for (size_t j = 0; j < oldData.Recent[i].Recent.size(); j++) {
-        fileData.Recent[i].Recent[j].SharesWork = UInt<256>::fromDouble(CoinInfo_.WorkMultiplier);
-        fileData.Recent[i].Recent[j].SharesWork.mulfp(oldData.Recent[i].Recent[j].SharesWork);
-        fileData.Recent[i].Recent[j].TimeLabel = oldData.Recent[i].Recent[j].TimeLabel;
-      }
-    }
-
-    // Convert CurrentScores: double -> UInt<256>
-    for (const auto &score : oldData.CurrentScores) {
-      fileData.CurrentScores[score.first] = UInt<256>::fromDouble(CoinInfo_.WorkMultiplier);
-      fileData.CurrentScores[score.first].mulfp(score.second);
-    }
-  } else {
-    // Version 3: current format
-    DbIo<CAccountingFileData>::unserialize(stream, fileData);
-  }
+  DbIo<CAccountingFileData>::unserialize(stream, fileData);
 
   file.LastShareId = fileData.LastShareId;
   if (!stream.remaining() && !stream.eof()) {
@@ -235,11 +143,6 @@ AccountingDb::AccountingDb(asyncBase *base,
   FlushInfo_.Time = currentTime;
   FlushInfo_.ShareId = 0;
 
-  {
-    // TODO: remove this code after full migration
-    enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / "accounting.storage", 1, false);
-    enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / "accounting.storage.2", 2, false);
-  }
   enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / CurrentAccountingStoragePath, 3, true);
 
   while (!AccountingDiskStorage_.empty()) {
@@ -257,9 +160,9 @@ AccountingDb::AccountingDb(asyncBase *base,
 
   {
     unsigned payoutsNum = 0;
-    _payoutsFd.open(_cfg.dbPath / "payouts.raw.2");
+    _payoutsFd.open(_cfg.dbPath / "payoutQueue.raw");
     if (!_payoutsFd.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", path_to_utf8(_cfg.dbPath / "payouts.raw.2").c_str(), strerror(errno));
+      LOG_F(ERROR, "can't open payouts file %s (%s)", path_to_utf8(_cfg.dbPath / "payoutQueue.raw").c_str(), strerror(errno));
 
     auto fileSize = _payoutsFd.size();
     if (fileSize > 0) {
@@ -277,7 +180,7 @@ AccountingDb::AccountingDb(asyncBase *base,
       }
     }
 
-    LOG_F(INFO, "loaded %u payouts from payouts.raw.2 file", payoutsNum);
+    LOG_F(INFO, "loaded %u payouts from payoutQueue.raw file", payoutsNum);
     if (payoutsNum != _payoutQueue.size())
       updatePayoutFile();
   }
@@ -1113,8 +1016,6 @@ void AccountingDb::checkBalance()
     userBalance += userIt.second.Balance;
     requestedInBalance += userIt.second.Requested;
   }
-  // userBalance /= CoinInfo_.ExtraMultiplier;
-
   for (auto &p: _payoutQueue) {
     requestedInQueue += p.Value;
     if (p.Status == PayoutDbRecord::ETxSent)
@@ -1125,8 +1026,6 @@ void AccountingDb::checkBalance()
     for (auto &pIt: roundIt->Payouts)
       queued += pIt.Value;
   }
-  // queued /= CoinInfo_.ExtraMultiplier;
-
   net = balance + immature - userBalance - queued + confirmationWait;
 
   {
@@ -1434,8 +1333,6 @@ void AccountingDb::queryBalanceImpl(const std::string &user, QueryBalanceCallbac
     if (payout != It->Payouts.end() && payout->UserId == user)
       info.Queued += payout->Value;
   }
-  // info.Queued /= CoinInfo_.ExtraMultiplier;
-
   auto &balanceMap = getUserBalanceMap();
   auto It = balanceMap.find(user);
   if (It != balanceMap.end()) {

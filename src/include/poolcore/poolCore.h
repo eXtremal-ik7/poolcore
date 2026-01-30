@@ -15,6 +15,11 @@ class CPreparedQuery;
 class CNetworkClientDispatcher;
 struct asyncBase;
 
+struct CCoinInfoOld2 {
+  int64_t ExtraMultiplier = 100;
+  double WorkMultiplier = 4294967296.0;
+};
+
 struct CCoinInfo {
   enum EAddressType {
     EP2PKH = 1,
@@ -33,9 +38,8 @@ struct CCoinInfo {
 
   std::string Name;
   std::string FullName;
+  bool IsAlgorithm = false;
   unsigned FractionalPartSize;
-  // int64_t RationalPartSize;
-  // int64_t ExtraMultiplier = 100;
   EAddressType PayoutAddressType;
   bool SegwitEnabled;
   bool MWebEnabled = false;
@@ -53,7 +57,6 @@ struct CCoinInfo {
   double ProfitSwitchDefaultCoeff = 0.0;
   unsigned MinimalConfirmationsNumber = 6;
   bool HasExtendedFundRawTransaction = true;
-  double WorkMultiplier = 4294967296.0;
   UInt<256> PowLimit;
   // ETH configuration
   bool HasDagFile = false;

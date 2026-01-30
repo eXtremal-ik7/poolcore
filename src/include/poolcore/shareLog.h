@@ -26,13 +26,6 @@ struct ShareLogIo<CShare> {
   static void unserialize(xmstream &in, CShare &data);
 };
 
-
-template<>
-struct ShareLogIo<CShareV1> {
-  static void serialize(xmstream &out, const CShareV1 &data);
-  static void unserialize(xmstream &in, CShareV1 &data);
-};
-
 template<typename CConfig>
 class ShareLog {
 private:
@@ -41,10 +34,7 @@ private:
     uint64_t FirstId;
     uint64_t LastId;
     FileDescriptor Fd;
-    // Version 1: old format (double work)
-    // Version 2: previous format (CShareV1)
-    // Version 3: current format (CShare with UInt<256>)
-    unsigned Version = 3;
+    unsigned Version;
   };
 
 public:
@@ -64,11 +54,6 @@ public:
     Config_ = config;
     CoinInfo_ = coinInfo;
 
-    {
-      // TODO: remove this code after full migration
-      enumerateShareFiles(ShareLog_, basePath / "shares.log", 1, false);
-      enumerateShareFiles(ShareLog_, basePath / "shares.log.v1", 2, false);
-    }
     enumerateShareFiles(ShareLog_, basePath / "shares.log.3", 3, true);
 
     std::sort(ShareLog_.begin(), ShareLog_.end(), [](const CShareLogFile &l, const CShareLogFile &r) { return l.FirstId < r.FirstId; });
@@ -162,30 +147,7 @@ private:
     stream.seekSet(0);
     while (stream.remaining()) {
       CShare share;
-      if (file.Version == 1) {
-        // Old format: manual parsing with double work
-        share.UniqueShareId = stream.readle<uint64_t>();
-        DbIo<std::string>::unserialize(stream, share.userId);
-        DbIo<std::string>::unserialize(stream, share.workerId);
-        double workValue = stream.read<double>();
-        DbIo<int64_t>::unserialize(stream, share.Time);
-        // Convert work double -> UInt<256>
-        share.WorkValue = UInt<256>::fromDouble(coinInfo.WorkMultiplier);
-        share.WorkValue.mulfp(workValue);
-      } else if (file.Version == 2) {
-        // Previous format: CShareV1
-        CShareV1 shareV1;
-        ShareLogIo<CShareV1>::unserialize(stream, shareV1);
-        share.UniqueShareId = shareV1.UniqueShareId;
-        share.userId = std::move(shareV1.userId);
-        share.workerId = std::move(shareV1.workerId);
-        share.WorkValue = UInt<256>::fromDouble(coinInfo.WorkMultiplier);
-        share.WorkValue.mulfp(shareV1.WorkValue);
-        share.Time = shareV1.Time;
-      } else {
-        // Version 3: current format with UInt<256>
-        ShareLogIo<CShare>::unserialize(stream, share);
-      }
+      ShareLogIo<CShare>::unserialize(stream, share);
       if (stream.eof()) {
         LOG_F(ERROR, "Corrupted file %s", path_to_utf8(file.Path).c_str());
         break;
