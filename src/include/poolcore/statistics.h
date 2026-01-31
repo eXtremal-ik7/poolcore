@@ -7,6 +7,7 @@
 #include "poolcore/rocksdbBase.h"
 #include "poolcore/shareLog.h"
 #include "poolcore/usermgr.h"
+#include "poolcommon/datFile.h"
 #include "poolcommon/multiCall.h"
 #include "poolcommon/serialize.h"
 #include "poolcommon/taskHandler.h"
@@ -147,18 +148,6 @@ private:
   using QueryStatsHistoryCallback = std::function<void(const std::vector<StatisticDb::CStats>&)>;
   using QueryAllUsersStatisticCallback = std::function<void(const std::vector<CredentialsWithStatistic>&)>;
 
-  struct CStatsFile {
-    int64_t TimeLabel;
-    uint64_t LastShareId;
-    unsigned Version;
-    std::filesystem::path Path;
-  };
-
-  struct CFlushInfo {
-    uint64_t ShareId;
-    int64_t Time;
-  };
-
   class TaskQueryPoolStats : public Task<StatisticDb> {
   public:
     TaskQueryPoolStats(QueryPoolStatsCallback callback) : Callback_(callback) {}
@@ -210,8 +199,8 @@ private:
 
   kvdb<rocksdbBase> WorkerStatsDb_;
   kvdb<rocksdbBase> PoolStatsDb_;
-  std::deque<CStatsFile> PoolStatsCache_;
-  std::deque<CStatsFile> WorkersStatsCache_;
+  std::deque<CDatFile> PoolStatsCache_;
+  std::deque<CDatFile> WorkersStatsCache_;
 
   TaskHandlerCoroutine<StatisticDb> TaskHandler_;
   aioUserEvent *WorkerStatsUpdaterEvent_;
@@ -228,19 +217,18 @@ private:
     uint64_t Count = 0;
   } Dbg_;
 
-  bool parseStatsCacheFile(CStatsFile &file);
+  bool parseStatsCacheFile(CDatFile &file);
 
-  void enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::filesystem::path &directory, unsigned version, bool createIfNotExists);
-  void updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, time_t currentTime, xmstream &statsFileData);
+  void updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, int64_t currentTime, xmstream &statsFileData);
   void calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, std::chrono::seconds calculateInterval, std::chrono::seconds aggregateTime, CStats &result);
   void writeStatsToDb(const std::string &loginId, const std::string &workerId, const CStatsElement &element);
   void writeStatsToCache(const std::string &loginId, const std::string &workerId, const CStatsElement &element, int64_t lastShareTime, xmstream &statsFileData);
 
-  void updateStatsDiskCache(const std::string &name, std::deque<CStatsFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size);
-  void updateWorkersStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) {
+  void updateStatsDiskCache(const std::string &name, std::deque<CDatFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size);
+  void updateWorkersStatsDiskCache(int64_t timeLabel, uint64_t shareId, const void *data, size_t size) {
     updateStatsDiskCache(CurrentWorkersStoragePath, WorkersStatsCache_, timeLabel, shareId, data, size);
   }
-  void updatePoolStatsDiskCache(uint64_t timeLabel, uint64_t shareId, const void *data, size_t size) {
+  void updatePoolStatsDiskCache(int64_t timeLabel, uint64_t shareId, const void *data, size_t size) {
     updateStatsDiskCache(CurrentPoolStoragePath, PoolStatsCache_, timeLabel, shareId, data, size);
   }
 

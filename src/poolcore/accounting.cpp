@@ -36,7 +36,7 @@ void AccountingDb::printRecentStatistic()
   }
 }
 
-bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
+bool AccountingDb::parseAccoutingStorageFile(CDatFile &file)
 {
   LastKnownShareId_ = 0;
   LastBlockTime_ = 0;
@@ -82,10 +82,10 @@ bool AccountingDb::parseAccoutingStorageFile(CAccountingFile &file)
 
 void AccountingDb::flushAccountingStorageFile(int64_t timeLabel)
 {
-  CAccountingFile &file = AccountingDiskStorage_.emplace_back();
+  CDatFile &file = AccountingDiskStorage_.emplace_back();
   file.Path = _cfg.dbPath / CurrentAccountingStoragePath / (std::to_string(timeLabel) + ".dat");
   file.LastShareId = LastKnownShareId_;
-  file.TimeLabel = timeLabel;
+  file.FileId = timeLabel;
 
   FileDescriptor fd;
   if (!fd.open(file.Path)) {
@@ -106,8 +106,8 @@ void AccountingDb::flushAccountingStorageFile(int64_t timeLabel)
   fd.close();
 
   // Cleanup old files
-  auto removeTimePoint = timeLabel - std::chrono::seconds(300).count();
-  while (!AccountingDiskStorage_.empty() && AccountingDiskStorage_.front().TimeLabel < removeTimePoint) {
+  int64_t removeTimePoint = timeLabel - 300;
+  while (!AccountingDiskStorage_.empty() && AccountingDiskStorage_.front().FileId < static_cast<uint64_t>(removeTimePoint)) {
     if (isDebugAccounting())
       LOG_F(1, "Removing old accounting file %s", path_to_utf8(AccountingDiskStorage_.front().Path).c_str());
     std::filesystem::remove(AccountingDiskStorage_.front().Path);
@@ -143,12 +143,12 @@ AccountingDb::AccountingDb(asyncBase *base,
   FlushInfo_.Time = currentTime;
   FlushInfo_.ShareId = 0;
 
-  enumerateStatsFiles(AccountingDiskStorage_, config.dbPath / CurrentAccountingStoragePath, 3, true);
+  enumerateDatFiles(AccountingDiskStorage_, config.dbPath / CurrentAccountingStoragePath, 3, true);
 
   while (!AccountingDiskStorage_.empty()) {
     auto &file = AccountingDiskStorage_.back();
     if (parseAccoutingStorageFile(file)) {
-      FlushInfo_.Time = file.TimeLabel;
+      FlushInfo_.Time = file.FileId;
       FlushInfo_.ShareId = file.LastShareId;
       break;
     } else {
@@ -216,33 +216,6 @@ AccountingDb::AccountingDb(asyncBase *base,
 
     LOG_F(INFO, "loaded %u user balance data from db", (unsigned)_balanceMap.size());
   }
-}
-
-void AccountingDb::enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory, unsigned version, bool createIfNotExists)
-{
-  std::error_code errc;
-  if (createIfNotExists) {
-    std::filesystem::create_directories(directory, errc);
-  } else if (!std::filesystem::exists(directory)) {
-    return;
-  }
-  for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
-    std::string fileName = I->path().filename();
-    auto dotDatPos = fileName.find(".dat");
-    if (dotDatPos == fileName.npos) {
-      LOG_F(ERROR, "AccountingDb: invalid statitic cache file name format: %s", fileName.c_str());
-      continue;
-    }
-
-    fileName.resize(dotDatPos);
-
-    cache.emplace_back();
-    cache.back().Path = *I;
-    cache.back().TimeLabel = xatoi<uint64_t>(fileName.c_str());
-    cache.back().Version = version;
-  }
-
-  std::sort(cache.begin(), cache.end(), [](const CAccountingFile &l, const CAccountingFile &r){ return l.TimeLabel < r.TimeLabel; });
 }
 
 void AccountingDb::start()

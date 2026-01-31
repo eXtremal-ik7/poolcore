@@ -3,11 +3,11 @@
 #include "poolcommon/coroutineJoin.h"
 #include "poolcommon/debug.h"
 #include "poolcommon/path.h"
-#include "poolcommon/serialize.h"
 #include "loguru.hpp"
 #include <algorithm>
 
-bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
+bool StatisticDb::parseStatsCacheFile(CDatFile &file)
+
 {
   FileDescriptor fd;
   if (!fd.open(path_to_utf8(file.Path).c_str())) {
@@ -42,7 +42,7 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
         acc = &PoolStatsAcc_;
 
 
-      if (!acc->Recent.empty() && acc->Recent.back().TimeLabel >= file.TimeLabel) {
+      if (!acc->Recent.empty() && static_cast<uint64_t>(acc->Recent.back().TimeLabel) >= file.FileId) {
         LOG_F(ERROR, "<%s> StatisticDb: duplicate data in %s", CoinInfo_.Name.c_str(), path_to_utf8(file.Path).c_str());
         return false;
       }
@@ -52,7 +52,7 @@ bool StatisticDb::parseStatsCacheFile(CStatsFile &file)
       acc->LastShareTime = record.Time;
       stats.SharesNum = static_cast<uint32_t>(record.ShareCount);
       stats.SharesWork = record.ShareWork;
-      stats.TimeLabel = file.TimeLabel;
+      stats.TimeLabel = file.FileId;
       stats.PrimePOWTarget = record.PrimePOWTarget;
       stats.PrimePOWSharesNum.assign(record.PrimePOWShareCount.begin(), record.PrimePOWShareCount.end());
       if (isDebugStatistic()) {
@@ -84,11 +84,11 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   int64_t currentTime = time(nullptr);
   WorkersFlushInfo_.Time = currentTime;
   WorkersFlushInfo_.ShareId = 0;
-  std::deque<CStatsFile> workerStatsCache;
-  enumerateStatsFiles(workerStatsCache, config.dbPath / CurrentWorkersStoragePath, 3, true);
+  std::deque<CDatFile> workerStatsCache;
+  enumerateDatFiles(workerStatsCache, config.dbPath / CurrentWorkersStoragePath, 3, true);
   for (auto &file: workerStatsCache) {
     if (parseStatsCacheFile(file)) {
-      WorkersFlushInfo_.Time = file.TimeLabel;
+      WorkersFlushInfo_.Time = file.FileId;
       WorkersFlushInfo_.ShareId = file.LastShareId;
       WorkersStatsCache_.emplace_back(std::move(file));
     } else {
@@ -98,11 +98,11 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
 
   PoolFlushInfo_.Time = currentTime;
   PoolFlushInfo_.ShareId = 0;
-  std::deque<CStatsFile> poolStatsCache;
-  enumerateStatsFiles(poolStatsCache, config.dbPath / CurrentPoolStoragePath, 3, true);
+  std::deque<CDatFile> poolStatsCache;
+  enumerateDatFiles(poolStatsCache, config.dbPath / CurrentPoolStoragePath, 3, true);
   for (auto &file: poolStatsCache) {
     if (parseStatsCacheFile(file)) {
-      PoolFlushInfo_.Time = file.TimeLabel;
+      PoolFlushInfo_.Time = file.FileId;
       PoolFlushInfo_.ShareId = file.LastShareId;
       PoolStatsCache_.emplace_back(std::move(file));
     } else {
@@ -115,37 +115,10 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
     LOG_F(1, "%s: last aggregated id: %" PRIu64 " last known id: %" PRIu64 "", coinInfo.Name.c_str(), lastAggregatedShareId(), lastKnownShareId());
 }
 
-void StatisticDb::enumerateStatsFiles(std::deque<CStatsFile> &cache, const std::filesystem::path &directory, unsigned version, bool createIfNotExists)
-{
-  std::error_code errc;
-  if (createIfNotExists) {
-    std::filesystem::create_directories(directory, errc);
-  } else if (!std::filesystem::exists(directory)) {
-    return;
-  }
-  for (std::filesystem::directory_iterator I(directory), IE; I != IE; ++I) {
-    std::string fileName = I->path().filename();
-    auto dotDatPos = fileName.find(".dat");
-    if (dotDatPos == fileName.npos) {
-      LOG_F(ERROR, "StatisticDb: invalid statitic cache file name format: %s", fileName.c_str());
-      continue;
-    }
-
-    fileName.resize(dotDatPos);
-
-    cache.emplace_back();
-    cache.back().Path = *I;
-    cache.back().TimeLabel = xatoi<uint64_t>(fileName.c_str());
-    cache.back().Version = version;
-  }
-
-  std::sort(cache.begin(), cache.end(), [](const CStatsFile &l, const CStatsFile &r){ return l.TimeLabel < r.TimeLabel; });
-}
-
-void StatisticDb::updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, time_t currentTime, xmstream &statsFileData)
+void StatisticDb::updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, int64_t currentTime, xmstream &statsFileData)
 {
   // Push current accumulated data to ring buffer
-  if ((currentTime - acc.LastShareTime) < std::chrono::seconds(_cfg.StatisticKeepWorkerNamesTime).count()) {
+  if (currentTime - acc.LastShareTime < std::chrono::seconds(_cfg.StatisticKeepWorkerNamesTime).count()) {
     if (isDebugStatistic())
       LOG_F(1,
             "Update statistics for %s/%s (shares=%u, work=%s)",
@@ -169,7 +142,7 @@ void StatisticDb::updateAcc(const std::string &login, const std::string &workerI
   acc.Current.reset();
 
   // Remove old data
-  auto removeTimePoint = currentTime - std::chrono::seconds(_cfg.StatisticKeepTime).count();
+  int64_t removeTimePoint = currentTime - std::chrono::seconds(_cfg.StatisticKeepTime).count();
   while (!acc.Recent.empty() && acc.Recent.front().TimeLabel < removeTimePoint)
     acc.Recent.pop_front();
 }
@@ -196,7 +169,7 @@ void StatisticDb::calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, 
     counter++;
   }
 
-  uint64_t timeInterval = startTimePoint - lastTimePoint;
+  int64_t timeInterval = startTimePoint - lastTimePoint;
   if (isDebugStatistic())
     LOG_F(1,
           "  * use %u statistic rounds; interval: %" PRIi64 "; shares num: %u; shares work: %s",
@@ -382,7 +355,7 @@ void StatisticDb::updatePoolStats(int64_t timeLabel)
   for (auto &userIt: LastWorkerStats_) {
     bool isActiveUser = false;
     for (auto &workerIt: userIt.second) {
-      if ((timeLabel - workerIt.second.LastShareTime) < std::chrono::seconds(_cfg.StatisticWorkersPowerCalculateInterval).count()) {
+      if (timeLabel - workerIt.second.LastShareTime < std::chrono::seconds(_cfg.StatisticWorkersPowerCalculateInterval).count()) {
         PoolStatsCached_.WorkersNum++;
         isActiveUser = true;
       }
@@ -410,16 +383,16 @@ void StatisticDb::updatePoolStats(int64_t timeLabel)
         PoolStatsCached_.SharesPerSecond);
 }
 
-void StatisticDb::updateStatsDiskCache(const std::string &name, std::deque<CStatsFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size)
+void StatisticDb::updateStatsDiskCache(const std::string &name, std::deque<CDatFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size)
 {
   // Don't write empty files to disk
   if (!size)
     return;
 
-  CStatsFile &statsFile = cache.emplace_back();
+  CDatFile &statsFile = cache.emplace_back();
   statsFile.Path = _cfg.dbPath / name / (std::to_string(timeLabel)+".dat");
   statsFile.LastShareId = lastShareId;
-  statsFile.TimeLabel = timeLabel;
+  statsFile.FileId = timeLabel;
 
   FileDescriptor fd;
   if (!fd.open(statsFile.Path)) {
@@ -438,7 +411,7 @@ void StatisticDb::updateStatsDiskCache(const std::string &name, std::deque<CStat
   fd.close();
 
   auto removeTimePoint = timeLabel - std::chrono::seconds(_cfg.StatisticKeepTime).count();
-  while (!cache.empty() && cache.front().TimeLabel < removeTimePoint) {
+  while (!cache.empty() && cache.front().FileId < static_cast<uint64_t>(removeTimePoint)) {
     if (isDebugStatistic())
       LOG_F(1, "Removing old statistic cache file %s", path_to_utf8(cache.front().Path).c_str());
     std::filesystem::remove(cache.front().Path);
@@ -724,7 +697,7 @@ StatisticServer::StatisticServer(asyncBase *base, const PoolBackendConfig &confi
 {
   Statistics_.reset(new StatisticDb(Base_, config, CoinInfo_));
   StatisticShareLogConfig shareLogConfig(Statistics_.get());
-  ShareLog_.init(config.dbPath, coinInfo.Name, Base_, config.ShareLogFlushInterval, config.ShareLogFileSizeLimit, shareLogConfig, coinInfo);
+  ShareLog_.init(config.dbPath, coinInfo.Name, Base_, config.ShareLogFlushInterval, config.ShareLogFileSizeLimit, shareLogConfig);
 }
 
 void StatisticServer::start()

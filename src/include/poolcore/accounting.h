@@ -5,6 +5,7 @@
 #include "backendData.h"
 #include "statistics.h"
 #include "usermgr.h"
+#include "poolcommon/datFile.h"
 #include "poolcommon/file.h"
 #include "poolcommon/multiCall.h"
 #include "poolcommon/taskHandler.h"
@@ -63,24 +64,6 @@ private:
     std::string UserId;
     double FeeCoeff;
     UserFeePair(const std::string &userId, double fee) : UserId(userId), FeeCoeff(fee) {}
-  };
-
-  struct payoutAggregate {
-    std::string userId;
-    double shareValue;
-    int64_t payoutValue;
-  };
-
-  struct CAccountingFile {
-    int64_t TimeLabel = 0;
-    uint64_t LastShareId = 0;
-    unsigned Version;
-    std::filesystem::path Path;
-  };
-
-  struct CFlushInfo {
-    uint64_t ShareId;
-    int64_t Time;
   };
 
   class TaskShare : public Task<AccountingDb> {
@@ -171,7 +154,7 @@ private:
   std::unordered_set<std::string> KnownTransactions_;
 
   int64_t LastBlockTime_ = 0;
-  std::deque<CAccountingFile> AccountingDiskStorage_;
+  std::deque<CDatFile> AccountingDiskStorage_;
   // Accumulated share work per user for the current block search session; cleared on block found
   std::map<std::string, UInt<256>> CurrentScores_;
   std::vector<StatisticDb::CStatsExportData> RecentStats_;
@@ -200,7 +183,7 @@ private:
   bool FlushFinished_ = false;
 
   void printRecentStatistic();
-  bool parseAccoutingStorageFile(CAccountingFile &file);
+  bool parseAccoutingStorageFile(CDatFile &file);
   void flushAccountingStorageFile(int64_t timeLabel);
 
 public:
@@ -217,7 +200,6 @@ public:
   uint64_t lastAggregatedShareId() { return !AccountingDiskStorage_.empty() ? AccountingDiskStorage_.back().LastShareId : 0; }
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
-  void enumerateStatsFiles(std::deque<CAccountingFile> &cache, const std::filesystem::path &directory, unsigned version, bool createIfNotExists);
   void start();
   void stop();
   void updatePayoutFile();
