@@ -51,7 +51,7 @@ public:
         return BTC::difficultyFromBits(header.nBits, 29);
     }
     static UInt<256> expectedWork(const BlockHeader &header, const CheckConsensusCtx&) {
-      return uint256Compact(header.nBits);
+      return BTC::Stratum::difficultyFromTarget(uint256Compact(header.nBits));
     }
     static bool decodeHumanReadableAddress(const std::string &hrAddress,
                                            const std::vector<uint8_t> &prefix,

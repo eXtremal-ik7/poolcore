@@ -245,9 +245,9 @@ UInt<256> Proto::expectedWork(const Proto::BlockHeader &header, const CheckConse
 {
   if (ctx.HasRtt) {
     UInt<256> adjustedTarget = rttComputeNextTarget(time(nullptr), ctx.PrevBits, ctx.PrevHeaderTime, header.nBits);
-    return uint256GetCompact(adjustedTarget);
+    return Stratum::difficultyFromTarget(adjustedTarget);
   } else {
-    return uint256GetCompact(header.nBits);
+    return Stratum::difficultyFromTarget(uint256Compact(header.nBits));
   }
 }
 

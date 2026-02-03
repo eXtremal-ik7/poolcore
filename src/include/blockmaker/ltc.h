@@ -30,7 +30,7 @@ public:
   static CCheckStatus checkConsensus(const LTC::Proto::BlockHeader &header, CheckConsensusCtx&, LTC::Proto::ChainParams&, const UInt<256> &shareTarget) { return checkPow(header, header.nBits, shareTarget); }
   static CCheckStatus checkConsensus(const LTC::Proto::Block &block, CheckConsensusCtx&, LTC::Proto::ChainParams&, const UInt<256> &shareTarget) { return checkPow(block.header, block.header.nBits, shareTarget); }
   static double getDifficulty(const Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 29); }
-  static UInt<256> expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&) { return uint256Compact(header.nBits); }
+  static UInt<256> expectedWork(const Proto::BlockHeader &header, const CheckConsensusCtx&) { return BTC::Stratum::difficultyFromTarget(uint256Compact(header.nBits)); }
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 

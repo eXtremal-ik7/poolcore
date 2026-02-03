@@ -532,6 +532,11 @@ public:
     static const UInt<256> maxTarget = UInt<256>::fromHex("ffff000000000000000000000000000000000000000000000000000000000000");
     return maxTarget / difficulty;
   }
+
+  static UInt<256> difficultyFromTarget(const UInt<256> &target) {
+    static const UInt<256> maxTarget = UInt<256>::fromHex("ffff000000000000000000000000000000000000000000000000000000000000");
+    return maxTarget / target;
+  }
 };
 
 struct X {

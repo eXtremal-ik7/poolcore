@@ -205,7 +205,7 @@ public:
   static CCheckStatus checkConsensus(const ZEC::Proto::BlockHeader &header, CheckConsensusCtx&consensusCtx, ZEC::Proto::ChainParams&, const UInt<256> &shareTarget);
   static CCheckStatus checkConsensus(const ZEC::Proto::Block &block, CheckConsensusCtx &ctx, ZEC::Proto::ChainParams &chainParams, const UInt<256> &shareTarget) { return checkConsensus(block.header, ctx, chainParams, shareTarget); }
   static double getDifficulty(const ZEC::Proto::BlockHeader &header) { return BTC::difficultyFromBits(header.nBits, 32); }
-  static UInt<256> expectedWork(const ZEC::Proto::BlockHeader &header, const CheckConsensusCtx&) { return uint256Compact(header.nBits); }
+  static UInt<256> expectedWork(const ZEC::Proto::BlockHeader &header, const CheckConsensusCtx&) { return BTC::Stratum::difficultyFromTarget(uint256Compact(header.nBits)); }
   static bool decodeHumanReadableAddress(const std::string &hrAddress, const std::vector<uint8_t> &pubkeyAddressPrefix, AddressTy &address) { return BTC::Proto::decodeHumanReadableAddress(hrAddress, pubkeyAddressPrefix, address); }
 };
 
