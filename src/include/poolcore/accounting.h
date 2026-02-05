@@ -5,7 +5,6 @@
 #include "backendData.h"
 #include "statistics.h"
 #include "usermgr.h"
-#include "poolcommon/datFile.h"
 #include "poolcommon/file.h"
 #include "poolcommon/multiCall.h"
 #include "poolcommon/taskHandler.h"
@@ -23,7 +22,7 @@ class StatisticDb;
 
 class AccountingDb {
 private:
-  inline static const std::string CurrentAccountingStoragePath = "accounting.storage.3";
+  inline static const std::string AccountingStatePath = "accounting.state";
 
 public:
   struct UserBalanceInfo {
@@ -41,15 +40,6 @@ public:
     uint32_t PrimePOWTarget = -1U;
   };
 
-  // +file serialization
-  struct CAccountingFileData {
-    enum { CurrentRecordVersion = 1 };
-
-    uint64_t LastShareId;
-    int64_t LastBlockTime;
-    std::vector<StatisticDb::CStatsExportData> Recent;
-    std::map<std::string, UInt<256>> CurrentScores;
-  };
 
 private:
   using DefaultCb = std::function<void(const char*)>;
@@ -153,8 +143,6 @@ private:
   std::list<PayoutDbRecord> _payoutQueue;
   std::unordered_set<std::string> KnownTransactions_;
 
-  int64_t LastBlockTime_ = 0;
-  std::deque<CDatFile> AccountingDiskStorage_;
   // Accumulated share work per user for the current block search session; cleared on block found
   std::map<std::string, UInt<256>> CurrentScores_;
   std::vector<StatisticDb::CStatsExportData> RecentStats_;
@@ -167,7 +155,7 @@ private:
     uint64_t Count = 0;
   } Dbg_;
 
-  FileDescriptor _payoutsFd;
+  rocksdbBase StateDb_;
   kvdb<rocksdbBase> _roundsDb;
   kvdb<rocksdbBase> _balanceDb;
   kvdb<rocksdbBase> _foundBlocksDb;
@@ -183,8 +171,9 @@ private:
   bool FlushFinished_ = false;
 
   void printRecentStatistic();
-  bool parseAccoutingStorageFile(CDatFile &file);
-  void flushAccountingStorageFile(Timestamp timeLabel);
+  bool loadStateFromDb();
+  void flushCurrentScores();
+  void flushBlockFoundState();
 
 public:
   AccountingDb(asyncBase *base,
@@ -197,7 +186,7 @@ public:
 
   void taskHandler();
 
-  uint64_t lastAggregatedShareId() { return !AccountingDiskStorage_.empty() ? AccountingDiskStorage_.back().LastShareId : 0; }
+  uint64_t lastAggregatedShareId() { return FlushInfo_.ShareId; }
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
   void start();
@@ -257,22 +246,6 @@ private:
   void queryPPLNSPayoutsImpl(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback);
   void queryPPLNSPayoutsAccImpl(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, QueryPPLNSAccCallback callback);
   void poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback);
-};
-
-template<>
-struct DbIo<AccountingDb::CAccountingFileData> {
-  static inline void unserialize(xmstream &in, AccountingDb::CAccountingFileData &data) {
-    uint32_t version;
-    DbIo<uint32_t>::unserialize(in, version);
-    if (version == 1) {
-      DbIo<decltype(data.LastShareId)>::unserialize(in, data.LastShareId);
-      DbIo<decltype(data.LastBlockTime)>::unserialize(in, data.LastBlockTime);
-      DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
-      DbIo<decltype(data.CurrentScores)>::unserialize(in, data.CurrentScores);
-    } else {
-      in.seekEnd(0, true);
-    }
-  }
 };
 
 #endif //__ACCOUNTING_H_

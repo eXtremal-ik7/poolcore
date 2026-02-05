@@ -36,83 +36,101 @@ void AccountingDb::printRecentStatistic()
   }
 }
 
-bool AccountingDb::parseAccoutingStorageFile(CDatFile &file)
+bool AccountingDb::loadStateFromDb()
 {
   LastKnownShareId_ = 0;
-  LastBlockTime_ = 0;
   RecentStats_.clear();
   CurrentScores_.clear();
 
-  FileDescriptor fd;
-  if (!fd.open(path_to_utf8(file.Path).c_str())) {
-    LOG_F(ERROR, "AccountingDb: can't open file %s", path_to_utf8(file.Path).c_str());
-    return false;
+  std::unique_ptr<rocksdbBase::IteratorType> It(StateDb_.iterator());
+  It->seekFirst();
+
+  while (It->valid()) {
+    RawData key = It->key();
+    RawData value = It->value();
+    std::string keyStr(reinterpret_cast<const char*>(key.data), key.size);
+
+    xmstream stream(value.data, value.size);
+    stream.seekSet(0);
+
+    if (keyStr == "lastmsgid") {
+      DbIo<uint64_t>::unserialize(stream, LastKnownShareId_);
+    } else if (keyStr == "recentstats") {
+      DbIo<decltype(RecentStats_)>::unserialize(stream, RecentStats_);
+    } else if (keyStr == "currentscores") {
+      DbIo<decltype(CurrentScores_)>::unserialize(stream, CurrentScores_);
+    } else if (keyStr == "payoutqueue") {
+      while (stream.remaining()) {
+        PayoutDbRecord element;
+        if (!element.deserializeValue(stream))
+          break;
+        _payoutQueue.push_back(element);
+        KnownTransactions_.insert(element.TransactionId);
+      }
+    }
+
+    It->next();
   }
 
-  size_t fileSize = fd.size();
-  xmstream stream(fileSize);
-  size_t bytesRead = fd.read(stream.reserve(fileSize), 0, fileSize);
-  fd.close();
-  if (bytesRead != fileSize) {
-    LOG_F(ERROR, "AccountingDb: can't read file %s", path_to_utf8(file.Path).c_str());
-    return false;
-  }
+  FlushInfo_.ShareId = LastKnownShareId_;
 
-  stream.seekSet(0);
-  CAccountingFileData fileData;
-
-  DbIo<CAccountingFileData>::unserialize(stream, fileData);
-
-  file.LastShareId = fileData.LastShareId;
-  if (!stream.remaining() && !stream.eof()) {
-    LastKnownShareId_ = fileData.LastShareId;
-    LastBlockTime_ = fileData.LastBlockTime;
-    RecentStats_ = std::move(fileData.Recent);
-    CurrentScores_ = std::move(fileData.CurrentScores);
+  if (LastKnownShareId_ != 0) {
+    LOG_F(INFO, "AccountingDb: loaded state from db, LastKnownShareId=%" PRIu64 "", LastKnownShareId_);
     return true;
-  } else {
-    LastKnownShareId_ = 0;
-    LastBlockTime_ = 0;
-    RecentStats_.clear();
-    CurrentScores_.clear();
-    LOG_F(ERROR, "AccountingDb: file %s is corrupted", file.Path.generic_string().c_str());
-    return false;
   }
+  return false;
 }
 
-void AccountingDb::flushAccountingStorageFile(Timestamp timeLabel)
+void AccountingDb::flushCurrentScores()
 {
-  CDatFile &file = AccountingDiskStorage_.emplace_back();
-  file.Path = _cfg.dbPath / CurrentAccountingStoragePath / (std::to_string(timeLabel.toUnixTime()) + ".dat");
-  file.LastShareId = LastKnownShareId_;
-  file.FileId = timeLabel.toUnixTime();
+  rocksdbBase::PartitionBatchType batch = StateDb_.batch("default");
 
-  FileDescriptor fd;
-  if (!fd.open(file.Path)) {
-    LOG_F(ERROR, "AccountingDb: can't write file %s", file.Path.generic_string().c_str());
-    return;
+  // Save LastKnownShareId
+  {
+    xmstream stream;
+    DbIo<uint64_t>::serialize(stream, LastKnownShareId_);
+    std::string key = "lastmsgid";
+    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
 
-  xmstream stream;
-  DbIo<uint32_t>::serialize(stream, CAccountingFileData::CurrentRecordVersion);
-  DbIo<decltype(LastKnownShareId_)>::serialize(stream, LastKnownShareId_);
-  DbIo<decltype(LastBlockTime_)>::serialize(stream, LastBlockTime_);
-  // Statistics
-  DbIo<decltype(RecentStats_)>::serialize(stream, RecentStats_);
-  // Current round aggregated data
-  DbIo<decltype(CurrentScores_)>::serialize(stream, CurrentScores_);
-
-  fd.write(stream.data(), stream.sizeOf());
-  fd.close();
-
-  // Cleanup old files
-  Timestamp removeTimePoint = timeLabel - std::chrono::seconds(300);
-  while (!AccountingDiskStorage_.empty() && Timestamp::fromUnixTime(AccountingDiskStorage_.front().FileId) < removeTimePoint) {
-    if (isDebugAccounting())
-      LOG_F(1, "Removing old accounting file %s", path_to_utf8(AccountingDiskStorage_.front().Path).c_str());
-    std::filesystem::remove(AccountingDiskStorage_.front().Path);
-    AccountingDiskStorage_.pop_front();
+  // Save CurrentScores
+  {
+    xmstream stream;
+    DbIo<decltype(CurrentScores_)>::serialize(stream, CurrentScores_);
+    std::string key = "currentscores";
+    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
+
+  StateDb_.writeBatch(batch);
+}
+
+void AccountingDb::flushBlockFoundState()
+{
+  rocksdbBase::PartitionBatchType batch = StateDb_.batch("default");
+
+  // Save LastKnownShareId
+  {
+    xmstream stream;
+    DbIo<uint64_t>::serialize(stream, LastKnownShareId_);
+    std::string key = "lastmsgid";
+    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
+  }
+
+  // Save RecentStats
+  {
+    xmstream stream;
+    DbIo<decltype(RecentStats_)>::serialize(stream, RecentStats_);
+    std::string key = "recentstats";
+    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
+  }
+
+  // Delete CurrentScores (it's cleared after block found)
+  {
+    std::string key = "currentscores";
+    batch.deleteRow(key.data(), key.size());
+  }
+
+  StateDb_.writeBatch(batch);
 }
 
 AccountingDb::AccountingDb(asyncBase *base,
@@ -129,6 +147,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   ClientDispatcher_(clientDispatcher),
   StatisticDb_(statisticDb),
   PriceFetcher_(priceFetcher),
+  StateDb_(config.dbPath / AccountingStatePath),
   _roundsDb(config.dbPath / "rounds.3"),
   _balanceDb(config.dbPath / "balance.2"),
   _foundBlocksDb(config.dbPath / "foundBlocks.2"),
@@ -143,47 +162,8 @@ AccountingDb::AccountingDb(asyncBase *base,
   FlushInfo_.Time = currentTime;
   FlushInfo_.ShareId = 0;
 
-  enumerateDatFiles(AccountingDiskStorage_, config.dbPath / CurrentAccountingStoragePath, 3, true);
-
-  while (!AccountingDiskStorage_.empty()) {
-    auto &file = AccountingDiskStorage_.back();
-    if (parseAccoutingStorageFile(file)) {
-      FlushInfo_.Time = Timestamp::fromUnixTime(file.FileId);
-      FlushInfo_.ShareId = file.LastShareId;
-      break;
-    } else {
-      // Remove corrupted file
-      std::filesystem::remove(file.Path);
-      AccountingDiskStorage_.pop_back();
-    }
-  }
-
-  {
-    unsigned payoutsNum = 0;
-    _payoutsFd.open(_cfg.dbPath / "payoutQueue.raw");
-    if (!_payoutsFd.isOpened())
-      LOG_F(ERROR, "can't open payouts file %s (%s)", path_to_utf8(_cfg.dbPath / "payoutQueue.raw").c_str(), strerror(errno));
-
-    auto fileSize = _payoutsFd.size();
-    if (fileSize > 0) {
-      xmstream stream;
-      _payoutsFd.read(stream.reserve(fileSize), 0, fileSize);
-
-      stream.seekSet(0);
-      while (stream.remaining()) {
-        PayoutDbRecord element;
-        if (!element.deserializeValue(stream))
-          break;
-        _payoutQueue.push_back(element);
-        KnownTransactions_.insert(element.TransactionId);
-        payoutsNum++;
-      }
-    }
-
-    LOG_F(INFO, "loaded %u payouts from payoutQueue.raw file", payoutsNum);
-    if (payoutsNum != _payoutQueue.size())
-      updatePayoutFile();
-  }
+  loadStateFromDb();
+  LOG_F(INFO, "loaded %u payouts from db", static_cast<unsigned>(_payoutQueue.size()));
 
   {
     std::unique_ptr<rocksdbBase::IteratorType> It(_roundsDb.iterator());
@@ -225,10 +205,10 @@ void AccountingDb::start()
   coroutineCall(coroutineNewWithCb([](void *arg) {
     AccountingDb *db = static_cast<AccountingDb*>(arg);
     for (;;) {
+      ioSleep(db->FlushTimerEvent_, std::chrono::microseconds(std::chrono::minutes(1)).count());
+      db->flushCurrentScores();
       if (db->ShutdownRequested_)
         break;
-      ioSleep(db->FlushTimerEvent_, std::chrono::microseconds(std::chrono::minutes(1)).count());
-      db->flushAccountingStorageFile(Timestamp::now());
     }
   }, this, 0x20000, coroutineFinishCb, &FlushFinished_));
 }
@@ -247,8 +227,8 @@ void AccountingDb::updatePayoutFile()
   for (auto &p: _payoutQueue)
     p.serializeValue(stream);
 
-  _payoutsFd.write(stream.data(), 0, stream.sizeOf());
-  _payoutsFd.truncate(stream.sizeOf());
+  std::string key = "payoutqueue";
+  StateDb_.put("default", key.data(), key.size(), stream.data(), stream.sizeOf());
 }
 
 void AccountingDb::cleanupRounds()
@@ -467,13 +447,8 @@ void AccountingDb::addShare(const CShare &share)
     // Reset aggregated data
     CurrentScores_.clear();
 
-    // Remove old data
-    for (const auto &file: AccountingDiskStorage_)
-      std::filesystem::remove(file.Path);
-    AccountingDiskStorage_.clear();
-
-    // Save recent statistics
-    flushAccountingStorageFile(share.Time);
+    // Save state to db
+    flushBlockFoundState();
   }
 }
 
