@@ -1,6 +1,7 @@
 #pragma once
 
 #include "poolcommon/baseBlob.h"
+#include "poolcommon/timeTypes.h"
 #include "p2putils/xmstream.h"
 #include "poolcommon/uint.h"
 #include <list>
@@ -209,5 +210,36 @@ template<typename K, typename V> struct DbIo<std::map<K, V>> {
       DbIo<V>::unserialize(src, value);
       data.insert(std::make_pair(key, value));
     }
+  }
+};
+
+// Timestamp serialization
+template<>
+struct DbKeyIo<Timestamp> {
+  static inline void serialize(xmstream &stream, const Timestamp &data) {
+    stream.writebe<int64_t>(data.count());
+  }
+};
+
+template<>
+struct DbIo<Timestamp> {
+  static inline void serialize(xmstream &stream, const Timestamp &data) {
+    stream.writele<int64_t>(data.count());
+  }
+  static inline void unserialize(xmstream &stream, Timestamp &data) {
+    data = Timestamp(stream.readle<int64_t>());
+  }
+};
+
+// TimeInterval serialization
+template<>
+struct DbIo<TimeInterval> {
+  static inline void serialize(xmstream &stream, const TimeInterval &data) {
+    DbIo<Timestamp>::serialize(stream, data.TimeBegin);
+    DbIo<Timestamp>::serialize(stream, data.TimeEnd);
+  }
+  static inline void unserialize(xmstream &stream, TimeInterval &data) {
+    DbIo<Timestamp>::unserialize(stream, data.TimeBegin);
+    DbIo<Timestamp>::unserialize(stream, data.TimeEnd);
   }
 };

@@ -18,7 +18,7 @@ class ShareLogConfig {
 public:
   ShareLogConfig() {}
   ShareLogConfig(AccountingDb *accounting, StatisticDb *statistic) : Accounting_(accounting), Statistic_(statistic) {}
-  void initializationFinish(int64_t time) {
+  void initializationFinish(Timestamp time) {
     Accounting_->initializationFinish(time);
     Statistic_->initializationFinish(time);
   }

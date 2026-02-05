@@ -1,6 +1,7 @@
 #pragma once
 
 #include "poolcommon/file.h"
+#include "poolcommon/timeTypes.h"
 #include <deque>
 #include <filesystem>
 
@@ -14,7 +15,7 @@ struct CDatFile {
 
 struct CFlushInfo {
   uint64_t ShareId;
-  int64_t Time;
+  Timestamp Time;
 };
 
 void enumerateDatFiles(std::deque<CDatFile> &cache,

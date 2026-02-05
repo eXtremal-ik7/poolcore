@@ -25,7 +25,7 @@ struct CShare {
   bool isBlock;
   std::string hash;
   UInt<384> generatedCoins;
-  int64_t Time;
+  Timestamp Time;
   UInt<256> ExpectedWork = UInt<256>::zero();
   uint32_t ChainLength;
   uint32_t PrimePOWTarget;
@@ -398,16 +398,16 @@ struct PoolBalanceRecord {
 
 struct StatsRecord {
   enum { CurrentRecordVersion = 1 };
-  
+
   std::string Login;
   std::string WorkerId;
-  int64_t Time;
+  TimeInterval Time;
   uint64_t ShareCount;
   UInt<256> ShareWork;
   uint32_t PrimePOWTarget;
   std::vector<uint64_t> PrimePOWShareCount;
-  
-  std::string getPartitionId() const { return partByTime(Time); }
+
+  std::string getPartitionId() const { return partByTime(Time.TimeEnd.toUnixTime()); }
   bool deserializeValue(xmstream &stream);
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;

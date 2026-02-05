@@ -80,12 +80,12 @@ bool AccountingDb::parseAccoutingStorageFile(CDatFile &file)
   }
 }
 
-void AccountingDb::flushAccountingStorageFile(int64_t timeLabel)
+void AccountingDb::flushAccountingStorageFile(Timestamp timeLabel)
 {
   CDatFile &file = AccountingDiskStorage_.emplace_back();
-  file.Path = _cfg.dbPath / CurrentAccountingStoragePath / (std::to_string(timeLabel) + ".dat");
+  file.Path = _cfg.dbPath / CurrentAccountingStoragePath / (std::to_string(timeLabel.toUnixTime()) + ".dat");
   file.LastShareId = LastKnownShareId_;
-  file.FileId = timeLabel;
+  file.FileId = timeLabel.toUnixTime();
 
   FileDescriptor fd;
   if (!fd.open(file.Path)) {
@@ -106,8 +106,8 @@ void AccountingDb::flushAccountingStorageFile(int64_t timeLabel)
   fd.close();
 
   // Cleanup old files
-  int64_t removeTimePoint = timeLabel - 300;
-  while (!AccountingDiskStorage_.empty() && AccountingDiskStorage_.front().FileId < static_cast<uint64_t>(removeTimePoint)) {
+  Timestamp removeTimePoint = timeLabel - std::chrono::seconds(300);
+  while (!AccountingDiskStorage_.empty() && Timestamp::fromUnixTime(AccountingDiskStorage_.front().FileId) < removeTimePoint) {
     if (isDebugAccounting())
       LOG_F(1, "Removing old accounting file %s", path_to_utf8(AccountingDiskStorage_.front().Path).c_str());
     std::filesystem::remove(AccountingDiskStorage_.front().Path);
@@ -139,7 +139,7 @@ AccountingDb::AccountingDb(asyncBase *base,
 {
   FlushTimerEvent_ = newUserEvent(base, 1, nullptr, nullptr);
 
-  int64_t currentTime = time(nullptr);
+  Timestamp currentTime = Timestamp::now();
   FlushInfo_.Time = currentTime;
   FlushInfo_.ShareId = 0;
 
@@ -148,7 +148,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   while (!AccountingDiskStorage_.empty()) {
     auto &file = AccountingDiskStorage_.back();
     if (parseAccoutingStorageFile(file)) {
-      FlushInfo_.Time = file.FileId;
+      FlushInfo_.Time = Timestamp::fromUnixTime(file.FileId);
       FlushInfo_.ShareId = file.LastShareId;
       break;
     } else {
@@ -228,7 +228,7 @@ void AccountingDb::start()
       if (db->ShutdownRequested_)
         break;
       ioSleep(db->FlushTimerEvent_, std::chrono::microseconds(std::chrono::minutes(1)).count());
-      db->flushAccountingStorageFile(time(nullptr));
+      db->flushAccountingStorageFile(Timestamp::now());
     }
   }, this, 0x20000, coroutineFinishCb, &FlushFinished_));
 }
@@ -412,7 +412,7 @@ void AccountingDb::addShare(const CShare &share)
 
     R->Height = share.height;
     R->BlockHash = share.hash.c_str();
-    R->EndTime = share.Time;
+    R->EndTime = share.Time.toUnixTime();
     R->FoundBy = share.userId;
     R->ExpectedWork = share.ExpectedWork;
     R->AccumulatedWork = accumulatedWork;
@@ -426,7 +426,7 @@ void AccountingDb::addShare(const CShare &share)
 
     // Merge shares for current block with older shares (PPLNS)
     {
-      int64_t acceptSharesTime = share.Time - 1800;
+      Timestamp acceptSharesTime = share.Time - std::chrono::seconds(1800);
       mergeSorted(RecentStats_.begin(), RecentStats_.end(), CurrentScores_.begin(), CurrentScores_.end(),
         [](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) { return stats.UserId < scores.first; },
         [](const std::pair<std::string, UInt<256>> &scores, const StatisticDb::CStatsExportData &stats) { return scores.first < stats.UserId; },
@@ -493,7 +493,7 @@ void AccountingDb::replayShare(const CShare &share)
   }
 }
 
-void AccountingDb::initializationFinish(int64_t timeLabel)
+void AccountingDb::initializationFinish(Timestamp timeLabel)
 {
   printRecentStatistic();
 
@@ -507,7 +507,7 @@ void AccountingDb::initializationFinish(int64_t timeLabel)
   }
 
   if (isDebugStatistic()) {
-    LOG_F(1, "initializationFinish: timeLabel: %" PRIu64 "", timeLabel);
+    LOG_F(1, "initializationFinish: timeLabel: %" PRIi64 "", timeLabel.toUnixTime());
     LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", CoinInfo_.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
   }
 }

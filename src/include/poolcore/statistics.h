@@ -11,6 +11,7 @@
 #include "poolcommon/multiCall.h"
 #include "poolcommon/serialize.h"
 #include "poolcommon/taskHandler.h"
+#include "poolcommon/timeTypes.h"
 #include "asyncio/asyncio.h"
 #include <tbb/concurrent_queue.h>
 #include <chrono>
@@ -35,7 +36,7 @@ public:
     uint32_t WorkersNum = 0;
     uint64_t AveragePower = 0;
     double SharesPerSecond = 0.0;
-    int64_t LastShareTime = 0;
+    Timestamp LastShareTime;
 
     enum EColumns {
       ELogin,
@@ -56,8 +57,8 @@ public:
     uint64_t AveragePower = 0;
     double SharesPerSecond = 0.0;
     UInt<256> SharesWork = UInt<256>::zero();
-    int64_t LastShareTime = 0;
-    int64_t Time = 0;
+    Timestamp LastShareTime;
+    Timestamp Time;
   };
 
   // +file serialization
@@ -66,12 +67,13 @@ public:
 
     uint32_t SharesNum = 0;
     UInt<256> SharesWork = UInt<256>::zero();
-    int64_t TimeLabel = 0;
+    TimeInterval Time;
     uint32_t PrimePOWTarget = -1U;
     std::vector<uint32_t> PrimePOWSharesNum;
     void reset() {
       SharesNum = 0;
       SharesWork = UInt<256>::zero();
+      Time = TimeInterval();
       PrimePOWTarget = -1U;
       PrimePOWSharesNum.clear();
     }
@@ -80,9 +82,9 @@ public:
   struct CStatsAccumulator {
     std::deque<CStatsElement> Recent;
     CStatsElement Current;
-    int64_t LastShareTime = 0;
+    TimeInterval Time;
 
-    void addShare(const UInt<256> &workValue, int64_t time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
+    void addShare(const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
       Current.SharesNum++;
       Current.SharesWork += workValue;
       if (isPrimePOW) {
@@ -92,12 +94,12 @@ public:
           Current.PrimePOWSharesNum.resize(primeChainLength + 1);
         Current.PrimePOWSharesNum[primeChainLength]++;
       }
-      LastShareTime = time;
+      Time.TimeEnd = time;
     }
   };
 
   struct CSharesWorkWithTime {
-    int64_t TimeLabel;
+    TimeInterval Time;
     UInt<256> SharesWork;
   };
 
@@ -108,10 +110,10 @@ public:
     std::string UserId;
     std::vector<CSharesWorkWithTime> Recent;
 
-    UInt<256> recentShareValue(int64_t acceptSharesTime) const {
+    UInt<256> recentShareValue(Timestamp acceptSharesTime) const {
       UInt<256> shareValue = UInt<256>::zero();
       for (auto &statsElement: Recent) {
-        if (statsElement.TimeLabel > acceptSharesTime)
+        if (statsElement.Time.TimeEnd > acceptSharesTime)
           shareValue += statsElement.SharesWork;
         else
           break;
@@ -127,7 +129,7 @@ public:
 
     std::string Login;
     std::string WorkerId;
-    int64_t Time;
+    TimeInterval Time;
     uint64_t ShareCount;
     UInt<256> ShareWork;
     uint32_t PrimePOWTarget;
@@ -219,16 +221,16 @@ private:
 
   bool parseStatsCacheFile(CDatFile &file);
 
-  void updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, int64_t currentTime, xmstream &statsFileData);
+  void updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, Timestamp currentTime, xmstream &statsFileData);
   void calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, std::chrono::seconds calculateInterval, std::chrono::seconds aggregateTime, CStats &result);
   void writeStatsToDb(const std::string &loginId, const std::string &workerId, const CStatsElement &element);
-  void writeStatsToCache(const std::string &loginId, const std::string &workerId, const CStatsElement &element, int64_t lastShareTime, xmstream &statsFileData);
+  void writeStatsToCache(const std::string &loginId, const std::string &workerId, const CStatsElement &element, const TimeInterval &time, xmstream &statsFileData);
 
-  void updateStatsDiskCache(const std::string &name, std::deque<CDatFile> &cache, int64_t timeLabel, uint64_t lastShareId, const void *data, size_t size);
-  void updateWorkersStatsDiskCache(int64_t timeLabel, uint64_t shareId, const void *data, size_t size) {
+  void updateStatsDiskCache(const std::string &name, std::deque<CDatFile> &cache, Timestamp timeLabel, uint64_t lastShareId, const void *data, size_t size);
+  void updateWorkersStatsDiskCache(Timestamp timeLabel, uint64_t shareId, const void *data, size_t size) {
     updateStatsDiskCache(CurrentWorkersStoragePath, WorkersStatsCache_, timeLabel, shareId, data, size);
   }
-  void updatePoolStatsDiskCache(int64_t timeLabel, uint64_t shareId, const void *data, size_t size) {
+  void updatePoolStatsDiskCache(Timestamp timeLabel, uint64_t shareId, const void *data, size_t size) {
     updateStatsDiskCache(CurrentPoolStoragePath, PoolStatsCache_, timeLabel, shareId, data, size);
   }
 
@@ -236,7 +238,7 @@ public:
   // Initialization
   StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo);
   void replayShare(const CShare &share);
-  void initializationFinish(int64_t timeLabel);
+  void initializationFinish(Timestamp timeLabel);
   void start();
   void stop();
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
@@ -251,8 +253,8 @@ public:
 
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
-  void updateWorkersStats(int64_t timeLabel);
-  void updatePoolStats(int64_t timeLabel);
+  void updateWorkersStats(Timestamp timeLabel);
+  void updatePoolStats(Timestamp timeLabel);
 
   const CStats &getPoolStats() { return PoolStatsCached_; }
   void getUserStats(const std::string &user, CStats &aggregate, std::vector<CStats> &workerStats, size_t offset, size_t size, EStatsColumn sortBy, bool sortDescending);
@@ -331,12 +333,12 @@ template<>
 struct DbIo<StatisticDb::CSharesWorkWithTime> {
   static inline void serialize(xmstream &out, const StatisticDb::CSharesWorkWithTime &data) {
     DbIo<decltype(data.SharesWork)>::serialize(out, data.SharesWork);
-    DbIo<decltype(data.TimeLabel)>::serialize(out, data.TimeLabel);
+    DbIo<decltype(data.Time)>::serialize(out, data.Time);
   }
 
   static inline void unserialize(xmstream &in, StatisticDb::CSharesWorkWithTime &data) {
     DbIo<decltype(data.SharesWork)>::unserialize(in, data.SharesWork);
-    DbIo<decltype(data.TimeLabel)>::unserialize(in, data.TimeLabel);
+    DbIo<decltype(data.Time)>::unserialize(in, data.Time);
   }
 };
 
@@ -381,7 +383,7 @@ class StatisticShareLogConfig {
 public:
   StatisticShareLogConfig() {}
   StatisticShareLogConfig(StatisticDb *statistic) : Statistic_(statistic) {}
-  void initializationFinish(int64_t time) { Statistic_->initializationFinish(time); }
+  void initializationFinish(Timestamp time) { Statistic_->initializationFinish(time); }
   uint64_t lastAggregatedShareId() { return Statistic_->lastAggregatedShareId(); }
   uint64_t lastKnownShareId() { return Statistic_->lastKnownShareId(); }
   void replayShare(const CShare &share) { Statistic_->replayShare(share); }

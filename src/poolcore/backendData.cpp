@@ -500,7 +500,7 @@ void StatsRecord::serializeKey(xmstream &stream) const
 {
   dbKeyIoSerialize(stream, Login);
   dbKeyIoSerialize(stream, WorkerId);
-  dbKeyIoSerialize(stream, Time);
+  DbKeyIo<Timestamp>::serialize(stream, Time.TimeEnd);
 }
 
 void StatsRecord::serializeValue(xmstream &stream) const

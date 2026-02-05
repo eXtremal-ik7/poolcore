@@ -622,7 +622,7 @@ private:
           if (successNum == 1) {
             // Send share with block to backend
             CShare *backendShare = new CShare;
-            backendShare->Time = time(nullptr);
+            backendShare->Time = Timestamp::now();
             backendShare->userId = userName;
             backendShare->workerId = workerName;
             backendShare->height = height;
@@ -743,7 +743,7 @@ private:
             if (successNum == 1) {
               // Send share with block to backend
               CShare *backendShare = new CShare;
-              backendShare->Time = time(nullptr);
+              backendShare->Time = Timestamp::now();
               backendShare->userId = worker.User;
               backendShare->workerId = worker.WorkerName;
               backendShare->height = height;
@@ -767,7 +767,7 @@ private:
         }
       } else {
         CShare *backendShare = new CShare;
-        backendShare->Time = time(nullptr);
+        backendShare->Time = Timestamp::now();
         backendShare->userId = worker.User;
         backendShare->workerId = worker.WorkerName;
         backendShare->height = height;
@@ -787,7 +787,7 @@ private:
 
     if (shareAccepted && (AlgoMetaStatistic_ || true)) {
       CShare *backendShare = new CShare;
-      backendShare->Time = time(nullptr);
+      backendShare->Time = Timestamp::now();
       backendShare->userId = worker.User;
       backendShare->workerId = worker.WorkerName;
       backendShare->height = height;

@@ -184,7 +184,7 @@ private:
 
   void printRecentStatistic();
   bool parseAccoutingStorageFile(CDatFile &file);
-  void flushAccountingStorageFile(int64_t timeLabel);
+  void flushAccountingStorageFile(Timestamp timeLabel);
 
 public:
   AccountingDb(asyncBase *base,
@@ -211,7 +211,7 @@ public:
   void calculatePayments(MiningRound *R, const UInt<384> &generatedCoins);
   void addShare(const CShare &share);
   void replayShare(const CShare &share);
-  void initializationFinish(int64_t timeLabel);
+  void initializationFinish(Timestamp timeLabel);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();
   void buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout);

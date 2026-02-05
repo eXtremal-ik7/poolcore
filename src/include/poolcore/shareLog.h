@@ -48,7 +48,7 @@ public:
     if (ShareLog_.empty())
       LOG_F(WARNING, "%s: share log is empty like at first run", BackendName_.c_str());
 
-    int64_t currentTime = time(nullptr);
+    Timestamp currentTime = Timestamp::now();
     for (auto &file: ShareLog_)
       replayShares(file);
 
