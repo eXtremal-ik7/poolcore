@@ -15,6 +15,7 @@
 #include "asyncio/asyncio.h"
 #include <tbb/concurrent_queue.h>
 #include <chrono>
+#include <map>
 
 struct CShare;
 
@@ -190,13 +191,23 @@ private:
   const PoolBackendConfig _cfg;
   CCoinInfo CoinInfo_;
   uint64_t LastKnownShareId_ = 0;
+  // Accumulators
   // Pool stats
-  CStats PoolStatsCached_;
   CStatsAccumulator PoolStatsAcc_;
+  // User and worker stats (key = login + '\0' + workerId, workerId="" for user-level)
+  std::map<std::string, CStatsAccumulator> LastWorkerStats_;
+
+  static std::string makeWorkerStatsKey(const std::string &login, const std::string &workerId) {
+    return login + '\0' + workerId;
+  }
+
+  static std::pair<std::string, std::string> splitWorkerStatsKey(const std::string &key) {
+    size_t sep = key.find('\0');
+    return {key.substr(0, sep), key.substr(sep + 1)};
+  }
+
+  CStats PoolStatsCached_;
   CFlushInfo PoolFlushInfo_;
-  // Worker stats
-  std::unordered_map<std::string, std::unordered_map<std::string, CStatsAccumulator>> LastWorkerStats_;
-  std::unordered_map<std::string, CStatsAccumulator> LastUserStats_;
   CFlushInfo WorkersFlushInfo_;
 
   kvdb<rocksdbBase> WorkerStatsDb_;

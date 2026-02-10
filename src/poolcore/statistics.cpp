@@ -34,10 +34,8 @@ bool StatisticDb::parseStatsCacheFile(CDatFile &file)
     file.LastShareId = fileData.LastShareId;
     for (const auto &record: fileData.Records) {
       CStatsAccumulator *acc = nullptr;
-      if (!record.Login.empty() && !record.WorkerId.empty())
-        acc = &LastWorkerStats_[record.Login][record.WorkerId];
-      else if (!record.Login.empty())
-        acc = &LastUserStats_[record.Login];
+      if (!record.Login.empty())
+        acc = &LastWorkerStats_[makeWorkerStatsKey(record.Login, record.WorkerId)];
       else
         acc = &PoolStatsAcc_;
 
@@ -223,17 +221,17 @@ void StatisticDb::addShare(const CShare &share, bool updateWorkerAndUserStats, b
 
   if (updateWorkerAndUserStats) {
     // Update worker stats
-    LastWorkerStats_[share.userId][share.workerId].addShare(share.WorkValue,
-                                                            share.Time,
-                                                            share.ChainLength,
-                                                            share.PrimePOWTarget,
-                                                            CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
+    LastWorkerStats_[makeWorkerStatsKey(share.userId, share.workerId)].addShare(share.WorkValue,
+                                                                                share.Time,
+                                                                                share.ChainLength,
+                                                                                share.PrimePOWTarget,
+                                                                                CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
     // Update user stats
-    LastUserStats_[share.userId].addShare(share.WorkValue,
-                                          share.Time,
-                                          share.ChainLength,
-                                          share.PrimePOWTarget,
-                                          CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
+    LastWorkerStats_[makeWorkerStatsKey(share.userId, "")].addShare(share.WorkValue,
+                                                                     share.Time,
+                                                                     share.ChainLength,
+                                                                     share.PrimePOWTarget,
+                                                                     CoinInfo_.PowerUnitType == CCoinInfo::ECPD);
   }
   if (updatePoolStats) {
     // Update pool stats
@@ -321,31 +319,17 @@ void StatisticDb::stop()
 void StatisticDb::updateWorkersStats(Timestamp timeLabel)
 {
   xmstream statsFileData;
-  std::vector<std::string> userDeleteList;
-  for (auto &userIt: LastWorkerStats_) {
-    std::vector<std::string> workerDeleteList;
-    for (auto &workerIt: userIt.second) {
-      CStatsAccumulator &acc = workerIt.second;
-      updateAcc(userIt.first, workerIt.first, acc, timeLabel, statsFileData);
-      if (acc.Recent.empty())
-        workerDeleteList.push_back(workerIt.first);
-    }
-
-    // Cleanup workers table
-    std::for_each(workerDeleteList.begin(), workerDeleteList.end(), [&userIt](const std::string &name) { userIt.second.erase(name);});
-  }
-
-  for (auto &userIt: LastUserStats_) {
-    CStatsAccumulator &acc = userIt.second;
-    updateAcc(userIt.first, "", acc, timeLabel, statsFileData);
+  for (auto it = LastWorkerStats_.begin(); it != LastWorkerStats_.end(); ) {
+    auto [login, workerId] = splitWorkerStatsKey(it->first);
+    CStatsAccumulator &acc = it->second;
+    updateAcc(login, workerId, acc, timeLabel, statsFileData);
     if (acc.Recent.empty())
-      userDeleteList.push_back(userIt.first);
+      it = LastWorkerStats_.erase(it);
+    else
+      ++it;
   }
 
   updateWorkersStatsDiskCache(timeLabel, LastKnownShareId_, statsFileData.data(), statsFileData.sizeOf());
-
-  // Cleanup users table
-  std::for_each(userDeleteList.begin(), userDeleteList.end(), [this](const std::string &name) { LastWorkerStats_.erase(name);});
 }
 
 void StatisticDb::updatePoolStats(Timestamp timeLabel)
@@ -353,17 +337,14 @@ void StatisticDb::updatePoolStats(Timestamp timeLabel)
   PoolStatsCached_.ClientsNum = 0;
   PoolStatsCached_.WorkersNum = 0;
 
-  for (auto &userIt: LastWorkerStats_) {
-    bool isActiveUser = false;
-    for (auto &workerIt: userIt.second) {
-      if (timeLabel - workerIt.second.Time.TimeEnd < std::chrono::duration_cast<Timestamp::Duration>(_cfg.StatisticWorkersPowerCalculateInterval)) {
-        PoolStatsCached_.WorkersNum++;
-        isActiveUser = true;
-      }
-    }
-
-    if (isActiveUser)
+  for (const auto &[key, acc]: LastWorkerStats_) {
+    auto [login, workerId] = splitWorkerStatsKey(key);
+    if (timeLabel - acc.Time.TimeEnd >= std::chrono::duration_cast<Timestamp::Duration>(_cfg.StatisticWorkersPowerCalculateInterval))
+      continue;
+    if (workerId.empty())
       PoolStatsCached_.ClientsNum++;
+    else
+      PoolStatsCached_.WorkersNum++;
   }
 
   // Update pool accumulated data
@@ -422,8 +403,8 @@ void StatisticDb::updateStatsDiskCache(const std::string &name, std::deque<CDatF
 
 void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::vector<CStats> &workerStats, size_t offset, size_t size, EStatsColumn sortBy, bool sortDescending)
 {
-  auto userIt = LastWorkerStats_.find(user);
-  if (userIt == LastWorkerStats_.end())
+  auto lo = LastWorkerStats_.lower_bound(makeWorkerStatsKey(user, ""));
+  if (lo == LastWorkerStats_.end() || splitWorkerStatsKey(lo->first).first != user)
     return;
 
   userStats.ClientsNum = 1;
@@ -431,15 +412,16 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
 
   // Iterate over all workers
   std::vector<CStats> allStats;
-  allStats.resize(userIt->second.size());
-  size_t workerStatsIndex = 0;
   Timestamp lastShareTime;
-  for (const auto &workerIt: userIt->second) {
-    const CStatsAccumulator &acc = workerIt.second;
-    CStats &result = allStats[workerStatsIndex];
-    result.WorkerId = workerIt.first;
+  for (auto it = lo; it != LastWorkerStats_.end(); ++it) {
+    auto [login, workerId] = splitWorkerStatsKey(it->first);
+    if (login != user)
+      break;
+    const CStatsAccumulator &acc = it->second;
+    CStats &result = allStats.emplace_back();
+    result.WorkerId = std::move(workerId);
     if (isDebugStatistic())
-      LOG_F(1, "Retrieve statistic for %s/%s", user.c_str(), workerIt.first.c_str());
+      LOG_F(1, "Retrieve statistic for %s/%s", user.c_str(), result.WorkerId.c_str());
     calcAverageMetrics(acc, _cfg.StatisticWorkersPowerCalculateInterval, _cfg.StatisticWorkersAggregateTime, result);
 
     userStats.SharesPerSecond += result.SharesPerSecond;
@@ -450,7 +432,6 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
       userStats.WorkersNum++;
     result.LastShareTime = acc.Time.TimeEnd;
     lastShareTime = std::max(lastShareTime, acc.Time.TimeEnd);
-    workerStatsIndex++;
   }
 
   userStats.LastShareTime = lastShareTime;
@@ -586,20 +567,24 @@ void StatisticDb::exportRecentStats(std::vector<CStatsExportData> &result)
 {
   result.clear();
   Timestamp timeLabel = Timestamp::now();
-  for (const auto &userIt: LastUserStats_) {
+  for (const auto &[key, acc]: LastWorkerStats_) {
+    auto [login, workerId] = splitWorkerStatsKey(key);
+    if (!workerId.empty())
+      continue;
+
     auto &userRecord = result.emplace_back();
-    userRecord.UserId = userIt.first;
+    userRecord.UserId = std::move(login);
     // Current share work
     {
       auto &current = userRecord.Recent.emplace_back();
-      current.SharesWork = userIt.second.Current.SharesWork;
+      current.SharesWork = acc.Current.SharesWork;
       current.Time.TimeEnd = timeLabel;
-      current.Time.TimeBegin = userIt.second.Time.TimeBegin;
+      current.Time.TimeBegin = acc.Time.TimeBegin;
     }
 
     // Recent share work (up to N minutes)
     Timestamp lastAcceptTime = timeLabel - std::chrono::minutes(30);
-    for (auto It = userIt.second.Recent.rbegin(), ItE = userIt.second.Recent.rend(); It != ItE; ++It) {
+    for (auto It = acc.Recent.rbegin(), ItE = acc.Recent.rend(); It != ItE; ++It) {
       if (It->Time.TimeEnd < lastAcceptTime)
         break;
       auto &recent = userRecord.Recent.emplace_back();
@@ -638,8 +623,8 @@ void StatisticDb::queryAllUserStatsImpl(const std::vector<UserManager::Credentia
     // TODO: check for std::move
     dst.Credentials = src;
 
-    auto userIt = LastUserStats_.find(dst.Credentials.Login);
-    if (userIt == LastUserStats_.end())
+    auto userIt = LastWorkerStats_.find(makeWorkerStatsKey(dst.Credentials.Login, ""));
+    if (userIt == LastWorkerStats_.end())
       continue;
 
     CStats userStats;
