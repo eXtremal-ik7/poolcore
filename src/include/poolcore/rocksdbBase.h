@@ -4,8 +4,10 @@
 #include "p2putils/coreTypes.h"
 #include "p2putils/xmstream.h"
 #include "rocksdb/db.h"
+#include "rocksdb/merge_operator.h"
 
 #include <filesystem>
+#include <memory>
 #include <shared_mutex>
 #include <string>
 #include <vector>
@@ -200,6 +202,7 @@ private:
   std::vector<partition> _partitions;
   std::shared_mutex PartitionsMutex_;
   std::mutex DbMutex_;
+  std::shared_ptr<rocksdb::MergeOperator> MergeOperator_;
   
   partition getFirstPartition();
   partition getLastPartition();
@@ -215,6 +218,7 @@ private:
   
 public:
   rocksdbBase(const std::filesystem::path &path);
+  rocksdbBase(const std::filesystem::path &path, std::shared_ptr<rocksdb::MergeOperator> mergeOp);
   ~rocksdbBase();
   
   bool put(const std::string &partitionId, const void *key, size_t keySize, const void *data, size_t dataSize);

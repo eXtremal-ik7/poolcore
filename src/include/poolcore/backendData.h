@@ -81,8 +81,10 @@ struct PoolBackendConfig {
   std::chrono::minutes StatisticKeepTime = std::chrono::minutes(30);
   std::chrono::minutes StatisticWorkersPowerCalculateInterval = std::chrono::minutes(11);
   std::chrono::minutes StatisticPoolPowerCalculateInterval = std::chrono::minutes(5);
-  std::chrono::minutes StatisticWorkersAggregateTime = std::chrono::minutes(5);
-  std::chrono::minutes StatisticPoolAggregateTime = std::chrono::minutes(1);
+  std::chrono::seconds StatisticPoolGridInterval = std::chrono::seconds(60);
+  std::chrono::seconds StatisticUserGridInterval = std::chrono::seconds(120);
+  std::chrono::seconds StatisticWorkerGridInterval = std::chrono::seconds(300);
+  std::chrono::seconds StatisticFlushInterval = std::chrono::seconds(60);
   std::chrono::hours StatisticKeepWorkerNamesTime = std::chrono::hours(24);
 
   SelectorByWeight<CMiningAddress> MiningAddresses;
@@ -402,6 +404,7 @@ struct StatsRecord {
   std::string Login;
   std::string WorkerId;
   TimeInterval Time;
+  Timestamp UpdateTime;
   uint64_t ShareCount;
   UInt<256> ShareWork;
   uint32_t PrimePOWTarget;

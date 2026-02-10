@@ -3,7 +3,9 @@
 
 #include "p2putils/coreTypes.h"
 #include "p2putils/xmstream.h"
+#include "rocksdb/merge_operator.h"
 #include <filesystem>
+#include <memory>
 #include <vector>
 
 template<typename DbTy>
@@ -13,6 +15,7 @@ private:
 
 public:
   kvdb(const std::filesystem::path &path) : _db(path) {}
+  kvdb(const std::filesystem::path &path, std::shared_ptr<rocksdb::MergeOperator> mergeOp) : _db(path, std::move(mergeOp)) {}
 
   // Multi-partition batch. Accumulates put/merge/deleteRow operations across partitions.
   // Most efficient when consecutive calls target the same partition —

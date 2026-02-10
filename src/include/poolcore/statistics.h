@@ -16,6 +16,7 @@
 #include <tbb/concurrent_queue.h>
 #include <chrono>
 #include <map>
+#include <set>
 
 struct CShare;
 
@@ -23,6 +24,7 @@ class StatisticDb {
 private:
   inline static const std::string CurrentPoolStoragePath = "stats.pool.cache.3";
   inline static const std::string CurrentWorkersStoragePath = "stats.workers.cache.3";
+  inline static const std::string CurrentUsersStoragePath = "stats.users.cache.3";
 
 public:
   enum EStatsColumn {
@@ -46,7 +48,7 @@ public:
       ERegistrationDate,
       EWorkersNum,
       EAveragePower,
-      ESharesPerSecord,
+      ESharesPerSecond,
       ELastShareTime
     };
   };
@@ -64,9 +66,7 @@ public:
 
   // +file serialization
   struct CStatsElement {
-    enum { CurrentRecordVersion = 1 };
-
-    uint32_t SharesNum = 0;
+    uint64_t SharesNum = 0;
     UInt<256> SharesWork = UInt<256>::zero();
     TimeInterval Time;
     uint32_t PrimePOWTarget = -1U;
@@ -78,12 +78,22 @@ public:
       PrimePOWTarget = -1U;
       PrimePOWSharesNum.clear();
     }
+
+    void merge(const CStatsElement &other) {
+      SharesNum += other.SharesNum;
+      SharesWork += other.SharesWork;
+      PrimePOWTarget = std::min(PrimePOWTarget, other.PrimePOWTarget);
+      if (other.PrimePOWSharesNum.size() > PrimePOWSharesNum.size())
+        PrimePOWSharesNum.resize(other.PrimePOWSharesNum.size());
+      for (size_t i = 0; i < other.PrimePOWSharesNum.size(); i++)
+        PrimePOWSharesNum[i] += other.PrimePOWSharesNum[i];
+    }
   };
 
   struct CStatsAccumulator {
     std::deque<CStatsElement> Recent;
     CStatsElement Current;
-    TimeInterval Time;
+    Timestamp LastShareTime;
 
     void addShare(const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
       Current.SharesNum++;
@@ -95,7 +105,26 @@ public:
           Current.PrimePOWSharesNum.resize(primeChainLength + 1);
         Current.PrimePOWSharesNum[primeChainLength]++;
       }
-      Time.TimeEnd = time;
+      LastShareTime = time;
+    }
+
+    void merge(std::vector<CStatsElement> &cells) {
+      if (cells.empty())
+        return;
+      int64_t ci = static_cast<int64_t>(cells.size()) - 1;
+      int64_t ri = static_cast<int64_t>(Recent.size()) - 1;
+      while (ci >= 0) {
+        if (ri >= 0 && cells[ci].Time.TimeEnd == Recent[ri].Time.TimeEnd) {
+          Recent[ri--].merge(cells[ci--]);
+        } else if (ri < 0 || cells[ci].Time.TimeEnd > Recent[ri].Time.TimeEnd) {
+          // Insert at the correct sorted position; in practice only appends at the end
+          Recent.insert(Recent.begin() + (ri + 1), std::move(cells[ci--]));
+        } else {
+          ri--;
+        }
+      }
+      if (!Recent.empty())
+        LastShareTime = std::max(LastShareTime, Recent.back().Time.TimeEnd);
     }
   };
 
@@ -130,25 +159,20 @@ public:
 
     std::string Login;
     std::string WorkerId;
-    TimeInterval Time;
-    uint64_t ShareCount;
-    UInt<256> ShareWork;
-    uint32_t PrimePOWTarget;
-    std::vector<uint64_t> PrimePOWShareCount;
+    CStatsElement Element;
   };
 
   // +file serialization
   struct CStatsFileData {
     enum { CurrentRecordVersion = 1 };
 
-    uint64_t LastShareId;
+    uint64_t LastShareId = 0;
     std::vector<CStatsFileRecord> Records;
   };
 
 private:
   using QueryPoolStatsCallback = std::function<void(const StatisticDb::CStats&)>;
   using QueryUserStatsCallback = std::function<void(const StatisticDb::CStats&, const std::vector<StatisticDb::CStats>&)>;
-  using QueryStatsHistoryCallback = std::function<void(const std::vector<StatisticDb::CStats>&)>;
   using QueryAllUsersStatisticCallback = std::function<void(const std::vector<CredentialsWithStatistic>&)>;
 
   class TaskQueryPoolStats : public Task<StatisticDb> {
@@ -194,8 +218,10 @@ private:
   // Accumulators
   // Pool stats
   CStatsAccumulator PoolStatsAcc_;
-  // User and worker stats (key = login + '\0' + workerId, workerId="" for user-level)
+  // Worker stats (key = login + '\0' + workerId)
   std::map<std::string, CStatsAccumulator> LastWorkerStats_;
+  // User stats (key = login + '\0', workerId always empty)
+  std::map<std::string, CStatsAccumulator> LastUserStats_;
 
   static std::string makeWorkerStatsKey(const std::string &login, const std::string &workerId) {
     return login + '\0' + workerId;
@@ -207,21 +233,16 @@ private:
   }
 
   CStats PoolStatsCached_;
-  CFlushInfo PoolFlushInfo_;
-  CFlushInfo WorkersFlushInfo_;
+  CFlushInfo FlushInfo_;
+  Timestamp AccumulationBegin_;
 
-  kvdb<rocksdbBase> WorkerStatsDb_;
-  kvdb<rocksdbBase> PoolStatsDb_;
-  std::deque<CDatFile> PoolStatsCache_;
-  std::deque<CDatFile> WorkersStatsCache_;
+  kvdb<rocksdbBase> StatsDb_;
 
   TaskHandlerCoroutine<StatisticDb> TaskHandler_;
-  aioUserEvent *WorkerStatsUpdaterEvent_;
-  aioUserEvent *PoolStatsUpdaterEvent_;
+  aioUserEvent *FlushEvent_;
 
   bool ShutdownRequested_ = false;
-  bool WorkerStatsUpdaterFinished_ = false;
-  bool PoolStatsUpdaterFinished_ = false;
+  bool FlushFinished_ = false;
 
   // Debugging only
   struct {
@@ -230,20 +251,20 @@ private:
     uint64_t Count = 0;
   } Dbg_;
 
-  bool parseStatsCacheFile(CDatFile &file);
+  bool parseStatsCacheFile(CDatFile &file, CStatsFileData &fileData);
+  CFlushInfo loadPoolStatsFromDir(const std::filesystem::path &dirPath, CStatsAccumulator &acc);
+  CFlushInfo loadMapStatsFromDir(const std::filesystem::path &dirPath, std::map<std::string, CStatsAccumulator> &accMap);
 
-  void updateAcc(const std::string &login, const std::string &workerId, StatisticDb::CStatsAccumulator &acc, Timestamp currentTime, xmstream &statsFileData);
   void calcAverageMetrics(const StatisticDb::CStatsAccumulator &acc, std::chrono::seconds calculateInterval, std::chrono::seconds aggregateTime, CStats &result);
-  void writeStatsToDb(const std::string &loginId, const std::string &workerId, const CStatsElement &element);
-  void writeStatsToCache(const std::string &loginId, const std::string &workerId, const CStatsElement &element, const TimeInterval &time, xmstream &statsFileData);
+  void writeStatsToCache(const std::string &loginId, const std::string &workerId, const CStatsElement &element, xmstream &statsFileData);
 
-  void updateStatsDiskCache(const std::string &name, std::deque<CDatFile> &cache, Timestamp timeLabel, uint64_t lastShareId, const void *data, size_t size);
-  void updateWorkersStatsDiskCache(Timestamp timeLabel, uint64_t shareId, const void *data, size_t size) {
-    updateStatsDiskCache(CurrentWorkersStoragePath, WorkersStatsCache_, timeLabel, shareId, data, size);
-  }
-  void updatePoolStatsDiskCache(Timestamp timeLabel, uint64_t shareId, const void *data, size_t size) {
-    updateStatsDiskCache(CurrentPoolStoragePath, PoolStatsCache_, timeLabel, shareId, data, size);
-  }
+  static std::vector<CStatsElement> distributeToGrid(const CStatsElement &current, int64_t beginMs, int64_t endMs, int64_t gridIntervalMs);
+  void flushAccumulator(const std::string &login, const std::string &workerId, CStatsAccumulator &acc, int64_t gridIntervalMs, Timestamp timeLabel, kvdb<rocksdbBase>::Batch &batch, std::set<int64_t> &modifiedTimes, std::set<int64_t> &removedTimes);
+  void rebuildDatFile(const std::string &cachePath, int64_t gridEndMs, const std::map<std::string, CStatsAccumulator> &accMap);
+  void rebuildDatFile(const std::string &cachePath, int64_t gridEndMs, const std::string &login, const std::string &workerId, const CStatsAccumulator &acc);
+
+  void flushAll(Timestamp timeLabel);
+  void updatePoolStatsCached(Timestamp timeLabel);
 
 public:
   // Initialization
@@ -254,18 +275,11 @@ public:
   void stop();
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
 
-  void addShare(const CShare &share, bool updateWorkerAndUserStats, bool updatePoolStats);
+  void addShare(const CShare &share);
 
-  uint64_t lastAggregatedShareId() {
-    uint64_t workersLastId = !WorkersStatsCache_.empty() ? WorkersStatsCache_.back().LastShareId : 0;
-    uint64_t poolLastId = !PoolStatsCache_.empty() ? PoolStatsCache_.back().LastShareId : 0;
-    return std::min(workersLastId, poolLastId);
-  }
+  uint64_t lastAggregatedShareId() { return FlushInfo_.ShareId; }
 
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
-
-  void updateWorkersStats(Timestamp timeLabel);
-  void updatePoolStats(Timestamp timeLabel);
 
   const CStats &getPoolStats() { return PoolStatsCached_; }
   void getUserStats(const std::string &user, CStats &aggregate, std::vector<CStats> &workerStats, size_t offset, size_t size, EStatsColumn sortBy, bool sortDescending);
@@ -311,16 +325,31 @@ private:
 };
 
 template<>
+struct DbIo<StatisticDb::CStatsElement> {
+  static inline void serialize(xmstream &out, const StatisticDb::CStatsElement &data) {
+    DbIo<decltype(data.SharesNum)>::serialize(out, data.SharesNum);
+    DbIo<decltype(data.SharesWork)>::serialize(out, data.SharesWork);
+    DbIo<decltype(data.Time)>::serialize(out, data.Time);
+    DbIo<decltype(data.PrimePOWTarget)>::serialize(out, data.PrimePOWTarget);
+    DbIo<decltype(data.PrimePOWSharesNum)>::serialize(out, data.PrimePOWSharesNum);
+  }
+
+  static inline void unserialize(xmstream &in, StatisticDb::CStatsElement &data) {
+    DbIo<decltype(data.SharesNum)>::unserialize(in, data.SharesNum);
+    DbIo<decltype(data.SharesWork)>::unserialize(in, data.SharesWork);
+    DbIo<decltype(data.Time)>::unserialize(in, data.Time);
+    DbIo<decltype(data.PrimePOWTarget)>::unserialize(in, data.PrimePOWTarget);
+    DbIo<decltype(data.PrimePOWSharesNum)>::unserialize(in, data.PrimePOWSharesNum);
+  }
+};
+
+template<>
 struct DbIo<StatisticDb::CStatsFileRecord> {
   static inline void serialize(xmstream &out, const StatisticDb::CStatsFileRecord &data) {
     DbIo<uint32_t>::serialize(out, data.CurrentRecordVersion);
     DbIo<decltype(data.Login)>::serialize(out, data.Login);
     DbIo<decltype(data.WorkerId)>::serialize(out, data.WorkerId);
-    DbIo<decltype(data.Time)>::serialize(out, data.Time);
-    DbIo<decltype(data.ShareCount)>::serialize(out, data.ShareCount);
-    DbIo<decltype(data.ShareWork)>::serialize(out, data.ShareWork);
-    DbIo<decltype(data.PrimePOWTarget)>::serialize(out, data.PrimePOWTarget);
-    DbIo<decltype(data.PrimePOWShareCount)>::serialize(out, data.PrimePOWShareCount);
+    DbIo<decltype(data.Element)>::serialize(out, data.Element);
   }
 
   static inline void unserialize(xmstream &in, StatisticDb::CStatsFileRecord &data) {
@@ -329,11 +358,7 @@ struct DbIo<StatisticDb::CStatsFileRecord> {
     if (version == 1) {
       DbIo<decltype(data.Login)>::unserialize(in, data.Login);
       DbIo<decltype(data.WorkerId)>::unserialize(in, data.WorkerId);
-      DbIo<decltype(data.Time)>::unserialize(in, data.Time);
-      DbIo<decltype(data.ShareCount)>::unserialize(in, data.ShareCount);
-      DbIo<decltype(data.ShareWork)>::unserialize(in, data.ShareWork);
-      DbIo<decltype(data.PrimePOWTarget)>::unserialize(in, data.PrimePOWTarget);
-      DbIo<decltype(data.PrimePOWShareCount)>::unserialize(in, data.PrimePOWShareCount);
+      DbIo<decltype(data.Element)>::unserialize(in, data.Element);
     } else {
       in.seekEnd(0, true);
     }
@@ -380,10 +405,7 @@ struct DbIo<StatisticDb::CStatsFileData> {
     DbIo<uint32_t>::unserialize(in, version);
     if (version == 1) {
       DbIo<decltype(data.LastShareId)>::unserialize(in, data.LastShareId);
-      while (in.remaining()) {
-        StatisticDb::CStatsFileRecord &record = data.Records.emplace_back();
-        DbIo<StatisticDb::CStatsFileRecord>::unserialize(in, record);
-      }
+      DbIo<decltype(data.Records)>::unserialize(in, data.Records);
     } else {
       in.seekEnd(0, true);
     }

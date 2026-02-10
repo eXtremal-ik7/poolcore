@@ -481,6 +481,7 @@ bool StatsRecord::deserializeValue(xmstream &stream)
     dbIoUnserialize(stream, Login);
     dbIoUnserialize(stream, WorkerId);
     dbIoUnserialize(stream, Time);
+    dbIoUnserialize(stream, UpdateTime);
     dbIoUnserialize(stream, ShareCount);
     dbIoUnserialize(stream, ShareWork);
     dbIoUnserialize(stream, PrimePOWTarget);
@@ -509,6 +510,7 @@ void StatsRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Login);
   dbIoSerialize(stream, WorkerId);
   dbIoSerialize(stream, Time);
+  dbIoSerialize(stream, UpdateTime);
   dbIoSerialize(stream, ShareCount);
   dbIoSerialize(stream, ShareWork);
   dbIoSerialize(stream, PrimePOWTarget);

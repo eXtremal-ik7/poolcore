@@ -159,6 +159,8 @@ rocksdb::DB *rocksdbBase::open(rocksdbBase::partition &partition)
       rocksdb::Options options;
       options.create_if_missing = true;
       options.compression = rocksdb::kZSTD;
+      if (MergeOperator_)
+        options.merge_operator = MergeOperator_;
       rocksdb::Status status = rocksdb::DB::Open(options, path_to_utf8(partitionPath), &partition.db);
     }
   }
@@ -259,6 +261,12 @@ rocksdb::DB *rocksdbBase::getOrCreatePartition(const std::string &id)
   if (It == _partitions.end() || It->id != id)
     It = _partitions.insert(It, partition(id));
   return open(*It);
+}
+
+rocksdbBase::rocksdbBase(const std::filesystem::path &path, std::shared_ptr<rocksdb::MergeOperator> mergeOp) :
+  rocksdbBase(path)
+{
+  MergeOperator_ = std::move(mergeOp);
 }
 
 rocksdbBase::rocksdbBase(const std::filesystem::path &path) : _path(path)
