@@ -83,7 +83,7 @@ bool AccountingDb::loadStateFromDb()
 
 void AccountingDb::flushCurrentScores()
 {
-  rocksdbBase::PartitionBatchType batch = StateDb_.batch("default");
+  rocksdbBase::CBatch batch = StateDb_.batch("default");
 
   // Save LastKnownShareId
   {
@@ -106,7 +106,7 @@ void AccountingDb::flushCurrentScores()
 
 void AccountingDb::flushBlockFoundState()
 {
-  rocksdbBase::PartitionBatchType batch = StateDb_.batch("default");
+  rocksdbBase::CBatch batch = StateDb_.batch("default");
 
   // Save LastKnownShareId
   {

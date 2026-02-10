@@ -128,16 +128,22 @@ RawData rocksdbBase::IteratorType::value()
   return data;
 }
 
-bool rocksdbBase::PartitionBatchType::put(const void *key, size_t keySize, const void *data, size_t dataSize)
+bool rocksdbBase::CBatch::put(const void *key, size_t keySize, const void *data, size_t dataSize)
 {
   rocksdb::Slice K((const char*)key, keySize);
   rocksdb::Slice V((const char*)data, dataSize);
   return Batch.Put(K, V).ok();
 }
 
-bool rocksdbBase::PartitionBatchType::deleteRow(const void *key, size_t keySize)
+bool rocksdbBase::CBatch::merge(const void *key, size_t keySize, const void *data, size_t dataSize)
 {
-  rocksdb::WriteOptions write_options;
+  rocksdb::Slice K((const char*)key, keySize);
+  rocksdb::Slice V((const char*)data, dataSize);
+  return Batch.Merge(K, V).ok();
+}
+
+bool rocksdbBase::CBatch::deleteRow(const void *key, size_t keySize)
+{
   rocksdb::Slice K((const char*)key, keySize);
   return Batch.Delete(K).ok();
 }
@@ -326,21 +332,19 @@ rocksdbBase::IteratorType *rocksdbBase::iterator()
   return new IteratorType(this);
 }
 
-rocksdbBase::PartitionBatchType rocksdbBase::batch(const std::string &partitionId)
+rocksdbBase::CBatch rocksdbBase::batch(const std::string &partitionId)
 {
-  PartitionBatchType batch;
+  CBatch batch;
   batch.PartitionId = partitionId;
   return batch;
 }
 
-bool rocksdbBase::writeBatch(PartitionBatchType &batch)
+bool rocksdbBase::writeBatch(CBatch &batch)
 {
-  auto partition = getPartition(batch.PartitionId);
-  if (partition) {
+  if (rocksdb::DB *db = getOrCreatePartition(batch.PartitionId)) {
     rocksdb::WriteOptions options;
     options.sync = true;
-    partition->Write(options, &batch.Batch);
-    return true;
+    return db->Write(options, &batch.Batch).ok();
   } else {
     return false;
   }

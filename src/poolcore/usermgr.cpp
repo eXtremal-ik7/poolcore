@@ -373,16 +373,16 @@ void UserManager::userManagerCleanup()
     time_t currentTime = time(nullptr);
     std::vector<BaseBlob<512>> sessionIdForDelete;
     std::vector<BaseBlob<512>> actionIdForDelete;
-    rocksdbBase::PartitionBatchType sessionBatch = UserSessionsDb_.batch("default");
-    rocksdbBase::PartitionBatchType actionBatch = UserActionsDb_.batch("default");
+    kvdb<rocksdbBase>::Batch sessionBatch;
+    kvdb<rocksdbBase>::Batch actionBatch;
 
     for (const auto &session: SessionsCache_) {
       if (!session.second.IsPermanent && (currentTime - session.second.LastAccessTime >= SessionLifeTime_)) {
         sessionIdForDelete.push_back(session.second.Id);
         LoginSessionMap_.erase(session.second.Login);
-        UserSessionsDb_.deleteRow(sessionBatch, session.second);
+        sessionBatch.deleteRow(session.second);
       } else if (session.second.Dirty) {
-        UserSessionsDb_.put(sessionBatch, session.second);
+        sessionBatch.put(session.second);
         updatedSessions++;
       }
     }
@@ -391,7 +391,7 @@ void UserManager::userManagerCleanup()
       if (currentTime - action.second.CreationDate >= ActionLifeTime_) {
         actionIdForDelete.push_back(action.second.Id);
         LoginActionMap_.erase(action.second.Login);
-        UserActionsDb_.deleteRow(actionBatch, action.second);
+        actionBatch.deleteRow(action.second);
         if (action.second.Type == UserActionRecord::UserActivate) {
           // Delete not activated user record
           tbb::concurrent_hash_map<std::string, UsersRecord>::accessor accessor;
