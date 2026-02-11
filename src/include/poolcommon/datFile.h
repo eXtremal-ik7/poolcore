@@ -13,11 +13,6 @@ struct CDatFile {
   unsigned Version = 0;
 };
 
-struct CFlushInfo {
-  uint64_t ShareId;
-  Timestamp Time;
-};
-
 void enumerateDatFiles(std::deque<CDatFile> &cache,
                        const std::filesystem::path &directory,
                        unsigned version,

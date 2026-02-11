@@ -34,7 +34,6 @@ void AccountingDb::printRecentStatistic()
 
 bool AccountingDb::loadStateFromDb()
 {
-  LastKnownShareId_ = 0;
   RecentStats_.clear();
   CurrentScores_.clear();
 
@@ -50,7 +49,7 @@ bool AccountingDb::loadStateFromDb()
     stream.seekSet(0);
 
     if (keyStr == "lastmsgid") {
-      DbIo<uint64_t>::unserialize(stream, LastKnownShareId_);
+      DbIo<uint64_t>::unserialize(stream, ScoresFlushedShareId_);
     } else if (keyStr == "recentstats") {
       DbIo<decltype(RecentStats_)>::unserialize(stream, RecentStats_);
     } else if (keyStr == "currentscores") {
@@ -68,10 +67,8 @@ bool AccountingDb::loadStateFromDb()
     It->next();
   }
 
-  FlushInfo_.ShareId = LastKnownShareId_;
-
-  if (LastKnownShareId_ != 0) {
-    LOG_F(INFO, "AccountingDb: loaded state from db, LastKnownShareId=%" PRIu64 "", LastKnownShareId_);
+  if (ScoresFlushedShareId_ != 0) {
+    LOG_F(INFO, "AccountingDb: loaded state from db, ScoresFlushedShareId=%" PRIu64 "", ScoresFlushedShareId_);
     return true;
   }
   return false;
@@ -79,6 +76,7 @@ bool AccountingDb::loadStateFromDb()
 
 void AccountingDb::flushCurrentScores()
 {
+  ScoresFlushedShareId_ = LastKnownShareId_;
   rocksdbBase::CBatch batch = StateDb_.batch("default");
 
   // Save LastKnownShareId
@@ -102,6 +100,7 @@ void AccountingDb::flushCurrentScores()
 
 void AccountingDb::flushBlockFoundState()
 {
+  ScoresFlushedShareId_ = LastKnownShareId_;
   rocksdbBase::CBatch batch = StateDb_.batch("default");
 
   // Save LastKnownShareId
@@ -153,19 +152,17 @@ AccountingDb::AccountingDb(asyncBase *base,
   _poolBalanceDb(config.dbPath / "poolBalance.2"),
   _payoutDb(config.dbPath / "payouts.2"),
   PPLNSPayoutsDb(config.dbPath / "pplns.payouts.2"),
+  ShareLog_(config.dbPath / "accounting.messages", coinInfo.Name, config.ShareLogFileSizeLimit),
   UserStatsAcc_("accounting.userstats", config.StatisticUserGridInterval, config.AccountingPPLNSWindow * 2),
   TaskHandler_(this, base)
 {
   FlushTimerEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-
-  Timestamp currentTime = Timestamp::now();
-  FlushInfo_.Time = currentTime;
-  FlushInfo_.ShareId = 0;
+  ShareLogFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
 
   loadStateFromDb();
   UserStatsAcc_.load(_cfg.dbPath, coinInfo.Name);
   UserStatsFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  LastKnownShareId_ = std::max(LastKnownShareId_, UserStatsAcc_.lastShareId());
+  LastKnownShareId_ = std::max(ScoresFlushedShareId_, UserStatsAcc_.lastShareId());
   LOG_F(INFO, "loaded %u payouts from db", static_cast<unsigned>(_payoutQueue.size()));
 
   {
@@ -199,11 +196,44 @@ AccountingDb::AccountingDb(asyncBase *base,
 
     LOG_F(INFO, "loaded %u user balance data from db", (unsigned)_balanceMap.size());
   }
+
+  Timestamp initTime = Timestamp::now();
+  ShareLog_.replay([this](const CShare &share) {
+    replayShare(share);
+  });
+
+  UserStatsAcc_.setAccumulationBegin(initTime);
+  printRecentStatistic();
+  if (!CurrentScores_.empty()) {
+    LOG_F(INFO, "[%s] current scores:", CoinInfo_.Name.c_str());
+    for (const auto &It: CurrentScores_)
+      LOG_F(INFO, " * %s: %s", It.first.c_str(), It.second.getDecimal().c_str());
+  } else {
+    LOG_F(INFO, "[%s] current scores is empty", CoinInfo_.Name.c_str());
+  }
+  if (isDebugStatistic()) {
+    LOG_F(1, "initializationFinish: timeLabel: %" PRIi64 "", initTime.toUnixTime());
+    LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", coinInfo.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
+  }
+
+  ShareLog_.startLogging(lastKnownShareId() + 1);
+}
+
+void AccountingDb::shareLogFlushHandler()
+{
+  for (;;) {
+    ioSleep(ShareLogFlushEvent_, std::chrono::microseconds(_cfg.ShareLogFlushInterval).count());
+    ShareLog_.flush();
+    if (ShutdownRequested_)
+      break;
+    ShareLog_.cleanupOldFiles(lastAggregatedShareId());
+  }
 }
 
 void AccountingDb::start()
 {
   TaskHandler_.start();
+  coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<AccountingDb*>(arg)->shareLogFlushHandler(); }, this, 0x100000, coroutineFinishCb, &ShareLogFlushFinished_));
 
   coroutineCall(coroutineNewWithCb([](void *arg) {
     AccountingDb *db = static_cast<AccountingDb*>(arg);
@@ -228,12 +258,15 @@ void AccountingDb::start()
 
 void AccountingDb::stop()
 {
+  TaskHandler_.stop(CoinInfo_.Name.c_str(), "accounting: task handler");
   ShutdownRequested_ = true;
   userEventActivate(FlushTimerEvent_);
   userEventActivate(UserStatsFlushEvent_);
-  TaskHandler_.stop(CoinInfo_.Name.c_str(), "accounting: task handler");
+  userEventActivate(ShareLogFlushEvent_);
   coroutineJoin(CoinInfo_.Name.c_str(), "accounting: flush thread", &FlushFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "accounting: user stats flush", &UserStatsFlushFinished_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: share log flush", &ShareLogFlushFinished_);
+  ShareLog_.flush();
 }
 
 void AccountingDb::updatePayoutFile()
@@ -375,8 +408,9 @@ void AccountingDb::calculatePayments(MiningRound *R, const UInt<384> &generatedC
   }
 }
 
-void AccountingDb::addShare(const CShare &share)
+void AccountingDb::addShare(CShare &share)
 {
+  ShareLog_.addShare(share);
   // increment score
   CurrentScores_[share.userId] += share.WorkValue;
   LastKnownShareId_ = share.UniqueShareId;
@@ -426,6 +460,9 @@ void AccountingDb::addShare(const CShare &share)
       R->StartTime = 0;
 
     // Merge shares for current block with older shares (PPLNS)
+    // RecentStats_ is a snapshot from the previous block-found event; CurrentScores_ covers
+    // all work since then (replayed from ShareLog after restart). Together they always span
+    // the full PPLNS window — no re-export from UserStatsAcc_ is needed here.
     {
       Timestamp acceptSharesTime = share.Time - _cfg.AccountingPPLNSWindow;
       mergeSorted(RecentStats_.begin(), RecentStats_.end(), CurrentScores_.begin(), CurrentScores_.end(),
@@ -475,7 +512,7 @@ void AccountingDb::addShare(const CShare &share)
 
 void AccountingDb::replayShare(const CShare &share)
 {
-  if (share.UniqueShareId > FlushInfo_.ShareId) {
+  if (share.UniqueShareId > ScoresFlushedShareId_) {
     // increment score
     CurrentScores_[share.userId] += share.WorkValue;
   }
@@ -490,28 +527,43 @@ void AccountingDb::replayShare(const CShare &share)
   if (isDebugAccounting()) {
     Dbg_.MinShareId = std::min(Dbg_.MinShareId, share.UniqueShareId);
     Dbg_.MaxShareId = std::max(Dbg_.MaxShareId, share.UniqueShareId);
-    if (share.UniqueShareId > FlushInfo_.ShareId)
+    if (share.UniqueShareId > ScoresFlushedShareId_)
       Dbg_.Count++;
   }
 }
 
-void AccountingDb::initializationFinish(Timestamp timeLabel)
+void AccountingDb::processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash)
 {
-  UserStatsAcc_.setAccumulationBegin(timeLabel);
-  printRecentStatistic();
+  if (confirmations == -1) {
+    LOG_F(INFO, "block %" PRIu64 "/%s marked as orphan, can't do any payout", R->Height, hash.c_str());
+    R->Payouts.clear();
+    UnpayedRounds_.erase(R);
+    _roundsDb.put(*R);
+  } else if (confirmations >= _cfg.RequiredConfirmations) {
+    LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R->Height, R->BlockHash.c_str());
+    for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I) {
+      requestPayout(I->UserId, I->Value);
 
-  if (!CurrentScores_.empty()) {
-    LOG_F(INFO, "[%s] current scores:", CoinInfo_.Name.c_str());
-    for (const auto &It: CurrentScores_) {
-      LOG_F(INFO, " * %s: %s", It.first.c_str(), It.second.getDecimal().c_str());
+      if (R->StartTime != 0) {
+        CPPLNSPayout record;
+        record.Login = I->UserId;
+        record.RoundStartTime = R->StartTime;
+        record.BlockHash = R->BlockHash;
+        record.BlockHeight = R->Height;
+        record.RoundEndTime = R->EndTime;
+        record.PayoutValue = I->Value;
+        record.PayoutValueWithoutFee = I->ValueWithoutFee;
+        record.AcceptedWork = I->AcceptedWork;
+        record.PrimePOWTarget = R->PrimePOWTarget;
+        record.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
+        record.RateBTCToUSD = PriceFetcher_.getBtcUsd();
+        PPLNSPayoutsDb.put(record);
+      }
     }
-  } else {
-    LOG_F(INFO, "[%s] current scores is empty", CoinInfo_.Name.c_str());
-  }
 
-  if (isDebugStatistic()) {
-    LOG_F(1, "initializationFinish: timeLabel: %" PRIi64 "", timeLabel.toUnixTime());
-    LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", CoinInfo_.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
+    R->Payouts.clear();
+    UnpayedRounds_.erase(R);
+    _roundsDb.put(*R);
   }
 }
 
@@ -534,48 +586,8 @@ void AccountingDb::checkBlockConfirmations()
     return;
   }
 
-  for (size_t i = 0; i < confirmationsQuery.size(); i++) {
-    MiningRound *R = rounds[i];
-
-    if (confirmationsQuery[i].Confirmations == -1) {
-      LOG_F(INFO, "block %" PRIu64 "/%s marked as orphan, can't do any payout", R->Height, confirmationsQuery[i].Hash.c_str());
-      R->Payouts.clear();
-      UnpayedRounds_.erase(R);
-      _roundsDb.put(*R);
-    } else if (confirmationsQuery[i].Confirmations >= _cfg.RequiredConfirmations) {
-      LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R->Height, R->BlockHash.c_str());
-      for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I) {
-        requestPayout(I->UserId, I->Value);
-
-        // update payout table
-        if (R->StartTime != 0) {
-          UInt<384> payoutValue = I->Value;
-          UInt<384> payoutValueWithoutFee = I->ValueWithoutFee;
-          // FixedPointInteger payoutValue(I->Value);
-          // FixedPointInteger payoutValueWithoutFee(I->ValueWithoutFee);
-
-          CPPLNSPayout record;
-          record.Login = I->UserId;
-          record.RoundStartTime = R->StartTime;
-          record.BlockHash = R->BlockHash;
-          record.BlockHeight = R->Height;
-          record.RoundEndTime = R->EndTime;
-          record.PayoutValue = payoutValue;
-          record.PayoutValueWithoutFee = payoutValueWithoutFee;
-          record.AcceptedWork = I->AcceptedWork;
-          record.PrimePOWTarget = R->PrimePOWTarget;
-          record.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
-          record.RateBTCToUSD = PriceFetcher_.getBtcUsd();
-          PPLNSPayoutsDb.put(record);
-        }
-      }
-
-      R->Payouts.clear();
-
-      UnpayedRounds_.erase(R);
-      _roundsDb.put(*R);
-    }
-  }
+  for (size_t i = 0; i < confirmationsQuery.size(); i++)
+    processRoundConfirmation(rounds[i], confirmationsQuery[i].Confirmations, confirmationsQuery[i].Hash);
 
   updatePayoutFile();
 }
@@ -619,22 +631,7 @@ void AccountingDb::checkBlockExtraInfo()
       _roundsDb.put(*R);
     }
 
-    if (confirmationsQuery[i].Confirmations == -1) {
-      LOG_F(INFO, "block %" PRIu64 "/%s marked as orphan, can't do any payout", R->Height, confirmationsQuery[i].Hash.c_str());
-      R->Payouts.clear();
-      UnpayedRounds_.erase(R);
-      _roundsDb.put(*R);
-    } else if (confirmationsQuery[i].Confirmations >= _cfg.RequiredConfirmations) {
-      LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R->Height, R->BlockHash.c_str());
-      for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I) {
-        requestPayout(I->UserId, I->Value);
-      }
-
-      R->Payouts.clear();
-
-      UnpayedRounds_.erase(R);
-      _roundsDb.put(*R);
-    }
+    processRoundConfirmation(R, confirmationsQuery[i].Confirmations, confirmationsQuery[i].Hash);
   }
 
   updatePayoutFile();
@@ -794,7 +791,8 @@ bool AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
     }
 
     UserBalanceRecord &balance = It->second;
-    // TODO: remove potintial overflow here
+    // Balance can become negative (unsigned underflow) if fees exceed expectations.
+    // This is handled: requestPayout/manualPayoutImpl check isNegative() before queuing new payouts.
     balance.Balance -= (payout.Value + payout.TxFee);
     balance.Requested -= payout.Value;
     balance.Paid += payout.Value;

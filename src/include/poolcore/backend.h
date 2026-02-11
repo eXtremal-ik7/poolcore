@@ -4,7 +4,6 @@
 #include "accounting.h"
 #include "blockTemplate.h"
 #include "priceFetcher.h"
-#include "shareLog.h"
 #include "statistics.h"
 #include "usermgr.h"
 #include "blockmaker/ethash.h"
@@ -13,33 +12,6 @@
 #include <thread>
 #include <tbb/concurrent_queue.h>
 
-
-class ShareLogConfig {
-public:
-  ShareLogConfig() {}
-  ShareLogConfig(AccountingDb *accounting, StatisticDb *statistic) : Accounting_(accounting), Statistic_(statistic) {}
-  void initializationFinish(Timestamp time) {
-    Accounting_->initializationFinish(time);
-    Statistic_->initializationFinish(time);
-  }
-
-  uint64_t lastAggregatedShareId() {
-    return std::min(Statistic_->lastAggregatedShareId(), Accounting_->lastAggregatedShareId());
-  }
-
-  uint64_t lastKnownShareId() {
-    return std::max(Statistic_->lastKnownShareId(), Accounting_->lastKnownShareId());
-  }
-
-  void replayShare(const CShare &share) {
-    Accounting_->replayShare(share);
-    Statistic_->replayShare(share);
-  }
-
-private:
-  AccountingDb *Accounting_;
-  StatisticDb *Statistic_;
-};
 
 class PoolBackend {
 public:
@@ -84,7 +56,6 @@ private:
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
   StatisticServer *AlgoMetaStatistic_ = nullptr;
-  ShareLog<ShareLogConfig> ShareLog_;
 
   TaskHandlerCoroutine<PoolBackend> TaskHandler_;
   bool ShutdownRequested_ = false;

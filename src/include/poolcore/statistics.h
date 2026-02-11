@@ -96,16 +96,18 @@ private:
   CStats PoolStatsCached_;
 
   kvdb<rocksdbBase> StatsDb_;
+  ShareLog<CShare> ShareLog_;
 
   TaskHandlerCoroutine<StatisticDb> TaskHandler_;
   aioUserEvent *PoolFlushEvent_;
   aioUserEvent *UserFlushEvent_;
   aioUserEvent *WorkerFlushEvent_;
-
+  aioUserEvent *ShareLogFlushEvent_ = nullptr;
   bool ShutdownRequested_ = false;
   bool PoolFlushFinished_ = false;
   bool UserFlushFinished_ = false;
   bool WorkerFlushFinished_ = false;
+  bool ShareLogFlushFinished_ = false;
 
   // Debugging only
   struct {
@@ -118,17 +120,17 @@ private:
   void flushUsers(Timestamp timeLabel);
   void flushWorkers(Timestamp timeLabel);
   void updatePoolStatsCached(Timestamp timeLabel);
+  void shareLogFlushHandler();
 
 public:
   // Initialization
   StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo);
   void replayShare(const CShare &share);
-  void initializationFinish(Timestamp timeLabel);
   void start();
   void stop();
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
 
-  void addShare(const CShare &share);
+  void addShare(CShare &share);
 
   // Min of accumulators' lastShareId; ShareLog replays shares starting from this point
   uint64_t lastAggregatedShareId() { return std::min({WorkerStats_.lastShareId(), UserStats_.lastShareId(), PoolStatsAcc_.lastShareId()}); }
@@ -136,12 +138,9 @@ public:
   // Max share id ever seen; ShareLog uses it to continue UniqueShareId numbering after restart
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
+  // Not thread-safe — must only be called from the statistics event loop thread
   const CStats &getPoolStats() { return PoolStatsCached_; }
   void getUserStats(const std::string &user, CStats &aggregate, std::vector<CStats> &workerStats, size_t offset, size_t size, EStatsColumn sortBy, bool sortDescending);
-
-  /// Return recent statistic for users
-  /// result - sorted by UserId
-  void exportRecentStats(std::chrono::seconds keepTime, std::vector<CStatsExportData> &result);
 
   // Synchronous api
   void getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history);
@@ -179,19 +178,6 @@ private:
                              bool sortDescending);
 };
 
-class StatisticShareLogConfig {
-public:
-  StatisticShareLogConfig() {}
-  StatisticShareLogConfig(StatisticDb *statistic) : Statistic_(statistic) {}
-  void initializationFinish(Timestamp time) { Statistic_->initializationFinish(time); }
-  uint64_t lastAggregatedShareId() { return Statistic_->lastAggregatedShareId(); }
-  uint64_t lastKnownShareId() { return Statistic_->lastKnownShareId(); }
-  void replayShare(const CShare &share) { Statistic_->replayShare(share); }
-
-private:
-  StatisticDb *Statistic_;
-};
-
 class StatisticServer {
 public:
   StatisticServer(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo);
@@ -221,7 +207,6 @@ private:
   const PoolBackendConfig Cfg_;
   CCoinInfo CoinInfo_;
   std::unique_ptr<StatisticDb> Statistics_;
-  ShareLog<StatisticShareLogConfig> ShareLog_;
   std::thread Thread_;
   TaskHandlerCoroutine<StatisticServer> TaskHandler_;
 };

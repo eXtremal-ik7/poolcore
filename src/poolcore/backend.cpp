@@ -22,7 +22,7 @@ static void checkConsistency(AccountingDb *accounting, const CCoinInfo &coinInfo
   UInt<384> totalInBalance = UInt<384>::zero();
   auto &balanceDb = accounting->getBalanceDb();
   {
-    auto *It = balanceDb.iterator();
+    std::unique_ptr<rocksdbBase::IteratorType> It(balanceDb.iterator());
     It->seekFirst();
     for (; It->valid(); It->next()) {
       UserBalanceRecord balance;
@@ -57,9 +57,6 @@ PoolBackend::PoolBackend(asyncBase *base,
   _statistics.reset(new StatisticDb(_base, _cfg, CoinInfo_));
   _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, priceFetcher));
 
-  ShareLogConfig shareLogConfig(_accounting.get(), _statistics.get());
-  ShareLog_.init(cfg.dbPath, info.Name, _base, _cfg.ShareLogFlushInterval, _cfg.ShareLogFileSizeLimit, shareLogConfig);
-
   ProfitSwitchCoeff_ = CoinInfo_.ProfitSwitchDefaultCoeff;
 
   if (CoinInfo_.HasDagFile) {
@@ -87,14 +84,12 @@ void PoolBackend::stop()
 
   postQuitOperation(_base);
   _thread.join();
-  ShareLog_.flush();
 }
 
 void PoolBackend::backendMain()
 {
   InitializeWorkerThread();
   loguru::set_thread_name(CoinInfo_.Name.c_str());
-  ShareLog_.start();
 
   TaskHandler_.start();
   _accounting->start();
@@ -148,7 +143,6 @@ void PoolBackend::checkBalanceHandler()
 
 void PoolBackend::onShare(CShare *share)
 {
-  ShareLog_.addShare(*share);
   _statistics->addShare(*share);
   _accounting->addShare(*share);
 }

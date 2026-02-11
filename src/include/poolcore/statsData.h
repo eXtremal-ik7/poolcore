@@ -22,11 +22,12 @@ struct CStatsElement {
   UInt<256> SharesWork = UInt<256>::zero();
   TimeInterval Time;
   uint32_t PrimePOWTarget = -1U;
-  std::vector<uint32_t> PrimePOWSharesNum;
+  std::vector<uint64_t> PrimePOWSharesNum;
 
   void reset();
   void merge(const CStatsElement &other);
   void merge(const StatsRecord &record);
+  CStatsElement scaled(double fraction) const;
   std::vector<CStatsElement> distributeToGrid(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs) const;
 };
 
@@ -49,7 +50,7 @@ struct CStatsSeries {
   void addShare(const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW);
   void merge(std::vector<CStatsElement> &cells);
   std::vector<CStatsElement> flush(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs, Timestamp removeTimePoint, std::set<int64_t> &removedTimes);
-  void calcAverageMetrics(const CCoinInfo &coinInfo, std::chrono::seconds calculateInterval, CStats &result) const;
+  void calcAverageMetrics(const CCoinInfo &coinInfo, std::chrono::seconds calculateInterval, Timestamp now, CStats &result) const;
 };
 
 // +file serialization
@@ -114,6 +115,7 @@ private:
   Timestamp AccumulationBegin_;
 };
 
+// All map keys must be created via makeStatsKey (guarantees '\0' separator)
 inline std::string makeStatsKey(const std::string &login, const std::string &workerId) {
   return login + '\0' + workerId;
 }
@@ -211,6 +213,8 @@ struct DbIo<CStatsFileRecord> {
       DbIo<decltype(data.WorkerId)>::unserialize(in, data.WorkerId);
       DbIo<decltype(data.Element)>::unserialize(in, data.Element);
     } else {
+      // Unknown version — skip the rest of the file; remaining records are
+      // discarded intentionally since we cannot parse them reliably
       in.seekEnd(0, true);
     }
   }
@@ -218,6 +222,12 @@ struct DbIo<CStatsFileRecord> {
 
 template<>
 struct DbIo<CStatsFileData> {
+  static inline void serializeHeader(xmstream &out, uint64_t lastShareId, size_t recordCount) {
+    DbIo<uint32_t>::serialize(out, CStatsFileData::CurrentRecordVersion);
+    DbIo<uint64_t>::serialize(out, lastShareId);
+    DbIo<VarSize>::serialize(out, VarSize(recordCount));
+  }
+
   static inline void unserialize(xmstream &in, CStatsFileData &data) {
     uint32_t version;
     DbIo<uint32_t>::unserialize(in, version);

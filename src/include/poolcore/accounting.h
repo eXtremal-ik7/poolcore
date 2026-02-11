@@ -2,6 +2,7 @@
 #define __ACCOUNTING_H_
 
 #include "backendData.h"
+#include "shareLog.h"
 #include "statsData.h"
 #include "usermgr.h"
 #include "poolcommon/multiCall.h"
@@ -135,7 +136,7 @@ private:
   // Accumulated share work per user for the current block search session; cleared on block found
   std::map<std::string, UInt<256>> CurrentScores_;
   std::vector<CStatsExportData> RecentStats_;
-  CFlushInfo FlushInfo_;
+  uint64_t ScoresFlushedShareId_ = 0;
 
   // Debugging only
   struct {
@@ -151,12 +152,16 @@ private:
   kvdb<rocksdbBase> _poolBalanceDb;
   kvdb<rocksdbBase> _payoutDb;
   kvdb<rocksdbBase> PPLNSPayoutsDb;
-  
+  ShareLog<CShare> ShareLog_;
+
   uint64_t LastKnownShareId_ = 0;
 
   CStatsSeriesMap UserStatsAcc_;
   aioUserEvent *UserStatsFlushEvent_;
   bool UserStatsFlushFinished_ = false;
+
+  aioUserEvent *ShareLogFlushEvent_ = nullptr;
+  bool ShareLogFlushFinished_ = false;
 
   TaskHandlerCoroutine<AccountingDb> TaskHandler_;
   aioUserEvent *FlushTimerEvent_;
@@ -168,6 +173,7 @@ private:
   void flushCurrentScores();
   void flushBlockFoundState();
   void flushUserStats(Timestamp timeLabel);
+  void shareLogFlushHandler();
 
 public:
   AccountingDb(asyncBase *base,
@@ -179,7 +185,7 @@ public:
 
   void taskHandler();
 
-  uint64_t lastAggregatedShareId() { return std::min(FlushInfo_.ShareId, UserStatsAcc_.lastShareId()); }
+  uint64_t lastAggregatedShareId() { return std::min(ScoresFlushedShareId_, UserStatsAcc_.lastShareId()); }
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
   void start();
@@ -191,9 +197,9 @@ public:
 
   bool hasUnknownReward();
   void calculatePayments(MiningRound *R, const UInt<384> &generatedCoins);
-  void addShare(const CShare &share);
+  void addShare(CShare &share);
   void replayShare(const CShare &share);
-  void initializationFinish(Timestamp timeLabel);
+  void processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();
   void buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout);
