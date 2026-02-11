@@ -405,8 +405,9 @@ void AccountingDb::addShare(const CShare &share)
       R->StartTime = 0;
 
     // Merge shares for current block with older shares (PPLNS)
+    static constexpr auto PPLNSWindow = std::chrono::minutes(30);
     {
-      Timestamp acceptSharesTime = share.Time - std::chrono::seconds(1800);
+      Timestamp acceptSharesTime = share.Time - PPLNSWindow;
       mergeSorted(RecentStats_.begin(), RecentStats_.end(), CurrentScores_.begin(), CurrentScores_.end(),
         [](const CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) { return stats.UserId < scores.first; },
         [](const std::pair<std::string, UInt<256>> &scores, const CStatsExportData &stats) { return scores.first < stats.UserId; },
@@ -441,7 +442,7 @@ void AccountingDb::addShare(const CShare &share)
     UnpayedRounds_.insert(R);
 
     // Query statistics
-    StatisticDb_.exportRecentStats(RecentStats_);
+    StatisticDb_.exportRecentStats(PPLNSWindow, RecentStats_);
     printRecentStatistic();
 
     // Reset aggregated data

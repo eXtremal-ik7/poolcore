@@ -97,15 +97,18 @@ private:
   CStatsSeriesMap WorkerStats_{"stats.workers.cache.3"};
 
   CStats PoolStatsCached_;
-  Timestamp AccumulationBegin_;
 
   kvdb<rocksdbBase> StatsDb_;
 
   TaskHandlerCoroutine<StatisticDb> TaskHandler_;
-  aioUserEvent *FlushEvent_;
+  aioUserEvent *PoolFlushEvent_;
+  aioUserEvent *UserFlushEvent_;
+  aioUserEvent *WorkerFlushEvent_;
 
   bool ShutdownRequested_ = false;
-  bool FlushFinished_ = false;
+  bool PoolFlushFinished_ = false;
+  bool UserFlushFinished_ = false;
+  bool WorkerFlushFinished_ = false;
 
   // Debugging only
   struct {
@@ -114,7 +117,9 @@ private:
     uint64_t Count = 0;
   } Dbg_;
 
-  void flushAll(Timestamp timeLabel);
+  void flushPool(Timestamp timeLabel);
+  void flushUsers(Timestamp timeLabel);
+  void flushWorkers(Timestamp timeLabel);
   void updatePoolStatsCached(Timestamp timeLabel);
 
 public:
@@ -139,7 +144,7 @@ public:
 
   /// Return recent statistic for users
   /// result - sorted by UserId
-  void exportRecentStats(std::vector<CStatsExportData> &result);
+  void exportRecentStats(std::chrono::seconds keepTime, std::vector<CStatsExportData> &result);
 
   // Synchronous api
   void getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history);

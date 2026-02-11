@@ -9,7 +9,9 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   StatsDb_(_cfg.dbPath / "statistic", std::make_shared<StatsRecordMergeOperator>()),
   TaskHandler_(this, base)
 {
-  FlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
+  PoolFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
+  UserFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
+  WorkerFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
 
   WorkerStats_.load(_cfg.dbPath, coinInfo.Name);
   UserStats_.load(_cfg.dbPath, coinInfo.Name);
@@ -26,18 +28,18 @@ void StatisticDb::updatePoolStatsCached(Timestamp timeLabel)
   PoolStatsCached_.WorkersNum = 0;
 
   for (const auto &[key, acc]: UserStats_.map()) {
-    if (timeLabel - acc.LastShareTime < std::chrono::duration_cast<Timestamp::Duration>(_cfg.StatisticWorkersPowerCalculateInterval))
+    if (timeLabel - acc.LastShareTime < _cfg.StatisticWorkersPowerCalculateInterval)
       PoolStatsCached_.ClientsNum++;
   }
 
   for (const auto &[key, acc]: WorkerStats_.map()) {
-    if (timeLabel - acc.LastShareTime < std::chrono::duration_cast<Timestamp::Duration>(_cfg.StatisticWorkersPowerCalculateInterval))
+    if (timeLabel - acc.LastShareTime < _cfg.StatisticWorkersPowerCalculateInterval)
       PoolStatsCached_.WorkersNum++;
   }
 
   if (isDebugStatistic())
     LOG_F(1, "update pool stats:");
-  PoolStatsAcc_.series().calcAverageMetrics(CoinInfo_, _cfg.StatisticPoolPowerCalculateInterval, _cfg.StatisticPoolGridInterval, PoolStatsCached_);
+  PoolStatsAcc_.series().calcAverageMetrics(CoinInfo_, _cfg.StatisticPoolPowerCalculateInterval, PoolStatsCached_);
 
   LOG_F(INFO,
         "clients: %u, workers: %u, power: %" PRIu64 ", share rate: %.3lf shares/s",
@@ -47,53 +49,54 @@ void StatisticDb::updatePoolStatsCached(Timestamp timeLabel)
         PoolStatsCached_.SharesPerSecond);
 }
 
-void StatisticDb::flushAll(Timestamp timeLabel)
+void StatisticDb::flushPool(Timestamp timeLabel)
 {
-  int64_t workerGridMs = std::chrono::duration_cast<std::chrono::milliseconds>(_cfg.StatisticWorkerGridInterval).count();
-  int64_t userGridMs = std::chrono::duration_cast<std::chrono::milliseconds>(_cfg.StatisticUserGridInterval).count();
-  int64_t poolGridMs = std::chrono::duration_cast<std::chrono::milliseconds>(_cfg.StatisticPoolGridInterval).count();
-  Timestamp removeTimePoint = timeLabel - std::chrono::duration_cast<Timestamp::Duration>(_cfg.StatisticKeepTime);
+  int64_t gridMs = std::chrono::duration_cast<std::chrono::milliseconds>(_cfg.StatisticPoolGridInterval).count();
+  Timestamp removeTimePoint = timeLabel - _cfg.StatisticKeepTime;
 
   kvdb<rocksdbBase>::Batch batch;
-  std::set<int64_t> modifiedWorkerTimes;
-  std::set<int64_t> modifiedUserTimes;
-  std::set<int64_t> modifiedPoolTimes;
-  std::set<int64_t> removedWorkerTimes;
-  std::set<int64_t> removedUserTimes;
-  std::set<int64_t> removedPoolTimes;
-
-  // Flush workers
-  WorkerStats_.flush(AccumulationBegin_.count(), timeLabel.count(), workerGridMs, removeTimePoint, timeLabel, LastKnownShareId_, &batch, modifiedWorkerTimes, removedWorkerTimes);
-
-  // Flush users
-  UserStats_.flush(AccumulationBegin_.count(), timeLabel.count(), userGridMs, removeTimePoint, timeLabel, LastKnownShareId_, &batch, modifiedUserTimes, removedUserTimes);
-
-  // Flush pool
-  PoolStatsAcc_.flush(AccumulationBegin_.count(), timeLabel.count(), poolGridMs, removeTimePoint, timeLabel, LastKnownShareId_, &batch, modifiedPoolTimes, removedPoolTimes);
-
-  // Write batch to RocksDB
+  std::set<int64_t> modifiedTimes, removedTimes;
+  PoolStatsAcc_.flush(timeLabel, gridMs, removeTimePoint, LastKnownShareId_, &batch, modifiedTimes, removedTimes);
   StatsDb_.writeBatch(batch);
 
-  // Rebuild .dat files for modified grid times
-  for (int64_t gridEndMs : modifiedWorkerTimes)
-    WorkerStats_.rebuildDatFile(_cfg.dbPath, gridEndMs);
-  for (int64_t gridEndMs : modifiedUserTimes)
-    UserStats_.rebuildDatFile(_cfg.dbPath, gridEndMs);
-  for (int64_t gridEndMs : modifiedPoolTimes)
-    PoolStatsAcc_.rebuildDatFile(_cfg.dbPath, gridEndMs);
+  for (int64_t t : modifiedTimes)
+    PoolStatsAcc_.rebuildDatFile(_cfg.dbPath, t);
+  for (int64_t t : removedTimes)
+    removeDatFile(_cfg.dbPath, PoolStatsAcc_.cachePath(), t);
 
-  // Remove old .dat files
-  for (int64_t gridEndMs : removedWorkerTimes)
-    removeDatFile(_cfg.dbPath, WorkerStats_.cachePath(), gridEndMs);
-  for (int64_t gridEndMs : removedUserTimes)
-    removeDatFile(_cfg.dbPath, UserStats_.cachePath(), gridEndMs);
-  for (int64_t gridEndMs : removedPoolTimes)
-    removeDatFile(_cfg.dbPath, PoolStatsAcc_.cachePath(), gridEndMs);
-
-  // Update cached pool stats
   updatePoolStatsCached(timeLabel);
+}
 
-  AccumulationBegin_ = timeLabel;
+void StatisticDb::flushUsers(Timestamp timeLabel)
+{
+  int64_t gridMs = std::chrono::duration_cast<std::chrono::milliseconds>(_cfg.StatisticUserGridInterval).count();
+  Timestamp removeTimePoint = timeLabel - _cfg.StatisticKeepTime;
+
+  kvdb<rocksdbBase>::Batch batch;
+  std::set<int64_t> modifiedTimes, removedTimes;
+  UserStats_.flush(timeLabel, gridMs, removeTimePoint, LastKnownShareId_, &batch, modifiedTimes, removedTimes);
+  StatsDb_.writeBatch(batch);
+
+  for (int64_t t : modifiedTimes)
+    UserStats_.rebuildDatFile(_cfg.dbPath, t);
+  for (int64_t t : removedTimes)
+    removeDatFile(_cfg.dbPath, UserStats_.cachePath(), t);
+}
+
+void StatisticDb::flushWorkers(Timestamp timeLabel)
+{
+  int64_t gridMs = std::chrono::duration_cast<std::chrono::milliseconds>(_cfg.StatisticWorkerGridInterval).count();
+  Timestamp removeTimePoint = timeLabel - _cfg.StatisticKeepTime;
+
+  kvdb<rocksdbBase>::Batch batch;
+  std::set<int64_t> modifiedTimes, removedTimes;
+  WorkerStats_.flush(timeLabel, gridMs, removeTimePoint, LastKnownShareId_, &batch, modifiedTimes, removedTimes);
+  StatsDb_.writeBatch(batch);
+
+  for (int64_t t : modifiedTimes)
+    WorkerStats_.rebuildDatFile(_cfg.dbPath, t);
+  for (int64_t t : removedTimes)
+    removeDatFile(_cfg.dbPath, WorkerStats_.cachePath(), t);
 }
 
 void StatisticDb::addShare(const CShare &share)
@@ -127,7 +130,9 @@ void StatisticDb::replayShare(const CShare &share)
 
 void StatisticDb::initializationFinish(Timestamp timeLabel)
 {
-  AccumulationBegin_ = timeLabel;
+  PoolStatsAcc_.setAccumulationBegin(timeLabel);
+  UserStats_.setAccumulationBegin(timeLabel);
+  WorkerStats_.setAccumulationBegin(timeLabel);
 
   if (isDebugStatistic())
     LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", CoinInfo_.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
@@ -140,29 +145,51 @@ void StatisticDb::start()
   coroutineCall(coroutineNewWithCb([](void *arg) {
     StatisticDb *db = static_cast<StatisticDb*>(arg);
     for (;;) {
-      ioSleep(db->FlushEvent_, std::chrono::microseconds(db->_cfg.StatisticFlushInterval).count());
+      ioSleep(db->PoolFlushEvent_, std::chrono::microseconds(db->_cfg.StatisticPoolFlushInterval).count());
+      db->flushPool(Timestamp::now());
       if (db->ShutdownRequested_)
         break;
-      db->flushAll(Timestamp::now());
     }
-  }, this, 0x20000, coroutineFinishCb, &FlushFinished_));
+  }, this, 0x20000, coroutineFinishCb, &PoolFlushFinished_));
+
+  coroutineCall(coroutineNewWithCb([](void *arg) {
+    StatisticDb *db = static_cast<StatisticDb*>(arg);
+    for (;;) {
+      ioSleep(db->UserFlushEvent_, std::chrono::microseconds(db->_cfg.StatisticUserFlushInterval).count());
+      db->flushUsers(Timestamp::now());
+      if (db->ShutdownRequested_)
+        break;
+    }
+  }, this, 0x20000, coroutineFinishCb, &UserFlushFinished_));
+
+  coroutineCall(coroutineNewWithCb([](void *arg) {
+    StatisticDb *db = static_cast<StatisticDb*>(arg);
+    for (;;) {
+      ioSleep(db->WorkerFlushEvent_, std::chrono::microseconds(db->_cfg.StatisticWorkerFlushInterval).count());
+      db->flushWorkers(Timestamp::now());
+      if (db->ShutdownRequested_)
+        break;
+    }
+  }, this, 0x20000, coroutineFinishCb, &WorkerFlushFinished_));
 }
 
 void StatisticDb::stop()
 {
   ShutdownRequested_ = true;
-  userEventActivate(FlushEvent_);
+  userEventActivate(PoolFlushEvent_);
+  userEventActivate(UserFlushEvent_);
+  userEventActivate(WorkerFlushEvent_);
   TaskHandler_.stop(CoinInfo_.Name.c_str(), "statisticDb task handler");
-  coroutineJoin(CoinInfo_.Name.c_str(), "statisticDb flush updater", &FlushFinished_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "statisticDb pool flush", &PoolFlushFinished_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "statisticDb user flush", &UserFlushFinished_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "statisticDb worker flush", &WorkerFlushFinished_);
 }
 
 
 void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::vector<CStats> &workerStats, size_t offset, size_t size, EStatsColumn sortBy, bool sortDescending)
 {
-  auto userIt = UserStats_.map().find(makeStatsKey(user, ""));
   auto workerLo = WorkerStats_.map().lower_bound(makeStatsKey(user, ""));
-  bool hasWorkers = (workerLo != WorkerStats_.map().end() && splitStatsKey(workerLo->first).first == user);
-  if (userIt == UserStats_.map().end() && !hasWorkers)
+  if (workerLo == WorkerStats_.map().end() || splitStatsKey(workerLo->first).first != user)
     return;
 
   userStats.ClientsNum = 1;
@@ -171,23 +198,6 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
   std::vector<CStats> allStats;
   Timestamp lastShareTime;
 
-  // User-level stats
-  if (userIt != UserStats_.map().end()) {
-    const CStatsSeries &acc = userIt->second;
-    CStats &result = allStats.emplace_back();
-    if (isDebugStatistic())
-      LOG_F(1, "Retrieve statistic for %s/<user>", user.c_str());
-    acc.calcAverageMetrics(CoinInfo_, _cfg.StatisticWorkersPowerCalculateInterval, _cfg.StatisticUserGridInterval, result);
-    userStats.SharesPerSecond += result.SharesPerSecond;
-    userStats.SharesWork += result.SharesWork;
-    userStats.AveragePower += result.AveragePower;
-    if (result.AveragePower)
-      userStats.WorkersNum++;
-    result.LastShareTime = acc.LastShareTime;
-    lastShareTime = std::max(lastShareTime, acc.LastShareTime);
-  }
-
-  // Worker-level stats
   for (auto it = workerLo; it != WorkerStats_.map().end(); ++it) {
     auto [login, workerId] = splitStatsKey(it->first);
     if (login != user)
@@ -197,7 +207,7 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
     result.WorkerId = std::move(workerId);
     if (isDebugStatistic())
       LOG_F(1, "Retrieve statistic for %s/%s", user.c_str(), result.WorkerId.c_str());
-    acc.calcAverageMetrics(CoinInfo_, _cfg.StatisticWorkersPowerCalculateInterval, _cfg.StatisticWorkerGridInterval, result);
+    acc.calcAverageMetrics(CoinInfo_, _cfg.StatisticWorkersPowerCalculateInterval, result);
     userStats.SharesPerSecond += result.SharesPerSecond;
     userStats.SharesWork += result.SharesWork;
     userStats.AveragePower += result.AveragePower;
@@ -247,7 +257,7 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
 
 void StatisticDb::getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history)
 {
-  if (groupByInterval < 60)
+  if (groupByInterval < 60 || timeTo <= timeFrom)
     return;
 
   if (isDebugStatistic())
@@ -268,76 +278,78 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     record.serializeKey(resumeKey);
   }
 
+  auto groupBy = std::chrono::seconds(groupByInterval);
+  Timestamp tsFrom = Timestamp::fromUnixTime(timeFrom);
+  Timestamp tsTo = Timestamp::fromUnixTime(timeTo);
+
   {
     StatsRecord keyRecord;
     keyRecord.Login = login;
     keyRecord.WorkerId = workerId;
-    keyRecord.Time.TimeEnd = Timestamp::fromUnixTime(timeTo);
+    keyRecord.Time.TimeEnd = tsTo;
     It->seekForPrev<StatsRecord>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
-  // Fill 'stats' with zero-initialized elements for entire range
-  int64_t firstTimeLabel = 0;
-  std::vector<CStatsElement> stats;
-
-  {
-    firstTimeLabel = (timeFrom+1) + groupByInterval - ((timeFrom+1) % groupByInterval);
-    int64_t lastTimeLabel = timeTo + groupByInterval - (timeTo % groupByInterval);
-    size_t count = (lastTimeLabel - firstTimeLabel) / groupByInterval + 1;
-    if (count > 3200) {
-      LOG_F(WARNING, "statisticDb: too much count %zu", count);
-      return;
-    }
-
-    stats.resize(count);
-
-    int64_t timeLabel = firstTimeLabel;
-    for (size_t i = 0; i < count; i++) {
-      stats[i].Time.TimeEnd = Timestamp::fromUnixTime(timeLabel);
-      timeLabel += groupByInterval;
-    }
+  Timestamp firstTimeLabel = tsFrom.alignUp(groupBy);
+  if (firstTimeLabel == tsFrom)
+    firstTimeLabel += groupBy;
+  Timestamp lastTimeLabel = tsTo.alignUp(groupBy);
+  size_t count = (lastTimeLabel - firstTimeLabel) / groupBy + 1;
+  if (count > 3200) {
+    LOG_F(WARNING, "statisticDb: too much count %zu", count);
+    return;
   }
 
+  std::vector<CStatsElement> stats(count);
+  int64_t groupByMs = std::chrono::duration_cast<std::chrono::milliseconds>(groupBy).count();
+
   while (It->valid()) {
-    int64_t recordTimeSeconds = valueRecord.Time.TimeEnd.toUnixTime();
-    if (recordTimeSeconds <= timeFrom)
+    if (valueRecord.Time.TimeEnd <= tsFrom)
       break;
 
     if (isDebugStatistic())
       LOG_F(1,
             "getHistory: use row with time=%" PRIi64 " shares=%" PRIu64 " work=%s",
-            recordTimeSeconds,
+            valueRecord.Time.TimeEnd.toUnixTime(),
             valueRecord.ShareCount,
             valueRecord.ShareWork.getDecimal().c_str());
 
-    int64_t alignedTimeLabel = recordTimeSeconds + groupByInterval - (recordTimeSeconds % groupByInterval);
-    size_t index = (alignedTimeLabel - firstTimeLabel) / groupByInterval;
-    if (index < stats.size()) {
-      CStatsElement &current = stats[index];
-      current.SharesNum += valueRecord.ShareCount;
-      current.SharesWork += valueRecord.ShareWork;
-      current.PrimePOWTarget = std::min(current.PrimePOWTarget, valueRecord.PrimePOWTarget);
-      if (current.PrimePOWSharesNum.size() < valueRecord.PrimePOWShareCount.size())
-        current.PrimePOWSharesNum.resize(valueRecord.PrimePOWShareCount.size());
-      for (size_t i = 0, ie = valueRecord.PrimePOWShareCount.size(); i != ie; ++i)
-        current.PrimePOWSharesNum[i] += valueRecord.PrimePOWShareCount[i];
+    Timestamp cellEnd = valueRecord.Time.TimeEnd.alignUp(groupBy);
+
+    if (valueRecord.Time.TimeBegin >= cellEnd - groupBy) {
+      size_t index = (cellEnd - firstTimeLabel) / groupBy;
+      if (index < stats.size())
+        stats[index].merge(valueRecord);
+    } else {
+      CStatsElement element;
+      element.SharesNum = valueRecord.ShareCount;
+      element.SharesWork = valueRecord.ShareWork;
+      element.PrimePOWTarget = valueRecord.PrimePOWTarget;
+      element.PrimePOWSharesNum.assign(valueRecord.PrimePOWShareCount.begin(), valueRecord.PrimePOWShareCount.end());
+
+      auto cells = element.distributeToGrid(valueRecord.Time.TimeBegin.count(), valueRecord.Time.TimeEnd.count(), groupByMs);
+      for (const auto &cell : cells) {
+        size_t index = (cell.Time.TimeEnd - firstTimeLabel) / groupBy;
+        if (index < stats.size())
+          stats[index].merge(cell);
+      }
     }
 
     It->prev<StatsRecord>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
-  history.resize(stats.size());
-  for (size_t i = 0, ie = stats.size(); i != ie; ++i) {
-    history[i].Time = stats[i].Time.TimeEnd;
+  history.resize(count);
+  for (size_t i = 0; i < count; i++) {
+    history[i].Time = firstTimeLabel + groupBy * static_cast<int64_t>(i);
     history[i].SharesPerSecond = static_cast<double>(stats[i].SharesNum) / groupByInterval;
     history[i].AveragePower = CoinInfo_.calculateAveragePower(stats[i].SharesWork, groupByInterval, stats[i].PrimePOWTarget);
     history[i].SharesWork = stats[i].SharesWork;
   }
 }
 
-void StatisticDb::exportRecentStats(std::vector<CStatsExportData> &result)
+void StatisticDb::exportRecentStats(std::chrono::seconds keepTime, std::vector<CStatsExportData> &result)
 {
-  UserStats_.exportRecentStats(AccumulationBegin_, result);
+  UserStats_.exportRecentStats(keepTime, result);
 }
 
 void StatisticDb::queryPoolStatsImpl(QueryPoolStatsCallback callback)
@@ -372,7 +384,7 @@ void StatisticDb::queryAllUserStatsImpl(const std::vector<UserManager::Credentia
       continue;
 
     CStats userStats;
-    userIt->second.calcAverageMetrics(CoinInfo_, _cfg.StatisticWorkersPowerCalculateInterval, _cfg.StatisticWorkerGridInterval, userStats);
+    userIt->second.calcAverageMetrics(CoinInfo_, _cfg.StatisticWorkersPowerCalculateInterval, userStats);
     dst.WorkersNum = userStats.WorkersNum;
     dst.AveragePower = userStats.AveragePower;
     dst.SharesPerSecond = userStats.SharesPerSecond;

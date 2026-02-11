@@ -79,12 +79,14 @@ struct PoolBackendConfig {
   unsigned PayoutInterval;
   unsigned BalanceCheckInterval;
   std::chrono::minutes StatisticKeepTime = std::chrono::minutes(30);
-  std::chrono::minutes StatisticWorkersPowerCalculateInterval = std::chrono::minutes(11);
-  std::chrono::minutes StatisticPoolPowerCalculateInterval = std::chrono::minutes(5);
-  std::chrono::seconds StatisticPoolGridInterval = std::chrono::seconds(60);
-  std::chrono::seconds StatisticUserGridInterval = std::chrono::seconds(120);
-  std::chrono::seconds StatisticWorkerGridInterval = std::chrono::seconds(300);
-  std::chrono::seconds StatisticFlushInterval = std::chrono::seconds(60);
+  std::chrono::minutes StatisticWorkersPowerCalculateInterval = std::chrono::minutes(12);
+  std::chrono::minutes StatisticPoolPowerCalculateInterval = std::chrono::minutes(4);
+  std::chrono::minutes StatisticPoolGridInterval = std::chrono::minutes(1);
+  std::chrono::minutes StatisticUserGridInterval = std::chrono::minutes(2);
+  std::chrono::minutes StatisticWorkerGridInterval = std::chrono::minutes(6);
+  std::chrono::minutes StatisticPoolFlushInterval = std::chrono::minutes(1);
+  std::chrono::minutes StatisticUserFlushInterval = std::chrono::minutes(2);
+  std::chrono::minutes StatisticWorkerFlushInterval = std::chrono::minutes(6);
   std::chrono::hours StatisticKeepWorkerNamesTime = std::chrono::hours(24);
 
   SelectorByWeight<CMiningAddress> MiningAddresses;

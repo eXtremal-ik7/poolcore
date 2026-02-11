@@ -14,6 +14,8 @@
 
 std::string partByTime(time_t time);
 
+struct StatsRecord;
+
 // +file serialization
 struct CStatsElement {
   uint64_t SharesNum = 0;
@@ -24,6 +26,7 @@ struct CStatsElement {
 
   void reset();
   void merge(const CStatsElement &other);
+  void merge(const StatsRecord &record);
   std::vector<CStatsElement> distributeToGrid(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs) const;
 };
 
@@ -46,7 +49,7 @@ struct CStatsSeries {
   void addShare(const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW);
   void merge(std::vector<CStatsElement> &cells);
   std::vector<CStatsElement> flush(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs, Timestamp removeTimePoint, std::set<int64_t> &removedTimes);
-  void calcAverageMetrics(const CCoinInfo &coinInfo, std::chrono::seconds calculateInterval, std::chrono::seconds aggregateTime, CStats &result) const;
+  void calcAverageMetrics(const CCoinInfo &coinInfo, std::chrono::seconds calculateInterval, CStats &result) const;
 };
 
 // +file serialization
@@ -73,9 +76,9 @@ struct StatsRecord {
   std::string WorkerId;
   TimeInterval Time;
   Timestamp UpdateTime;
-  uint64_t ShareCount;
-  UInt<256> ShareWork;
-  uint32_t PrimePOWTarget;
+  uint64_t ShareCount = 0;
+  UInt<256> ShareWork = UInt<256>::zero();
+  uint32_t PrimePOWTarget = -1U;
   std::vector<uint64_t> PrimePOWShareCount;
 
   std::string getPartitionId() const { return partByTime(Time.TimeEnd.toUnixTime()); }
@@ -91,6 +94,7 @@ struct CStatsSeriesSingle {
   const CStatsSeries& series() const { return Series_; }
   const std::string& cachePath() const { return CachePath_; }
   uint64_t lastShareId() const { return LastShareId_; }
+  void setAccumulationBegin(Timestamp t) { AccumulationBegin_ = t; }
 
   void addShare(const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
     Series_.addShare(workValue, time, primeChainLength, primePOWTarget, isPrimePOW);
@@ -98,13 +102,14 @@ struct CStatsSeriesSingle {
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
   void rebuildDatFile(const std::filesystem::path &dbPath, int64_t gridEndMs);
-  void flush(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs, Timestamp removeTimePoint,
-             Timestamp timeLabel, uint64_t lastShareId, kvdb<rocksdbBase>::Batch *batch,
+  void flush(Timestamp timeLabel, int64_t gridIntervalMs, Timestamp removeTimePoint,
+             uint64_t lastShareId, kvdb<rocksdbBase>::Batch *batch,
              std::set<int64_t> &modifiedTimes, std::set<int64_t> &removedTimes);
 private:
   std::string CachePath_;
   CStatsSeries Series_;
   uint64_t LastShareId_ = 0;
+  Timestamp AccumulationBegin_;
 };
 
 void removeDatFile(const std::filesystem::path &dbPath, const std::string &cachePath, int64_t gridEndMs);
@@ -149,6 +154,7 @@ struct CStatsSeriesMap {
   const std::map<std::string, CStatsSeries>& map() const { return Map_; }
   const std::string& cachePath() const { return CachePath_; }
   uint64_t lastShareId() const { return LastShareId_; }
+  void setAccumulationBegin(Timestamp t) { AccumulationBegin_ = t; }
 
   void addShare(const std::string &login, const std::string &workerId, const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
     Map_[makeStatsKey(login, workerId)].addShare(workValue, time, primeChainLength, primePOWTarget, isPrimePOW);
@@ -156,14 +162,15 @@ struct CStatsSeriesMap {
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
   void rebuildDatFile(const std::filesystem::path &dbPath, int64_t gridEndMs);
-  void flush(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs, Timestamp removeTimePoint,
-             Timestamp timeLabel, uint64_t lastShareId, kvdb<rocksdbBase>::Batch *batch,
+  void flush(Timestamp timeLabel, int64_t gridIntervalMs, Timestamp removeTimePoint,
+             uint64_t lastShareId, kvdb<rocksdbBase>::Batch *batch,
              std::set<int64_t> &modifiedTimes, std::set<int64_t> &removedTimes);
-  void exportRecentStats(Timestamp accumulationBegin, std::vector<CStatsExportData> &result) const;
+  void exportRecentStats(std::chrono::seconds keepTime, std::vector<CStatsExportData> &result) const;
 private:
   std::string CachePath_;
   std::map<std::string, CStatsSeries> Map_;
   uint64_t LastShareId_ = 0;
+  Timestamp AccumulationBegin_;
 };
 
 template<>

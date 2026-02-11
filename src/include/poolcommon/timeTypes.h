@@ -26,12 +26,23 @@ public:
   int64_t count() const { return Value_.count(); }
 
   // Arithmetic operators
-  Timestamp operator+(Duration d) const { return Timestamp(Value_ + d); }
-  Timestamp operator-(Duration d) const { return Timestamp(Value_ - d); }
+  template<typename Rep, typename Period>
+  Timestamp operator+(std::chrono::duration<Rep, Period> d) const { return Timestamp(Value_ + std::chrono::duration_cast<Duration>(d)); }
+  template<typename Rep, typename Period>
+  Timestamp operator-(std::chrono::duration<Rep, Period> d) const { return Timestamp(Value_ - std::chrono::duration_cast<Duration>(d)); }
   Duration operator-(Timestamp other) const { return Value_ - other.Value_; }
 
-  Timestamp &operator+=(Duration d) { Value_ += d; return *this; }
-  Timestamp &operator-=(Duration d) { Value_ -= d; return *this; }
+  template<typename Rep, typename Period>
+  Timestamp &operator+=(std::chrono::duration<Rep, Period> d) { Value_ += std::chrono::duration_cast<Duration>(d); return *this; }
+  template<typename Rep, typename Period>
+  Timestamp &operator-=(std::chrono::duration<Rep, Period> d) { Value_ -= std::chrono::duration_cast<Duration>(d); return *this; }
+
+  // Align up to grid boundary
+  template<typename Rep, typename Period>
+  Timestamp alignUp(std::chrono::duration<Rep, Period> grid) const {
+    int64_t g = std::chrono::duration_cast<Duration>(grid).count();
+    return Timestamp(((Value_.count() + g - 1) / g) * g);
+  }
 
   // Comparison operators
   bool operator<(Timestamp other) const { return Value_ < other.Value_; }
