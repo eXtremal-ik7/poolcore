@@ -50,9 +50,9 @@ public:
   using ManualPayoutCallback = std::function<void(bool)>;
   using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
   using QueryBalanceCallback = std::function<void(const UserBalanceRecord&)>;
-  using QueryPoolStatsCallback = std::function<void(const StatisticDb::CStats&)>;
-  using QueryUserStatsCallback = std::function<void(const StatisticDb::CStats&, const std::vector<StatisticDb::CStats>&)>;
-  using QueryStatsHistoryCallback = std::function<void(const std::vector<StatisticDb::CStats>&)>;
+  using QueryPoolStatsCallback = std::function<void(const CStats&)>;
+  using QueryUserStatsCallback = std::function<void(const CStats&, const std::vector<CStats>&)>;
+  using QueryStatsHistoryCallback = std::function<void(const std::vector<CStats>&)>;
 
 private:
   class TaskShare : public Task<PoolBackend> {

@@ -145,7 +145,7 @@ private:
 
   // Accumulated share work per user for the current block search session; cleared on block found
   std::map<std::string, UInt<256>> CurrentScores_;
-  std::vector<StatisticDb::CStatsExportData> RecentStats_;
+  std::vector<CStatsExportData> RecentStats_;
   CFlushInfo FlushInfo_;
 
   // Debugging only

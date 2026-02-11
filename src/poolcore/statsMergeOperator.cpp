@@ -1,5 +1,5 @@
 #include "poolcore/statsMergeOperator.h"
-#include "poolcore/backendData.h"
+#include "poolcore/statsData.h"
 #include "p2putils/xmstream.h"
 
 bool StatsRecordMergeOperator::Merge(const rocksdb::Slice &key,
@@ -21,7 +21,7 @@ bool StatsRecordMergeOperator::Merge(const rocksdb::Slice &key,
   if (!incoming.deserializeValue(value.data(), value.size()))
     return false;
 
-  // Merge following CStatsAccumulator::addShare pattern
+  // Merge following CStatsSeries::addShare pattern
   existing.ShareCount += incoming.ShareCount;
   existing.ShareWork += incoming.ShareWork;
   existing.PrimePOWTarget = std::min(existing.PrimePOWTarget, incoming.PrimePOWTarget);

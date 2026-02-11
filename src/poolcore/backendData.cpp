@@ -471,52 +471,6 @@ void PoolBalanceRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Net);
 }
 
-// ====================== ClientStatsRecord ======================
-
-bool StatsRecord::deserializeValue(xmstream &stream)
-{
-  uint32_t version;
-  dbIoUnserialize(stream, version);
-  if (version >= 1) {
-    dbIoUnserialize(stream, Login);
-    dbIoUnserialize(stream, WorkerId);
-    dbIoUnserialize(stream, Time);
-    dbIoUnserialize(stream, UpdateTime);
-    dbIoUnserialize(stream, ShareCount);
-    dbIoUnserialize(stream, ShareWork);
-    dbIoUnserialize(stream, PrimePOWTarget);
-    dbIoUnserialize(stream, PrimePOWShareCount);
-  }
-
-  return !stream.eof();
-}
-
-bool StatsRecord::deserializeValue(const void *data, size_t size)
-{
-  xmstream stream((void*)data, size);
-  return deserializeValue(stream);
-}
-
-void StatsRecord::serializeKey(xmstream &stream) const
-{
-  dbKeyIoSerialize(stream, Login);
-  dbKeyIoSerialize(stream, WorkerId);
-  DbKeyIo<Timestamp>::serialize(stream, Time.TimeEnd);
-}
-
-void StatsRecord::serializeValue(xmstream &stream) const
-{
-  dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
-  dbIoSerialize(stream, Login);
-  dbIoSerialize(stream, WorkerId);
-  dbIoSerialize(stream, Time);
-  dbIoSerialize(stream, UpdateTime);
-  dbIoSerialize(stream, ShareCount);
-  dbIoSerialize(stream, ShareWork);
-  dbIoSerialize(stream, PrimePOWTarget);
-  dbIoSerialize(stream, PrimePOWShareCount);
-}
-
 bool CPPLNSPayout::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);

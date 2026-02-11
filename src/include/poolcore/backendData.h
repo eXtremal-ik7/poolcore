@@ -398,25 +398,6 @@ struct PoolBalanceRecord {
   void serializeValue(xmstream &stream) const;
 };
 
-struct StatsRecord {
-  enum { CurrentRecordVersion = 1 };
-
-  std::string Login;
-  std::string WorkerId;
-  TimeInterval Time;
-  Timestamp UpdateTime;
-  uint64_t ShareCount;
-  UInt<256> ShareWork;
-  uint32_t PrimePOWTarget;
-  std::vector<uint64_t> PrimePOWShareCount;
-
-  std::string getPartitionId() const { return partByTime(Time.TimeEnd.toUnixTime()); }
-  bool deserializeValue(xmstream &stream);
-  bool deserializeValue(const void *data, size_t size);
-  void serializeKey(xmstream &stream) const;
-  void serializeValue(xmstream &stream) const;
-};
-
 struct CPPLNSPayout {
   enum { CurrentRecordVersion = 1 };
   // Key part

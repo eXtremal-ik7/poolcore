@@ -408,9 +408,9 @@ void AccountingDb::addShare(const CShare &share)
     {
       Timestamp acceptSharesTime = share.Time - std::chrono::seconds(1800);
       mergeSorted(RecentStats_.begin(), RecentStats_.end(), CurrentScores_.begin(), CurrentScores_.end(),
-        [](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) { return stats.UserId < scores.first; },
-        [](const std::pair<std::string, UInt<256>> &scores, const StatisticDb::CStatsExportData &stats) { return scores.first < stats.UserId; },
-        [&](const StatisticDb::CStatsExportData &stats) {
+        [](const CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) { return stats.UserId < scores.first; },
+        [](const std::pair<std::string, UInt<256>> &scores, const CStatsExportData &stats) { return scores.first < stats.UserId; },
+        [&](const CStatsExportData &stats) {
           // User disconnected recently, no new shares
           UInt<256> shareValue = stats.recentShareValue(acceptSharesTime);
           if (shareValue.nonZero()) {
@@ -419,7 +419,7 @@ void AccountingDb::addShare(const CShare &share)
         }, [&](const std::pair<std::string, UInt<256>> &scores) {
           // User joined recently, no extra shares in statistic
           R->UserShares.emplace_back(scores.first, scores.second, scores.second);
-        }, [&](const StatisticDb::CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) {
+        }, [&](const CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) {
           // Need merge new shares and recent share statistics
           R->UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime), scores.second);
         });
