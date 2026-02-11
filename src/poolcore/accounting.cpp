@@ -1,14 +1,10 @@
 #include "poolcore/accounting.h"
 #include "poolcommon/coroutineJoin.h"
+#include "poolcommon/debug.h"
 #include "poolcommon/mergeSorted.h"
-#include "poolcommon/path.h"
 #include "poolcommon/utils.h"
 #include "poolcore/priceFetcher.h"
-#include "poolcore/statistics.h"
 #include "loguru.hpp"
-#include <stdarg.h>
-#include <poolcommon/file.h>
-#include "poolcommon/debug.h"
 #include <math.h>
 
 static const UInt<384> ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE = fromRational(10000u);
@@ -133,19 +129,22 @@ void AccountingDb::flushBlockFoundState()
   StateDb_.writeBatch(batch);
 }
 
+void AccountingDb::flushUserStats(Timestamp timeLabel)
+{
+  UserStatsAcc_.flush(timeLabel, LastKnownShareId_, _cfg.dbPath, nullptr);
+}
+
 AccountingDb::AccountingDb(asyncBase *base,
                            const PoolBackendConfig &config,
                            const CCoinInfo &coinInfo,
                            UserManager &userMgr,
                            CNetworkClientDispatcher &clientDispatcher,
-                           StatisticDb &statisticDb,
                            CPriceFetcher &priceFetcher) :
   Base_(base),
   _cfg(config),
   CoinInfo_(coinInfo),
   UserManager_(userMgr),
   ClientDispatcher_(clientDispatcher),
-  StatisticDb_(statisticDb),
   PriceFetcher_(priceFetcher),
   StateDb_(config.dbPath / AccountingStatePath),
   _roundsDb(config.dbPath / "rounds.3"),
@@ -154,6 +153,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   _poolBalanceDb(config.dbPath / "poolBalance.2"),
   _payoutDb(config.dbPath / "payouts.2"),
   PPLNSPayoutsDb(config.dbPath / "pplns.payouts.2"),
+  UserStatsAcc_("accounting.userstats", config.StatisticUserGridInterval, config.AccountingPPLNSWindow * 2),
   TaskHandler_(this, base)
 {
   FlushTimerEvent_ = newUserEvent(base, 1, nullptr, nullptr);
@@ -163,6 +163,9 @@ AccountingDb::AccountingDb(asyncBase *base,
   FlushInfo_.ShareId = 0;
 
   loadStateFromDb();
+  UserStatsAcc_.load(_cfg.dbPath, coinInfo.Name);
+  UserStatsFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
+  LastKnownShareId_ = std::max(LastKnownShareId_, UserStatsAcc_.lastShareId());
   LOG_F(INFO, "loaded %u payouts from db", static_cast<unsigned>(_payoutQueue.size()));
 
   {
@@ -211,14 +214,26 @@ void AccountingDb::start()
         break;
     }
   }, this, 0x20000, coroutineFinishCb, &FlushFinished_));
+
+  coroutineCall(coroutineNewWithCb([](void *arg) {
+    AccountingDb *db = static_cast<AccountingDb*>(arg);
+    for (;;) {
+      ioSleep(db->UserStatsFlushEvent_, std::chrono::microseconds(db->_cfg.StatisticUserFlushInterval).count());
+      db->flushUserStats(Timestamp::now());
+      if (db->ShutdownRequested_)
+        break;
+    }
+  }, this, 0x20000, coroutineFinishCb, &UserStatsFlushFinished_));
 }
 
 void AccountingDb::stop()
 {
   ShutdownRequested_ = true;
   userEventActivate(FlushTimerEvent_);
+  userEventActivate(UserStatsFlushEvent_);
   TaskHandler_.stop(CoinInfo_.Name.c_str(), "accounting: task handler");
   coroutineJoin(CoinInfo_.Name.c_str(), "accounting: flush thread", &FlushFinished_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: user stats flush", &UserStatsFlushFinished_);
 }
 
 void AccountingDb::updatePayoutFile()
@@ -366,6 +381,12 @@ void AccountingDb::addShare(const CShare &share)
   CurrentScores_[share.userId] += share.WorkValue;
   LastKnownShareId_ = share.UniqueShareId;
 
+  {
+    bool isPrimePOW = CoinInfo_.PowerUnitType == CCoinInfo::ECPD;
+    UserStatsAcc_.addShare(share.userId, "", share.WorkValue, share.Time,
+                           share.ChainLength, share.PrimePOWTarget, isPrimePOW);
+  }
+
   if (share.isBlock) {
     UInt<256> accumulatedWork = UInt<256>::zero();
     for (const auto &score: CurrentScores_)
@@ -405,9 +426,8 @@ void AccountingDb::addShare(const CShare &share)
       R->StartTime = 0;
 
     // Merge shares for current block with older shares (PPLNS)
-    static constexpr auto PPLNSWindow = std::chrono::minutes(30);
     {
-      Timestamp acceptSharesTime = share.Time - PPLNSWindow;
+      Timestamp acceptSharesTime = share.Time - _cfg.AccountingPPLNSWindow;
       mergeSorted(RecentStats_.begin(), RecentStats_.end(), CurrentScores_.begin(), CurrentScores_.end(),
         [](const CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) { return stats.UserId < scores.first; },
         [](const std::pair<std::string, UInt<256>> &scores, const CStatsExportData &stats) { return scores.first < stats.UserId; },
@@ -442,7 +462,7 @@ void AccountingDb::addShare(const CShare &share)
     UnpayedRounds_.insert(R);
 
     // Query statistics
-    StatisticDb_.exportRecentStats(PPLNSWindow, RecentStats_);
+    UserStatsAcc_.exportRecentStats(_cfg.AccountingPPLNSWindow, RecentStats_);
     printRecentStatistic();
 
     // Reset aggregated data
@@ -460,6 +480,12 @@ void AccountingDb::replayShare(const CShare &share)
     CurrentScores_[share.userId] += share.WorkValue;
   }
 
+  if (share.UniqueShareId > UserStatsAcc_.lastShareId()) {
+    bool isPrimePOW = CoinInfo_.PowerUnitType == CCoinInfo::ECPD;
+    UserStatsAcc_.addShare(share.userId, "", share.WorkValue, share.Time,
+                           share.ChainLength, share.PrimePOWTarget, isPrimePOW);
+  }
+
   LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
   if (isDebugAccounting()) {
     Dbg_.MinShareId = std::min(Dbg_.MinShareId, share.UniqueShareId);
@@ -471,6 +497,7 @@ void AccountingDb::replayShare(const CShare &share)
 
 void AccountingDb::initializationFinish(Timestamp timeLabel)
 {
+  UserStatsAcc_.setAccumulationBegin(timeLabel);
   printRecentStatistic();
 
   if (!CurrentScores_.empty()) {

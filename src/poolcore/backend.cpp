@@ -55,7 +55,7 @@ PoolBackend::PoolBackend(asyncBase *base,
   _timeout = 8*1000000;
 
   _statistics.reset(new StatisticDb(_base, _cfg, CoinInfo_));
-  _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, *_statistics.get(), priceFetcher));
+  _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, priceFetcher));
 
   ShareLogConfig shareLogConfig(_accounting.get(), _statistics.get());
   ShareLog_.init(cfg.dbPath, info.Name, _base, _cfg.ShareLogFlushInterval, _cfg.ShareLogFileSizeLimit, shareLogConfig);

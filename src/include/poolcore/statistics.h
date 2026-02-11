@@ -89,12 +89,9 @@ private:
   CCoinInfo CoinInfo_;
   uint64_t LastKnownShareId_ = 0;
   // Accumulators
-  // Pool stats
-  CStatsSeriesSingle PoolStatsAcc_{"stats.pool.cache.3"};
-  // User stats (key = login + '\0', workerId always empty)
-  CStatsSeriesMap UserStats_{"stats.users.cache.3"};
-  // Worker stats (key = login + '\0' + workerId)
-  CStatsSeriesMap WorkerStats_{"stats.workers.cache.3"};
+  CStatsSeriesSingle PoolStatsAcc_;
+  CStatsSeriesMap UserStats_;
+  CStatsSeriesMap WorkerStats_;
 
   CStats PoolStatsCached_;
 

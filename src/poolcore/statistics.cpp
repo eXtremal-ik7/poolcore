@@ -6,6 +6,9 @@
 #include <algorithm>
 
 StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo) : _cfg(config), CoinInfo_(coinInfo),
+  PoolStatsAcc_("stats.pool.cache.3", config.StatisticPoolGridInterval, config.StatisticKeepTime),
+  UserStats_("stats.users.cache.3", config.StatisticUserGridInterval, config.StatisticKeepTime),
+  WorkerStats_("stats.workers.cache.3", config.StatisticWorkerGridInterval, config.StatisticKeepTime),
   StatsDb_(_cfg.dbPath / "statistic", std::make_shared<StatsRecordMergeOperator>()),
   TaskHandler_(this, base)
 {
@@ -51,52 +54,18 @@ void StatisticDb::updatePoolStatsCached(Timestamp timeLabel)
 
 void StatisticDb::flushPool(Timestamp timeLabel)
 {
-  int64_t gridMs = std::chrono::duration_cast<std::chrono::milliseconds>(_cfg.StatisticPoolGridInterval).count();
-  Timestamp removeTimePoint = timeLabel - _cfg.StatisticKeepTime;
-
-  kvdb<rocksdbBase>::Batch batch;
-  std::set<int64_t> modifiedTimes, removedTimes;
-  PoolStatsAcc_.flush(timeLabel, gridMs, removeTimePoint, LastKnownShareId_, &batch, modifiedTimes, removedTimes);
-  StatsDb_.writeBatch(batch);
-
-  for (int64_t t : modifiedTimes)
-    PoolStatsAcc_.rebuildDatFile(_cfg.dbPath, t);
-  for (int64_t t : removedTimes)
-    removeDatFile(_cfg.dbPath, PoolStatsAcc_.cachePath(), t);
-
+  PoolStatsAcc_.flush(timeLabel, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
   updatePoolStatsCached(timeLabel);
 }
 
 void StatisticDb::flushUsers(Timestamp timeLabel)
 {
-  int64_t gridMs = std::chrono::duration_cast<std::chrono::milliseconds>(_cfg.StatisticUserGridInterval).count();
-  Timestamp removeTimePoint = timeLabel - _cfg.StatisticKeepTime;
-
-  kvdb<rocksdbBase>::Batch batch;
-  std::set<int64_t> modifiedTimes, removedTimes;
-  UserStats_.flush(timeLabel, gridMs, removeTimePoint, LastKnownShareId_, &batch, modifiedTimes, removedTimes);
-  StatsDb_.writeBatch(batch);
-
-  for (int64_t t : modifiedTimes)
-    UserStats_.rebuildDatFile(_cfg.dbPath, t);
-  for (int64_t t : removedTimes)
-    removeDatFile(_cfg.dbPath, UserStats_.cachePath(), t);
+  UserStats_.flush(timeLabel, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
 }
 
 void StatisticDb::flushWorkers(Timestamp timeLabel)
 {
-  int64_t gridMs = std::chrono::duration_cast<std::chrono::milliseconds>(_cfg.StatisticWorkerGridInterval).count();
-  Timestamp removeTimePoint = timeLabel - _cfg.StatisticKeepTime;
-
-  kvdb<rocksdbBase>::Batch batch;
-  std::set<int64_t> modifiedTimes, removedTimes;
-  WorkerStats_.flush(timeLabel, gridMs, removeTimePoint, LastKnownShareId_, &batch, modifiedTimes, removedTimes);
-  StatsDb_.writeBatch(batch);
-
-  for (int64_t t : modifiedTimes)
-    WorkerStats_.rebuildDatFile(_cfg.dbPath, t);
-  for (int64_t t : removedTimes)
-    removeDatFile(_cfg.dbPath, WorkerStats_.cachePath(), t);
+  WorkerStats_.flush(timeLabel, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
 }
 
 void StatisticDb::addShare(const CShare &share)

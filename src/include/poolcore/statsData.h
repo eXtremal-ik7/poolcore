@@ -89,10 +89,10 @@ struct StatsRecord {
 };
 
 struct CStatsSeriesSingle {
-  CStatsSeriesSingle(const std::string &cachePath) : CachePath_(cachePath) {}
+  CStatsSeriesSingle(const std::string &cachePath, std::chrono::minutes gridInterval, std::chrono::minutes keepTime)
+    : CachePath_(cachePath), GridInterval_(gridInterval), KeepTime_(keepTime) {}
   CStatsSeries& series() { return Series_; }
   const CStatsSeries& series() const { return Series_; }
-  const std::string& cachePath() const { return CachePath_; }
   uint64_t lastShareId() const { return LastShareId_; }
   void setAccumulationBegin(Timestamp t) { AccumulationBegin_ = t; }
 
@@ -101,18 +101,18 @@ struct CStatsSeriesSingle {
   }
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
-  void rebuildDatFile(const std::filesystem::path &dbPath, int64_t gridEndMs);
-  void flush(Timestamp timeLabel, int64_t gridIntervalMs, Timestamp removeTimePoint,
-             uint64_t lastShareId, kvdb<rocksdbBase>::Batch *batch,
-             std::set<int64_t> &modifiedTimes, std::set<int64_t> &removedTimes);
+  void flush(Timestamp timeLabel, uint64_t lastShareId,
+             const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db);
 private:
+  void rebuildDatFile(const std::filesystem::path &dbPath, int64_t gridEndMs);
+
   std::string CachePath_;
+  std::chrono::minutes GridInterval_;
+  std::chrono::minutes KeepTime_;
   CStatsSeries Series_;
   uint64_t LastShareId_ = 0;
   Timestamp AccumulationBegin_;
 };
-
-void removeDatFile(const std::filesystem::path &dbPath, const std::string &cachePath, int64_t gridEndMs);
 
 inline std::string makeStatsKey(const std::string &login, const std::string &workerId) {
   return login + '\0' + workerId;
@@ -149,10 +149,10 @@ struct CStatsExportData {
 };
 
 struct CStatsSeriesMap {
-  CStatsSeriesMap(const std::string &cachePath) : CachePath_(cachePath) {}
+  CStatsSeriesMap(const std::string &cachePath, std::chrono::minutes gridInterval, std::chrono::minutes keepTime)
+    : CachePath_(cachePath), GridInterval_(gridInterval), KeepTime_(keepTime) {}
   std::map<std::string, CStatsSeries>& map() { return Map_; }
   const std::map<std::string, CStatsSeries>& map() const { return Map_; }
-  const std::string& cachePath() const { return CachePath_; }
   uint64_t lastShareId() const { return LastShareId_; }
   void setAccumulationBegin(Timestamp t) { AccumulationBegin_ = t; }
 
@@ -161,13 +161,15 @@ struct CStatsSeriesMap {
   }
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
-  void rebuildDatFile(const std::filesystem::path &dbPath, int64_t gridEndMs);
-  void flush(Timestamp timeLabel, int64_t gridIntervalMs, Timestamp removeTimePoint,
-             uint64_t lastShareId, kvdb<rocksdbBase>::Batch *batch,
-             std::set<int64_t> &modifiedTimes, std::set<int64_t> &removedTimes);
-  void exportRecentStats(std::chrono::seconds keepTime, std::vector<CStatsExportData> &result) const;
+  void flush(Timestamp timeLabel, uint64_t lastShareId,
+             const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db);
+  void exportRecentStats(std::chrono::seconds window, std::vector<CStatsExportData> &result) const;
 private:
+  void rebuildDatFile(const std::filesystem::path &dbPath, int64_t gridEndMs);
+
   std::string CachePath_;
+  std::chrono::minutes GridInterval_;
+  std::chrono::minutes KeepTime_;
   std::map<std::string, CStatsSeries> Map_;
   uint64_t LastShareId_ = 0;
   Timestamp AccumulationBegin_;

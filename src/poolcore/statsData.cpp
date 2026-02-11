@@ -139,72 +139,6 @@ std::vector<CStatsElement> CStatsSeries::flush(int64_t beginMs, int64_t endMs, i
   return cells;
 }
 
-static void mergeStatsElement(const std::string &login, const std::string &workerId, const CStatsElement &element,
-                              Timestamp timeLabel, kvdb<rocksdbBase>::Batch &batch)
-{
-  StatsRecord record;
-  record.Login = login;
-  record.WorkerId = workerId;
-  record.Time = element.Time;
-  record.UpdateTime = timeLabel;
-  record.ShareCount = element.SharesNum;
-  record.ShareWork = element.SharesWork;
-  record.PrimePOWTarget = element.PrimePOWTarget;
-  record.PrimePOWShareCount.assign(element.PrimePOWSharesNum.begin(), element.PrimePOWSharesNum.end());
-  batch.merge(record);
-}
-
-void CStatsSeriesSingle::flush(Timestamp timeLabel, int64_t gridIntervalMs, Timestamp removeTimePoint,
-                               uint64_t lastShareId, kvdb<rocksdbBase>::Batch *batch,
-                               std::set<int64_t> &modifiedTimes, std::set<int64_t> &removedTimes)
-{
-  LastShareId_ = lastShareId;
-  if (isDebugStatistic() && (Series_.Current.SharesNum > 0 || !Series_.Current.SharesWork.isZero()))
-    LOG_F(1, "Flush pool statistics (shares=%" PRIu64 ", work=%s)",
-          Series_.Current.SharesNum,
-          Series_.Current.SharesWork.getDecimal().c_str());
-
-  auto cells = Series_.flush(AccumulationBegin_.count(), timeLabel.count(), gridIntervalMs, removeTimePoint, removedTimes);
-  if (batch) {
-    for (const auto &element : cells) {
-      mergeStatsElement("", "", element, timeLabel, *batch);
-      modifiedTimes.insert(element.Time.TimeEnd.count());
-    }
-  }
-  AccumulationBegin_ = timeLabel;
-}
-
-void CStatsSeriesMap::flush(Timestamp timeLabel, int64_t gridIntervalMs, Timestamp removeTimePoint,
-                            uint64_t lastShareId, kvdb<rocksdbBase>::Batch *batch,
-                            std::set<int64_t> &modifiedTimes, std::set<int64_t> &removedTimes)
-{
-  LastShareId_ = lastShareId;
-  for (auto it = Map_.begin(); it != Map_.end(); ) {
-    auto [login, workerId] = splitStatsKey(it->first);
-
-    if (isDebugStatistic() && (it->second.Current.SharesNum > 0 || !it->second.Current.SharesWork.isZero()))
-      LOG_F(1, "Flush statistics for %s/%s (shares=%" PRIu64 ", work=%s)",
-            !login.empty() ? login.c_str() : "<none>",
-            !workerId.empty() ? workerId.c_str() : "<none>",
-            it->second.Current.SharesNum,
-            it->second.Current.SharesWork.getDecimal().c_str());
-
-    auto cells = it->second.flush(AccumulationBegin_.count(), timeLabel.count(), gridIntervalMs, removeTimePoint, removedTimes);
-    if (batch) {
-      for (const auto &element : cells) {
-        mergeStatsElement(login, workerId, element, timeLabel, *batch);
-        modifiedTimes.insert(element.Time.TimeEnd.count());
-      }
-    }
-
-    if (it->second.Recent.empty())
-      it = Map_.erase(it);
-    else
-      ++it;
-  }
-  AccumulationBegin_ = timeLabel;
-}
-
 static int64_t alignUpToGrid(int64_t timeMs, int64_t gridIntervalMs)
 {
   return ((timeMs + gridIntervalMs - 1) / gridIntervalMs) * gridIntervalMs;
@@ -410,7 +344,7 @@ void CStatsSeriesSingle::rebuildDatFile(const std::filesystem::path &dbPath, int
   }
 }
 
-void removeDatFile(const std::filesystem::path &dbPath, const std::string &cachePath, int64_t gridEndMs)
+static void removeDatFile(const std::filesystem::path &dbPath, const std::string &cachePath, int64_t gridEndMs)
 {
   auto filePath = datFilePath(dbPath, cachePath, gridEndMs);
   if (isDebugStatistic())
@@ -455,7 +389,94 @@ void CStatsSeriesMap::rebuildDatFile(const std::filesystem::path &dbPath, int64_
   fd.close();
 }
 
-void CStatsSeriesMap::exportRecentStats(std::chrono::seconds keepTime, std::vector<CStatsExportData> &result) const
+static void mergeStatsElement(const std::string &login, const std::string &workerId, const CStatsElement &element,
+                              Timestamp timeLabel, kvdb<rocksdbBase>::Batch &batch)
+{
+  StatsRecord record;
+  record.Login = login;
+  record.WorkerId = workerId;
+  record.Time = element.Time;
+  record.UpdateTime = timeLabel;
+  record.ShareCount = element.SharesNum;
+  record.ShareWork = element.SharesWork;
+  record.PrimePOWTarget = element.PrimePOWTarget;
+  record.PrimePOWShareCount.assign(element.PrimePOWSharesNum.begin(), element.PrimePOWSharesNum.end());
+  batch.merge(record);
+}
+
+void CStatsSeriesSingle::flush(Timestamp timeLabel, uint64_t lastShareId,
+                               const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db)
+{
+  LastShareId_ = lastShareId;
+  if (isDebugStatistic() && (Series_.Current.SharesNum > 0 || !Series_.Current.SharesWork.isZero()))
+    LOG_F(1, "Flush pool statistics (shares=%" PRIu64 ", work=%s)",
+          Series_.Current.SharesNum,
+          Series_.Current.SharesWork.getDecimal().c_str());
+
+  int64_t gridIntervalMs = std::chrono::duration_cast<std::chrono::milliseconds>(GridInterval_).count();
+  Timestamp removeTimePoint = timeLabel - KeepTime_;
+  std::set<int64_t> removedTimes;
+  auto cells = Series_.flush(AccumulationBegin_.count(), timeLabel.count(), gridIntervalMs, removeTimePoint, removedTimes);
+
+  if (db && !cells.empty()) {
+    kvdb<rocksdbBase>::Batch batch;
+    for (const auto &element : cells)
+      mergeStatsElement("", "", element, timeLabel, batch);
+    db->writeBatch(batch);
+  }
+
+  for (const auto &element : cells)
+    rebuildDatFile(dbPath, element.Time.TimeEnd.count());
+  for (int64_t t : removedTimes)
+    removeDatFile(dbPath, CachePath_, t);
+
+  AccumulationBegin_ = timeLabel;
+}
+
+void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
+                            const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db)
+{
+  LastShareId_ = lastShareId;
+  int64_t gridIntervalMs = std::chrono::duration_cast<std::chrono::milliseconds>(GridInterval_).count();
+  Timestamp removeTimePoint = timeLabel - KeepTime_;
+
+  kvdb<rocksdbBase>::Batch batch;
+  std::set<int64_t> modifiedTimes, removedTimes;
+  for (auto it = Map_.begin(); it != Map_.end(); ) {
+    auto [login, workerId] = splitStatsKey(it->first);
+
+    if (isDebugStatistic() && (it->second.Current.SharesNum > 0 || !it->second.Current.SharesWork.isZero()))
+      LOG_F(1, "Flush statistics for %s/%s (shares=%" PRIu64 ", work=%s)",
+            !login.empty() ? login.c_str() : "<none>",
+            !workerId.empty() ? workerId.c_str() : "<none>",
+            it->second.Current.SharesNum,
+            it->second.Current.SharesWork.getDecimal().c_str());
+
+    auto cells = it->second.flush(AccumulationBegin_.count(), timeLabel.count(), gridIntervalMs, removeTimePoint, removedTimes);
+    for (const auto &element : cells) {
+      if (db)
+        mergeStatsElement(login, workerId, element, timeLabel, batch);
+      modifiedTimes.insert(element.Time.TimeEnd.count());
+    }
+
+    if (it->second.Recent.empty())
+      it = Map_.erase(it);
+    else
+      ++it;
+  }
+
+  if (db)
+    db->writeBatch(batch);
+
+  for (int64_t t : modifiedTimes)
+    rebuildDatFile(dbPath, t);
+  for (int64_t t : removedTimes)
+    removeDatFile(dbPath, CachePath_, t);
+
+  AccumulationBegin_ = timeLabel;
+}
+
+void CStatsSeriesMap::exportRecentStats(std::chrono::seconds window, std::vector<CStatsExportData> &result) const
 {
   result.clear();
   Timestamp timeLabel = Timestamp::now();
@@ -471,7 +492,7 @@ void CStatsSeriesMap::exportRecentStats(std::chrono::seconds keepTime, std::vect
     }
 
     // Recent share work (up to N minutes)
-    Timestamp lastAcceptTime = timeLabel - keepTime;
+    Timestamp lastAcceptTime = timeLabel - window;
     for (auto It = acc.Recent.rbegin(), ItE = acc.Recent.rend(); It != ItE; ++It) {
       if (It->Time.TimeEnd < lastAcceptTime)
         break;

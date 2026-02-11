@@ -1,24 +1,14 @@
 #ifndef __ACCOUNTING_H_
 #define __ACCOUNTING_H_
 
-#include "poolcommon/serialize.h"
 #include "backendData.h"
-#include "statistics.h"
+#include "statsData.h"
 #include "usermgr.h"
-#include "poolcommon/file.h"
 #include "poolcommon/multiCall.h"
 #include "poolcommon/taskHandler.h"
 #include "poolcore/clientDispatcher.h"
-#include "kvdb.h"
-#include "poolcore/rocksdbBase.h"
-#include <deque>
-#include <list>
-#include <map>
-#include <set>
-#include <string>
 
 class CPriceFetcher;
-class StatisticDb;
 
 class AccountingDb {
 private:
@@ -134,7 +124,6 @@ private:
   CCoinInfo CoinInfo_;
   UserManager &UserManager_;
   CNetworkClientDispatcher &ClientDispatcher_;
-  StatisticDb &StatisticDb_;
   CPriceFetcher &PriceFetcher_;
   
   std::map<std::string, UserBalanceRecord> _balanceMap;
@@ -164,7 +153,11 @@ private:
   kvdb<rocksdbBase> PPLNSPayoutsDb;
   
   uint64_t LastKnownShareId_ = 0;
-  
+
+  CStatsSeriesMap UserStatsAcc_;
+  aioUserEvent *UserStatsFlushEvent_;
+  bool UserStatsFlushFinished_ = false;
+
   TaskHandlerCoroutine<AccountingDb> TaskHandler_;
   aioUserEvent *FlushTimerEvent_;
   bool ShutdownRequested_ = false;
@@ -174,6 +167,7 @@ private:
   bool loadStateFromDb();
   void flushCurrentScores();
   void flushBlockFoundState();
+  void flushUserStats(Timestamp timeLabel);
 
 public:
   AccountingDb(asyncBase *base,
@@ -181,12 +175,11 @@ public:
                const CCoinInfo &coinInfo,
                UserManager &userMgr,
                CNetworkClientDispatcher &clientDispatcher,
-               StatisticDb &statisticDb,
                CPriceFetcher &priceFetcher);
 
   void taskHandler();
 
-  uint64_t lastAggregatedShareId() { return FlushInfo_.ShareId; }
+  uint64_t lastAggregatedShareId() { return std::min(FlushInfo_.ShareId, UserStatsAcc_.lastShareId()); }
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
   void start();

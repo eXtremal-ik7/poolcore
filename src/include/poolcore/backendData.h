@@ -87,6 +87,7 @@ struct PoolBackendConfig {
   std::chrono::minutes StatisticPoolFlushInterval = std::chrono::minutes(1);
   std::chrono::minutes StatisticUserFlushInterval = std::chrono::minutes(2);
   std::chrono::minutes StatisticWorkerFlushInterval = std::chrono::minutes(6);
+  std::chrono::minutes AccountingPPLNSWindow = std::chrono::minutes(30);
   std::chrono::hours StatisticKeepWorkerNamesTime = std::chrono::hours(24);
 
   SelectorByWeight<CMiningAddress> MiningAddresses;
