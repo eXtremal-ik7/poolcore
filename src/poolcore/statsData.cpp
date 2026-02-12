@@ -274,7 +274,7 @@ void CStatsSeriesSingle::load(const std::filesystem::path &dbPath, const std::st
             record.Element.SharesWork.getDecimal().c_str());
     }
 
-    LastShareId_ = std::max(LastShareId_, file.LastShareId);
+    SavedShareId_ = std::max(SavedShareId_, file.LastShareId);
   }
 }
 
@@ -308,7 +308,7 @@ void CStatsSeriesMap::load(const std::filesystem::path &dbPath, const std::strin
       }
     }
 
-    LastShareId_ = std::max(LastShareId_, file.LastShareId);
+    SavedShareId_ = std::max(SavedShareId_, file.LastShareId);
   }
 }
 
@@ -334,7 +334,7 @@ void CStatsSeriesSingle::rebuildDatFile(const std::filesystem::path &dbPath, int
   for (auto it = Series_.Recent.rbegin(); it != Series_.Recent.rend(); ++it) {
     if (it->Time.TimeEnd == gridEnd) {
       xmstream stream;
-      DbIo<CStatsFileData>::serializeHeader(stream, LastShareId_, 1);
+      DbIo<CStatsFileData>::serializeHeader(stream, SavedShareId_, 1);
       writeStatsRecord("", "", *it, stream);
 
       auto filePath = datFilePath(dbPath, CachePath_, gridEndMs);
@@ -382,7 +382,7 @@ void CStatsSeriesMap::rebuildDatFile(const std::filesystem::path &dbPath, int64_
     return;
 
   xmstream header;
-  DbIo<CStatsFileData>::serializeHeader(header, LastShareId_, recordCount);
+  DbIo<CStatsFileData>::serializeHeader(header, SavedShareId_, recordCount);
 
   auto filePath = datFilePath(dbPath, CachePath_, gridEndMs);
   FileDescriptor fd;
@@ -413,7 +413,7 @@ static void mergeStatsElement(const std::string &login, const std::string &worke
 void CStatsSeriesSingle::flush(Timestamp timeLabel, uint64_t lastShareId,
                                const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db)
 {
-  LastShareId_ = lastShareId;
+  SavedShareId_ = lastShareId;
   if (isDebugStatistic() && (Series_.Current.SharesNum > 0 || !Series_.Current.SharesWork.isZero()))
     LOG_F(1, "Flush pool statistics (shares=%" PRIu64 ", work=%s)",
           Series_.Current.SharesNum,
@@ -442,7 +442,7 @@ void CStatsSeriesSingle::flush(Timestamp timeLabel, uint64_t lastShareId,
 void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
                             const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db)
 {
-  LastShareId_ = lastShareId;
+  SavedShareId_ = lastShareId;
   int64_t gridIntervalMs = std::chrono::duration_cast<std::chrono::milliseconds>(GridInterval_).count();
   Timestamp removeTimePoint = timeLabel - KeepTime_;
 

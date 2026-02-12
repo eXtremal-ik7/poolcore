@@ -68,7 +68,7 @@ private:
 
   double ProfitSwitchCoeff_ = 0.0;
 
-  atomic_intrusive_ptr<EthashDagWrapper> *EthDagFiles_;
+  atomic_intrusive_ptr<EthashDagWrapper> *EthDagFiles_ = nullptr;
 
   void backendMain();
   void checkConfirmationsHandler();
@@ -80,7 +80,8 @@ private:
 
 public:
   PoolBackend(const PoolBackend&) = delete;
-  PoolBackend(PoolBackend&&) = default;
+  PoolBackend(PoolBackend&&) = delete;
+  ~PoolBackend() { delete[] EthDagFiles_; }
   PoolBackend(asyncBase *base,
               const PoolBackendConfig &cfg,
               const CCoinInfo &info,

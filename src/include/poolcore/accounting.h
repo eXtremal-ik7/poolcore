@@ -12,9 +12,6 @@
 class CPriceFetcher;
 
 class AccountingDb {
-private:
-  inline static const std::string AccountingStatePath = "accounting.state";
-
 public:
   struct UserBalanceInfo {
     UserBalanceRecord Data;
@@ -29,6 +26,8 @@ public:
     UInt<256> TotalIncomingWork = UInt<256>::zero();
     uint64_t AvgHashRate = 0;
     uint32_t PrimePOWTarget = -1U;
+
+    void accumulate(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize);
   };
 
 
@@ -130,13 +129,26 @@ private:
   std::map<std::string, UserBalanceRecord> _balanceMap;
   std::deque<std::unique_ptr<MiningRound>> _allRounds;
   std::set<MiningRound*> UnpayedRounds_;
-  std::list<PayoutDbRecord> _payoutQueue;
-  std::unordered_set<std::string> KnownTransactions_;
+  // Persistent state stored in accounting.state RocksDB
+  struct CPersistentState {
+    // Accumulated share work per user for the current block search session; cleared on block found
+    std::map<std::string, UInt<256>> CurrentScores;
+    std::vector<CStatsExportData> RecentStats;
+    uint64_t SavedShareId = 0;
+    Timestamp CurrentRoundStartTime;
+    std::list<PayoutDbRecord> PayoutQueue;
+    std::unordered_set<std::string> KnownTransactions;
 
-  // Accumulated share work per user for the current block search session; cleared on block found
-  std::map<std::string, UInt<256>> CurrentScores_;
-  std::vector<CStatsExportData> RecentStats_;
-  uint64_t ScoresFlushedShareId_ = 0;
+    rocksdbBase Db;
+
+    CPersistentState(const std::filesystem::path &dbPath);
+    bool load();
+    void flushCurrentScores(uint64_t lastKnownShareId);
+    void flushBlockFoundState(uint64_t lastKnownShareId);
+    void flushPayoutQueue();
+  };
+
+  CPersistentState State_;
 
   // Debugging only
   struct {
@@ -144,8 +156,6 @@ private:
     uint64_t MaxShareId = 0;
     uint64_t Count = 0;
   } Dbg_;
-
-  rocksdbBase StateDb_;
   kvdb<rocksdbBase> _roundsDb;
   kvdb<rocksdbBase> _balanceDb;
   kvdb<rocksdbBase> _foundBlocksDb;
@@ -169,9 +179,6 @@ private:
   bool FlushFinished_ = false;
 
   void printRecentStatistic();
-  bool loadStateFromDb();
-  void flushCurrentScores();
-  void flushBlockFoundState();
   void flushUserStats(Timestamp timeLabel);
   void shareLogFlushHandler();
 
@@ -185,12 +192,11 @@ public:
 
   void taskHandler();
 
-  uint64_t lastAggregatedShareId() { return std::min(ScoresFlushedShareId_, UserStatsAcc_.lastShareId()); }
+  uint64_t lastAggregatedShareId() { return std::min(State_.SavedShareId, UserStatsAcc_.savedShareId()); }
   uint64_t lastKnownShareId() { return LastKnownShareId_; }
 
   void start();
   void stop();
-  void updatePayoutFile();
   void cleanupRounds();
   
   bool requestPayout(const std::string &address, const UInt<384> &value, bool force = false);
@@ -199,7 +205,7 @@ public:
   void calculatePayments(MiningRound *R, const UInt<384> &generatedCoins);
   void addShare(CShare &share);
   void replayShare(const CShare &share);
-  void processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash);
+  void processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash, bool *roundUpdated);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();
   void buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout);
@@ -208,7 +214,7 @@ public:
   void makePayout();
   void checkBalance();
   
-  std::list<PayoutDbRecord> &getPayoutsQueue() { return _payoutQueue; }
+  std::list<PayoutDbRecord> &getPayoutsQueue() { return State_.PayoutQueue; }
   kvdb<rocksdbBase> &getFoundBlocksDb() { return _foundBlocksDb; }
   kvdb<rocksdbBase> &getPoolBalanceDb() { return _poolBalanceDb; }
   kvdb<rocksdbBase> &getPayoutDb() { return _payoutDb; }

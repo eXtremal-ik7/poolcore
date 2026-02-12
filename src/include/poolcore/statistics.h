@@ -132,8 +132,8 @@ public:
 
   void addShare(CShare &share);
 
-  // Min of accumulators' lastShareId; ShareLog replays shares starting from this point
-  uint64_t lastAggregatedShareId() { return std::min({WorkerStats_.lastShareId(), UserStats_.lastShareId(), PoolStatsAcc_.lastShareId()}); }
+  // Min of accumulators' savedShareId; ShareLog replays shares starting from this point
+  uint64_t lastAggregatedShareId() { return std::min({WorkerStats_.savedShareId(), UserStats_.savedShareId(), PoolStatsAcc_.savedShareId()}); }
 
   // Max share id ever seen; ShareLog uses it to continue UniqueShareId numbering after restart
   uint64_t lastKnownShareId() { return LastKnownShareId_; }

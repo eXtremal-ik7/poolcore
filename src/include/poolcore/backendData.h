@@ -155,11 +155,11 @@ struct CUserPayout {
 
 struct MiningRound {
   static constexpr uint32_t CurrentRecordVersion = 1;
-  
+
   uint64_t Height;
   std::string BlockHash;
-  int64_t EndTime;
-  int64_t StartTime;
+  Timestamp EndTime;
+  Timestamp StartTime;
     
   // Sum of PPLNS-adjusted work of all users
   UInt<256> TotalShareValue;
@@ -369,7 +369,7 @@ struct FoundBlockRecord {
   
   uint64_t Height;
   std::string Hash;
-  int64_t Time;
+  Timestamp Time;
   UInt<384> AvailableCoins;
   std::string FoundBy;
   // Expected work to find a block, calculated from block difficulty (e.g. nBits header field)
@@ -405,11 +405,11 @@ struct CPPLNSPayout {
   enum { CurrentRecordVersion = 1 };
   // Key part
   std::string Login;
-  int64_t RoundStartTime;
+  Timestamp RoundStartTime;
   std::string BlockHash;
   // Value part
   uint64_t BlockHeight;
-  int64_t RoundEndTime;
+  Timestamp RoundEndTime;
   UInt<384> PayoutValue;
   UInt<384> PayoutValueWithoutFee;
   UInt<256> AcceptedWork;
@@ -417,7 +417,7 @@ struct CPPLNSPayout {
   double RateToBTC;
   double RateBTCToUSD;
 
-  std::string getPartitionId() const { return partByTime(RoundStartTime); }
+  std::string getPartitionId() const { return partByTime(RoundStartTime.toUnixTime()); }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;

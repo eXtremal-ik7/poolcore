@@ -37,11 +37,18 @@ public:
   template<typename Rep, typename Period>
   Timestamp &operator-=(std::chrono::duration<Rep, Period> d) { Value_ -= std::chrono::duration_cast<Duration>(d); return *this; }
 
-  // Align up to grid boundary
+  // Align up to grid boundary (stays in place if already aligned)
   template<typename Rep, typename Period>
   Timestamp alignUp(std::chrono::duration<Rep, Period> grid) const {
     int64_t g = std::chrono::duration_cast<Duration>(grid).count();
     return Timestamp(((Value_.count() + g - 1) / g) * g);
+  }
+
+  // Align to next grid boundary (always moves forward)
+  template<typename Rep, typename Period>
+  Timestamp alignNext(std::chrono::duration<Rep, Period> grid) const {
+    int64_t g = std::chrono::duration_cast<Duration>(grid).count();
+    return Timestamp((Value_.count() / g + 1) * g);
   }
 
   // Comparison operators

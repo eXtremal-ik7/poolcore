@@ -94,7 +94,7 @@ struct CStatsSeriesSingle {
     : CachePath_(cachePath), GridInterval_(gridInterval), KeepTime_(keepTime) {}
   CStatsSeries& series() { return Series_; }
   const CStatsSeries& series() const { return Series_; }
-  uint64_t lastShareId() const { return LastShareId_; }
+  uint64_t savedShareId() const { return SavedShareId_; }
   void setAccumulationBegin(Timestamp t) { AccumulationBegin_ = t; }
 
   void addShare(const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
@@ -111,7 +111,7 @@ private:
   std::chrono::minutes GridInterval_;
   std::chrono::minutes KeepTime_;
   CStatsSeries Series_;
-  uint64_t LastShareId_ = 0;
+  uint64_t SavedShareId_ = 0;
   Timestamp AccumulationBegin_;
 };
 
@@ -155,7 +155,7 @@ struct CStatsSeriesMap {
     : CachePath_(cachePath), GridInterval_(gridInterval), KeepTime_(keepTime) {}
   std::map<std::string, CStatsSeries>& map() { return Map_; }
   const std::map<std::string, CStatsSeries>& map() const { return Map_; }
-  uint64_t lastShareId() const { return LastShareId_; }
+  uint64_t savedShareId() const { return SavedShareId_; }
   void setAccumulationBegin(Timestamp t) { AccumulationBegin_ = t; }
 
   void addShare(const std::string &login, const std::string &workerId, const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
@@ -173,7 +173,7 @@ private:
   std::chrono::minutes GridInterval_;
   std::chrono::minutes KeepTime_;
   std::map<std::string, CStatsSeries> Map_;
-  uint64_t LastShareId_ = 0;
+  uint64_t SavedShareId_ = 0;
   Timestamp AccumulationBegin_;
 };
 

@@ -22,7 +22,7 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   UserStats_.load(_cfg.dbPath, coinInfo.Name);
   PoolStatsAcc_.load(_cfg.dbPath, coinInfo.Name);
 
-  LastKnownShareId_ = std::max({WorkerStats_.lastShareId(), UserStats_.lastShareId(), PoolStatsAcc_.lastShareId()});
+  LastKnownShareId_ = std::max({WorkerStats_.savedShareId(), UserStats_.savedShareId(), PoolStatsAcc_.savedShareId()});
   if (isDebugStatistic())
     LOG_F(1, "%s: last aggregated id: %" PRIu64 " last known id: %" PRIu64 "", coinInfo.Name.c_str(), lastAggregatedShareId(), lastKnownShareId());
 
@@ -99,11 +99,11 @@ void StatisticDb::addShare(CShare &share)
 void StatisticDb::replayShare(const CShare &share)
 {
   bool isPrimePOW = CoinInfo_.PowerUnitType == CCoinInfo::ECPD;
-  if (share.UniqueShareId > WorkerStats_.lastShareId())
+  if (share.UniqueShareId > WorkerStats_.savedShareId())
     WorkerStats_.addShare(share.userId, share.workerId, share.WorkValue, share.Time, share.ChainLength, share.PrimePOWTarget, isPrimePOW);
-  if (share.UniqueShareId > UserStats_.lastShareId())
+  if (share.UniqueShareId > UserStats_.savedShareId())
     UserStats_.addShare(share.userId, "", share.WorkValue, share.Time, share.ChainLength, share.PrimePOWTarget, isPrimePOW);
-  if (share.UniqueShareId > PoolStatsAcc_.lastShareId())
+  if (share.UniqueShareId > PoolStatsAcc_.savedShareId())
     PoolStatsAcc_.addShare(share.WorkValue, share.Time, share.ChainLength, share.PrimePOWTarget, isPrimePOW);
   PoolStatsCached_.LastShareTime = share.Time;
   LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);

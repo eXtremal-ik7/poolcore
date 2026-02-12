@@ -145,7 +145,7 @@ void MiningRound::dump(unsigned int fractionalPart)
 {
   fprintf(stderr, "height=%u\n", (unsigned)Height);
   fprintf(stderr, "blockhash=%s\n", BlockHash.c_str());
-  fprintf(stderr, "time=%u\n", (unsigned)EndTime);
+  fprintf(stderr, "time=%u\n", (unsigned)EndTime.toUnixTime());
   fprintf(stderr, "totalShareValue=%s\n", TotalShareValue.getDecimal().c_str());
   fprintf(stderr, "availableCoins=%s\n", FormatMoney(AvailableCoins, fractionalPart).c_str());
   for (auto r: UserShares) {

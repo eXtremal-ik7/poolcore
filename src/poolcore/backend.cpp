@@ -10,14 +10,9 @@
 
 static void checkConsistency(AccountingDb *accounting, const CCoinInfo &coinInfo)
 {
-  std::map<std::string, UInt<384>> balancesRequested;
-  std::map<std::string, UInt<384>> queueRequested;
-
   UInt<384> totalQueued = UInt<384>::zero();
-  for (auto &p: accounting->getPayoutsQueue()) {
-    queueRequested[p.UserId] += p.Value;
+  for (auto &p: accounting->getPayoutsQueue())
     totalQueued += p.Value;
-  }
 
   UInt<384> totalInBalance = UInt<384>::zero();
   auto &balanceDb = accounting->getBalanceDb();
@@ -30,7 +25,6 @@ static void checkConsistency(AccountingDb *accounting, const CCoinInfo &coinInfo
       if (!balance.deserializeValue(data.data, data.size))
         break;
 
-      balancesRequested[balance.Login] = balance.Requested;
       totalInBalance += balance.Requested;
     }
   }
