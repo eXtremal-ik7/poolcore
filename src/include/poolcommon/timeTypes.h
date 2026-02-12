@@ -63,6 +63,26 @@ private:
   Duration Value_{0};
 };
 
+// Returns overlap fraction of [recordBegin, recordEnd) within [cellBegin, cellEnd).
+// Point-in-time (recordBegin == recordEnd): 1.0 if point is in cell, 0.0 otherwise.
+// Normal: 1.0 if record fits entirely in cell, proportional fraction otherwise.
+inline double overlapFraction(Timestamp recordBegin, Timestamp recordEnd, Timestamp cellBegin, Timestamp cellEnd)
+{
+  auto recordRange = recordEnd - recordBegin;
+  if (recordRange == Timestamp::Duration(0))
+    return (recordBegin >= cellBegin && recordBegin < cellEnd) ? 1.0 : 0.0;
+
+  Timestamp overlapBegin = std::max(recordBegin, cellBegin);
+  Timestamp overlapEnd = std::min(recordEnd, cellEnd);
+  auto overlapRange = overlapEnd - overlapBegin;
+
+  if (overlapRange >= recordRange)
+    return 1.0;
+  if (overlapRange <= Timestamp::Duration(0))
+    return 0.0;
+  return static_cast<double>(overlapRange.count()) / static_cast<double>(recordRange.count());
+}
+
 struct TimeInterval {
   Timestamp TimeBegin;
   Timestamp TimeEnd;

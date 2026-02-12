@@ -26,7 +26,6 @@ struct CStatsElement {
 
   void reset();
   void merge(const CStatsElement &other);
-  void merge(const StatsRecord &record);
   CStatsElement scaled(double fraction) const;
   std::vector<CStatsElement> distributeToGrid(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs) const;
 };
@@ -35,11 +34,16 @@ struct CStats {
   std::string WorkerId;
   uint32_t ClientsNum = 0;
   uint32_t WorkersNum = 0;
+  uint64_t SharesNum = 0;
   uint64_t AveragePower = 0;
   double SharesPerSecond = 0.0;
   UInt<256> SharesWork = UInt<256>::zero();
+  uint32_t PrimePOWTarget = -1U;
   Timestamp LastShareTime;
   Timestamp Time;
+
+  void merge(const StatsRecord &record);
+  void mergeScaled(const StatsRecord &record, double fraction);
 };
 
 struct CStatsSeries {

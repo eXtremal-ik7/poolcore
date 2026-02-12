@@ -34,15 +34,20 @@ void CStatsElement::merge(const CStatsElement &other)
     PrimePOWSharesNum[i] += other.PrimePOWSharesNum[i];
 }
 
-void CStatsElement::merge(const StatsRecord &record)
+void CStats::merge(const StatsRecord &record)
 {
   SharesNum += record.ShareCount;
   SharesWork += record.ShareWork;
   PrimePOWTarget = std::min(PrimePOWTarget, record.PrimePOWTarget);
-  if (record.PrimePOWShareCount.size() > PrimePOWSharesNum.size())
-    PrimePOWSharesNum.resize(record.PrimePOWShareCount.size());
-  for (size_t i = 0; i < record.PrimePOWShareCount.size(); i++)
-    PrimePOWSharesNum[i] += record.PrimePOWShareCount[i];
+}
+
+void CStats::mergeScaled(const StatsRecord &record, double fraction)
+{
+  SharesNum += static_cast<uint64_t>(std::round(record.ShareCount * fraction));
+  UInt<256> scaledWork = record.ShareWork;
+  scaledWork.mulfp(fraction);
+  SharesWork += scaledWork;
+  PrimePOWTarget = std::min(PrimePOWTarget, record.PrimePOWTarget);
 }
 
 CStatsElement CStatsElement::scaled(double fraction) const

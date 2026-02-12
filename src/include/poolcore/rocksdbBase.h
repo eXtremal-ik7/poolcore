@@ -120,6 +120,40 @@ public:
     }
 
 
+    template<typename ValueType> void seek(const ValueType &searchKey, const void *resumeKeyData, size_t resumeKeySize, ValueType &out, const std::function<bool(const ValueType&)> &validPredicate) {
+      std::string partId = searchKey.getPartitionId();
+      if (id != partId) {
+        cleanup();
+        auto p = base->greaterOrEqualPartition(partId);
+        if (!p.db)
+          return;
+
+        id = p.id;
+        rocksdb::ReadOptions options;
+        iterator = p.db->NewIterator(options);
+      }
+
+      char buffer[128];
+      xmstream S(buffer, sizeof(buffer));
+      S.reset();
+      searchKey.serializeKey(S);
+      rocksdb::Slice searchKeySlice(S.data<const char>(), S.sizeOf());
+      iterator->Seek(searchKeySlice);
+
+      rocksdb::Slice resumeKeySlice(static_cast<const char*>(resumeKeyData), resumeKeySize);
+      while (!checkValid(out, validPredicate)) {
+        cleanup();
+        auto np = base->greaterPartition(id);
+        if (!np.db)
+          return;
+
+        id = np.id;
+        rocksdb::ReadOptions options;
+        iterator = np.db->NewIterator(options);
+        iterator->Seek(resumeKeySlice);
+      }
+    }
+
     template<typename ValueType> void seekForPrev(const ValueType &firstKey, const void *nextKeyData, size_t nextKeySize, ValueType &out, const std::function<bool(const ValueType&)> &validPredicate) {
       std::string partId = firstKey.getPartitionId();
       if (id != partId) {
@@ -173,6 +207,28 @@ public:
 
         iterator = p.db->NewIterator(options);
         iterator->SeekForPrev(nextKeySlice);
+      }
+    }
+
+    template<typename ValueType> void next(const void *resumeKeyData, size_t resumeKeySize, ValueType &out, const std::function<bool(const ValueType&)> &validPredicate) {
+      if (iterator)
+        iterator->Next();
+
+      rocksdb::ReadOptions options;
+      rocksdb::Slice resumeKeySlice(static_cast<const char*>(resumeKeyData), resumeKeySize);
+      while (!checkValid(out, validPredicate)) {
+        if (id.empty())
+          return;
+
+        cleanup();
+        auto np = base->greaterPartition(id);
+        if (!np.db)
+          return;
+
+        id = np.id;
+
+        iterator = np.db->NewIterator(options);
+        iterator->Seek(resumeKeySlice);
       }
     }
 

@@ -9,7 +9,23 @@
 
 static const UInt<384> ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE = fromRational(10000u);
 
-void AccountingDb::CPPLNSPayoutAcc::accumulate(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize)
+void AccountingDb::CPPLNSPayoutAcc::merge(const CPPLNSPayout &record, unsigned fractionalPartSize)
+{
+  TotalCoin += record.PayoutValue;
+
+  UInt<384> btcValue = record.PayoutValue;
+  btcValue.mulfp(record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize)));
+  TotalBTC += btcValue;
+
+  UInt<384> usdValue = record.PayoutValue;
+  usdValue.mulfp(record.RateToBTC * record.RateBTCToUSD / std::pow(10.0, fractionalPartSize));
+  TotalUSD += usdValue;
+
+  TotalIncomingWork += record.AcceptedWork;
+  PrimePOWTarget = std::min(PrimePOWTarget, record.PrimePOWTarget);
+}
+
+void AccountingDb::CPPLNSPayoutAcc::mergeScaled(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize)
 {
   UInt<384> payoutValue = record.PayoutValue;
   payoutValue.mulfp(coeff);
@@ -1204,7 +1220,7 @@ void AccountingDb::queryPPLNSPayoutsAccImpl(const std::string &login, int64_t ti
 
   // TODO: return error
   if (timeTo <= timeFrom ||
-      groupByInterval == 0 ||
+      groupByInterval <= 0 ||
       (timeTo - timeFrom) % groupByInterval != 0 ||
       (timeTo - timeFrom) / groupByInterval > MaxOutputCells) {
     callback(payoutAccs);
@@ -1220,9 +1236,14 @@ void AccountingDb::queryPPLNSPayoutsAccImpl(const std::string &login, int64_t ti
     return record.Login == login;
   };
 
-  Timestamp tsFrom = Timestamp::fromUnixTime(timeFrom);
-  Timestamp tsTo = Timestamp::fromUnixTime(timeTo);
-  auto groupDuration = std::chrono::seconds(groupByInterval);
+  Timestamp gridStart = Timestamp::fromUnixTime(timeFrom);
+  Timestamp gridEnd = Timestamp::fromUnixTime(timeTo);
+  auto groupBy = std::chrono::seconds(groupByInterval);
+  size_t count = (gridEnd - gridStart) / groupBy;
+
+  payoutAccs.resize(count);
+  for (size_t i = 0; i < count; i++)
+    payoutAccs[i].IntervalEnd = timeFrom + groupByInterval * static_cast<int64_t>(i + 1);
 
   {
     CPPLNSPayout record;
@@ -1235,41 +1256,34 @@ void AccountingDb::queryPPLNSPayoutsAccImpl(const std::string &login, int64_t ti
   {
     CPPLNSPayout keyRecord;
     keyRecord.Login = login;
-    keyRecord.RoundStartTime = tsTo;
+    keyRecord.RoundStartTime = gridEnd;
     keyRecord.BlockHash.clear();
     It->seekForPrev<CPPLNSPayout>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
-  }
-
-  // Fill 'stats' with zero-initialized elements for entire range
-  {
-    size_t count = (timeTo - timeFrom) / groupByInterval;
-    int64_t timeLabel = timeFrom + groupByInterval;
-    payoutAccs.resize(count);
-    for (size_t i = 0; i < count; i++) {
-      payoutAccs[i].IntervalEnd = timeLabel;
-      timeLabel += groupByInterval;
-    }
   }
 
   // Rounds form a continuous chain (each RoundStartTime == previous RoundEndTime),
   // so RoundEndTime decreases monotonically — safe to break early.
   while (It->valid()) {
-    if (valueRecord.RoundEndTime < tsFrom)
+    if (valueRecord.RoundEndTime <= gridStart)
       break;
 
-    // Minimum 1ms round duration to prevent division by zero
-    Timestamp roundEnd = std::min(valueRecord.RoundEndTime, tsTo);
-    auto roundDuration = std::max(valueRecord.RoundEndTime - valueRecord.RoundStartTime, std::chrono::milliseconds(1));
-    Timestamp intervalStart = std::max(valueRecord.RoundStartTime, tsFrom);
-    while (intervalStart < roundEnd) {
-      Timestamp intervalEnd = std::min(intervalStart.alignNext(groupDuration), roundEnd);
-      size_t index = (intervalStart - tsFrom) / groupDuration;
-      double coeff = static_cast<double>((intervalEnd - intervalStart).count()) / roundDuration.count();
+    Timestamp clampedBegin = std::max(valueRecord.RoundStartTime, gridStart);
+    Timestamp clampedEnd = std::min(valueRecord.RoundEndTime, gridEnd);
 
-      if (index < payoutAccs.size())
-        payoutAccs[index].accumulate(valueRecord, coeff, CoinInfo_.FractionalPartSize);
+    size_t firstIdx = static_cast<size_t>((clampedBegin - gridStart) / groupBy);
+    size_t lastIdx = static_cast<size_t>((clampedEnd - gridStart + groupBy - std::chrono::milliseconds(1)) / groupBy);
 
-      intervalStart = intervalEnd;
+    Timestamp cellBegin = gridStart + groupBy * static_cast<int64_t>(firstIdx);
+    Timestamp cellEnd = cellBegin + groupBy;
+    for (size_t i = firstIdx; i < lastIdx; i++) {
+      double coeff = overlapFraction(valueRecord.RoundStartTime, valueRecord.RoundEndTime, cellBegin, cellEnd);
+      if (coeff >= 1.0)
+        payoutAccs[i].merge(valueRecord, CoinInfo_.FractionalPartSize);
+      else
+        payoutAccs[i].mergeScaled(valueRecord, coeff, CoinInfo_.FractionalPartSize);
+
+      cellBegin = cellEnd;
+      cellEnd += groupBy;
     }
 
     It->prev<CPPLNSPayout>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);

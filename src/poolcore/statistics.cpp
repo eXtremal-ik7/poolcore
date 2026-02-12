@@ -268,21 +268,13 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     StatsRecord record;
     record.Login = login;
     record.WorkerId = workerId;
-    record.Time.TimeEnd = Timestamp(std::numeric_limits<int64_t>::max());
+    record.Time.TimeEnd = Timestamp(0);
     record.serializeKey(resumeKey);
   }
 
   auto groupBy = std::chrono::seconds(groupByInterval);
   Timestamp tsFrom = Timestamp::fromUnixTime(timeFrom);
   Timestamp tsTo = Timestamp::fromUnixTime(timeTo);
-
-  {
-    StatsRecord keyRecord;
-    keyRecord.Login = login;
-    keyRecord.WorkerId = workerId;
-    keyRecord.Time.TimeEnd = tsTo;
-    It->seekForPrev<StatsRecord>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
-  }
 
   Timestamp firstTimeLabel = tsFrom.alignUp(groupBy);
   if (firstTimeLabel == tsFrom)
@@ -296,56 +288,62 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     return;
   }
 
-  std::vector<CStatsElement> stats(count);
-  int64_t groupByMs = std::chrono::duration_cast<std::chrono::milliseconds>(groupBy).count();
+  // Grid layout: cell i covers [gridStart + i*groupBy, gridStart + (i+1)*groupBy)
+  // Cell i TimeEnd = firstTimeLabel + i*groupBy
+  Timestamp gridStart = firstTimeLabel - groupBy;
+  Timestamp gridEnd = gridStart + groupBy * static_cast<int64_t>(count);
+
+  history.resize(count);
+  for (size_t i = 0; i < count; i++)
+    history[i].Time = firstTimeLabel + groupBy * static_cast<int64_t>(i);
+
+  {
+    StatsRecord keyRecord;
+    keyRecord.Login = login;
+    keyRecord.WorkerId = workerId;
+    keyRecord.Time.TimeEnd = gridStart;
+    It->seek<StatsRecord>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+  }
 
   while (It->valid()) {
-    if (valueRecord.Time.TimeEnd <= tsFrom)
+    Timestamp recordBegin = valueRecord.Time.TimeBegin;
+    Timestamp recordEnd = valueRecord.Time.TimeEnd;
+
+    if (recordBegin >= gridEnd)
       break;
 
-    if (isDebugStatistic())
+    Timestamp clampedBegin = std::max(recordBegin, gridStart);
+    Timestamp clampedEnd = std::min(recordEnd, gridEnd);
+
+    size_t firstIdx = static_cast<size_t>((clampedBegin - gridStart) / groupBy);
+    size_t lastIdx = static_cast<size_t>((clampedEnd - gridStart + groupBy - std::chrono::milliseconds(1)) / groupBy);
+
+    if (isDebugStatistic() && firstIdx < lastIdx)
       LOG_F(1,
             "getHistory: use row with time=%" PRIi64 " shares=%" PRIu64 " work=%s",
             valueRecord.Time.TimeEnd.toUnixTime(),
             valueRecord.ShareCount,
             valueRecord.ShareWork.getDecimal().c_str());
 
-    Timestamp recBegin = valueRecord.Time.TimeBegin;
-    Timestamp recEnd = valueRecord.Time.TimeEnd;
-    Timestamp cellEnd = recEnd.alignUp(groupBy);
-    if (cellEnd <= firstTimeLabel)
-      continue;
+    Timestamp cellBegin = gridStart + groupBy * static_cast<int64_t>(firstIdx);
+    Timestamp cellEnd = cellBegin + groupBy;
+    for (size_t i = firstIdx; i < lastIdx; i++) {
+      double fraction = overlapFraction(recordBegin, recordEnd, cellBegin, cellEnd);
+      if (fraction >= 1.0)
+        history[i].merge(valueRecord);
+      else
+        history[i].mergeScaled(valueRecord, fraction);
 
-    // Fast path: record fits in a single output cell
-    if (recBegin >= cellEnd - groupBy) {
-      size_t index = (cellEnd - firstTimeLabel) / groupBy;
-      if (index < stats.size())
-        stats[index].merge(valueRecord);
-    } else {
-      // Record straddles output grid boundary — split proportionally across cells
-      CStatsElement element;
-      element.SharesNum = valueRecord.ShareCount;
-      element.SharesWork = valueRecord.ShareWork;
-      element.PrimePOWTarget = valueRecord.PrimePOWTarget;
-      element.PrimePOWSharesNum = valueRecord.PrimePOWShareCount;
-
-      auto cells = element.distributeToGrid(recBegin.count(), recEnd.count(), groupByMs);
-      for (const auto &cell : cells) {
-        size_t index = (cell.Time.TimeEnd - firstTimeLabel) / groupBy;
-        if (index < stats.size())
-          stats[index].merge(cell);
-      }
+      cellBegin = cellEnd;
+      cellEnd += groupBy;
     }
 
-    It->prev<StatsRecord>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+    It->next<StatsRecord>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
-  history.resize(count);
   for (size_t i = 0; i < count; i++) {
-    history[i].Time = firstTimeLabel + groupBy * static_cast<int64_t>(i);
-    history[i].SharesPerSecond = static_cast<double>(stats[i].SharesNum) / groupByInterval;
-    history[i].AveragePower = CoinInfo_.calculateAveragePower(stats[i].SharesWork, groupByInterval, stats[i].PrimePOWTarget);
-    history[i].SharesWork = stats[i].SharesWork;
+    history[i].SharesPerSecond = static_cast<double>(history[i].SharesNum) / groupByInterval;
+    history[i].AveragePower = CoinInfo_.calculateAveragePower(history[i].SharesWork, groupByInterval, history[i].PrimePOWTarget);
   }
 }
 

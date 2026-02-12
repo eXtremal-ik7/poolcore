@@ -27,7 +27,8 @@ public:
     uint64_t AvgHashRate = 0;
     uint32_t PrimePOWTarget = -1U;
 
-    void accumulate(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize);
+    void merge(const CPPLNSPayout &record, unsigned fractionalPartSize);
+    void mergeScaled(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize);
   };
 
 
