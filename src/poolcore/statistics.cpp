@@ -59,7 +59,7 @@ void StatisticDb::updatePoolStatsCached(Timestamp timeLabel)
 
   if (isDebugStatistic())
     LOG_F(1, "update pool stats:");
-  PoolStatsAcc_.series().calcAverageMetrics(CoinInfo_, _cfg.StatisticPoolPowerCalculateInterval, Timestamp::now(), PoolStatsCached_);
+  PoolStatsAcc_.series().calcAverageMetrics(CoinInfo_, _cfg.StatisticPoolPowerCalculateInterval, timeLabel, PoolStatsCached_);
 
   LOG_F(INFO,
         "clients: %u, workers: %u, power: %" PRIu64 ", share rate: %.3lf shares/s",
@@ -251,6 +251,8 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
 
 void StatisticDb::getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history)
 {
+  // TODO: add an error output parameter so the caller can return a JSON error
+  //       instead of an empty result indistinguishable from "no data"
   if (groupByInterval < 60 || timeTo <= timeFrom)
     return;
 
@@ -341,6 +343,8 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     It->next<StatsRecord>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
+  // Empty cells keep PrimePOWTarget=-1U (sentinel); calculateAveragePower handles it correctly:
+  // EHash ignores it, ECPD returns 0 for -1U
   for (size_t i = 0; i < count; i++) {
     history[i].SharesPerSecond = static_cast<double>(history[i].SharesNum) / groupByInterval;
     history[i].AveragePower = CoinInfo_.calculateAveragePower(history[i].SharesWork, groupByInterval, history[i].PrimePOWTarget);

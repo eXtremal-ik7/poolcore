@@ -546,6 +546,11 @@ void AccountingDb::addShare(CShare &share)
     if (!hasUnknownReward())
       calculatePayments(R, share.generatedCoins);
 
+    // NOTE: crash between _roundsDb.put and flushBlockFoundState will leave
+    // data inconsistent — round is persisted but State_ (CurrentScores,
+    // RecentStats, CurrentRoundStartTime) is not updated. On restart the
+    // old CurrentScores will be re-accumulated into the next round.
+
     // store round to DB and clear shares map
     _allRounds.emplace_back(R);
     _roundsDb.put(*R);
@@ -841,7 +846,7 @@ bool AccountingDb::checkTxConfirmations(PayoutDbRecord &payout)
   }
 
   // Update database
-  if (confirmations > _cfg.RequiredConfirmations) {
+  if (confirmations >= _cfg.RequiredConfirmations) {
     payout.Status = PayoutDbRecord::ETxConfirmed;
     _payoutDb.put(payout);
 
@@ -914,6 +919,8 @@ void AccountingDb::makePayout()
           if (sendTransaction(payout))
             LOG_F(INFO, " * sent %s to %s(%s) with txid %s", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), payout.UserId.c_str(), recipientAddress.c_str(), payout.TransactionId.c_str());
         } else {
+          // buildTransaction failed — stop processing the queue;
+          // this payout will block all subsequent payouts until resolved
           break;
         }
       } else if (payout.Status == PayoutDbRecord::ETxCreated) {
@@ -1118,6 +1125,7 @@ void AccountingDb::manualPayoutImpl(const std::string &user, DefaultCb callback)
   if (It != _balanceMap.end()) {
     auto &B = It->second;
     UInt<384> nonQueuedBalance = B.Balance - B.Requested;
+    // Check global minimum (dust protection); per-user MinimalPayout is bypassed for manual payouts
     if (!nonQueuedBalance.isNegative() && nonQueuedBalance >= _cfg.MinimalAllowedPayout) {
       bool result = requestPayout(user, UInt<384>::zero(), true);
       const char *status = result ? "ok" : "payout_error";
@@ -1199,7 +1207,7 @@ void AccountingDb::queryPPLNSPayoutsImpl(const std::string &login, int64_t timeF
     keyRecord.Login = login;
     keyRecord.RoundStartTime = timeFrom == 0 ? Timestamp(std::numeric_limits<int64_t>::max()) : Timestamp::fromUnixTime(timeFrom);
     keyRecord.BlockHash = hashFrom;
-    It->seekForPrev<CPPLNSPayout>(keyRecord, resumeKey.data<const char*>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+    It->seekForPrev<CPPLNSPayout>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
   std::vector<CPPLNSPayout> payouts;
@@ -1298,6 +1306,11 @@ void AccountingDb::queryPPLNSPayoutsAccImpl(const std::string &login, int64_t ti
 
 void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback)
 {
+  if (!std::is_sorted(intervals.begin(), intervals.end())) {
+    callback(std::vector<double>());
+    return;
+  }
+
   Timestamp currentTime = Timestamp::now();
   std::vector<double> result;
 

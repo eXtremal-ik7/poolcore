@@ -11,6 +11,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
 
 std::string partByTime(time_t time);
 
@@ -53,7 +54,16 @@ struct CStatsSeries {
 
   void addShare(const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW);
   void merge(std::vector<CStatsElement> &cells);
-  std::vector<CStatsElement> flush(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs, Timestamp removeTimePoint, std::set<int64_t> &removedTimes);
+  void flush(int64_t beginMs,
+             int64_t endMs,
+             int64_t gridIntervalMs,
+             Timestamp removeTimePoint,
+             std::string_view login,
+             std::string_view workerId,
+             Timestamp timeLabel,
+             kvdb<rocksdbBase>::Batch *batch,
+             std::set<int64_t> &modifiedTimes,
+             std::set<int64_t> &removedTimes);
   void calcAverageMetrics(const CCoinInfo &coinInfo, std::chrono::seconds calculateInterval, Timestamp now, CStats &result) const;
 };
 

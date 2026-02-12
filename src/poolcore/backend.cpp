@@ -69,9 +69,9 @@ void PoolBackend::stop()
   userEventActivate(CheckConfirmationsEvent_);
   userEventActivate(CheckBalanceEvent_);
   userEventActivate(PayoutEvent_);
+  TaskHandler_.stop(CoinInfo_.Name.c_str(), "PoolBackend task handler");
   _accounting->stop();
   _statistics->stop();
-  TaskHandler_.stop(CoinInfo_.Name.c_str(), "PoolBackend task handler");
   coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend check confirmations handler", &CheckConfirmationsHandlerFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend check balance handler", &CheckBalanceHandlerFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend payout handler", &PayoutHandlerFinished_);
@@ -187,7 +187,7 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
     PayoutDbRecord keyRecord;
     keyRecord.UserId = user;
     keyRecord.Time = timeFrom == 0 ? std::numeric_limits<int64_t>::max() : timeFrom;
-    It->seekForPrev<PayoutDbRecord>(keyRecord, resumeKey.data<const char*>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+    It->seekForPrev<PayoutDbRecord>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
   for (unsigned i = 0; i < count; i++) {
