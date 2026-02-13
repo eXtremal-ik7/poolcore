@@ -14,12 +14,14 @@ add_library(poolcore STATIC
   poolInstance.cpp
   priceFetcher.cpp
   rocksdbBase.cpp
+  shareAccumulator.cpp
   shareLog.cpp
   statsData.cpp
   statsMergeOperator.cpp
   statistics.cpp
   thread.cpp
   usermgr.cpp
+  workSummary.cpp
 )
 
 target_include_directories(poolcore PUBLIC ${RAPIDJSON_INCLUDE_DIRECTORY})

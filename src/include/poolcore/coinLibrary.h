@@ -301,6 +301,7 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DGB.sha256.testnet") == 0) {
       info.Name = "DGB.sha256.testnet";
       info.FullName = "Digibyte";
@@ -317,6 +318,7 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DGB.scrypt") == 0) {
       info.Name = "DGB.scrypt";
       info.FullName = "Digibyte";
@@ -335,6 +337,7 @@ public:
       info.Algorithm = "scrypt";
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DGB.scrypt.testnet") == 0) {
       info.Name = "DGB.scrypt.testnet";
       info.FullName = "Digibyte";
@@ -351,6 +354,7 @@ public:
       info.Algorithm = "scrypt";
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DGB.qubit") == 0) {
       info.Name = "DGB.qubit";
       info.FullName = "Digibyte";
@@ -369,6 +373,7 @@ public:
       info.Algorithm = "qubit";
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DGB.qubit.testnet") == 0) {
       info.Name = "DGB.qubit.testnet";
       info.FullName = "Digibyte";
@@ -385,6 +390,7 @@ public:
       info.Algorithm = "qubit";
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DGB.skein") == 0) {
       info.Name = "DGB.skein";
       info.FullName = "Digibyte";
@@ -403,6 +409,7 @@ public:
       info.Algorithm = "skein";
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DGB.skein.testnet") == 0) {
       info.Name = "DGB.skein.testnet";
       info.FullName = "Digibyte";
@@ -419,6 +426,7 @@ public:
       info.Algorithm = "skein";
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DGB.odo") == 0) {
       info.Name = "DGB.odo";
       info.FullName = "Digibyte";
@@ -437,6 +445,7 @@ public:
       info.Algorithm = "odocrypt";
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DGB.odo.testnet") == 0) {
       info.Name = "DGB.odo.testnet";
       info.FullName = "Digibyte";
@@ -453,6 +462,7 @@ public:
       info.Algorithm = "odocrypt";
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DINGO") == 0) {
       info.Name = "DINGO";
       info.FullName = "Dingocoin";
@@ -554,6 +564,7 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "DTC.testnet") == 0) {
       info.Name = "DTC";
       info.FullName = "Datacoin";
@@ -569,6 +580,7 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "ETC") == 0) {
       info.Name = "ETC";
       info.FullName = "Ethereum Classic";
@@ -954,6 +966,7 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "XPM.testnet") == 0) {
       info.Name = "XPM.testnet";
       info.FullName = "Primecoin";
@@ -967,6 +980,7 @@ public:
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
       info.WorkType = EWorkBitcoin;
+      info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "ZEC") == 0) {
       info.Name = "ZEC";
       info.FullName = "ZCash";

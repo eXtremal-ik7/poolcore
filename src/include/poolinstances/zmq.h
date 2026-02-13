@@ -6,6 +6,7 @@
 #include "poolcore/poolInstance.h"
 #include "poolcore/thread.h"
 #include "poolcore/usermgr.h"
+#include "poolcore/shareAccumulator.h"
 #include "blockmaker/merkleTree.h"
 #include <asyncio/socket.h>
 #include <asyncioextras/zmtp.h>
@@ -39,6 +40,9 @@ public:
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
     X::Zmq::initialize();
 
+    for (size_t i = 0; i < LinkedBackends_.size(); i++)
+      BackendMap_[LinkedBackends_[i]] = i;
+
     unsigned totalInstancesNum = instancesNum * threadPool.threadsNum();
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
       // initialInstanceId used for fixed extra nonce part calculation
@@ -48,6 +52,19 @@ public:
       Data_[i].WorkerBase = threadPool.getBase(i);
       Data_[i].HasWork = false;
       X::Proto::checkConsensusInitialize(Data_[i].CheckConsensusCtx);
+
+      // initialize share accumulators and flush timer
+      Data_[i].Accumulators.resize(LinkedBackends_.size());
+      {
+        Timestamp now = Timestamp::now();
+        for (size_t j = 0; j < LinkedBackends_.size(); j++)
+          Data_[i].Accumulators[j].initialize(LinkedBackends_[j]->getCoinInfo().WorkSummaryFlushInterval, now);
+        Data_[i].AlgoMetaAccumulator.initialize(std::chrono::seconds(10), now, false);
+      }
+      Data_[i].FlushTimer = newUserEvent(Data_[i].WorkerBase, false, [](aioUserEvent*, void *arg) {
+        static_cast<ZmqInstance*>(arg)->flushWork();
+      }, this);
+      userEventStartTimer(Data_[i].FlushTimer, 1000000, 0);
     }
 
     if (!(config.HasMember("port") && config["port"].IsInt() &&
@@ -125,7 +142,44 @@ private:
     bool HasWork;
     std::set<Connection*> SignalSockets;
     std::unordered_set<BaseBlob<256>> KnownShares;
+    std::vector<CShareAccumulator> Accumulators;
+    CShareAccumulator AlgoMetaAccumulator;
+    aioUserEvent *FlushTimer = nullptr;
   };
+
+  void flushWork() {
+    ThreadData &data = Data_[GetLocalThreadId()];
+    Timestamp now = Timestamp::now();
+    for (size_t i = 0; i < LinkedBackends_.size(); i++) {
+      auto &acc = data.Accumulators[i];
+      if (acc.shouldFlush(now)) {
+        if (!acc.empty()) {
+          LinkedBackends_[i]->sendWorkSummary(acc.takeWorkerEntries());
+          LinkedBackends_[i]->sendUserWorkSummary(acc.takeUserEntries());
+        }
+        acc.resetFlushTime(now);
+      }
+    }
+    if (AlgoMetaStatistic_ && data.AlgoMetaAccumulator.shouldFlush(now)) {
+      if (!data.AlgoMetaAccumulator.empty())
+        AlgoMetaStatistic_->sendWorkSummary(data.AlgoMetaAccumulator.takeWorkerEntries());
+      data.AlgoMetaAccumulator.resetFlushTime(now);
+    }
+  }
+
+  void flushAccumulator(size_t globalBackendIdx) {
+    ThreadData &data = Data_[GetLocalThreadId()];
+    auto &acc = data.Accumulators[globalBackendIdx];
+    if (!acc.empty()) {
+      LinkedBackends_[globalBackendIdx]->sendWorkSummary(acc.takeWorkerEntries());
+      LinkedBackends_[globalBackendIdx]->sendUserWorkSummary(acc.takeUserEntries());
+    }
+    acc.resetFlushTime(Timestamp::now());
+    if (AlgoMetaStatistic_ && !data.AlgoMetaAccumulator.empty()) {
+      AlgoMetaStatistic_->sendWorkSummary(data.AlgoMetaAccumulator.takeWorkerEntries());
+      data.AlgoMetaAccumulator.resetFlushTime(Timestamp::now());
+    }
+  }
 
 private:
   void sendWork(ThreadData &data, Connection *connection) {
@@ -262,6 +316,14 @@ private:
       return;
     }
 
+    size_t globalBackendIdx = work.backendId();
+    bool isPrimePOW = backend->getCoinInfo().PowerUnitType == CCoinInfo::ECPD;
+    data.Accumulators[globalBackendIdx].addShare(share.addr(), workerId,
+      shareWork, Timestamp::now(), shareDiff, primePOWTarget, isPrimePOW);
+    if (AlgoMetaStatistic_)
+      data.AlgoMetaAccumulator.addShare(share.addr(), workerId,
+        shareWork, Timestamp::now(), shareDiff, primePOWTarget, isPrimePOW);
+
     if (isBlock) {
       LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.getHexLE().c_str(), data.Work.txNum());
       // Submit to nodes
@@ -273,70 +335,32 @@ private:
       dispatcher.aioSubmitBlock(data.WorkerBase,
                                 work.blockHexData().data(),
                                 work.blockHexData().sizeOf(),
-                                [height, user, workerId, blockHash, generatedCoins, backend, shareWork, shareDiff, expectedWork, primePOWTarget](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+                                [height, user, blockHash, generatedCoins, expectedWork, primePOWTarget, globalBackendIdx, backend, this](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.getHexLE().c_str(), height, hostName.c_str());
           if (successNum == 1) {
-            // Send share with block to backend
-            CShare *backendShare = new CShare;
-            backendShare->Time = Timestamp::now();
-            backendShare->userId = user;
-            backendShare->workerId = workerId;
-            backendShare->height = height;
-            backendShare->WorkValue = shareWork;
-            backendShare->isBlock = true;
-            backendShare->hash = blockHash.getHexLE();
-            backendShare->generatedCoins = generatedCoins;
-            backendShare->ExpectedWork = expectedWork;
-            backendShare->ChainLength = shareDiff;
-            backendShare->PrimePOWTarget = primePOWTarget;
-            backend->sendShare(backendShare);
+            flushAccumulator(globalBackendIdx);
+            CBlockFoundData *block = new CBlockFoundData;
+            block->UserId = user;
+            block->Height = height;
+            block->Hash = blockHash.getHexLE();
+            block->Time = Timestamp::now();
+            block->GeneratedCoins = generatedCoins;
+            block->ExpectedWork = expectedWork;
+            block->PrimePOWTarget = primePOWTarget;
+            backend->sendBlockFound(block);
           }
         } else {
           LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.getHexLE().c_str(), height, hostName.c_str(), error.c_str());
         }
       });
 
-      for (size_t i = 0, ie = LinkedBackends_.size(); i != ie; ++i) {
-        if (LinkedBackends_[i] == backend) {
-          foundBlockMask[i] = true;
-          break;
-        }
-      }
-    } else {
-      // Send share to backend
-      CShare *backendShare = new CShare;
-      backendShare->Time = Timestamp::now();
-      backendShare->userId = share.addr();
-      backendShare->workerId = workerId;
-      backendShare->height = height;
-      backendShare->WorkValue = shareWork;
-      backendShare->isBlock = false;
-      backendShare->ChainLength = shareDiff;
-      backendShare->PrimePOWTarget = primePOWTarget;
-      backend->sendShare(backendShare);
+      foundBlockMask[globalBackendIdx] = true;
     }
 
-    if (shareAccepted && (AlgoMetaStatistic_ || true)) {
-      CShare *backendShare = new CShare;
-      backendShare->Time = Timestamp::now();
-      backendShare->userId = share.addr();
-      backendShare->workerId = workerId;
-      backendShare->height = height;
-      backendShare->WorkValue = shareWork;
-      backendShare->isBlock = false;
-      backendShare->ChainLength = shareDiff;
-      backendShare->PrimePOWTarget = primePOWTarget;
-      if (AlgoMetaStatistic_)
-        AlgoMetaStatistic_->sendShare(backendShare);
-
-      // Disabled now
-      // Share
-      // All affected coins by this share
-      // Difficulty of all affected coins
-      // if (MiningStats_)
-      //  MiningStats_->onShare(shareDiff, connection->ShareDifficulty, LinkedBackends_, foundBlockMask, shareHash);
-    }
+    // Disabled now
+    // if (MiningStats_)
+    //  MiningStats_->onShare(shareDiff, connection->ShareDifficulty, LinkedBackends_, foundBlockMask, shareHash);
   }
 
   void onStats(ThreadData &data, pool::proto::Request &req, pool::proto::Reply &rep) {
@@ -429,6 +453,8 @@ private:
       LOG_F(ERROR, "%s: can't process block template; error: %s", Name_.c_str(), error.c_str());
       return;
     }
+
+    data.Work.BackendId = BackendMap_[backend];
 
     data.HasWork = true;
 
@@ -539,6 +565,7 @@ private:
 
 private:
   std::unique_ptr<ThreadData[]> Data_;
+  std::unordered_map<PoolBackend*, size_t> BackendMap_;
   unsigned CurrentWorker_ = 0;
   uint16_t WorkerPort_ = 0;
   std::string HostName_;

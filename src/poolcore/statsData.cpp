@@ -13,27 +13,6 @@ static void dbIoUnserialize(xmstream &src, T &data) { DbIo<T>::unserialize(src, 
 template<typename T>
 static void dbKeyIoSerialize(xmstream &dst, const T &data) { DbKeyIo<T>::serialize(dst, data); }
 
-void CStatsElement::reset()
-{
-  SharesNum = 0;
-  SharesWork = UInt<256>::zero();
-  Time = TimeInterval();
-  PrimePOWTarget = -1U;
-  PrimePOWSharesNum.clear();
-}
-
-// Note: Time is not merged — callers always merge elements with matching time intervals
-void CStatsElement::merge(const CStatsElement &other)
-{
-  SharesNum += other.SharesNum;
-  SharesWork += other.SharesWork;
-  PrimePOWTarget = std::min(PrimePOWTarget, other.PrimePOWTarget);
-  if (other.PrimePOWSharesNum.size() > PrimePOWSharesNum.size())
-    PrimePOWSharesNum.resize(other.PrimePOWSharesNum.size());
-  for (size_t i = 0; i < other.PrimePOWSharesNum.size(); i++)
-    PrimePOWSharesNum[i] += other.PrimePOWSharesNum[i];
-}
-
 void CStats::merge(const StatsRecord &record)
 {
   SharesNum += record.ShareCount;
@@ -50,34 +29,20 @@ void CStats::mergeScaled(const StatsRecord &record, double fraction)
   PrimePOWTarget = std::min(PrimePOWTarget, record.PrimePOWTarget);
 }
 
-CStatsElement CStatsElement::scaled(double fraction) const
+void CStatsSeries::addWorkSummary(const CWorkSummary &data, Timestamp time)
 {
-  CStatsElement result;
-  result.SharesNum = static_cast<uint64_t>(std::round(SharesNum * fraction));
-  result.SharesWork = SharesWork;
-  result.SharesWork.mulfp(fraction);
-  result.PrimePOWTarget = PrimePOWTarget;
-  result.PrimePOWSharesNum.resize(PrimePOWSharesNum.size());
-  for (size_t i = 0; i < PrimePOWSharesNum.size(); i++)
-    result.PrimePOWSharesNum[i] = static_cast<uint64_t>(std::round(PrimePOWSharesNum[i] * fraction));
-  return result;
-}
-
-void CStatsSeries::addShare(const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW)
-{
-  Current.SharesNum++;
-  Current.SharesWork += workValue;
-  if (isPrimePOW) {
-    Current.PrimePOWTarget = std::min(Current.PrimePOWTarget, primePOWTarget);
-    primeChainLength = std::min(primeChainLength, 1024u);
-    if (primeChainLength >= Current.PrimePOWSharesNum.size())
-      Current.PrimePOWSharesNum.resize(primeChainLength + 1);
-    Current.PrimePOWSharesNum[primeChainLength]++;
-  }
+  Current.merge(data);
   LastShareTime = time;
 }
 
-void CStatsSeries::merge(std::vector<CStatsElement> &cells)
+void CStatsSeries::addBaseWork(uint64_t sharesNum, const UInt<256> &sharesWork, Timestamp time)
+{
+  Current.SharesNum += sharesNum;
+  Current.SharesWork += sharesWork;
+  LastShareTime = time;
+}
+
+void CStatsSeries::merge(std::vector<CWorkSummary> &cells)
 {
   if (cells.empty())
     return;
@@ -179,62 +144,6 @@ void CStatsSeries::flush(int64_t beginMs,
   }
 }
 
-static int64_t alignUpToGrid(int64_t timeMs, int64_t gridIntervalMs)
-{
-  return ((timeMs + gridIntervalMs - 1) / gridIntervalMs) * gridIntervalMs;
-}
-
-std::vector<CStatsElement> CStatsElement::distributeToGrid(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs) const
-{
-  std::vector<CStatsElement> results;
-  if (beginMs >= endMs || (SharesNum == 0 && SharesWork.isZero()))
-    return results;
-
-  int64_t totalMs = endMs - beginMs;
-  int64_t firstGridEnd = alignUpToGrid(beginMs + 1, gridIntervalMs);
-  int64_t lastGridEnd = alignUpToGrid(endMs, gridIntervalMs);
-
-  uint64_t remainingShares = SharesNum;
-  UInt<256> remainingWork = SharesWork;
-  std::vector<uint64_t> remainingPrimePOW = PrimePOWSharesNum;
-
-  for (int64_t gridEnd = firstGridEnd; gridEnd <= lastGridEnd; gridEnd += gridIntervalMs) {
-    int64_t gridStart = gridEnd - gridIntervalMs;
-    int64_t overlapBegin = std::max(beginMs, gridStart);
-    int64_t overlapEnd = std::min(endMs, gridEnd);
-    int64_t overlapMs = overlapEnd - overlapBegin;
-    if (overlapMs <= 0)
-      continue;
-
-    CStatsElement element;
-    if (gridEnd >= lastGridEnd) {
-      // Last cell gets remainder
-      element.SharesNum = remainingShares;
-      element.SharesWork = remainingWork;
-      element.PrimePOWTarget = PrimePOWTarget;
-      element.PrimePOWSharesNum = remainingPrimePOW;
-    } else {
-      double fraction = static_cast<double>(overlapMs) / static_cast<double>(totalMs);
-      element = scaled(fraction);
-      element.SharesNum = std::min(element.SharesNum, remainingShares);
-      remainingShares -= element.SharesNum;
-      if (element.SharesWork > remainingWork)
-        element.SharesWork = remainingWork;
-      remainingWork -= element.SharesWork;
-      for (size_t i = 0; i < PrimePOWSharesNum.size(); i++) {
-        element.PrimePOWSharesNum[i] = std::min(element.PrimePOWSharesNum[i], remainingPrimePOW[i]);
-        remainingPrimePOW[i] -= element.PrimePOWSharesNum[i];
-      }
-    }
-
-    element.Time.TimeBegin = Timestamp(gridStart);
-    element.Time.TimeEnd = Timestamp(gridEnd);
-    results.push_back(element);
-  }
-
-  return results;
-}
-
 static bool parseStatsCacheFile(const std::string &coinName, CDatFile &file, CStatsFileData &fileData)
 {
   FileDescriptor fd;
@@ -284,20 +193,20 @@ void CStatsSeriesSingle::load(const std::filesystem::path &dbPath, const std::st
     }
 
     const auto &record = fileData.Records[0];
-    if (!record.Login.empty() || !record.WorkerId.empty()) {
+    if (!record.UserId.empty() || !record.WorkerId.empty()) {
       LOG_F(ERROR, "<%s> Pool stats record has non-empty login/workerId: %s", coinName.c_str(), path_to_utf8(file.Path).c_str());
       std::filesystem::remove(file.Path);
       continue;
     }
 
-    Series_.Recent.push_back(record.Element);
-    Series_.LastShareTime = record.Element.Time.TimeEnd;
+    Series_.Recent.push_back(record.Data);
+    Series_.LastShareTime = record.Data.Time.TimeEnd;
 
     if (isDebugStatistic()) {
       LOG_F(1, "<%s> Loaded pool stats: shares: %" PRIu64 " work: %s",
             coinName.c_str(),
-            record.Element.SharesNum,
-            record.Element.SharesWork.getDecimal().c_str());
+            record.Data.SharesNum,
+            record.Data.SharesWork.getDecimal().c_str());
     }
 
     SavedShareId_ = std::max(SavedShareId_, file.LastShareId);
@@ -318,19 +227,19 @@ void CStatsSeriesMap::load(const std::filesystem::path &dbPath, const std::strin
 
     auto hint = Map_.begin();
     for (const auto &record : fileData.Records) {
-      auto key = makeStatsKey(record.Login, record.WorkerId);
+      auto key = makeStatsKey(record.UserId, record.WorkerId);
       hint = Map_.try_emplace(hint, std::move(key));
       auto &acc = hint->second;
-      acc.Recent.push_back(record.Element);
-      acc.LastShareTime = record.Element.Time.TimeEnd;
+      acc.Recent.push_back(record.Data);
+      acc.LastShareTime = record.Data.Time.TimeEnd;
 
       if (isDebugStatistic()) {
         LOG_F(1, "<%s> Loaded: %s/%s shares: %" PRIu64 " work: %s",
               coinName.c_str(),
-              !record.Login.empty() ? record.Login.c_str() : "<empty>",
+              !record.UserId.empty() ? record.UserId.c_str() : "<empty>",
               !record.WorkerId.empty() ? record.WorkerId.c_str() : "<empty>",
-              record.Element.SharesNum,
-              record.Element.SharesWork.getDecimal().c_str());
+              record.Data.SharesNum,
+              record.Data.SharesWork.getDecimal().c_str());
       }
     }
 
@@ -338,13 +247,13 @@ void CStatsSeriesMap::load(const std::filesystem::path &dbPath, const std::strin
   }
 }
 
-static void writeStatsRecord(const std::string &login, const std::string &workerId, const CStatsElement &element, xmstream &out)
+static void writeStatsRecord(const std::string &userId, const std::string &workerId, const CWorkSummary &data, xmstream &out)
 {
-  CStatsFileRecord record;
-  record.Login = login;
+  CWorkSummaryEntry record;
+  record.UserId = userId;
   record.WorkerId = workerId;
-  record.Element = element;
-  DbIo<CStatsFileRecord>::serialize(out, record);
+  record.Data = data;
+  DbIo<CWorkSummaryEntry>::serialize(out, record);
 }
 
 // gridEndMs is always a multiple of 1000 (grid intervals are whole seconds)

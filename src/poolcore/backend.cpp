@@ -135,10 +135,19 @@ void PoolBackend::checkBalanceHandler()
   }
 }
 
-void PoolBackend::onShare(CShare *share)
+void PoolBackend::onUserWorkSummary(const std::vector<CUserWorkSummary> &scores)
 {
-  _statistics->addShare(*share);
-  _accounting->addShare(*share);
+  _accounting->onUserWorkSummary(scores);
+}
+
+void PoolBackend::onWorkSummary(const std::vector<CWorkSummaryEntry> &scores)
+{
+  _statistics->onWorkSummary(scores);
+}
+
+void PoolBackend::onBlockFound(const CBlockFoundData &block)
+{
+  _accounting->onBlockFound(block);
 }
 
 void PoolBackend::onUpdateDag(unsigned epochNumber, bool bigEpoch)

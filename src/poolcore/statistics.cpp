@@ -10,7 +10,7 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   UserStats_("stats.users.cache.3", config.StatisticUserGridInterval, config.StatisticKeepTime),
   WorkerStats_("stats.workers.cache.3", config.StatisticWorkerGridInterval, config.StatisticKeepTime),
   StatsDb_(_cfg.dbPath / "statistic", std::make_shared<StatsRecordMergeOperator>()),
-  ShareLog_(_cfg.dbPath / "statistic.messages", coinInfo.Name, _cfg.ShareLogFileSizeLimit),
+  ShareLog_(_cfg.dbPath / "statistic.worklog", coinInfo.Name, _cfg.ShareLogFileSizeLimit),
   TaskHandler_(this, base)
 {
   PoolFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
@@ -27,8 +27,8 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
     LOG_F(1, "%s: last aggregated id: %" PRIu64 " last known id: %" PRIu64 "", coinInfo.Name.c_str(), lastAggregatedShareId(), lastKnownShareId());
 
   Timestamp initTime = Timestamp::now();
-  ShareLog_.replay([this](const CShare &share) {
-    replayShare(share);
+  ShareLog_.replay([this](uint64_t messageId, const std::vector<CWorkSummaryEntry> &entries) {
+    replayWorkSummary(messageId, entries);
   });
 
   PoolStatsAcc_.setAccumulationBegin(initTime);
@@ -85,32 +85,36 @@ void StatisticDb::flushWorkers(Timestamp timeLabel)
   WorkerStats_.flush(timeLabel, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
 }
 
-void StatisticDb::addShare(CShare &share)
+void StatisticDb::onWorkSummary(const std::vector<CWorkSummaryEntry> &entries)
 {
-  ShareLog_.addShare(share);
-  bool isPrimePOW = CoinInfo_.PowerUnitType == CCoinInfo::ECPD;
-  WorkerStats_.addShare(share.userId, share.workerId, share.WorkValue, share.Time, share.ChainLength, share.PrimePOWTarget, isPrimePOW);
-  UserStats_.addShare(share.userId, "", share.WorkValue, share.Time, share.ChainLength, share.PrimePOWTarget, isPrimePOW);
-  PoolStatsAcc_.addShare(share.WorkValue, share.Time, share.ChainLength, share.PrimePOWTarget, isPrimePOW);
-  PoolStatsCached_.LastShareTime = share.Time;
-  LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
+  uint64_t messageId = ShareLog_.addShare(entries);
+  for (const auto &entry : entries) {
+    Timestamp time = entry.Data.Time.TimeEnd;
+    WorkerStats_.addWorkSummary(entry.UserId, entry.WorkerId, entry.Data, time);
+    UserStats_.addWorkSummary(entry.UserId, "", entry.Data, time);
+    PoolStatsAcc_.addWorkSummary(entry.Data, time);
+    PoolStatsCached_.LastShareTime = time;
+  }
+  LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
 }
 
-void StatisticDb::replayShare(const CShare &share)
+void StatisticDb::replayWorkSummary(uint64_t messageId, const std::vector<CWorkSummaryEntry> &entries)
 {
-  bool isPrimePOW = CoinInfo_.PowerUnitType == CCoinInfo::ECPD;
-  if (share.UniqueShareId > WorkerStats_.savedShareId())
-    WorkerStats_.addShare(share.userId, share.workerId, share.WorkValue, share.Time, share.ChainLength, share.PrimePOWTarget, isPrimePOW);
-  if (share.UniqueShareId > UserStats_.savedShareId())
-    UserStats_.addShare(share.userId, "", share.WorkValue, share.Time, share.ChainLength, share.PrimePOWTarget, isPrimePOW);
-  if (share.UniqueShareId > PoolStatsAcc_.savedShareId())
-    PoolStatsAcc_.addShare(share.WorkValue, share.Time, share.ChainLength, share.PrimePOWTarget, isPrimePOW);
-  PoolStatsCached_.LastShareTime = share.Time;
-  LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
+  for (const auto &entry : entries) {
+    Timestamp time = entry.Data.Time.TimeEnd;
+    if (messageId > WorkerStats_.savedShareId())
+      WorkerStats_.addWorkSummary(entry.UserId, entry.WorkerId, entry.Data, time);
+    if (messageId > UserStats_.savedShareId())
+      UserStats_.addWorkSummary(entry.UserId, "", entry.Data, time);
+    if (messageId > PoolStatsAcc_.savedShareId())
+      PoolStatsAcc_.addWorkSummary(entry.Data, time);
+    PoolStatsCached_.LastShareTime = time;
+  }
+  LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
 
   if (isDebugStatistic()) {
-    Dbg_.MinShareId = std::min(Dbg_.MinShareId, share.UniqueShareId);
-    Dbg_.MaxShareId = std::max(Dbg_.MaxShareId, share.UniqueShareId);
+    Dbg_.MinShareId = std::min(Dbg_.MinShareId, messageId);
+    Dbg_.MaxShareId = std::max(Dbg_.MaxShareId, messageId);
     Dbg_.Count++;
   }
 }
@@ -466,7 +470,7 @@ void StatisticServer::statisticServerMain()
   asyncLoop(Base_);
 }
 
-void StatisticServer::onShare(CShare *share)
+void StatisticServer::onWorkSummary(const std::vector<CWorkSummaryEntry> &entries)
 {
-  Statistics_->addShare(*share);
+  Statistics_->onWorkSummary(entries);
 }

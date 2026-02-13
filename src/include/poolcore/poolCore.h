@@ -5,6 +5,7 @@
 #include "p2putils/xmstream.h"
 #include "poolcore/thread.h"
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <stack>
@@ -68,6 +69,8 @@ struct CCoinInfo {
   bool CanBePrimaryCoin = true;
   bool CanBeSecondaryCoin = false;
   bool ResetWorkOnBlockChange = true;
+
+  std::chrono::seconds WorkSummaryFlushInterval = std::chrono::seconds(6);
 
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;

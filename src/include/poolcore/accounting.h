@@ -47,14 +47,6 @@ private:
     UserFeePair(const std::string &userId, double fee) : UserId(userId), FeeCoeff(fee) {}
   };
 
-  class TaskShare : public Task<AccountingDb> {
-  public:
-    TaskShare(CShare *share) : Share_(share) {}
-    void run(AccountingDb *accounting) final { accounting->addShare(*Share_); }
-  private:
-    std::unique_ptr<CShare> Share_;
-  };
-
   class TaskManualPayout : public Task<AccountingDb> {
   public:
     TaskManualPayout(const std::string &user, DefaultCb callback) : User_(user), Callback_(callback) {}
@@ -163,7 +155,7 @@ private:
   kvdb<rocksdbBase> _poolBalanceDb;
   kvdb<rocksdbBase> _payoutDb;
   kvdb<rocksdbBase> PPLNSPayoutsDb;
-  ShareLog<CShare> ShareLog_;
+  ShareLog<std::vector<CUserWorkSummary>> ShareLog_;
 
   uint64_t LastKnownShareId_ = 0;
 
@@ -204,8 +196,9 @@ public:
 
   bool hasUnknownReward();
   void calculatePayments(MiningRound *R, const UInt<384> &generatedCoins);
-  void addShare(CShare &share);
-  void replayShare(const CShare &share);
+  void onUserWorkSummary(const std::vector<CUserWorkSummary> &scores);
+  void onBlockFound(const CBlockFoundData &block);
+  void replayUserWorkSummary(uint64_t messageId, const std::vector<CUserWorkSummary> &scores);
   void processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash, bool *roundUpdated);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();

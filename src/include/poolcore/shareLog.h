@@ -1,14 +1,14 @@
 #pragma once
 
-#include <concepts>
 #include <deque>
 #include <filesystem>
 #include <functional>
-#include "backendData.h"
+#include <vector>
 #include "poolcommon/debug.h"
 #include "poolcommon/datFile.h"
 #include "poolcommon/file.h"
 #include "poolcommon/path.h"
+#include "poolcommon/serialize.h"
 #include "loguru.hpp"
 #include "p2putils/xmstream.h"
 #include <inttypes.h>
@@ -19,24 +19,26 @@ struct ShareLogIo {
   static void unserialize(xmstream &in, T &data);
 };
 
-template<>
-struct ShareLogIo<CShare> {
-  static void serialize(xmstream &out, const CShare &data);
-  static void unserialize(xmstream &in, CShare &data);
+template<typename T>
+struct ShareLogIo<std::vector<T>> {
+  static void serialize(xmstream &out, const std::vector<T> &data) {
+    DbIo<uint32_t>::serialize(out, static_cast<uint32_t>(data.size()));
+    for (const auto &entry : data)
+      DbIo<T>::serialize(out, entry);
+  }
+  static void unserialize(xmstream &in, std::vector<T> &data) {
+    uint32_t count;
+    DbIo<uint32_t>::unserialize(in, count);
+    data.resize(count);
+    for (auto &entry : data)
+      DbIo<T>::unserialize(in, entry);
+  }
 };
 
 template<typename T>
-concept ShareLogEntry = std::default_initializable<T> && requires(T entry, xmstream &stream, uint64_t id) {
-  { entry.UniqueShareId = id };
-  { entry.UniqueShareId } -> std::convertible_to<uint64_t>;
-  ShareLogIo<T>::serialize(stream, entry);
-  ShareLogIo<T>::unserialize(stream, entry);
-};
-
-template<ShareLogEntry T>
 class ShareLog {
 public:
-  using ReplayShareCallback = std::function<void(const T&)>;
+  using ReplayShareCallback = std::function<void(uint64_t messageId, const T &data)>;
 
   ShareLog(const std::filesystem::path &logPath,
            const std::string &backendName,
@@ -52,8 +54,8 @@ public:
       replayShares(file, replayShare);
   }
 
-  void startLogging(uint64_t firstShareId) {
-    CurrentShareId_ = firstShareId;
+  void startLogging(uint64_t firstMessageId) {
+    CurrentMessageId_ = firstMessageId;
 
     if (!ShareLog_.empty()) {
       CDatFile &lastFile = ShareLog_.back();
@@ -68,9 +70,11 @@ public:
     }
   }
 
-  void addShare(T &share) {
-    share.UniqueShareId = CurrentShareId_++;
-    ShareLogIo<T>::serialize(ShareLogInMemory_, share);
+  uint64_t addShare(const T &data) {
+    uint64_t id = CurrentMessageId_++;
+    ShareLogInMemory_.writele<uint64_t>(id);
+    ShareLogIo<T>::serialize(ShareLogInMemory_, data);
+    return id;
   }
 
   void flush() {
@@ -122,12 +126,13 @@ private:
 
     uint64_t id = 0;
     uint64_t counter = 0;
-    uint64_t minShareId = std::numeric_limits<uint64_t>::max();
-    uint64_t maxShareId = 0;
+    uint64_t minMessageId = std::numeric_limits<uint64_t>::max();
+    uint64_t maxMessageId = 0;
     stream.seekSet(0);
     while (stream.remaining()) {
-      T share;
-      ShareLogIo<T>::unserialize(stream, share);
+      id = stream.readle<uint64_t>();
+      T data;
+      ShareLogIo<T>::unserialize(stream, data);
       if (stream.eof()) {
         LOG_F(ERROR, "Corrupted file %s", path_to_utf8(file.Path).c_str());
         break;
@@ -135,27 +140,26 @@ private:
 
       if (isDebugBackend()) {
         counter++;
-        minShareId = std::min(minShareId, share.UniqueShareId);
-        maxShareId = std::max(maxShareId, share.UniqueShareId);
+        minMessageId = std::min(minMessageId, id);
+        maxMessageId = std::max(maxMessageId, id);
       }
 
-      replayShare(share);
-      id = share.UniqueShareId;
+      replayShare(id, data);
     }
 
     file.LastShareId = id;
 
     if (isDebugBackend())
-      LOG_F(1, "%s: Replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", BackendName_.c_str(), counter, minShareId, maxShareId);
+      LOG_F(1, "%s: Replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", BackendName_.c_str(), counter, minMessageId, maxMessageId);
   }
 
   void startNewShareLogFile() {
     if (!ShareLog_.empty())
-      ShareLog_.back().LastShareId = CurrentShareId_ - 1;
+      ShareLog_.back().LastShareId = CurrentMessageId_ - 1;
 
     auto &file = ShareLog_.emplace_back();
-    file.Path = Path_ / (std::to_string(CurrentShareId_) + ".dat");
-    file.FileId = CurrentShareId_;
+    file.Path = Path_ / (std::to_string(CurrentMessageId_) + ".dat");
+    file.FileId = CurrentMessageId_;
     file.LastShareId = 0;
     if (!file.Fd.open(file.Path)) {
       LOG_F(ERROR, "ShareLog: can't write to share log %s", path_to_utf8(file.Path).c_str());
@@ -172,6 +176,6 @@ private:
 
   xmstream ShareLogInMemory_;
   std::deque<CDatFile> ShareLog_;
-  uint64_t CurrentShareId_ = 0;
+  uint64_t CurrentMessageId_ = 0;
   bool ShareLoggingEnabled_ = true;
 };

@@ -15,20 +15,21 @@ std::string partByTime(time_t time);
 
 typedef bool CheckAddressProcTy(const char*);
 
-struct CShare {
-  enum { CurrentRecordVersion = 1 };
-  uint64_t UniqueShareId = 0;
-  std::string userId;
-  std::string workerId;
-  int64_t height;
-  UInt<256> WorkValue;
-  bool isBlock;
-  std::string hash;
-  UInt<384> generatedCoins;
+struct CBlockFoundData {
+  std::string UserId;
+  int64_t Height;
+  std::string Hash;
   Timestamp Time;
-  UInt<256> ExpectedWork = UInt<256>::zero();
-  uint32_t ChainLength;
+  UInt<384> GeneratedCoins;
+  UInt<256> ExpectedWork;
   uint32_t PrimePOWTarget;
+};
+
+struct CUserWorkSummary {
+  std::string UserId;
+  UInt<256> AcceptedWork;
+  uint64_t SharesNum = 0;
+  Timestamp Time;
 };
 
 struct CMiningAddress {
@@ -452,6 +453,23 @@ struct DbIo<CUserPayout> {
     DbIo<decltype (data.Value)>::unserialize(stream, data.Value);
     DbIo<decltype (data.ValueWithoutFee)>::unserialize(stream, data.ValueWithoutFee);
     DbIo<decltype (data.AcceptedWork)>::unserialize(stream, data.AcceptedWork);
+  }
+};
+
+template<>
+struct DbIo<CUserWorkSummary> {
+  static inline void serialize(xmstream &stream, const CUserWorkSummary &data) {
+    DbIo<decltype(data.UserId)>::serialize(stream, data.UserId);
+    DbIo<decltype(data.AcceptedWork)>::serialize(stream, data.AcceptedWork);
+    DbIo<decltype(data.SharesNum)>::serialize(stream, data.SharesNum);
+    DbIo<decltype(data.Time)>::serialize(stream, data.Time);
+  }
+
+  static inline void unserialize(xmstream &stream, CUserWorkSummary &data) {
+    DbIo<decltype(data.UserId)>::unserialize(stream, data.UserId);
+    DbIo<decltype(data.AcceptedWork)>::unserialize(stream, data.AcceptedWork);
+    DbIo<decltype(data.SharesNum)>::unserialize(stream, data.SharesNum);
+    DbIo<decltype(data.Time)>::unserialize(stream, data.Time);
   }
 };
 

@@ -153,6 +153,7 @@ public:
   public:
     uint64_t Height = 0;
     PoolBackend *Backend = nullptr;
+    size_t BackendId = size_t(-1);
     unsigned ScriptSigExtraNonceOffset;
     unsigned TxExtraNonceOffset;
     unsigned BlockHexExtraNonceOffset;
@@ -167,6 +168,7 @@ public:
 
   public:
     PoolBackend *backend() { return Backend; }
+    size_t backendId() { return BackendId; }
     uint64_t height() { return Height; }
     BaseBlob<256> hash() { return Header.GetHash(); }
     size_t txNum() { return TransactionsNum; }

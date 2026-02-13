@@ -4,6 +4,7 @@
 #include "kvdb.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/rocksdbBase.h"
+#include "poolcore/workSummary.h"
 #include "poolcommon/datFile.h"
 #include "poolcommon/serialize.h"
 #include <chrono>
@@ -16,20 +17,6 @@
 std::string partByTime(time_t time);
 
 struct StatsRecord;
-
-// +file serialization
-struct CStatsElement {
-  uint64_t SharesNum = 0;
-  UInt<256> SharesWork = UInt<256>::zero();
-  TimeInterval Time;
-  uint32_t PrimePOWTarget = -1U;
-  std::vector<uint64_t> PrimePOWSharesNum;
-
-  void reset();
-  void merge(const CStatsElement &other);
-  CStatsElement scaled(double fraction) const;
-  std::vector<CStatsElement> distributeToGrid(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs) const;
-};
 
 struct CStats {
   std::string WorkerId;
@@ -48,12 +35,13 @@ struct CStats {
 };
 
 struct CStatsSeries {
-  std::deque<CStatsElement> Recent;
-  CStatsElement Current;
+  std::deque<CWorkSummary> Recent;
+  CWorkSummary Current;
   Timestamp LastShareTime;
 
-  void addShare(const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW);
-  void merge(std::vector<CStatsElement> &cells);
+  void addWorkSummary(const CWorkSummary &data, Timestamp time);
+  void addBaseWork(uint64_t sharesNum, const UInt<256> &sharesWork, Timestamp time);
+  void merge(std::vector<CWorkSummary> &cells);
   void flush(int64_t beginMs,
              int64_t endMs,
              int64_t gridIntervalMs,
@@ -68,20 +56,11 @@ struct CStatsSeries {
 };
 
 // +file serialization
-struct CStatsFileRecord {
-  enum { CurrentRecordVersion = 1 };
-
-  std::string Login;
-  std::string WorkerId;
-  CStatsElement Element;
-};
-
-// +file serialization
 struct CStatsFileData {
   enum { CurrentRecordVersion = 1 };
 
   uint64_t LastShareId = 0;
-  std::vector<CStatsFileRecord> Records;
+  std::vector<CWorkSummaryEntry> Records;
 };
 
 struct StatsRecord {
@@ -111,8 +90,8 @@ struct CStatsSeriesSingle {
   uint64_t savedShareId() const { return SavedShareId_; }
   void setAccumulationBegin(Timestamp t) { AccumulationBegin_ = t; }
 
-  void addShare(const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
-    Series_.addShare(workValue, time, primeChainLength, primePOWTarget, isPrimePOW);
+  void addWorkSummary(const CWorkSummary &data, Timestamp time) {
+    Series_.addWorkSummary(data, time);
   }
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
@@ -172,8 +151,12 @@ struct CStatsSeriesMap {
   uint64_t savedShareId() const { return SavedShareId_; }
   void setAccumulationBegin(Timestamp t) { AccumulationBegin_ = t; }
 
-  void addShare(const std::string &login, const std::string &workerId, const UInt<256> &workValue, Timestamp time, unsigned primeChainLength, unsigned primePOWTarget, bool isPrimePOW) {
-    Map_[makeStatsKey(login, workerId)].addShare(workValue, time, primeChainLength, primePOWTarget, isPrimePOW);
+  void addWorkSummary(const std::string &login, const std::string &workerId, const CWorkSummary &data, Timestamp time) {
+    Map_[makeStatsKey(login, workerId)].addWorkSummary(data, time);
+  }
+
+  void addBaseWork(const std::string &login, const std::string &workerId, uint64_t sharesNum, const UInt<256> &sharesWork, Timestamp time) {
+    Map_[makeStatsKey(login, workerId)].addBaseWork(sharesNum, sharesWork, time);
   }
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
@@ -192,8 +175,8 @@ private:
 };
 
 template<>
-struct DbIo<CStatsElement> {
-  static inline void serialize(xmstream &out, const CStatsElement &data) {
+struct DbIo<CWorkSummary> {
+  static inline void serialize(xmstream &out, const CWorkSummary &data) {
     DbIo<decltype(data.SharesNum)>::serialize(out, data.SharesNum);
     DbIo<decltype(data.SharesWork)>::serialize(out, data.SharesWork);
     DbIo<decltype(data.Time)>::serialize(out, data.Time);
@@ -201,7 +184,7 @@ struct DbIo<CStatsElement> {
     DbIo<decltype(data.PrimePOWSharesNum)>::serialize(out, data.PrimePOWSharesNum);
   }
 
-  static inline void unserialize(xmstream &in, CStatsElement &data) {
+  static inline void unserialize(xmstream &in, CWorkSummary &data) {
     DbIo<decltype(data.SharesNum)>::unserialize(in, data.SharesNum);
     DbIo<decltype(data.SharesWork)>::unserialize(in, data.SharesWork);
     DbIo<decltype(data.Time)>::unserialize(in, data.Time);
@@ -211,21 +194,21 @@ struct DbIo<CStatsElement> {
 };
 
 template<>
-struct DbIo<CStatsFileRecord> {
-  static inline void serialize(xmstream &out, const CStatsFileRecord &data) {
+struct DbIo<CWorkSummaryEntry> {
+  static inline void serialize(xmstream &out, const CWorkSummaryEntry &data) {
     DbIo<uint32_t>::serialize(out, data.CurrentRecordVersion);
-    DbIo<decltype(data.Login)>::serialize(out, data.Login);
+    DbIo<decltype(data.UserId)>::serialize(out, data.UserId);
     DbIo<decltype(data.WorkerId)>::serialize(out, data.WorkerId);
-    DbIo<decltype(data.Element)>::serialize(out, data.Element);
+    DbIo<decltype(data.Data)>::serialize(out, data.Data);
   }
 
-  static inline void unserialize(xmstream &in, CStatsFileRecord &data) {
+  static inline void unserialize(xmstream &in, CWorkSummaryEntry &data) {
     uint32_t version;
     DbIo<uint32_t>::unserialize(in, version);
     if (version == 1) {
-      DbIo<decltype(data.Login)>::unserialize(in, data.Login);
+      DbIo<decltype(data.UserId)>::unserialize(in, data.UserId);
       DbIo<decltype(data.WorkerId)>::unserialize(in, data.WorkerId);
-      DbIo<decltype(data.Element)>::unserialize(in, data.Element);
+      DbIo<decltype(data.Data)>::unserialize(in, data.Data);
     } else {
       // Unknown version — skip the rest of the file; remaining records are
       // discarded intentionally since we cannot parse them reliably

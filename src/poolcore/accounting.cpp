@@ -218,7 +218,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   _poolBalanceDb(config.dbPath / "poolBalance.2"),
   _payoutDb(config.dbPath / "payouts.2"),
   PPLNSPayoutsDb(config.dbPath / "pplns.payouts.2"),
-  ShareLog_(config.dbPath / "accounting.messages", coinInfo.Name, config.ShareLogFileSizeLimit),
+  ShareLog_(config.dbPath / "accounting.worklog", coinInfo.Name, config.ShareLogFileSizeLimit),
   UserStatsAcc_("accounting.userstats", config.StatisticUserGridInterval, config.AccountingPPLNSWindow * 2),
   TaskHandler_(this, base)
 {
@@ -264,8 +264,8 @@ AccountingDb::AccountingDb(asyncBase *base,
   }
 
   Timestamp initTime = Timestamp::now();
-  ShareLog_.replay([this](const CShare &share) {
-    replayShare(share);
+  ShareLog_.replay([this](uint64_t messageId, const std::vector<CUserWorkSummary> &scores) {
+    replayUserWorkSummary(messageId, scores);
   });
 
   UserStatsAcc_.setAccumulationBegin(initTime);
@@ -466,127 +466,120 @@ void AccountingDb::calculatePayments(MiningRound *R, const UInt<384> &generatedC
   }
 }
 
-void AccountingDb::addShare(CShare &share)
+void AccountingDb::onUserWorkSummary(const std::vector<CUserWorkSummary> &scores)
 {
-  ShareLog_.addShare(share);
-  // increment score
-  State_.CurrentScores[share.userId] += share.WorkValue;
-  LastKnownShareId_ = share.UniqueShareId;
-
-  {
-    bool isPrimePOW = CoinInfo_.PowerUnitType == CCoinInfo::ECPD;
-    UserStatsAcc_.addShare(share.userId, "", share.WorkValue, share.Time,
-                           share.ChainLength, share.PrimePOWTarget, isPrimePOW);
+  uint64_t messageId = ShareLog_.addShare(scores);
+  for (const auto &score : scores) {
+    State_.CurrentScores[score.UserId] += score.AcceptedWork;
+    UserStatsAcc_.addBaseWork(score.UserId, "", score.SharesNum, score.AcceptedWork, score.Time);
   }
-
-  if (share.isBlock) {
-    UInt<256> accumulatedWork = UInt<256>::zero();
-    for (const auto &score: State_.CurrentScores)
-      accumulatedWork += score.second;
-
-    {
-      // save to database
-      FoundBlockRecord blk;
-      blk.Height = share.height;
-      blk.Hash = share.hash.c_str();
-      blk.Time = share.Time;
-      blk.AvailableCoins = share.generatedCoins;
-      blk.FoundBy = share.userId;
-      blk.ExpectedWork = share.ExpectedWork;
-      blk.AccumulatedWork = accumulatedWork;
-      if (hasUnknownReward())
-        blk.PublicHash = "?";
-      _foundBlocksDb.put(blk);
-    }
-
-    MiningRound *R = new MiningRound;
-
-    LOG_F(INFO, " * block height: %u, hash: %s, value: %s", (unsigned)share.height, share.hash.c_str(), FormatMoney(share.generatedCoins, CoinInfo_.FractionalPartSize).c_str());
-
-    R->Height = share.height;
-    R->BlockHash = share.hash.c_str();
-    R->EndTime = share.Time;
-    R->FoundBy = share.userId;
-    R->ExpectedWork = share.ExpectedWork;
-    R->AccumulatedWork = accumulatedWork;
-    R->TotalShareValue = UInt<256>::zero();
-    R->PrimePOWTarget = share.PrimePOWTarget;
-
-    R->StartTime = State_.CurrentRoundStartTime;
-
-    // Merge shares for current block with older shares (PPLNS)
-    // RecentStats is a snapshot from the previous block-found event; CurrentScores covers
-    // all work since then (replayed from ShareLog after restart). Together they always span
-    // the full PPLNS window — no re-export from UserStatsAcc_ is needed here.
-    {
-      Timestamp acceptSharesTime = share.Time - _cfg.AccountingPPLNSWindow;
-      mergeSorted(State_.RecentStats.begin(), State_.RecentStats.end(), State_.CurrentScores.begin(), State_.CurrentScores.end(),
-        [](const CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) { return stats.UserId < scores.first; },
-        [](const std::pair<std::string, UInt<256>> &scores, const CStatsExportData &stats) { return scores.first < stats.UserId; },
-        [&](const CStatsExportData &stats) {
-          // User disconnected recently, no new shares
-          UInt<256> shareValue = stats.recentShareValue(acceptSharesTime);
-          if (shareValue.nonZero()) {
-            R->UserShares.emplace_back(stats.UserId, shareValue, UInt<256>::zero());
-          }
-        }, [&](const std::pair<std::string, UInt<256>> &scores) {
-          // User joined recently, no extra shares in statistic
-          R->UserShares.emplace_back(scores.first, scores.second, scores.second);
-        }, [&](const CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) {
-          // Need merge new shares and recent share statistics
-          R->UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime), scores.second);
-        });
-    }
-
-    // Calculate total share value
-    for (const auto &element: R->UserShares)
-      R->TotalShareValue += element.ShareValue;
-
-    // Calculate payments
-    if (!hasUnknownReward())
-      calculatePayments(R, share.generatedCoins);
-
-    // NOTE: crash between _roundsDb.put and flushBlockFoundState will leave
-    // data inconsistent — round is persisted but State_ (CurrentScores,
-    // RecentStats, CurrentRoundStartTime) is not updated. On restart the
-    // old CurrentScores will be re-accumulated into the next round.
-
-    // store round to DB and clear shares map
-    _allRounds.emplace_back(R);
-    _roundsDb.put(*R);
-    UnpayedRounds_.insert(R);
-
-    // Query statistics
-    UserStatsAcc_.exportRecentStats(_cfg.AccountingPPLNSWindow, State_.RecentStats);
-    printRecentStatistic();
-
-    // Reset aggregated data
-    State_.CurrentScores.clear();
-    State_.CurrentRoundStartTime = R->EndTime;
-
-    // Save state to db
-    State_.flushBlockFoundState(LastKnownShareId_);
-  }
+  LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
 }
 
-void AccountingDb::replayShare(const CShare &share)
+void AccountingDb::onBlockFound(const CBlockFoundData &block)
 {
-  if (share.UniqueShareId > State_.SavedShareId) {
-    // increment score
-    State_.CurrentScores[share.userId] += share.WorkValue;
+  UInt<256> accumulatedWork = UInt<256>::zero();
+  for (const auto &score: State_.CurrentScores)
+    accumulatedWork += score.second;
+
+  {
+    // save to database
+    FoundBlockRecord blk;
+    blk.Height = block.Height;
+    blk.Hash = block.Hash;
+    blk.Time = block.Time;
+    blk.AvailableCoins = block.GeneratedCoins;
+    blk.FoundBy = block.UserId;
+    blk.ExpectedWork = block.ExpectedWork;
+    blk.AccumulatedWork = accumulatedWork;
+    if (hasUnknownReward())
+      blk.PublicHash = "?";
+    _foundBlocksDb.put(blk);
   }
 
-  if (share.UniqueShareId > UserStatsAcc_.savedShareId()) {
-    bool isPrimePOW = CoinInfo_.PowerUnitType == CCoinInfo::ECPD;
-    UserStatsAcc_.addShare(share.userId, "", share.WorkValue, share.Time,
-                           share.ChainLength, share.PrimePOWTarget, isPrimePOW);
+  MiningRound *R = new MiningRound;
+
+  LOG_F(INFO, " * block height: %u, hash: %s, value: %s", (unsigned)block.Height, block.Hash.c_str(), FormatMoney(block.GeneratedCoins, CoinInfo_.FractionalPartSize).c_str());
+
+  R->Height = block.Height;
+  R->BlockHash = block.Hash;
+  R->EndTime = block.Time;
+  R->FoundBy = block.UserId;
+  R->ExpectedWork = block.ExpectedWork;
+  R->AccumulatedWork = accumulatedWork;
+  R->TotalShareValue = UInt<256>::zero();
+  R->PrimePOWTarget = block.PrimePOWTarget;
+
+  R->StartTime = State_.CurrentRoundStartTime;
+
+  // Merge shares for current block with older shares (PPLNS)
+  // RecentStats is a snapshot from the previous block-found event; CurrentScores covers
+  // all work since then (replayed from ShareLog after restart). Together they always span
+  // the full PPLNS window — no re-export from UserStatsAcc_ is needed here.
+  {
+    Timestamp acceptSharesTime = block.Time - _cfg.AccountingPPLNSWindow;
+    mergeSorted(State_.RecentStats.begin(), State_.RecentStats.end(), State_.CurrentScores.begin(), State_.CurrentScores.end(),
+      [](const CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) { return stats.UserId < scores.first; },
+      [](const std::pair<std::string, UInt<256>> &scores, const CStatsExportData &stats) { return scores.first < stats.UserId; },
+      [&](const CStatsExportData &stats) {
+        // User disconnected recently, no new shares
+        UInt<256> shareValue = stats.recentShareValue(acceptSharesTime);
+        if (shareValue.nonZero()) {
+          R->UserShares.emplace_back(stats.UserId, shareValue, UInt<256>::zero());
+        }
+      }, [&](const std::pair<std::string, UInt<256>> &scores) {
+        // User joined recently, no extra shares in statistic
+        R->UserShares.emplace_back(scores.first, scores.second, scores.second);
+      }, [&](const CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) {
+        // Need merge new shares and recent share statistics
+        R->UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime), scores.second);
+      });
   }
 
-  LastKnownShareId_ = std::max(LastKnownShareId_, share.UniqueShareId);
+  // Calculate total share value
+  for (const auto &element: R->UserShares)
+    R->TotalShareValue += element.ShareValue;
+
+  // Calculate payments
+  if (!hasUnknownReward())
+    calculatePayments(R, block.GeneratedCoins);
+
+  // NOTE: crash between _roundsDb.put and flushBlockFoundState will leave
+  // data inconsistent — round is persisted but State_ (CurrentScores,
+  // RecentStats, CurrentRoundStartTime) is not updated. On restart the
+  // old CurrentScores will be re-accumulated into the next round.
+
+  // store round to DB and clear shares map
+  _allRounds.emplace_back(R);
+  _roundsDb.put(*R);
+  UnpayedRounds_.insert(R);
+
+  // Query statistics
+  UserStatsAcc_.exportRecentStats(_cfg.AccountingPPLNSWindow, State_.RecentStats);
+  printRecentStatistic();
+
+  // Reset aggregated data
+  State_.CurrentScores.clear();
+  State_.CurrentRoundStartTime = R->EndTime;
+
+  // Save state to db
+  State_.flushBlockFoundState(LastKnownShareId_);
+}
+
+void AccountingDb::replayUserWorkSummary(uint64_t messageId, const std::vector<CUserWorkSummary> &scores)
+{
+  for (const auto &score : scores) {
+    if (messageId > State_.SavedShareId)
+      State_.CurrentScores[score.UserId] += score.AcceptedWork;
+    if (messageId > UserStatsAcc_.savedShareId())
+      UserStatsAcc_.addBaseWork(score.UserId, "", score.SharesNum, score.AcceptedWork, score.Time);
+  }
+
+  LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
   if (isDebugAccounting()) {
-    Dbg_.MinShareId = std::min(Dbg_.MinShareId, share.UniqueShareId);
-    Dbg_.MaxShareId = std::max(Dbg_.MaxShareId, share.UniqueShareId);
-    if (share.UniqueShareId > State_.SavedShareId)
+    Dbg_.MinShareId = std::min(Dbg_.MinShareId, messageId);
+    Dbg_.MaxShareId = std::max(Dbg_.MaxShareId, messageId);
+    if (messageId > State_.SavedShareId)
       Dbg_.Count++;
   }
 }

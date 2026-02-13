@@ -13,8 +13,6 @@
 #include "poolcommon/timeTypes.h"
 #include "asyncio/asyncio.h"
 
-struct CShare;
-
 class StatisticDb {
 public:
   enum EStatsColumn {
@@ -96,7 +94,7 @@ private:
   CStats PoolStatsCached_;
 
   kvdb<rocksdbBase> StatsDb_;
-  ShareLog<CShare> ShareLog_;
+  ShareLog<std::vector<CWorkSummaryEntry>> ShareLog_;
 
   TaskHandlerCoroutine<StatisticDb> TaskHandler_;
   aioUserEvent *PoolFlushEvent_;
@@ -125,12 +123,12 @@ private:
 public:
   // Initialization
   StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo);
-  void replayShare(const CShare &share);
+  void replayWorkSummary(uint64_t messageId, const std::vector<CWorkSummaryEntry> &entries);
   void start();
   void stop();
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
 
-  void addShare(CShare &share);
+  void onWorkSummary(const std::vector<CWorkSummaryEntry> &entries);
 
   // Min of accumulators' savedShareId; ShareLog replays shares starting from this point
   uint64_t lastAggregatedShareId() { return std::min({WorkerStats_.savedShareId(), UserStats_.savedShareId(), PoolStatsAcc_.savedShareId()}); }
@@ -187,19 +185,19 @@ public:
   CCoinInfo &coinInfo() { return CoinInfo_; }
 
   // Asynchronous api
-  void sendShare(CShare *share) { TaskHandler_.push(new TaskShare(share)); }
+  void sendWorkSummary(std::vector<CWorkSummaryEntry> &&entries) { TaskHandler_.push(new TaskWorkSummary(std::move(entries))); }
 
 private:
-  class TaskShare : public Task<StatisticServer> {
+  class TaskWorkSummary : public Task<StatisticServer> {
   public:
-    TaskShare(CShare *share) : Share_(share) {}
-    void run(StatisticServer *backend) final { backend->onShare(Share_.get()); }
+    TaskWorkSummary(std::vector<CWorkSummaryEntry> &&entries) : Entries_(std::move(entries)) {}
+    void run(StatisticServer *backend) final { backend->onWorkSummary(Entries_); }
   private:
-    std::unique_ptr<CShare> Share_;
+    std::vector<CWorkSummaryEntry> Entries_;
   };
 
 private:
-  void onShare(CShare *share);
+  void onWorkSummary(const std::vector<CWorkSummaryEntry> &entries);
   void statisticServerMain();
 
 private:

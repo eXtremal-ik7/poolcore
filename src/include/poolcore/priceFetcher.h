@@ -9,7 +9,7 @@ public:
   CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coinInfo);
   double getBtcUsd();
   double getPrice(const std::string &coinName);
-  double getPrice(size_t index);
+  double getPrice(size_t globalBackendIdx);
 
 private:
   void updatePrice();

@@ -89,9 +89,9 @@ double CPriceFetcher::getPrice(const std::string &coinName)
   return I != CoinIndexMap_.end() ? CurrentPrices_[I->second].load() : 0.0;
 }
 
-double CPriceFetcher::getPrice(size_t index)
+double CPriceFetcher::getPrice(size_t globalBackendIdx)
 {
-  return CurrentPrices_[index].load();
+  return CurrentPrices_[globalBackendIdx].load();
 }
 
 void CPriceFetcher::updatePrice()

@@ -27,14 +27,6 @@ public:
   using QueryStatsHistoryCallback = std::function<void(const std::vector<CStats>&)>;
 
 private:
-  class TaskShare : public Task<PoolBackend> {
-  public:
-    TaskShare(CShare *share) : Share_(share) {}
-    void run(PoolBackend *backend) final { backend->onShare(Share_.get()); }
-  private:
-    std::unique_ptr<CShare> Share_;
-  };
-
   class TaskUpdateDag : public Task<PoolBackend> {
   public:
     TaskUpdateDag(unsigned epochNumber, bool bigEpoch) : EpochNumber_(epochNumber), BigEpoch_(bigEpoch) {}
@@ -42,6 +34,30 @@ private:
   private:
     unsigned EpochNumber_;
     bool BigEpoch_;
+  };
+
+  class TaskUserWorkSummary : public Task<PoolBackend> {
+  public:
+    TaskUserWorkSummary(std::vector<CUserWorkSummary> &&scores) : Scores_(std::move(scores)) {}
+    void run(PoolBackend *backend) final { backend->onUserWorkSummary(Scores_); }
+  private:
+    std::vector<CUserWorkSummary> Scores_;
+  };
+
+  class TaskWorkSummary : public Task<PoolBackend> {
+  public:
+    TaskWorkSummary(std::vector<CWorkSummaryEntry> &&scores) : Scores_(std::move(scores)) {}
+    void run(PoolBackend *backend) final { backend->onWorkSummary(Scores_); }
+  private:
+    std::vector<CWorkSummaryEntry> Scores_;
+  };
+
+  class TaskBlockFound : public Task<PoolBackend> {
+  public:
+    TaskBlockFound(CBlockFoundData *block) : Block_(block) {}
+    void run(PoolBackend *backend) final { backend->onBlockFound(*Block_); }
+  private:
+    std::unique_ptr<CBlockFoundData> Block_;
   };
 
 private:
@@ -75,8 +91,10 @@ private:
   void payoutHandler();
   void checkBalanceHandler();
   
-  void onShare(CShare *share);
   void onUpdateDag(unsigned epochNumber, bool bigEpoch);
+  void onUserWorkSummary(const std::vector<CUserWorkSummary> &scores);
+  void onWorkSummary(const std::vector<CWorkSummaryEntry> &scores);
+  void onBlockFound(const CBlockFoundData &block);
 
 public:
   PoolBackend(const PoolBackend&) = delete;
@@ -106,8 +124,10 @@ public:
   void queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts);
 
   // Asynchronous api
-  void sendShare(CShare *share) { TaskHandler_.push(new TaskShare(share)); }
   void updateDag(unsigned epochNumber, bool bigEpoch) { TaskHandler_.push(new TaskUpdateDag(epochNumber, bigEpoch)); }
+  void sendUserWorkSummary(std::vector<CUserWorkSummary> &&scores) { TaskHandler_.push(new TaskUserWorkSummary(std::move(scores))); }
+  void sendWorkSummary(std::vector<CWorkSummaryEntry> &&scores) { TaskHandler_.push(new TaskWorkSummary(std::move(scores))); }
+  void sendBlockFound(CBlockFoundData *block) { TaskHandler_.push(new TaskBlockFound(block)); }
 
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }
