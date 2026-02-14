@@ -13,8 +13,8 @@ public:
                 const UInt<256> &workValue, Timestamp time,
                 double chainLength, uint32_t primePOWTarget, bool isPrimePOW);
 
-  std::vector<CWorkSummaryEntry> takeWorkerEntries();
-  std::vector<CUserWorkSummary> takeUserEntries();
+  CWorkSummaryBatch takeWorkerBatch();
+  CUserWorkSummaryBatch takeUserBatch();
   bool empty() const;
   bool shouldFlush(Timestamp now) const { return now >= NextFlushTime_; }
   void resetFlushTime(Timestamp now) { NextFlushTime_ = now + FlushInterval_; }
@@ -23,8 +23,6 @@ private:
   struct WorkerData {
     uint64_t SharesNum = 0;
     UInt<256> SharesWork = UInt<256>::zero();
-    Timestamp FirstTime = Timestamp::now();
-    Timestamp LastTime;
     uint32_t PrimePOWTarget = -1U;
     std::vector<uint64_t> PrimePOWSharesNum;
   };
@@ -32,7 +30,6 @@ private:
   struct UserData {
     UInt<256> AcceptedWork = UInt<256>::zero();
     uint64_t SharesNum = 0;
-    Timestamp LastTime;
   };
 
   std::map<std::pair<std::string, std::string>, WorkerData> Workers_;
@@ -40,4 +37,6 @@ private:
   Timestamp NextFlushTime_;
   std::chrono::seconds FlushInterval_ = std::chrono::seconds(6);
   bool AccumulateUsers_ = true;
+  Timestamp BatchFirstTime_ = Timestamp(std::chrono::milliseconds::max());
+  Timestamp BatchLastTime_;
 };

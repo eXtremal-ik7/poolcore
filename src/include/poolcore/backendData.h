@@ -32,6 +32,11 @@ struct CUserWorkSummary {
   Timestamp Time;
 };
 
+struct CUserWorkSummaryBatch {
+  TimeInterval Time;
+  std::vector<CUserWorkSummary> Entries;
+};
+
 struct CMiningAddress {
   std::string MiningAddress;
   std::string PrivateKey;
@@ -491,6 +496,26 @@ struct DbIo<UserShareValue1> {
   static inline void unserialize(xmstream &stream, UserShareValue1 &data) {
     DbIo<decltype (data.userId)>::unserialize(stream, data.userId);
     DbIo<decltype (data.shareValue)>::unserialize(stream, data.shareValue);
+  }
+};
+
+template<typename T> struct ShareLogIo;
+
+template<>
+struct ShareLogIo<CUserWorkSummaryBatch> {
+  static inline void serialize(xmstream &out, const CUserWorkSummaryBatch &data) {
+    DbIo<TimeInterval>::serialize(out, data.Time);
+    DbIo<uint32_t>::serialize(out, static_cast<uint32_t>(data.Entries.size()));
+    for (const auto &entry : data.Entries)
+      DbIo<CUserWorkSummary>::serialize(out, entry);
+  }
+  static inline void unserialize(xmstream &in, CUserWorkSummaryBatch &data) {
+    DbIo<TimeInterval>::unserialize(in, data.Time);
+    uint32_t count;
+    DbIo<uint32_t>::unserialize(in, count);
+    data.Entries.resize(count);
+    for (auto &entry : data.Entries)
+      DbIo<CUserWorkSummary>::unserialize(in, entry);
   }
 };
 

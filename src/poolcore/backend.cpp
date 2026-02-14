@@ -135,14 +135,14 @@ void PoolBackend::checkBalanceHandler()
   }
 }
 
-void PoolBackend::onUserWorkSummary(const std::vector<CUserWorkSummary> &scores)
+void PoolBackend::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
 {
-  _accounting->onUserWorkSummary(scores);
+  _accounting->onUserWorkSummary(batch);
 }
 
-void PoolBackend::onWorkSummary(const std::vector<CWorkSummaryEntry> &scores)
+void PoolBackend::onWorkSummary(const CWorkSummaryBatch &batch)
 {
-  _statistics->onWorkSummary(scores);
+  _statistics->onWorkSummary(batch);
 }
 
 void PoolBackend::onBlockFound(const CBlockFoundData &block)

@@ -7,7 +7,6 @@ void CWorkSummary::reset()
 {
   SharesNum = 0;
   SharesWork = UInt<256>::zero();
-  Time = TimeInterval();
   PrimePOWTarget = -1U;
   PrimePOWSharesNum.clear();
 }
@@ -41,9 +40,9 @@ static int64_t alignUpToGrid(int64_t timeMs, int64_t gridIntervalMs)
   return ((timeMs + gridIntervalMs - 1) / gridIntervalMs) * gridIntervalMs;
 }
 
-std::vector<CWorkSummary> CWorkSummary::distributeToGrid(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs) const
+std::vector<CWorkSummaryWithTime> CWorkSummary::distributeToGrid(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs) const
 {
-  std::vector<CWorkSummary> results;
+  std::vector<CWorkSummaryWithTime> results;
   if (beginMs >= endMs || (SharesNum == 0 && SharesWork.isZero()))
     return results;
 
@@ -63,30 +62,29 @@ std::vector<CWorkSummary> CWorkSummary::distributeToGrid(int64_t beginMs, int64_
     if (overlapMs <= 0)
       continue;
 
-    CWorkSummary element;
+    CWorkSummaryWithTime cell;
     if (gridEnd >= lastGridEnd) {
       // Last cell gets remainder
-      element.SharesNum = remainingShares;
-      element.SharesWork = remainingWork;
-      element.PrimePOWTarget = PrimePOWTarget;
-      element.PrimePOWSharesNum = remainingPrimePOW;
+      cell.Data.SharesNum = remainingShares;
+      cell.Data.SharesWork = remainingWork;
+      cell.Data.PrimePOWTarget = PrimePOWTarget;
+      cell.Data.PrimePOWSharesNum = remainingPrimePOW;
     } else {
       double fraction = static_cast<double>(overlapMs) / static_cast<double>(totalMs);
-      element = scaled(fraction);
-      element.SharesNum = std::min(element.SharesNum, remainingShares);
-      remainingShares -= element.SharesNum;
-      if (element.SharesWork > remainingWork)
-        element.SharesWork = remainingWork;
-      remainingWork -= element.SharesWork;
+      cell.Data = scaled(fraction);
+      cell.Data.SharesNum = std::min(cell.Data.SharesNum, remainingShares);
+      remainingShares -= cell.Data.SharesNum;
+      if (cell.Data.SharesWork > remainingWork)
+        cell.Data.SharesWork = remainingWork;
+      remainingWork -= cell.Data.SharesWork;
       for (size_t i = 0; i < PrimePOWSharesNum.size(); i++) {
-        element.PrimePOWSharesNum[i] = std::min(element.PrimePOWSharesNum[i], remainingPrimePOW[i]);
-        remainingPrimePOW[i] -= element.PrimePOWSharesNum[i];
+        cell.Data.PrimePOWSharesNum[i] = std::min(cell.Data.PrimePOWSharesNum[i], remainingPrimePOW[i]);
+        remainingPrimePOW[i] -= cell.Data.PrimePOWSharesNum[i];
       }
     }
 
-    element.Time.TimeBegin = Timestamp(gridStart);
-    element.Time.TimeEnd = Timestamp(gridEnd);
-    results.push_back(element);
+    cell.Time = TimeInterval(Timestamp(gridStart), Timestamp(gridEnd));
+    results.push_back(cell);
   }
 
   return results;

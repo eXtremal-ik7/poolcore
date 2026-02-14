@@ -42,7 +42,7 @@ void CStatsSeries::addBaseWork(uint64_t sharesNum, const UInt<256> &sharesWork, 
   LastShareTime = time;
 }
 
-void CStatsSeries::merge(std::vector<CWorkSummary> &cells)
+void CStatsSeries::merge(std::vector<CWorkSummaryWithTime> &cells)
 {
   if (cells.empty())
     return;
@@ -50,7 +50,7 @@ void CStatsSeries::merge(std::vector<CWorkSummary> &cells)
   int64_t ri = static_cast<int64_t>(Recent.size()) - 1;
   while (ci >= 0) {
     if (ri >= 0 && cells[ci].Time.TimeEnd == Recent[ri].Time.TimeEnd) {
-      Recent[ri--].merge(cells[ci--]);
+      Recent[ri--].Data.merge(cells[ci--].Data);
     } else if (ri < 0 || cells[ci].Time.TimeEnd > Recent[ri].Time.TimeEnd) {
       // Insert at the correct sorted position; in practice only appends at the end
       Recent.insert(Recent.begin() + (ri + 1), std::move(cells[ci--]));
@@ -74,18 +74,18 @@ void CStatsSeries::calcAverageMetrics(const CCoinInfo &coinInfo, std::chrono::se
     if (it->Time.TimeEnd <= windowBegin)
       break;
 
-    primePOWTarget = std::min(primePOWTarget, it->PrimePOWTarget);
+    primePOWTarget = std::min(primePOWTarget, it->Data.PrimePOWTarget);
 
     if (it->Time.TimeBegin >= windowBegin) {
-      sharesNum += it->SharesNum;
-      sharesWork += it->SharesWork;
+      sharesNum += it->Data.SharesNum;
+      sharesWork += it->Data.SharesWork;
     } else {
       // Straddles boundary — clip proportionally
       int64_t totalMs = it->Time.TimeEnd.count() - it->Time.TimeBegin.count();
       int64_t overlapMs = it->Time.TimeEnd.count() - windowBegin.count();
       double fraction = static_cast<double>(overlapMs) / static_cast<double>(totalMs);
-      sharesNum += static_cast<uint64_t>(std::round(it->SharesNum * fraction));
-      UInt<256> partialWork = it->SharesWork;
+      sharesNum += static_cast<uint64_t>(std::round(it->Data.SharesNum * fraction));
+      UInt<256> partialWork = it->Data.SharesWork;
       partialWork.mulfp(fraction);
       sharesWork += partialWork;
       break;
@@ -128,10 +128,10 @@ void CStatsSeries::flush(int64_t beginMs,
         record.WorkerId = workerId;
         record.Time = element.Time;
         record.UpdateTime = timeLabel;
-        record.ShareCount = element.SharesNum;
-        record.ShareWork = element.SharesWork;
-        record.PrimePOWTarget = element.PrimePOWTarget;
-        record.PrimePOWShareCount = element.PrimePOWSharesNum;
+        record.ShareCount = element.Data.SharesNum;
+        record.ShareWork = element.Data.SharesWork;
+        record.PrimePOWTarget = element.Data.PrimePOWTarget;
+        record.PrimePOWShareCount = element.Data.PrimePOWSharesNum;
         batch->merge(record);
       }
       modifiedTimes.insert(element.Time.TimeEnd.count());
@@ -199,8 +199,14 @@ void CStatsSeriesSingle::load(const std::filesystem::path &dbPath, const std::st
       continue;
     }
 
-    Series_.Recent.push_back(record.Data);
-    Series_.LastShareTime = record.Data.Time.TimeEnd;
+    int64_t gridIntervalMs = std::chrono::duration_cast<std::chrono::milliseconds>(GridInterval_).count();
+    Timestamp gridEnd(file.FileId * 1000);
+    Timestamp gridBegin = gridEnd - std::chrono::milliseconds(gridIntervalMs);
+    CWorkSummaryWithTime entry;
+    entry.Time = TimeInterval(gridBegin, gridEnd);
+    entry.Data = record.Data;
+    Series_.Recent.push_back(entry);
+    Series_.LastShareTime = gridEnd;
 
     if (isDebugStatistic()) {
       LOG_F(1, "<%s> Loaded pool stats: shares: %" PRIu64 " work: %s",
@@ -225,13 +231,21 @@ void CStatsSeriesMap::load(const std::filesystem::path &dbPath, const std::strin
       continue;
     }
 
+    int64_t gridIntervalMs = std::chrono::duration_cast<std::chrono::milliseconds>(GridInterval_).count();
+    Timestamp gridEnd(file.FileId * 1000);
+    Timestamp gridBegin = gridEnd - std::chrono::milliseconds(gridIntervalMs);
+    TimeInterval cellTime(gridBegin, gridEnd);
+
     auto hint = Map_.begin();
     for (const auto &record : fileData.Records) {
       auto key = makeStatsKey(record.UserId, record.WorkerId);
       hint = Map_.try_emplace(hint, std::move(key));
       auto &acc = hint->second;
-      acc.Recent.push_back(record.Data);
-      acc.LastShareTime = record.Data.Time.TimeEnd;
+      CWorkSummaryWithTime entry;
+      entry.Time = cellTime;
+      entry.Data = record.Data;
+      acc.Recent.push_back(entry);
+      acc.LastShareTime = gridEnd;
 
       if (isDebugStatistic()) {
         LOG_F(1, "<%s> Loaded: %s/%s shares: %" PRIu64 " work: %s",
@@ -270,7 +284,7 @@ void CStatsSeriesSingle::rebuildDatFile(const std::filesystem::path &dbPath, int
     if (it->Time.TimeEnd == gridEnd) {
       xmstream stream;
       DbIo<CStatsFileData>::serializeHeader(stream, SavedShareId_, 1);
-      writeStatsRecord("", "", *it, stream);
+      writeStatsRecord("", "", it->Data, stream);
 
       auto filePath = datFilePath(dbPath, CachePath_, gridEndMs);
       FileDescriptor fd;
@@ -304,7 +318,7 @@ void CStatsSeriesMap::rebuildDatFile(const std::filesystem::path &dbPath, int64_
     for (auto it = acc.Recent.rbegin(); it != acc.Recent.rend(); ++it) {
       if (it->Time.TimeEnd == gridEnd) {
         auto [login, workerId] = splitStatsKey(key);
-        writeStatsRecord(login, workerId, *it, recordsData);
+        writeStatsRecord(login, workerId, it->Data, recordsData);
         recordCount++;
         break;
       }
@@ -344,7 +358,9 @@ void CStatsSeriesSingle::flush(Timestamp timeLabel, uint64_t lastShareId,
 
   kvdb<rocksdbBase>::Batch batch;
   std::set<int64_t> modifiedTimes, removedTimes;
-  Series_.flush(AccumulationBegin_.count(), timeLabel.count(), gridIntervalMs, removeTimePoint,
+  int64_t beginMs = AccumulationInterval_.TimeBegin.count();
+  int64_t endMs = std::max(AccumulationInterval_.TimeEnd, timeLabel).count();
+  Series_.flush(beginMs, endMs, gridIntervalMs, removeTimePoint,
                 "", "", timeLabel, db ? &batch : nullptr, modifiedTimes, removedTimes);
 
   if (db)
@@ -357,7 +373,7 @@ void CStatsSeriesSingle::flush(Timestamp timeLabel, uint64_t lastShareId,
   for (int64_t t : removedTimes)
     removeDatFile(dbPath, CachePath_, t);
 
-  AccumulationBegin_ = timeLabel;
+  AccumulationInterval_ = emptyInterval();
 }
 
 void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
@@ -366,6 +382,9 @@ void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
   SavedShareId_ = lastShareId;
   int64_t gridIntervalMs = std::chrono::duration_cast<std::chrono::milliseconds>(GridInterval_).count();
   Timestamp removeTimePoint = timeLabel - KeepTime_;
+
+  int64_t beginMs = AccumulationInterval_.TimeBegin.count();
+  int64_t endMs = std::max(AccumulationInterval_.TimeEnd, timeLabel).count();
 
   kvdb<rocksdbBase>::Batch batch;
   std::set<int64_t> modifiedTimes, removedTimes;
@@ -379,7 +398,7 @@ void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
             it->second.Current.SharesNum,
             it->second.Current.SharesWork.getDecimal().c_str());
 
-    it->second.flush(AccumulationBegin_.count(), timeLabel.count(), gridIntervalMs, removeTimePoint,
+    it->second.flush(beginMs, endMs, gridIntervalMs, removeTimePoint,
                      login, workerId, timeLabel, db ? &batch : nullptr, modifiedTimes, removedTimes);
 
     if (it->second.Recent.empty())
@@ -399,7 +418,7 @@ void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
   for (int64_t t : removedTimes)
     removeDatFile(dbPath, CachePath_, t);
 
-  AccumulationBegin_ = timeLabel;
+  AccumulationInterval_ = emptyInterval();
 }
 
 void CStatsSeriesMap::exportRecentStats(std::chrono::seconds window, std::vector<CStatsExportData> &result) const
@@ -420,7 +439,7 @@ void CStatsSeriesMap::exportRecentStats(std::chrono::seconds window, std::vector
       auto &current = userRecord.Recent.emplace_back();
       current.SharesWork = acc.Current.SharesWork;
       current.Time.TimeEnd = timeLabel;
-      current.Time.TimeBegin = AccumulationBegin_;
+      current.Time.TimeBegin = AccumulationInterval_.TimeBegin;
     }
 
     // Recent share work (up to N minutes)
@@ -428,7 +447,7 @@ void CStatsSeriesMap::exportRecentStats(std::chrono::seconds window, std::vector
       if (It->Time.TimeEnd < lastAcceptTime)
         break;
       auto &recent = userRecord.Recent.emplace_back();
-      recent.SharesWork = It->SharesWork;
+      recent.SharesWork = It->Data.SharesWork;
       recent.Time = It->Time;
     }
   }

@@ -26,14 +26,10 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   if (isDebugStatistic())
     LOG_F(1, "%s: last aggregated id: %" PRIu64 " last known id: %" PRIu64 "", coinInfo.Name.c_str(), lastAggregatedShareId(), lastKnownShareId());
 
-  Timestamp initTime = Timestamp::now();
-  ShareLog_.replay([this](uint64_t messageId, const std::vector<CWorkSummaryEntry> &entries) {
-    replayWorkSummary(messageId, entries);
+  ShareLog_.replay([this](uint64_t messageId, const CWorkSummaryBatch &batch) {
+    replayWorkSummary(messageId, batch);
   });
 
-  PoolStatsAcc_.setAccumulationBegin(initTime);
-  UserStats_.setAccumulationBegin(initTime);
-  WorkerStats_.setAccumulationBegin(initTime);
   if (isDebugStatistic())
     LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", coinInfo.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
 
@@ -85,30 +81,28 @@ void StatisticDb::flushWorkers(Timestamp timeLabel)
   WorkerStats_.flush(timeLabel, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
 }
 
-void StatisticDb::onWorkSummary(const std::vector<CWorkSummaryEntry> &entries)
+void StatisticDb::onWorkSummary(const CWorkSummaryBatch &batch)
 {
-  uint64_t messageId = ShareLog_.addShare(entries);
-  for (const auto &entry : entries) {
-    Timestamp time = entry.Data.Time.TimeEnd;
-    WorkerStats_.addWorkSummary(entry.UserId, entry.WorkerId, entry.Data, time);
-    UserStats_.addWorkSummary(entry.UserId, "", entry.Data, time);
-    PoolStatsAcc_.addWorkSummary(entry.Data, time);
-    PoolStatsCached_.LastShareTime = time;
+  uint64_t messageId = ShareLog_.addShare(batch);
+  for (const auto &entry : batch.Entries) {
+    WorkerStats_.addWorkSummary(entry.UserId, entry.WorkerId, entry.Data, batch.Time);
+    UserStats_.addWorkSummary(entry.UserId, "", entry.Data, batch.Time);
+    PoolStatsAcc_.addWorkSummary(entry.Data, batch.Time);
+    PoolStatsCached_.LastShareTime = batch.Time.TimeEnd;
   }
   LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
 }
 
-void StatisticDb::replayWorkSummary(uint64_t messageId, const std::vector<CWorkSummaryEntry> &entries)
+void StatisticDb::replayWorkSummary(uint64_t messageId, const CWorkSummaryBatch &batch)
 {
-  for (const auto &entry : entries) {
-    Timestamp time = entry.Data.Time.TimeEnd;
+  for (const auto &entry : batch.Entries) {
     if (messageId > WorkerStats_.savedShareId())
-      WorkerStats_.addWorkSummary(entry.UserId, entry.WorkerId, entry.Data, time);
+      WorkerStats_.addWorkSummary(entry.UserId, entry.WorkerId, entry.Data, batch.Time);
     if (messageId > UserStats_.savedShareId())
-      UserStats_.addWorkSummary(entry.UserId, "", entry.Data, time);
+      UserStats_.addWorkSummary(entry.UserId, "", entry.Data, batch.Time);
     if (messageId > PoolStatsAcc_.savedShareId())
-      PoolStatsAcc_.addWorkSummary(entry.Data, time);
-    PoolStatsCached_.LastShareTime = time;
+      PoolStatsAcc_.addWorkSummary(entry.Data, batch.Time);
+    PoolStatsCached_.LastShareTime = batch.Time.TimeEnd;
   }
   LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
 
@@ -470,7 +464,7 @@ void StatisticServer::statisticServerMain()
   asyncLoop(Base_);
 }
 
-void StatisticServer::onWorkSummary(const std::vector<CWorkSummaryEntry> &entries)
+void StatisticServer::onWorkSummary(const CWorkSummaryBatch &batch)
 {
-  Statistics_->onWorkSummary(entries);
+  Statistics_->onWorkSummary(batch);
 }

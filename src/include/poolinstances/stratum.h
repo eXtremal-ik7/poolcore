@@ -441,15 +441,15 @@ private:
       auto &acc = data.Accumulators[i];
       if (acc.shouldFlush(now)) {
         if (!acc.empty()) {
-          LinkedBackends_[i]->sendWorkSummary(acc.takeWorkerEntries());
-          LinkedBackends_[i]->sendUserWorkSummary(acc.takeUserEntries());
+          LinkedBackends_[i]->sendWorkSummary(acc.takeWorkerBatch());
+          LinkedBackends_[i]->sendUserWorkSummary(acc.takeUserBatch());
         }
         acc.resetFlushTime(now);
       }
     }
     if (AlgoMetaStatistic_ && data.AlgoMetaAccumulator.shouldFlush(now)) {
       if (!data.AlgoMetaAccumulator.empty())
-        AlgoMetaStatistic_->sendWorkSummary(data.AlgoMetaAccumulator.takeWorkerEntries());
+        AlgoMetaStatistic_->sendWorkSummary(data.AlgoMetaAccumulator.takeWorkerBatch());
       data.AlgoMetaAccumulator.resetFlushTime(now);
     }
   }
@@ -458,12 +458,12 @@ private:
     ThreadData &data = Data_[GetLocalThreadId()];
     auto &acc = data.Accumulators[globalBackendIdx];
     if (!acc.empty()) {
-      LinkedBackends_[globalBackendIdx]->sendWorkSummary(acc.takeWorkerEntries());
-      LinkedBackends_[globalBackendIdx]->sendUserWorkSummary(acc.takeUserEntries());
+      LinkedBackends_[globalBackendIdx]->sendWorkSummary(acc.takeWorkerBatch());
+      LinkedBackends_[globalBackendIdx]->sendUserWorkSummary(acc.takeUserBatch());
     }
     acc.resetFlushTime(Timestamp::now());
     if (AlgoMetaStatistic_ && !data.AlgoMetaAccumulator.empty()) {
-      AlgoMetaStatistic_->sendWorkSummary(data.AlgoMetaAccumulator.takeWorkerEntries());
+      AlgoMetaStatistic_->sendWorkSummary(data.AlgoMetaAccumulator.takeWorkerBatch());
       data.AlgoMetaAccumulator.resetFlushTime(Timestamp::now());
     }
   }

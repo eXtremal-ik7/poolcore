@@ -263,12 +263,10 @@ AccountingDb::AccountingDb(asyncBase *base,
     LOG_F(INFO, "loaded %u user balance data from db", (unsigned)_balanceMap.size());
   }
 
-  Timestamp initTime = Timestamp::now();
-  ShareLog_.replay([this](uint64_t messageId, const std::vector<CUserWorkSummary> &scores) {
-    replayUserWorkSummary(messageId, scores);
+  ShareLog_.replay([this](uint64_t messageId, const CUserWorkSummaryBatch &batch) {
+    replayUserWorkSummary(messageId, batch);
   });
 
-  UserStatsAcc_.setAccumulationBegin(initTime);
   printRecentStatistic();
   if (!State_.CurrentScores.empty()) {
     LOG_F(INFO, "[%s] current scores:", CoinInfo_.Name.c_str());
@@ -278,7 +276,6 @@ AccountingDb::AccountingDb(asyncBase *base,
     LOG_F(INFO, "[%s] current scores is empty", CoinInfo_.Name.c_str());
   }
   if (isDebugStatistic()) {
-    LOG_F(1, "initializationFinish: timeLabel: %" PRIi64 "", initTime.toUnixTime());
     LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", coinInfo.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
   }
 
@@ -466,12 +463,12 @@ void AccountingDb::calculatePayments(MiningRound *R, const UInt<384> &generatedC
   }
 }
 
-void AccountingDb::onUserWorkSummary(const std::vector<CUserWorkSummary> &scores)
+void AccountingDb::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
 {
-  uint64_t messageId = ShareLog_.addShare(scores);
-  for (const auto &score : scores) {
+  uint64_t messageId = ShareLog_.addShare(batch);
+  for (const auto &score : batch.Entries) {
     State_.CurrentScores[score.UserId] += score.AcceptedWork;
-    UserStatsAcc_.addBaseWork(score.UserId, "", score.SharesNum, score.AcceptedWork, score.Time);
+    UserStatsAcc_.addBaseWork(score.UserId, "", score.SharesNum, score.AcceptedWork, batch.Time);
   }
   LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
 }
@@ -566,13 +563,13 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block)
   State_.flushBlockFoundState(LastKnownShareId_);
 }
 
-void AccountingDb::replayUserWorkSummary(uint64_t messageId, const std::vector<CUserWorkSummary> &scores)
+void AccountingDb::replayUserWorkSummary(uint64_t messageId, const CUserWorkSummaryBatch &batch)
 {
-  for (const auto &score : scores) {
+  for (const auto &score : batch.Entries) {
     if (messageId > State_.SavedShareId)
       State_.CurrentScores[score.UserId] += score.AcceptedWork;
     if (messageId > UserStatsAcc_.savedShareId())
-      UserStatsAcc_.addBaseWork(score.UserId, "", score.SharesNum, score.AcceptedWork, score.Time);
+      UserStatsAcc_.addBaseWork(score.UserId, "", score.SharesNum, score.AcceptedWork, batch.Time);
   }
 
   LastKnownShareId_ = std::max(LastKnownShareId_, messageId);

@@ -12,11 +12,13 @@ void CShareAccumulator::addShare(const std::string &userId, const std::string &w
                                   const UInt<256> &workValue, Timestamp time,
                                   double chainLength, uint32_t primePOWTarget, bool isPrimePOW)
 {
+  BatchFirstTime_ = std::min(BatchFirstTime_, time);
+  BatchLastTime_ = std::max(BatchLastTime_, time);
+
   // Worker accumulation
   auto &w = Workers_[{userId, workerId}];
   w.SharesNum++;
   w.SharesWork += workValue;
-  w.LastTime = time;
 
   if (isPrimePOW) {
     w.PrimePOWTarget = std::min(w.PrimePOWTarget, primePOWTarget);
@@ -31,43 +33,46 @@ void CShareAccumulator::addShare(const std::string &userId, const std::string &w
     auto &u = Users_[userId];
     u.AcceptedWork += workValue;
     u.SharesNum++;
-    u.LastTime = time;
   }
 }
 
-std::vector<CWorkSummaryEntry> CShareAccumulator::takeWorkerEntries()
+CWorkSummaryBatch CShareAccumulator::takeWorkerBatch()
 {
-  std::vector<CWorkSummaryEntry> result;
-  result.reserve(Workers_.size());
+  CWorkSummaryBatch batch;
+  batch.Time = {BatchFirstTime_, BatchLastTime_};
+  batch.Entries.reserve(Workers_.size());
   for (auto &[key, w] : Workers_) {
     CWorkSummaryEntry entry;
     entry.UserId = key.first;
     entry.WorkerId = key.second;
     entry.Data.SharesNum = w.SharesNum;
     entry.Data.SharesWork = w.SharesWork;
-    entry.Data.Time = {w.FirstTime, w.LastTime};
     entry.Data.PrimePOWTarget = w.PrimePOWTarget;
     entry.Data.PrimePOWSharesNum = std::move(w.PrimePOWSharesNum);
-    result.emplace_back(std::move(entry));
+    batch.Entries.emplace_back(std::move(entry));
   }
   Workers_.clear();
-  return result;
+  BatchFirstTime_ = Timestamp(std::chrono::milliseconds::max());
+  BatchLastTime_ = Timestamp();
+  return batch;
 }
 
-std::vector<CUserWorkSummary> CShareAccumulator::takeUserEntries()
+CUserWorkSummaryBatch CShareAccumulator::takeUserBatch()
 {
-  std::vector<CUserWorkSummary> result;
-  result.reserve(Users_.size());
+  CUserWorkSummaryBatch batch;
+  batch.Time = {BatchFirstTime_, BatchLastTime_};
+  batch.Entries.reserve(Users_.size());
   for (auto &[userId, u] : Users_) {
     CUserWorkSummary entry;
     entry.UserId = userId;
     entry.AcceptedWork = u.AcceptedWork;
     entry.SharesNum = u.SharesNum;
-    entry.Time = u.LastTime;
-    result.emplace_back(std::move(entry));
+    entry.Time = BatchLastTime_;
+    batch.Entries.emplace_back(std::move(entry));
   }
   Users_.clear();
-  return result;
+  // Note: BatchFirstTime_/BatchLastTime_ reset in takeWorkerBatch
+  return batch;
 }
 
 bool CShareAccumulator::empty() const

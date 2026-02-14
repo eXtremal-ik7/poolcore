@@ -94,7 +94,7 @@ private:
   CStats PoolStatsCached_;
 
   kvdb<rocksdbBase> StatsDb_;
-  ShareLog<std::vector<CWorkSummaryEntry>> ShareLog_;
+  ShareLog<CWorkSummaryBatch> ShareLog_;
 
   TaskHandlerCoroutine<StatisticDb> TaskHandler_;
   aioUserEvent *PoolFlushEvent_;
@@ -123,12 +123,12 @@ private:
 public:
   // Initialization
   StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo);
-  void replayWorkSummary(uint64_t messageId, const std::vector<CWorkSummaryEntry> &entries);
+  void replayWorkSummary(uint64_t messageId, const CWorkSummaryBatch &batch);
   void start();
   void stop();
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
 
-  void onWorkSummary(const std::vector<CWorkSummaryEntry> &entries);
+  void onWorkSummary(const CWorkSummaryBatch &batch);
 
   // Min of accumulators' savedShareId; ShareLog replays shares starting from this point
   uint64_t lastAggregatedShareId() { return std::min({WorkerStats_.savedShareId(), UserStats_.savedShareId(), PoolStatsAcc_.savedShareId()}); }
@@ -185,19 +185,19 @@ public:
   CCoinInfo &coinInfo() { return CoinInfo_; }
 
   // Asynchronous api
-  void sendWorkSummary(std::vector<CWorkSummaryEntry> &&entries) { TaskHandler_.push(new TaskWorkSummary(std::move(entries))); }
+  void sendWorkSummary(CWorkSummaryBatch &&batch) { TaskHandler_.push(new TaskWorkSummary(std::move(batch))); }
 
 private:
   class TaskWorkSummary : public Task<StatisticServer> {
   public:
-    TaskWorkSummary(std::vector<CWorkSummaryEntry> &&entries) : Entries_(std::move(entries)) {}
-    void run(StatisticServer *backend) final { backend->onWorkSummary(Entries_); }
+    TaskWorkSummary(CWorkSummaryBatch &&batch) : Batch_(std::move(batch)) {}
+    void run(StatisticServer *backend) final { backend->onWorkSummary(Batch_); }
   private:
-    std::vector<CWorkSummaryEntry> Entries_;
+    CWorkSummaryBatch Batch_;
   };
 
 private:
-  void onWorkSummary(const std::vector<CWorkSummaryEntry> &entries);
+  void onWorkSummary(const CWorkSummaryBatch &batch);
   void statisticServerMain();
 
 private:

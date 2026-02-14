@@ -155,7 +155,7 @@ private:
   kvdb<rocksdbBase> _poolBalanceDb;
   kvdb<rocksdbBase> _payoutDb;
   kvdb<rocksdbBase> PPLNSPayoutsDb;
-  ShareLog<std::vector<CUserWorkSummary>> ShareLog_;
+  ShareLog<CUserWorkSummaryBatch> ShareLog_;
 
   uint64_t LastKnownShareId_ = 0;
 
@@ -196,9 +196,9 @@ public:
 
   bool hasUnknownReward();
   void calculatePayments(MiningRound *R, const UInt<384> &generatedCoins);
-  void onUserWorkSummary(const std::vector<CUserWorkSummary> &scores);
+  void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
   void onBlockFound(const CBlockFoundData &block);
-  void replayUserWorkSummary(uint64_t messageId, const std::vector<CUserWorkSummary> &scores);
+  void replayUserWorkSummary(uint64_t messageId, const CUserWorkSummaryBatch &batch);
   void processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash, bool *roundUpdated);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();

@@ -38,18 +38,18 @@ private:
 
   class TaskUserWorkSummary : public Task<PoolBackend> {
   public:
-    TaskUserWorkSummary(std::vector<CUserWorkSummary> &&scores) : Scores_(std::move(scores)) {}
-    void run(PoolBackend *backend) final { backend->onUserWorkSummary(Scores_); }
+    TaskUserWorkSummary(CUserWorkSummaryBatch &&batch) : Batch_(std::move(batch)) {}
+    void run(PoolBackend *backend) final { backend->onUserWorkSummary(Batch_); }
   private:
-    std::vector<CUserWorkSummary> Scores_;
+    CUserWorkSummaryBatch Batch_;
   };
 
   class TaskWorkSummary : public Task<PoolBackend> {
   public:
-    TaskWorkSummary(std::vector<CWorkSummaryEntry> &&scores) : Scores_(std::move(scores)) {}
-    void run(PoolBackend *backend) final { backend->onWorkSummary(Scores_); }
+    TaskWorkSummary(CWorkSummaryBatch &&batch) : Batch_(std::move(batch)) {}
+    void run(PoolBackend *backend) final { backend->onWorkSummary(Batch_); }
   private:
-    std::vector<CWorkSummaryEntry> Scores_;
+    CWorkSummaryBatch Batch_;
   };
 
   class TaskBlockFound : public Task<PoolBackend> {
@@ -92,8 +92,8 @@ private:
   void checkBalanceHandler();
   
   void onUpdateDag(unsigned epochNumber, bool bigEpoch);
-  void onUserWorkSummary(const std::vector<CUserWorkSummary> &scores);
-  void onWorkSummary(const std::vector<CWorkSummaryEntry> &scores);
+  void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
+  void onWorkSummary(const CWorkSummaryBatch &batch);
   void onBlockFound(const CBlockFoundData &block);
 
 public:
@@ -125,8 +125,8 @@ public:
 
   // Asynchronous api
   void updateDag(unsigned epochNumber, bool bigEpoch) { TaskHandler_.push(new TaskUpdateDag(epochNumber, bigEpoch)); }
-  void sendUserWorkSummary(std::vector<CUserWorkSummary> &&scores) { TaskHandler_.push(new TaskUserWorkSummary(std::move(scores))); }
-  void sendWorkSummary(std::vector<CWorkSummaryEntry> &&scores) { TaskHandler_.push(new TaskWorkSummary(std::move(scores))); }
+  void sendUserWorkSummary(CUserWorkSummaryBatch &&batch) { TaskHandler_.push(new TaskUserWorkSummary(std::move(batch))); }
+  void sendWorkSummary(CWorkSummaryBatch &&batch) { TaskHandler_.push(new TaskWorkSummary(std::move(batch))); }
   void sendBlockFound(CBlockFoundData *block) { TaskHandler_.push(new TaskBlockFound(block)); }
 
   AccountingDb *accountingDb() { return _accounting.get(); }

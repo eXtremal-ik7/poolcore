@@ -93,6 +93,12 @@ struct TimeInterval {
   Timestamp::Duration duration() const { return TimeEnd - TimeBegin; }
   bool isValid() const { return TimeEnd >= TimeBegin; }
 
+  // Expand interval to include another interval
+  void expand(TimeInterval other) {
+    TimeBegin = std::min(TimeBegin, other.TimeBegin);
+    TimeEnd = std::max(TimeEnd, other.TimeEnd);
+  }
+
   // Create point-in-time interval (TimeBegin == TimeEnd)
   static TimeInterval point(Timestamp t) { return TimeInterval(t, t); }
 };
