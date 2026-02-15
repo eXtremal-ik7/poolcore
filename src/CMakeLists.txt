@@ -30,6 +30,10 @@ if(MSVC)
 
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GR-")
   include_directories(${CMAKE_CURRENT_SOURCE_DIR}/msvc/include)
+  set(GETOPT_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/msvc/getopt.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/msvc/getopt1.c
+  )
 else(MSVC)
   set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -fno-rtti")
@@ -68,6 +72,7 @@ endif()
 include_directories(
   ${libp2p_SOURCE_DIR}/src/include
   ${libp2p_BINARY_DIR}/include
+  ${secp256k1_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_BINARY_DIR}
   ${CMAKE_CURRENT_BINARY_DIR}/include
@@ -80,3 +85,56 @@ add_subdirectory(blockmaker)
 add_subdirectory(poolcommon)
 add_subdirectory(poolcore)
 add_subdirectory(poolinstances)
+
+# Common libraries for all executables
+set(LIBRARIES
+  poolcore
+  blockmaker
+  poolcommon
+  loguru
+  asyncio-0.5
+  asyncioextras-0.5
+  p2putils
+  secp256k1
+)
+
+# OS-specific libraries
+if (WIN32)
+  set(LIBRARIES ${LIBRARIES} ws2_32 mswsock shlwapi crypt32 rpcrt4)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(LIBRARIES ${LIBRARIES} dl jemalloc)
+endif()
+
+# Compiler-specific libraries
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  set(LIBRARIES ${LIBRARIES}
+    atomic
+    pthread
+    stdc++fs
+  )
+endif()
+
+# Build plugins from extra directory
+set(POOLFRONTEND_EXTRAS "")
+file(GLOB EXTRA_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/extra/*")
+foreach(EXTRA_DIR ${EXTRA_DIRS})
+  if(IS_DIRECTORY ${EXTRA_DIR} AND EXISTS "${EXTRA_DIR}/CMakeLists.txt")
+    add_subdirectory(${EXTRA_DIR})
+  endif()
+endforeach()
+
+# Platform-specific whole-archive linking
+function(target_link_whole_archive TARGET)
+  if(APPLE)
+    foreach(LIB ${ARGN})
+      target_link_libraries(${TARGET} -Wl,-force_load,$<TARGET_FILE:${LIB}>)
+    endforeach()
+  else()
+    target_link_libraries(${TARGET} -Wl,--whole-archive ${ARGN} -Wl,--no-whole-archive)
+  endif()
+endfunction()
+
+# Executables
+add_subdirectory(poolfrontend)
+add_subdirectory(migrate)
+add_subdirectory(tools)
