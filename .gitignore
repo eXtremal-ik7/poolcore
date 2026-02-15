@@ -1,3 +1,8 @@
+# Ignore all files in root directory except README.md
+/*
+!*/
+!/README.md
+
 # Build directories (uname -m + uname -s)
 x86_64-Linux/
 x86_64-Windows/
@@ -13,3 +18,6 @@ x86_64-Darwin/
 
 # Dependencies (fetched by cmake)
 dependencies/
+
+# Temporary / local
+tmp/

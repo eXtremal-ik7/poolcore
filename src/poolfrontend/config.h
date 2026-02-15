@@ -26,13 +26,6 @@ struct CInstanceConfig {
 
 void loadNodeConfig(CNodeConfig &config, const rapidjson::Value &value, const std::string &path, std::string &errorDescription, EErrorType *error);
 
-struct CFeeConfig {
-  std::string Address;
-  double Percentage;
-
-  void load(const rapidjson::Value &value, const std::string &path, std::string &errorDescription, EErrorType *error);
-};
-
 struct CMiningAddressConfig {
   std::string Address;
   std::string PrivateKey;
@@ -43,7 +36,6 @@ struct CCoinConfig {
   std::string Name;
   std::vector<CNodeConfig> GetWorkNodes;
   std::vector<CNodeConfig> RPCNodes;
-  std::vector<CFeeConfig> Fees;
   unsigned RequiredConfirmations;
   std::string DefaultPayoutThreshold;
   std::string MinimalAllowedPayout;

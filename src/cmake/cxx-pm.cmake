@@ -39,6 +39,7 @@ function(cxxpm_initialize url hash)
   FetchContent_Declare(cxx-pm-${HASH32}
     URL ${url}
     URL_HASH SHA256=${hash}
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
   
   FetchContent_MakeAvailable(cxx-pm-${HASH32})
@@ -76,5 +77,29 @@ function(cxxpm_initialize url hash)
       include(${USER_HOME_DIRECTORY}/.cxxpm/self/add.cmake)
       set_property(GLOBAL PROPERTY CXXPM_EXECUTABLE ${CXXPM_EXECUTABLE})
     endif()
+  endif()
+
+  # Install msys2 runtime on Windows
+  if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+    get_property(CXXPM_MSYS2_INSTALLED GLOBAL PROPERTY CXXPM_MSYS2_INSTALLED)
+    if (NOT CXXPM_MSYS2_INSTALLED)
+      message("Installing msys2 packages...")
+      execute_process(COMMAND ${CXXPM_EXECUTABLE} "--install-msys2" RESULT_VARIABLE EXIT_CODE)
+      if (NOT (EXIT_CODE EQUAL 0))
+        message(FATAL_ERROR "cxx-pm --install-msys2 failed")
+      endif()
+      set_property(GLOBAL PROPERTY CXXPM_MSYS2_INSTALLED TRUE)
+    endif()
+  endif()
+
+  # Update package repository once per configure
+  get_property(CXXPM_UPDATED GLOBAL PROPERTY CXXPM_REPOSITORY_UPDATED)
+  if (NOT CXXPM_UPDATED)
+    message("Updating cxx-pm package repository...")
+    execute_process(COMMAND ${CXXPM_EXECUTABLE} "--update" RESULT_VARIABLE EXIT_CODE)
+    if (NOT (EXIT_CODE EQUAL 0))
+      message(WARNING "cxx-pm repository update failed")
+    endif()
+    set_property(GLOBAL PROPERTY CXXPM_REPOSITORY_UPDATED TRUE)
   endif()
 endfunction()

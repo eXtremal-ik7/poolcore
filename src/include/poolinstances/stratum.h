@@ -634,9 +634,7 @@ private:
 
   void sharePendingCheck(size_t globalBackendIdx,
                          std::string userName,
-                         std::string workerName,
                          int64_t majorJobId,
-                         const UInt<256> &stratumDifficulty,
                          const CWorkerConfig &workerConfig,
                          CStratumMessage msg) {
     ThreadData &data = Data_[GetLocalThreadId()];
@@ -1082,9 +1080,7 @@ private:
       if (share.HasShare) {
         sharePendingCheck(i,
                           share.User,
-                          share.WorkerName,
                           share.MajorJobId,
-                          share.StratumDifficulty,
                           share.WorkerConfig,
                           share.Msg);
       }

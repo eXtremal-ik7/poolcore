@@ -121,18 +121,25 @@ target_compile_options(gen_context PRIVATE ${GEN_CONTEXT_COMPILE_OPTIONS})
 # Run gen_context
 if (USE_ECMULT_STATIC_PRECOMPUTATION)
   file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/src)
-  add_custom_target(ecmult_static_context gen_context WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/src/ecmult_static_context.h
+    COMMAND gen_context
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    DEPENDS gen_context
+  )
 endif()
 
 # Main static library
-add_library(secp256k1 STATIC ${CMAKE_CURRENT_SOURCE_DIR}/src/secp256k1.c)
+add_library(secp256k1 STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/secp256k1.c
+  ${CMAKE_CURRENT_BINARY_DIR}/src/ecmult_static_context.h
+)
 if (ENABLE_TESTS)
   if (NOT MSVC)
     target_compile_definitions(secp256k1 PRIVATE -DVALGRIND)
   endif()
 endif()
 target_compile_options(secp256k1 PRIVATE ${DEFAULT_COMPILE_OPTIONS})
-add_dependencies(secp256k1 ecmult_static_context)
 
 # Tests
 if (ENABLE_TESTS)

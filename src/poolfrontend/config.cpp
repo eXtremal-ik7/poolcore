@@ -184,13 +184,6 @@ void loadNodeConfig(CNodeConfig &config, const rapidjson::Value &value, const st
   jsonParseBoolean(value, "longPollEnabled", &config.LongPollEnabled, true, error, localPath, errorDescription);
 }
 
-void CFeeConfig::load(const rapidjson::Value &value, const std::string &path, std::string &errorDescription, EErrorType *error)
-{
-  std::string localPath = path + " -> fees";
-  jsonParseString(value, "address", Address, error, localPath, errorDescription);
-  jsonParseDouble(value, "percentage", &Percentage, error, localPath, errorDescription);
-}
-
 void CCoinConfig::load(const rapidjson::Value &value, std::string &errorDescription, EErrorType *error)
 {
   jsonParseString(value, "name", Name, error, "coins", errorDescription);
@@ -226,24 +219,6 @@ void CCoinConfig::load(const rapidjson::Value &value, std::string &errorDescript
     RPCNodes.resize(array.Size());
     for (rapidjson::SizeType i = 0, ie = array.Size(); i != ie; ++i)
       loadNodeConfig(RPCNodes[i], array[i], localPath, errorDescription, error);
-  }
-
-  // Parse fees
-  if (!value.HasMember("fees")) {
-    setErrorDescription(ENotExists, error, localPath, "fees", "array of objects", errorDescription);
-    return;
-  }
-  if (!value["fees"].IsArray()) {
-    setErrorDescription(ETypeMismatch, error, localPath, "fees", "array of objects", errorDescription);
-    return;
-  }
-
-  {
-    auto array = value["fees"].GetArray();
-    Fees.resize(array.Size());
-    for (rapidjson::SizeType i = 0, ie = array.Size(); i != ie; ++i) {
-      Fees[i].load(array[i], localPath, errorDescription, error);
-    }
   }
 
   jsonParseUInt(value, "requiredConfirmations", &RequiredConfirmations, error, localPath, errorDescription);

@@ -1,0 +1,99 @@
+{
+  "poolfrontend": {
+    "isMaster": true,
+    "dbPath": "~/pooldb",
+    "httpPort": 18880,
+    "workerThreadsNum": 0,
+    "httpThreadsNum": 0,
+    "poolName": "pool",
+    "poolHostProtocol": "http",
+    "poolHostAddress": "localhost",
+    "poolActivateLinkPrefix": "/actions/useractivate?id=",
+    "poolChangePasswordLinkPrefix": "/actions/userChangePassword?id=",
+    "poolActivate2faLinkPrefix": "/actions/activate2fa?id=",
+    "poolDeactivate2faLinkPrefix": "/actions/deactivate2fa?id=",
+    "adminPasswordHash": "",
+    "observerPasswordHash": "",
+    "smtpEnabled": false,
+    "smtpServer": "smtp.gmail.com:465",
+    "smtpLogin": "user",
+    "smtpPassword": "password",
+    "smtpSenderAddress": "user@gmail.com",
+    "smtpUseSmtps": false,
+    "smtpUseStartTLS": true
+  },
+
+  "coins": [
+    {
+      "name": "BTC",
+      "getWorkNodes": [
+        {"type": "bitcoinrpc", "address": "localhost:8332", "login": "user", "password": "password", "wallet": ""}
+      ],
+      "RPCNodes": [
+        {"type": "bitcoinrpc", "address": "localhost:8332", "login": "user", "password": "password", "wallet": ""}
+      ],
+      "requiredConfirmations": 100,
+      "defaultPayoutThreshold": "0.01",
+      "minimalAllowedPayout": "0.001",
+      "keepRoundTime": 3,
+      "keepStatsTime": 2,
+      "confirmationsCheckInterval": 7,
+      "payoutInterval": 10,
+      "balanceCheckInterval": 3,
+      "statisticCheckInterval": 1,
+      "shareTarget": 2048,
+      "stratumWorkLifeTime": 9,
+      "miningAddresses": [
+        {"address": "1JR4WrV8jxv7uaKKc5hwkMKGHqsAowBC3u", "weight": 1}
+      ],
+      "coinbaseMsg": "BTC!",
+      "profitSwitchCoeff": 1.0
+    },
+    {
+      "name": "XPM",
+      "getWorkNodes": [
+        {"type": "bitcoinrpc", "address": "localhost:9912", "login": "user", "password": "password"}
+      ],
+      "RPCNodes": [
+        {"type": "bitcoinrpc", "address": "localhost:9912", "login": "user", "password": "password"}
+      ],
+      "requiredConfirmations": 12,
+      "defaultPayoutThreshold": "4",
+      "minimalAllowedPayout": "0.01",
+      "keepRoundTime": 3,
+      "keepStatsTime": 2,
+      "confirmationsCheckInterval": 7,
+      "payoutInterval": 10,
+      "balanceCheckInterval": 3,
+      "statisticCheckInterval": 1,
+      "shareTarget": 7,
+      "miningAddresses": [
+        {"address": "AMwCMstRDSmAzjChVHZ5uUcHWBuLPEFV11", "weight": 1}
+      ],
+      "coinbaseMsg": "XPM!"
+    }
+  ],
+
+  "instances": [
+    {
+      "name": "BTC/stratum",
+      "type": "BTC",
+      "protocol": "stratum",
+      "port": 3456,
+      "shareDiff": 65536,
+      "backends": ["BTC"],
+      "profitSwitcherEnabled": false,
+      "versionMask": "1FFFE000"
+    },
+    {
+      "name": "XPM/zmq",
+      "type": "XPM",
+      "protocol": "zmq",
+      "port": 6666,
+      "workerPort": 60000,
+      "hostName": "localhost",
+      "minShareLength": 7,
+      "backends": ["XPM"]
+    }
+  ]
+}

@@ -35,13 +35,13 @@ static bool checkRequest(pool::proto::Request &req,
 template<typename X>
 class ZmqInstance : public CPoolInstance {
 public:
-  ZmqInstance(asyncBase *monitorBase, UserManager &userMgr, const std::vector<PoolBackend*>&, CThreadPool &threadPool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool) {
+  ZmqInstance(asyncBase *monitorBase, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &threadPool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool) {
     Name_ = (std::string)X::Proto::TickerName + ".zmq";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
     X::Zmq::initialize();
 
-    for (size_t i = 0; i < LinkedBackends_.size(); i++)
-      BackendMap_[LinkedBackends_[i]] = i;
+    for (size_t i = 0; i < linkedBackends.size(); i++)
+      BackendMap_[linkedBackends[i]] = i;
 
     unsigned totalInstancesNum = instancesNum * threadPool.threadsNum();
     for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
@@ -54,11 +54,11 @@ public:
       X::Proto::checkConsensusInitialize(Data_[i].CheckConsensusCtx);
 
       // initialize share accumulators and flush timer
-      Data_[i].Accumulators.resize(LinkedBackends_.size());
+      Data_[i].Accumulators.resize(linkedBackends.size());
       {
         Timestamp now = Timestamp::now();
-        for (size_t j = 0; j < LinkedBackends_.size(); j++)
-          Data_[i].Accumulators[j].initialize(LinkedBackends_[j]->getCoinInfo().WorkSummaryFlushInterval, now);
+        for (size_t j = 0; j < linkedBackends.size(); j++)
+          Data_[i].Accumulators[j].initialize(linkedBackends[j]->getCoinInfo().WorkSummaryFlushInterval, now);
         Data_[i].AlgoMetaAccumulator.initialize(std::chrono::seconds(10), now, false);
       }
       Data_[i].FlushTimer = newUserEvent(Data_[i].WorkerBase, false, [](aioUserEvent*, void *arg) {
@@ -226,7 +226,6 @@ private:
   }
 
   void onShare(Connection *connection, ThreadData &data, pool::proto::Request &req, pool::proto::Reply &rep) {
-    bool shareAccepted = false;
     typename X::Zmq::Work &work = data.Work;
     uint64_t height = work.height();
     PoolBackend *backend = work.backend();
@@ -293,8 +292,6 @@ private:
       rep.set_error(pool::proto::Reply::DUPLICATED);
       return;
     }
-
-    shareAccepted = true;
 
     // check proof of work
     std::string workerId = share.name();
