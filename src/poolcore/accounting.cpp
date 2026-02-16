@@ -194,9 +194,9 @@ void AccountingDb::CPersistentState::flushPayoutQueue()
   Db.put("default", key.data(), key.size(), stream.data(), stream.sizeOf());
 }
 
-void AccountingDb::flushUserStats(Timestamp timeLabel)
+void AccountingDb::flushUserStats(Timestamp currentTime)
 {
-  UserStatsAcc_.flush(timeLabel, LastKnownShareId_, _cfg.dbPath, nullptr);
+  UserStatsAcc_.flush(currentTime, LastKnownShareId_, _cfg.dbPath, nullptr);
 }
 
 AccountingDb::AccountingDb(asyncBase *base,
@@ -278,6 +278,11 @@ AccountingDb::AccountingDb(asyncBase *base,
   if (isDebugStatistic()) {
     LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", coinInfo.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
   }
+
+  // Flush replayed data immediately so AccumulationInterval_ is reset.
+  // Otherwise, if the pool was down for a long time, the first live share
+  // would stretch the interval and corrupt grid distribution.
+  flushUserStats(Timestamp::now());
 
   ShareLog_.startLogging(lastKnownShareId() + 1);
 }

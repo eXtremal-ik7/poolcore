@@ -16,8 +16,6 @@
 
 std::string partByTime(time_t time);
 
-struct StatsRecord;
-
 struct CStats {
   std::string WorkerId;
   uint32_t ClientsNum = 0;
@@ -30,8 +28,8 @@ struct CStats {
   Timestamp LastShareTime;
   Timestamp Time;
 
-  void merge(const StatsRecord &record);
-  void mergeScaled(const StatsRecord &record, double fraction);
+  void merge(const CWorkSummary &data);
+  void mergeScaled(const CWorkSummary &data, double fraction);
 };
 
 struct CStatsSeries {
@@ -44,11 +42,13 @@ struct CStatsSeries {
 
   void addWorkSummary(const CWorkSummary &data, Timestamp time);
   void addBaseWork(uint64_t sharesNum, const UInt<256> &sharesWork, Timestamp time);
+  // currentTime — used to compute removeTimePoint = currentTime - KeepTime_;
+  // records with TimeEnd < removeTimePoint are removed from Recent (but still written to DB)
   void flush(Timestamp begin,
              Timestamp end,
              std::string_view login,
              std::string_view workerId,
-             Timestamp timeLabel,
+             Timestamp currentTime,
              kvdb<rocksdbBase>::Batch *batch,
              std::set<Timestamp> &modifiedTimes,
              std::set<Timestamp> &removedTimes);
@@ -67,17 +67,13 @@ struct CStatsFileData {
   std::vector<CWorkSummaryEntry> Records;
 };
 
-struct StatsRecord {
+struct CWorkSummaryEntryWithTime {
   enum { CurrentRecordVersion = 1 };
 
-  std::string Login;
+  std::string UserId;
   std::string WorkerId;
   TimeInterval Time;
-  Timestamp UpdateTime;
-  uint64_t ShareCount = 0;
-  UInt<256> ShareWork = UInt<256>::zero();
-  uint32_t PrimePOWTarget = -1U;
-  std::vector<uint64_t> PrimePOWShareCount;
+  CWorkSummary Data;
 
   std::string getPartitionId() const { return partByTime(Time.TimeEnd.toUnixTime()); }
   bool deserializeValue(xmstream &stream);
@@ -98,7 +94,7 @@ struct CStatsSeriesSingle {
   }
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
-  void flush(Timestamp timeLabel, uint64_t lastShareId,
+  void flush(Timestamp currentTime, uint64_t lastShareId,
              const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db);
 private:
   static TimeInterval emptyInterval() { return {Timestamp(std::chrono::milliseconds::max()), Timestamp()}; }
@@ -164,7 +160,7 @@ struct CStatsSeriesMap {
   }
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
-  void flush(Timestamp timeLabel, uint64_t lastShareId,
+  void flush(Timestamp currentTime, uint64_t lastShareId,
              const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db);
   void exportRecentStats(std::chrono::seconds window, std::vector<CStatsExportData> &result) const;
 private:

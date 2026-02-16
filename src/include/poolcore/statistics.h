@@ -114,10 +114,10 @@ private:
     uint64_t Count = 0;
   } Dbg_;
 
-  void flushPool(Timestamp timeLabel);
-  void flushUsers(Timestamp timeLabel);
-  void flushWorkers(Timestamp timeLabel);
-  void updatePoolStatsCached(Timestamp timeLabel);
+  void flushPool(Timestamp currentTime);
+  void flushUsers(Timestamp currentTime);
+  void flushWorkers(Timestamp currentTime);
+  void updatePoolStatsCached(Timestamp currentTime);
   void shareLogFlushHandler();
 
 public:

@@ -189,16 +189,16 @@ static bool migrateStats(const std::filesystem::path &srcCoinPath, const std::fi
       return false;
     }
 
-    StatsRecord newRecord;
-    newRecord.Login = oldRecord.Login;
+    CWorkSummaryEntryWithTime newRecord;
+    newRecord.UserId = oldRecord.Login;
     newRecord.WorkerId = oldRecord.WorkerId;
     // For migrated data: TimeBegin = TimeEnd (no interval info in old format)
     newRecord.Time = TimeInterval::point(Timestamp::fromUnixTime(oldRecord.Time));
-    newRecord.ShareCount = oldRecord.ShareCount;
-    newRecord.ShareWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-    newRecord.ShareWork.mulfp(oldRecord.ShareWork);
-    newRecord.PrimePOWTarget = oldRecord.PrimePOWTarget;
-    newRecord.PrimePOWShareCount = oldRecord.PrimePOWShareCount;
+    newRecord.Data.SharesNum = oldRecord.ShareCount;
+    newRecord.Data.SharesWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+    newRecord.Data.SharesWork.mulfp(oldRecord.ShareWork);
+    newRecord.Data.PrimePOWTarget = oldRecord.PrimePOWTarget;
+    newRecord.Data.PrimePOWSharesNum = oldRecord.PrimePOWShareCount;
 
     xmstream stream;
     newRecord.serializeValue(stream);

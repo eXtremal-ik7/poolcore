@@ -172,7 +172,7 @@ private:
   bool FlushFinished_ = false;
 
   void printRecentStatistic();
-  void flushUserStats(Timestamp timeLabel);
+  void flushUserStats(Timestamp currentTime);
   void shareLogFlushHandler();
 
 public:

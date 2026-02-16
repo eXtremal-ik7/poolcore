@@ -9,7 +9,7 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   PoolStatsAcc_("stats.pool.cache.3", config.StatisticPoolGridInterval, config.StatisticKeepTime),
   UserStats_("stats.users.cache.3", config.StatisticUserGridInterval, config.StatisticKeepTime),
   WorkerStats_("stats.workers.cache.3", config.StatisticWorkerGridInterval, config.StatisticKeepTime),
-  StatsDb_(_cfg.dbPath / "statistic", std::make_shared<StatsRecordMergeOperator>()),
+  StatsDb_(_cfg.dbPath / "statistic", std::make_shared<CWorkSummaryMergeOperator>()),
   ShareLog_(_cfg.dbPath / "statistic.worklog", coinInfo.Name, _cfg.ShareLogFileSizeLimit),
   TaskHandler_(this, base)
 {
@@ -33,10 +33,18 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   if (isDebugStatistic())
     LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", coinInfo.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
 
+  // Flush replayed data immediately so AccumulationInterval_ is reset.
+  // Otherwise, if the pool was down for a long time, the first live share
+  // would stretch the interval and corrupt grid distribution.
+  Timestamp now = Timestamp::now();
+  flushPool(now);
+  flushUsers(now);
+  flushWorkers(now);
+
   ShareLog_.startLogging(lastKnownShareId() + 1);
 }
 
-void StatisticDb::updatePoolStatsCached(Timestamp timeLabel)
+void StatisticDb::updatePoolStatsCached(Timestamp currentTime)
 {
   PoolStatsCached_.ClientsNum = 0;
   PoolStatsCached_.WorkersNum = 0;
@@ -44,18 +52,18 @@ void StatisticDb::updatePoolStatsCached(Timestamp timeLabel)
   // Uses the same interval as workers: a user with one worker has identical precision,
   // and multiple workers only improve it
   for (const auto &[key, acc]: UserStats_.map()) {
-    if (timeLabel - acc.LastShareTime < _cfg.StatisticWorkersPowerCalculateInterval)
+    if (currentTime - acc.LastShareTime < _cfg.StatisticWorkersPowerCalculateInterval)
       PoolStatsCached_.ClientsNum++;
   }
 
   for (const auto &[key, acc]: WorkerStats_.map()) {
-    if (timeLabel - acc.LastShareTime < _cfg.StatisticWorkersPowerCalculateInterval)
+    if (currentTime - acc.LastShareTime < _cfg.StatisticWorkersPowerCalculateInterval)
       PoolStatsCached_.WorkersNum++;
   }
 
   if (isDebugStatistic())
     LOG_F(1, "update pool stats:");
-  PoolStatsAcc_.series().calcAverageMetrics(CoinInfo_, _cfg.StatisticPoolPowerCalculateInterval, timeLabel, PoolStatsCached_);
+  PoolStatsAcc_.series().calcAverageMetrics(CoinInfo_, _cfg.StatisticPoolPowerCalculateInterval, currentTime, PoolStatsCached_);
 
   LOG_F(INFO,
         "clients: %u, workers: %u, power: %" PRIu64 ", share rate: %.3lf shares/s",
@@ -65,20 +73,20 @@ void StatisticDb::updatePoolStatsCached(Timestamp timeLabel)
         PoolStatsCached_.SharesPerSecond);
 }
 
-void StatisticDb::flushPool(Timestamp timeLabel)
+void StatisticDb::flushPool(Timestamp currentTime)
 {
-  PoolStatsAcc_.flush(timeLabel, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
-  updatePoolStatsCached(timeLabel);
+  PoolStatsAcc_.flush(currentTime, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
+  updatePoolStatsCached(currentTime);
 }
 
-void StatisticDb::flushUsers(Timestamp timeLabel)
+void StatisticDb::flushUsers(Timestamp currentTime)
 {
-  UserStats_.flush(timeLabel, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
+  UserStats_.flush(currentTime, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
 }
 
-void StatisticDb::flushWorkers(Timestamp timeLabel)
+void StatisticDb::flushWorkers(Timestamp currentTime)
 {
-  WorkerStats_.flush(timeLabel, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
+  WorkerStats_.flush(currentTime, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
 }
 
 void StatisticDb::onWorkSummary(const CWorkSummaryBatch &batch)
@@ -258,15 +266,15 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     LOG_F(1, "getHistory for %s/%s from %" PRIi64 " to %" PRIi64 " group interval %" PRIi64 "", login.c_str(), workerId.c_str(), timeFrom, timeTo, groupByInterval);
   std::unique_ptr<rocksdbBase::IteratorType> It(StatsDb_.iterator());
 
-  StatsRecord valueRecord;
+  CWorkSummaryEntryWithTime valueRecord;
   xmstream resumeKey;
-  auto validPredicate = [&login, &workerId](const StatsRecord &record) -> bool {
-    return record.Login == login && record.WorkerId == workerId;
+  auto validPredicate = [&login, &workerId](const CWorkSummaryEntryWithTime &record) -> bool {
+    return record.UserId == login && record.WorkerId == workerId;
   };
 
   {
-    StatsRecord record;
-    record.Login = login;
+    CWorkSummaryEntryWithTime record;
+    record.UserId = login;
     record.WorkerId = workerId;
     record.Time.TimeEnd = Timestamp(0);
     record.serializeKey(resumeKey);
@@ -298,11 +306,11 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     history[i].Time = firstTimeLabel + groupBy * static_cast<int64_t>(i);
 
   {
-    StatsRecord keyRecord;
-    keyRecord.Login = login;
+    CWorkSummaryEntryWithTime keyRecord;
+    keyRecord.UserId = login;
     keyRecord.WorkerId = workerId;
     keyRecord.Time.TimeEnd = gridStart;
-    It->seek<StatsRecord>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+    It->seek<CWorkSummaryEntryWithTime>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
   while (It->valid()) {
@@ -322,23 +330,23 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
       LOG_F(1,
             "getHistory: use row with time=%" PRIi64 " shares=%" PRIu64 " work=%s",
             valueRecord.Time.TimeEnd.toUnixTime(),
-            valueRecord.ShareCount,
-            valueRecord.ShareWork.getDecimal().c_str());
+            valueRecord.Data.SharesNum,
+            valueRecord.Data.SharesWork.getDecimal().c_str());
 
     Timestamp cellBegin = gridStart + groupBy * static_cast<int64_t>(firstIdx);
     Timestamp cellEnd = cellBegin + groupBy;
     for (size_t i = firstIdx; i < lastIdx; i++) {
       double fraction = overlapFraction(recordBegin, recordEnd, cellBegin, cellEnd);
       if (fraction >= 1.0)
-        history[i].merge(valueRecord);
+        history[i].merge(valueRecord.Data);
       else
-        history[i].mergeScaled(valueRecord, fraction);
+        history[i].mergeScaled(valueRecord.Data, fraction);
 
       cellBegin = cellEnd;
       cellEnd += groupBy;
     }
 
-    It->next<StatsRecord>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+    It->next<CWorkSummaryEntryWithTime>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
   // Empty cells keep PrimePOWTarget=-1U (sentinel); calculateAveragePower handles it correctly:

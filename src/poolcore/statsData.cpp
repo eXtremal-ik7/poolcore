@@ -13,20 +13,20 @@ static void dbIoUnserialize(xmstream &src, T &data) { DbIo<T>::unserialize(src, 
 template<typename T>
 static void dbKeyIoSerialize(xmstream &dst, const T &data) { DbKeyIo<T>::serialize(dst, data); }
 
-void CStats::merge(const StatsRecord &record)
+void CStats::merge(const CWorkSummary &data)
 {
-  SharesNum += record.ShareCount;
-  SharesWork += record.ShareWork;
-  PrimePOWTarget = std::min(PrimePOWTarget, record.PrimePOWTarget);
+  SharesNum += data.SharesNum;
+  SharesWork += data.SharesWork;
+  PrimePOWTarget = std::min(PrimePOWTarget, data.PrimePOWTarget);
 }
 
-void CStats::mergeScaled(const StatsRecord &record, double fraction)
+void CStats::mergeScaled(const CWorkSummary &data, double fraction)
 {
-  SharesNum += static_cast<uint64_t>(std::round(record.ShareCount * fraction));
-  UInt<256> scaledWork = record.ShareWork;
+  SharesNum += static_cast<uint64_t>(std::round(data.SharesNum * fraction));
+  UInt<256> scaledWork = data.SharesWork;
   scaledWork.mulfp(fraction);
   SharesWork += scaledWork;
-  PrimePOWTarget = std::min(PrimePOWTarget, record.PrimePOWTarget);
+  PrimePOWTarget = std::min(PrimePOWTarget, data.PrimePOWTarget);
 }
 
 void CStatsSeries::addWorkSummary(const CWorkSummary &data, Timestamp time)
@@ -90,12 +90,12 @@ void CStatsSeries::flush(Timestamp begin,
                          Timestamp end,
                          std::string_view login,
                          std::string_view workerId,
-                         Timestamp timeLabel,
+                         Timestamp currentTime,
                          kvdb<rocksdbBase>::Batch *batch,
                          std::set<Timestamp> &modifiedTimes,
                          std::set<Timestamp> &removedTimes)
 {
-  Timestamp removeTimePoint = timeLabel - KeepTime_;
+  Timestamp removeTimePoint = currentTime - KeepTime_;
 
   if (Current.SharesNum > 0 || !Current.SharesWork.isZero()) {
     Timestamp firstCellEnd = (begin + std::chrono::milliseconds(1)).alignUp(GridInterval_);
@@ -118,15 +118,11 @@ void CStatsSeries::flush(Timestamp begin,
 
       // Write to DB regardless of age
       if (batch) {
-        StatsRecord record;
-        record.Login = login;
+        CWorkSummaryEntryWithTime record;
+        record.UserId = login;
         record.WorkerId = workerId;
         record.Time = TimeInterval(cellBegin, cellEnd);
-        record.UpdateTime = timeLabel;
-        record.ShareCount = contribution.SharesNum;
-        record.ShareWork = contribution.SharesWork;
-        record.PrimePOWTarget = contribution.PrimePOWTarget;
-        record.PrimePOWShareCount = contribution.PrimePOWSharesNum;
+        record.Data = contribution;
         batch->merge(record);
       }
 
@@ -362,7 +358,7 @@ void CStatsSeriesMap::rebuildDatFile(const std::filesystem::path &dbPath, int64_
   fd.close();
 }
 
-void CStatsSeriesSingle::flush(Timestamp timeLabel, uint64_t lastShareId,
+void CStatsSeriesSingle::flush(Timestamp currentTime, uint64_t lastShareId,
                                const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db)
 {
   SavedShareId_ = lastShareId;
@@ -374,7 +370,7 @@ void CStatsSeriesSingle::flush(Timestamp timeLabel, uint64_t lastShareId,
   kvdb<rocksdbBase>::Batch batch;
   std::set<Timestamp> modifiedTimes, removedTimes;
   Series_.flush(AccumulationInterval_.TimeBegin, AccumulationInterval_.TimeEnd,
-                "", "", timeLabel, db ? &batch : nullptr, modifiedTimes, removedTimes);
+                "", "", currentTime, db ? &batch : nullptr, modifiedTimes, removedTimes);
 
   if (db)
     db->writeBatch(batch);
@@ -389,7 +385,7 @@ void CStatsSeriesSingle::flush(Timestamp timeLabel, uint64_t lastShareId,
   AccumulationInterval_ = emptyInterval();
 }
 
-void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
+void CStatsSeriesMap::flush(Timestamp currentTime, uint64_t lastShareId,
                             const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db)
 {
   SavedShareId_ = lastShareId;
@@ -407,7 +403,7 @@ void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
             it->second.Current.SharesWork.getDecimal().c_str());
 
     it->second.flush(AccumulationInterval_.TimeBegin, AccumulationInterval_.TimeEnd,
-                     login, workerId, timeLabel, db ? &batch : nullptr, modifiedTimes, removedTimes);
+                     login, workerId, currentTime, db ? &batch : nullptr, modifiedTimes, removedTimes);
 
     if (it->second.Recent.empty())
       it = Map_.erase(it);
@@ -432,10 +428,10 @@ void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
 void CStatsSeriesMap::exportRecentStats(std::chrono::seconds window, std::vector<CStatsExportData> &result) const
 {
   result.clear();
-  Timestamp timeLabel = Timestamp::now();
+  Timestamp currentTime = Timestamp::now();
   for (const auto &[key, acc]: Map_) {
     // Skip users with no shares since last flush and no recent history in window
-    Timestamp lastAcceptTime = timeLabel - window;
+    Timestamp lastAcceptTime = currentTime - window;
     bool hasRecent = !acc.Recent.empty() && acc.Recent.back().Time.TimeEnd >= lastAcceptTime;
     if (acc.Current.SharesNum == 0 && acc.Current.SharesWork.isZero() && !hasRecent)
       continue;
@@ -446,7 +442,7 @@ void CStatsSeriesMap::exportRecentStats(std::chrono::seconds window, std::vector
     if (acc.Current.SharesNum > 0 || !acc.Current.SharesWork.isZero()) {
       auto &current = userRecord.Recent.emplace_back();
       current.SharesWork = acc.Current.SharesWork;
-      current.Time.TimeEnd = timeLabel;
+      current.Time.TimeEnd = currentTime;
       current.Time.TimeBegin = AccumulationInterval_.TimeBegin;
     }
 
@@ -463,48 +459,40 @@ void CStatsSeriesMap::exportRecentStats(std::chrono::seconds window, std::vector
   std::sort(result.begin(), result.end(), [](const CStatsExportData &l, const CStatsExportData &r) { return l.UserId < r.UserId; });
 }
 
-// ====================== StatsRecord ======================
+// ====================== CWorkSummaryEntryWithTime ======================
 
-bool StatsRecord::deserializeValue(xmstream &stream)
+bool CWorkSummaryEntryWithTime::deserializeValue(xmstream &stream)
 {
   uint32_t version;
   dbIoUnserialize(stream, version);
   if (version == 1) {
-    dbIoUnserialize(stream, Login);
+    dbIoUnserialize(stream, UserId);
     dbIoUnserialize(stream, WorkerId);
     dbIoUnserialize(stream, Time);
-    dbIoUnserialize(stream, UpdateTime);
-    dbIoUnserialize(stream, ShareCount);
-    dbIoUnserialize(stream, ShareWork);
-    dbIoUnserialize(stream, PrimePOWTarget);
-    dbIoUnserialize(stream, PrimePOWShareCount);
+    DbIo<CWorkSummary>::unserialize(stream, Data);
   }
 
   return !stream.eof();
 }
 
-bool StatsRecord::deserializeValue(const void *data, size_t size)
+bool CWorkSummaryEntryWithTime::deserializeValue(const void *data, size_t size)
 {
   xmstream stream((void*)data, size);
   return deserializeValue(stream);
 }
 
-void StatsRecord::serializeKey(xmstream &stream) const
+void CWorkSummaryEntryWithTime::serializeKey(xmstream &stream) const
 {
-  dbKeyIoSerialize(stream, Login);
+  dbKeyIoSerialize(stream, UserId);
   dbKeyIoSerialize(stream, WorkerId);
   DbKeyIo<Timestamp>::serialize(stream, Time.TimeEnd);
 }
 
-void StatsRecord::serializeValue(xmstream &stream) const
+void CWorkSummaryEntryWithTime::serializeValue(xmstream &stream) const
 {
   dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
-  dbIoSerialize(stream, Login);
+  dbIoSerialize(stream, UserId);
   dbIoSerialize(stream, WorkerId);
   dbIoSerialize(stream, Time);
-  dbIoSerialize(stream, UpdateTime);
-  dbIoSerialize(stream, ShareCount);
-  dbIoSerialize(stream, ShareWork);
-  dbIoSerialize(stream, PrimePOWTarget);
-  dbIoSerialize(stream, PrimePOWShareCount);
+  DbIo<CWorkSummary>::serialize(stream, Data);
 }

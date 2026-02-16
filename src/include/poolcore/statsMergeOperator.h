@@ -3,7 +3,7 @@
 #include "rocksdb/merge_operator.h"
 #include <memory>
 
-class StatsRecordMergeOperator : public rocksdb::AssociativeMergeOperator {
+class CWorkSummaryMergeOperator : public rocksdb::AssociativeMergeOperator {
 public:
   bool Merge(const rocksdb::Slice &key,
              const rocksdb::Slice *existing_value,
@@ -11,5 +11,5 @@ public:
              std::string *new_value,
              rocksdb::Logger *logger) const override;
 
-  const char *Name() const override { return "StatsRecordMergeOperator"; }
+  const char *Name() const override { return "CWorkSummaryMergeOperator"; }
 };

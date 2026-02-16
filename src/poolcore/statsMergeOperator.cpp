@@ -2,39 +2,27 @@
 #include "poolcore/statsData.h"
 #include "p2putils/xmstream.h"
 
-bool StatsRecordMergeOperator::Merge(const rocksdb::Slice &key,
-                                     const rocksdb::Slice *existing_value,
-                                     const rocksdb::Slice &value,
-                                     std::string *new_value,
-                                     rocksdb::Logger *logger) const
+bool CWorkSummaryMergeOperator::Merge(const rocksdb::Slice &key,
+                                      const rocksdb::Slice *existing_value,
+                                      const rocksdb::Slice &value,
+                                      std::string *new_value,
+                                      rocksdb::Logger *logger) const
 {
   if (!existing_value) {
     new_value->assign(value.data(), value.size());
     return true;
   }
 
-  StatsRecord existing;
+  CWorkSummaryEntryWithTime existing;
   if (!existing.deserializeValue(existing_value->data(), existing_value->size()))
     return false;
 
-  StatsRecord incoming;
+  CWorkSummaryEntryWithTime incoming;
   if (!incoming.deserializeValue(value.data(), value.size()))
     return false;
 
-  // Login/WorkerId are always identical — they are part of the RocksDB key,
-  // so RocksDB only merges records with the same key
-  existing.ShareCount += incoming.ShareCount;
-  existing.ShareWork += incoming.ShareWork;
-  existing.PrimePOWTarget = std::min(existing.PrimePOWTarget, incoming.PrimePOWTarget);
-
-  if (incoming.PrimePOWShareCount.size() > existing.PrimePOWShareCount.size())
-    existing.PrimePOWShareCount.resize(incoming.PrimePOWShareCount.size());
-  for (size_t i = 0; i < incoming.PrimePOWShareCount.size(); i++)
-    existing.PrimePOWShareCount[i] += incoming.PrimePOWShareCount[i];
-
+  existing.Data.merge(incoming.Data);
   existing.Time.TimeBegin = std::min(existing.Time.TimeBegin, incoming.Time.TimeBegin);
-  // TimeEnd stays the same (grid-aligned, same key)
-  existing.UpdateTime = std::max(existing.UpdateTime, incoming.UpdateTime);
 
   xmstream stream;
   existing.serializeValue(stream);
