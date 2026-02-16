@@ -115,6 +115,8 @@ bool AccountingDb::CPersistentState::load()
   if (CurrentRoundStartTime == Timestamp())
     CurrentRoundStartTime = Timestamp::now();
 
+  LastAcceptedMsgId_ = SavedShareId;
+
   if (SavedShareId != 0) {
     LOG_F(INFO, "AccountingDb: loaded state from db, SavedShareId=%" PRIu64 "", SavedShareId);
     return true;
@@ -122,15 +124,15 @@ bool AccountingDb::CPersistentState::load()
   return false;
 }
 
-void AccountingDb::CPersistentState::flushCurrentScores(uint64_t lastKnownShareId)
+void AccountingDb::CPersistentState::flushCurrentScores()
 {
-  SavedShareId = lastKnownShareId;
+  SavedShareId = LastAcceptedMsgId_;
   rocksdbBase::CBatch batch = Db.batch("default");
 
-  // Save lastKnownShareId
+  // Save LastAcceptedMsgId_
   {
     xmstream stream;
-    DbIo<uint64_t>::serialize(stream, lastKnownShareId);
+    DbIo<uint64_t>::serialize(stream, LastAcceptedMsgId_);
     std::string key = "lastmsgid";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
@@ -146,15 +148,15 @@ void AccountingDb::CPersistentState::flushCurrentScores(uint64_t lastKnownShareI
   Db.writeBatch(batch);
 }
 
-void AccountingDb::CPersistentState::flushBlockFoundState(uint64_t lastKnownShareId)
+void AccountingDb::CPersistentState::flushBlockFoundState()
 {
-  SavedShareId = lastKnownShareId;
+  SavedShareId = LastAcceptedMsgId_;
   rocksdbBase::CBatch batch = Db.batch("default");
 
-  // Save lastKnownShareId
+  // Save LastAcceptedMsgId_
   {
     xmstream stream;
-    DbIo<uint64_t>::serialize(stream, lastKnownShareId);
+    DbIo<uint64_t>::serialize(stream, LastAcceptedMsgId_);
     std::string key = "lastmsgid";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
@@ -196,7 +198,7 @@ void AccountingDb::CPersistentState::flushPayoutQueue()
 
 void AccountingDb::flushUserStats(Timestamp currentTime)
 {
-  UserStatsAcc_.flush(currentTime, LastKnownShareId_, _cfg.dbPath, nullptr);
+  UserStatsAcc_.flush(currentTime, _cfg.dbPath, nullptr);
 }
 
 AccountingDb::AccountingDb(asyncBase *base,
@@ -228,7 +230,6 @@ AccountingDb::AccountingDb(asyncBase *base,
   State_.load();
   UserStatsAcc_.load(_cfg.dbPath, coinInfo.Name);
   UserStatsFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  LastKnownShareId_ = std::max(State_.SavedShareId, UserStatsAcc_.savedShareId());
   LOG_F(INFO, "loaded %u payouts from db", static_cast<unsigned>(State_.PayoutQueue.size()));
 
   {
@@ -264,7 +265,8 @@ AccountingDb::AccountingDb(asyncBase *base,
   }
 
   ShareLog_.replay([this](uint64_t messageId, const CUserWorkSummaryBatch &batch) {
-    replayUserWorkSummary(messageId, batch);
+    State_.addScores(messageId, batch);
+    UserStatsAcc_.addBaseWorkBatch(messageId, batch);
   });
 
   printRecentStatistic();
@@ -275,10 +277,6 @@ AccountingDb::AccountingDb(asyncBase *base,
   } else {
     LOG_F(INFO, "[%s] current scores is empty", CoinInfo_.Name.c_str());
   }
-  if (isDebugStatistic()) {
-    LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", coinInfo.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
-  }
-
   // Flush replayed data immediately so AccumulationInterval_ is reset.
   // Otherwise, if the pool was down for a long time, the first live share
   // would stretch the interval and corrupt grid distribution.
@@ -307,7 +305,7 @@ void AccountingDb::start()
     AccountingDb *db = static_cast<AccountingDb*>(arg);
     for (;;) {
       ioSleep(db->FlushTimerEvent_, std::chrono::microseconds(std::chrono::minutes(1)).count());
-      db->State_.flushCurrentScores(db->LastKnownShareId_);
+      db->State_.flushCurrentScores();
       if (db->ShutdownRequested_)
         break;
     }
@@ -471,11 +469,8 @@ void AccountingDb::calculatePayments(MiningRound *R, const UInt<384> &generatedC
 void AccountingDb::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
 {
   uint64_t messageId = ShareLog_.addShare(batch);
-  for (const auto &score : batch.Entries) {
-    State_.CurrentScores[score.UserId] += score.AcceptedWork;
-    UserStatsAcc_.addBaseWork(score.UserId, "", score.SharesNum, score.AcceptedWork, batch.Time);
-  }
-  LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
+  State_.addScores(messageId, batch);
+  UserStatsAcc_.addBaseWorkBatch(messageId, batch);
 }
 
 void AccountingDb::onBlockFound(const CBlockFoundData &block)
@@ -565,25 +560,7 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block)
   State_.CurrentRoundStartTime = R->EndTime;
 
   // Save state to db
-  State_.flushBlockFoundState(LastKnownShareId_);
-}
-
-void AccountingDb::replayUserWorkSummary(uint64_t messageId, const CUserWorkSummaryBatch &batch)
-{
-  for (const auto &score : batch.Entries) {
-    if (messageId > State_.SavedShareId)
-      State_.CurrentScores[score.UserId] += score.AcceptedWork;
-    if (messageId > UserStatsAcc_.savedShareId())
-      UserStatsAcc_.addBaseWork(score.UserId, "", score.SharesNum, score.AcceptedWork, batch.Time);
-  }
-
-  LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
-  if (isDebugAccounting()) {
-    Dbg_.MinShareId = std::min(Dbg_.MinShareId, messageId);
-    Dbg_.MaxShareId = std::max(Dbg_.MaxShareId, messageId);
-    if (messageId > State_.SavedShareId)
-      Dbg_.Count++;
-  }
+  State_.flushBlockFoundState();
 }
 
 void AccountingDb::processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash, bool *roundUpdated)

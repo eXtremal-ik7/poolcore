@@ -22,12 +22,20 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   UserStats_.load(_cfg.dbPath, coinInfo.Name);
   PoolStatsAcc_.load(_cfg.dbPath, coinInfo.Name);
 
-  LastKnownShareId_ = std::max({WorkerStats_.savedShareId(), UserStats_.savedShareId(), PoolStatsAcc_.savedShareId()});
   if (isDebugStatistic())
     LOG_F(1, "%s: last aggregated id: %" PRIu64 " last known id: %" PRIu64 "", coinInfo.Name.c_str(), lastAggregatedShareId(), lastKnownShareId());
 
   ShareLog_.replay([this](uint64_t messageId, const CWorkSummaryBatch &batch) {
-    replayWorkSummary(messageId, batch);
+    WorkerStats_.addBatch(messageId, batch);
+    UserStats_.addBatch(messageId, batch, false);
+    PoolStatsAcc_.addBatch(messageId, batch);
+    if (!batch.Entries.empty())
+      PoolStatsCached_.LastShareTime = batch.Time.TimeEnd;
+    if (isDebugStatistic()) {
+      Dbg_.MinShareId = std::min(Dbg_.MinShareId, messageId);
+      Dbg_.MaxShareId = std::max(Dbg_.MaxShareId, messageId);
+      Dbg_.Count++;
+    }
   });
 
   if (isDebugStatistic())
@@ -75,50 +83,28 @@ void StatisticDb::updatePoolStatsCached(Timestamp currentTime)
 
 void StatisticDb::flushPool(Timestamp currentTime)
 {
-  PoolStatsAcc_.flush(currentTime, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
+  PoolStatsAcc_.flush(currentTime, _cfg.dbPath, &StatsDb_);
   updatePoolStatsCached(currentTime);
 }
 
 void StatisticDb::flushUsers(Timestamp currentTime)
 {
-  UserStats_.flush(currentTime, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
+  UserStats_.flush(currentTime, _cfg.dbPath, &StatsDb_);
 }
 
 void StatisticDb::flushWorkers(Timestamp currentTime)
 {
-  WorkerStats_.flush(currentTime, LastKnownShareId_, _cfg.dbPath, &StatsDb_);
+  WorkerStats_.flush(currentTime, _cfg.dbPath, &StatsDb_);
 }
 
 void StatisticDb::onWorkSummary(const CWorkSummaryBatch &batch)
 {
   uint64_t messageId = ShareLog_.addShare(batch);
-  for (const auto &entry : batch.Entries) {
-    WorkerStats_.addWorkSummary(entry.UserId, entry.WorkerId, entry.Data, batch.Time);
-    UserStats_.addWorkSummary(entry.UserId, "", entry.Data, batch.Time);
-    PoolStatsAcc_.addWorkSummary(entry.Data, batch.Time);
+  WorkerStats_.addBatch(messageId, batch);
+  UserStats_.addBatch(messageId, batch, false);
+  PoolStatsAcc_.addBatch(messageId, batch);
+  if (!batch.Entries.empty())
     PoolStatsCached_.LastShareTime = batch.Time.TimeEnd;
-  }
-  LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
-}
-
-void StatisticDb::replayWorkSummary(uint64_t messageId, const CWorkSummaryBatch &batch)
-{
-  for (const auto &entry : batch.Entries) {
-    if (messageId > WorkerStats_.savedShareId())
-      WorkerStats_.addWorkSummary(entry.UserId, entry.WorkerId, entry.Data, batch.Time);
-    if (messageId > UserStats_.savedShareId())
-      UserStats_.addWorkSummary(entry.UserId, "", entry.Data, batch.Time);
-    if (messageId > PoolStatsAcc_.savedShareId())
-      PoolStatsAcc_.addWorkSummary(entry.Data, batch.Time);
-    PoolStatsCached_.LastShareTime = batch.Time.TimeEnd;
-  }
-  LastKnownShareId_ = std::max(LastKnownShareId_, messageId);
-
-  if (isDebugStatistic()) {
-    Dbg_.MinShareId = std::min(Dbg_.MinShareId, messageId);
-    Dbg_.MaxShareId = std::max(Dbg_.MaxShareId, messageId);
-    Dbg_.Count++;
-  }
 }
 
 

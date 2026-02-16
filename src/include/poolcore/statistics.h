@@ -85,7 +85,6 @@ private:
 private:
   const PoolBackendConfig _cfg;
   CCoinInfo CoinInfo_;
-  uint64_t LastKnownShareId_ = 0;
   // Accumulators
   CStatsSeriesSingle PoolStatsAcc_;
   CStatsSeriesMap UserStats_;
@@ -123,18 +122,21 @@ private:
 public:
   // Initialization
   StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo);
-  void replayWorkSummary(uint64_t messageId, const CWorkSummaryBatch &batch);
   void start();
   void stop();
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
 
   void onWorkSummary(const CWorkSummaryBatch &batch);
 
-  // Min of accumulators' savedShareId; ShareLog replays shares starting from this point
-  uint64_t lastAggregatedShareId() { return std::min({WorkerStats_.savedShareId(), UserStats_.savedShareId(), PoolStatsAcc_.savedShareId()}); }
+  // Min of accumulators' lastSavedMsgId; ShareLog replays shares starting from this point
+  uint64_t lastAggregatedShareId() {
+    return std::min({WorkerStats_.lastSavedMsgId(), UserStats_.lastSavedMsgId(), PoolStatsAcc_.lastSavedMsgId()});
+  }
 
   // Max share id ever seen; ShareLog uses it to continue UniqueShareId numbering after restart
-  uint64_t lastKnownShareId() { return LastKnownShareId_; }
+  uint64_t lastKnownShareId() {
+    return std::max({WorkerStats_.lastAcceptedMsgId(), UserStats_.lastAcceptedMsgId(), PoolStatsAcc_.lastAcceptedMsgId()});
+  }
 
   // Not thread-safe — must only be called from the statistics event loop thread
   const CStats &getPoolStats() { return PoolStatsCached_; }

@@ -58,26 +58,35 @@ private:
 
 class CPoolInstance {
 public:
-  CPoolInstance(asyncBase *base, UserManager &userMgr, CThreadPool &threadPool) : MonitorBase_(base), UserMgr_(userMgr), ThreadPool_(threadPool) {}
+  CPoolInstance(asyncBase *base,
+                UserManager &userMgr,
+                const std::vector<PoolBackend*> &linkedBackends,
+                CThreadPool &threadPool,
+                StatisticServer *algoMetaStatistic,
+                ComplexMiningStats *miningStats)
+      : MonitorBase_(base),
+        UserMgr_(userMgr),
+        LinkedBackends_(linkedBackends),
+        ThreadPool_(threadPool),
+        AlgoMetaStatistic_(algoMetaStatistic),
+        MiningStats_(miningStats) {}
+
   virtual ~CPoolInstance() {}
 
   // Functions running in listener thread
+  /// Start timers and network listeners (must be called after full initialization)
+  virtual void start() = 0;
   /// Send all miners stopping work signal
   virtual void stopWork() = 0;
   /// Function for interact with bitcoin RPC clients
   /// @arg blockTemplate: deserialized 'getblocktemplate' response
   virtual void checkNewBlockTemplate(CBlockTemplate *blockTemplate, PoolBackend *backend) = 0;
 
-  void setAlgoMetaStatistic(StatisticServer *server) { AlgoMetaStatistic_ = server; }
-  void setComplexMiningStats(ComplexMiningStats *miningStats) { MiningStats_ = miningStats; }
-
-  void addBackend(PoolBackend *backend) { LinkedBackends_.push_back(backend); }
-
 protected:
   asyncBase *MonitorBase_;
   UserManager &UserMgr_;
-  CThreadPool &ThreadPool_;
   std::vector<PoolBackend*> LinkedBackends_;
-  StatisticServer* AlgoMetaStatistic_ = nullptr;
+  CThreadPool &ThreadPool_;
+  StatisticServer *AlgoMetaStatistic_ = nullptr;
   ComplexMiningStats *MiningStats_ = nullptr;
 };

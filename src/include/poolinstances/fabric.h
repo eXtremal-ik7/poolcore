@@ -6,7 +6,9 @@
 #include <functional>
 #include <unordered_map>
 
+class ComplexMiningStats;
 class CPriceFetcher;
+class StatisticServer;
 class UserManager;
 
 class PoolInstanceFabric {
@@ -15,6 +17,8 @@ public:
                             UserManager &userMgr,
                             const std::vector<PoolBackend*> &linkedBackends,
                             CThreadPool &pool,
+                            StatisticServer *algoMetaStatistic,
+                            ComplexMiningStats *miningStats,
                             const std::string &type,
                             const std::string &protocol,
                             unsigned instanceId,
@@ -23,7 +27,17 @@ public:
                             CPriceFetcher *priceFetcher);
 
 private:
-  using NewPoolInstanceFunction = std::function<CPoolInstance*(asyncBase*, UserManager&, const std::vector<PoolBackend*>&, CThreadPool&, unsigned, unsigned, rapidjson::Value&, CPriceFetcher*)>;
+  using NewPoolInstanceFunction = std::function<CPoolInstance*(
+    asyncBase*,
+    UserManager&,
+    const std::vector<PoolBackend*>&,
+    CThreadPool&,
+    StatisticServer*,
+    ComplexMiningStats*,
+    unsigned,
+    unsigned,
+    rapidjson::Value&,
+    CPriceFetcher*)>;
 
 private:
   static std::unordered_map<std::string, NewPoolInstanceFunction> FabricData_;

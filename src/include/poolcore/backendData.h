@@ -1,6 +1,7 @@
 #ifndef __BACKEND_DATA_H_
 #define __BACKEND_DATA_H_
 
+#include "poolcore/workSummary.h"
 #include "poolcommon/baseBlob.h"
 #include "poolcommon/serialize.h"
 #include "poolcommon/uint.h"
@@ -25,17 +26,6 @@ struct CBlockFoundData {
   uint32_t PrimePOWTarget;
 };
 
-struct CUserWorkSummary {
-  std::string UserId;
-  UInt<256> AcceptedWork;
-  uint64_t SharesNum = 0;
-  Timestamp Time;
-};
-
-struct CUserWorkSummaryBatch {
-  TimeInterval Time;
-  std::vector<CUserWorkSummary> Entries;
-};
 
 struct CMiningAddress {
   std::string MiningAddress;
@@ -470,23 +460,6 @@ struct DbIo<CUserPayout> {
   }
 };
 
-template<>
-struct DbIo<CUserWorkSummary> {
-  static inline void serialize(xmstream &stream, const CUserWorkSummary &data) {
-    DbIo<decltype(data.UserId)>::serialize(stream, data.UserId);
-    DbIo<decltype(data.AcceptedWork)>::serialize(stream, data.AcceptedWork);
-    DbIo<decltype(data.SharesNum)>::serialize(stream, data.SharesNum);
-    DbIo<decltype(data.Time)>::serialize(stream, data.Time);
-  }
-
-  static inline void unserialize(xmstream &stream, CUserWorkSummary &data) {
-    DbIo<decltype(data.UserId)>::unserialize(stream, data.UserId);
-    DbIo<decltype(data.AcceptedWork)>::unserialize(stream, data.AcceptedWork);
-    DbIo<decltype(data.SharesNum)>::unserialize(stream, data.SharesNum);
-    DbIo<decltype(data.Time)>::unserialize(stream, data.Time);
-  }
-};
-
 // For backward compatibility
 struct UserShareValue1 {
   std::string userId;
@@ -508,24 +481,5 @@ struct DbIo<UserShareValue1> {
   }
 };
 
-template<typename T> struct ShareLogIo;
-
-template<>
-struct ShareLogIo<CUserWorkSummaryBatch> {
-  static inline void serialize(xmstream &out, const CUserWorkSummaryBatch &data) {
-    DbIo<TimeInterval>::serialize(out, data.Time);
-    DbIo<uint32_t>::serialize(out, static_cast<uint32_t>(data.Entries.size()));
-    for (const auto &entry : data.Entries)
-      DbIo<CUserWorkSummary>::serialize(out, entry);
-  }
-  static inline void unserialize(xmstream &in, CUserWorkSummaryBatch &data) {
-    DbIo<TimeInterval>::unserialize(in, data.Time);
-    uint32_t count;
-    DbIo<uint32_t>::unserialize(in, count);
-    data.Entries.resize(count);
-    for (auto &entry : data.Entries)
-      DbIo<CUserWorkSummary>::unserialize(in, entry);
-  }
-};
 
 #endif //__BACKEND_DATA_H_

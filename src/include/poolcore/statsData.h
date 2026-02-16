@@ -83,19 +83,30 @@ struct CWorkSummaryEntryWithTime {
 };
 
 struct CStatsSeriesSingle {
+
+public:
   CStatsSeriesSingle(const std::string &cachePath, std::chrono::minutes gridInterval, std::chrono::minutes keepTime)
     : CachePath_(cachePath), GridInterval_(gridInterval), KeepTime_(keepTime), Series_(gridInterval, keepTime) {}
+
   CStatsSeries& series() { return Series_; }
   const CStatsSeries& series() const { return Series_; }
-  uint64_t savedShareId() const { return SavedShareId_; }
-  void addWorkSummary(const CWorkSummary &data, TimeInterval interval) {
-    AccumulationInterval_.expand(interval);
-    Series_.addWorkSummary(data, interval.TimeEnd);
+  uint64_t lastSavedMsgId() const { return LastSavedMsgId_; }
+  uint64_t lastAcceptedMsgId() const { return LastAcceptedMsgId_; }
+
+  void addBatch(uint64_t msgId, const CWorkSummaryBatch &batch) {
+    if (msgId <= LastAcceptedMsgId_)
+      return;
+    LastAcceptedMsgId_ = msgId;
+    AccumulationInterval_.expand(batch.Time);
+    for (const auto &entry : batch.Entries)
+      Series_.Current.merge(entry.Data);
+    if (!batch.Entries.empty())
+      Series_.LastShareTime = batch.Time.TimeEnd;
   }
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
-  void flush(Timestamp currentTime, uint64_t lastShareId,
-             const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db);
+  void flush(Timestamp currentTime, const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db);
+
 private:
   static TimeInterval emptyInterval() { return {Timestamp(std::chrono::milliseconds::max()), Timestamp()}; }
   void rebuildDatFile(const std::filesystem::path &dbPath, int64_t gridEndMs);
@@ -104,7 +115,8 @@ private:
   std::chrono::minutes GridInterval_;
   std::chrono::minutes KeepTime_;
   CStatsSeries Series_;
-  uint64_t SavedShareId_ = 0;
+  uint64_t LastSavedMsgId_ = 0;
+  uint64_t LastAcceptedMsgId_ = 0;
   TimeInterval AccumulationInterval_ = emptyInterval();
 };
 
@@ -144,25 +156,43 @@ struct CStatsExportData {
 };
 
 struct CStatsSeriesMap {
+
+public:
   CStatsSeriesMap(const std::string &cachePath, std::chrono::minutes gridInterval, std::chrono::minutes keepTime)
     : CachePath_(cachePath), GridInterval_(gridInterval), KeepTime_(keepTime) {}
+
   std::map<std::string, CStatsSeries>& map() { return Map_; }
   const std::map<std::string, CStatsSeries>& map() const { return Map_; }
-  uint64_t savedShareId() const { return SavedShareId_; }
-  void addWorkSummary(const std::string &login, const std::string &workerId, const CWorkSummary &data, TimeInterval interval) {
-    AccumulationInterval_.expand(interval);
-    Map_.try_emplace(makeStatsKey(login, workerId), GridInterval_, KeepTime_).first->second.addWorkSummary(data, interval.TimeEnd);
+  uint64_t lastSavedMsgId() const { return LastSavedMsgId_; }
+  uint64_t lastAcceptedMsgId() const { return LastAcceptedMsgId_; }
+
+  void addBatch(uint64_t msgId, const CWorkSummaryBatch &batch, bool useWorkerId = true) {
+    if (msgId <= LastAcceptedMsgId_)
+      return;
+    LastAcceptedMsgId_ = msgId;
+    AccumulationInterval_.expand(batch.Time);
+    for (const auto &entry : batch.Entries)
+      Map_.try_emplace(
+        makeStatsKey(entry.UserId, useWorkerId ? entry.WorkerId : std::string()),
+        GridInterval_,
+        KeepTime_)
+        .first->second.addWorkSummary(entry.Data, batch.Time.TimeEnd);
   }
 
-  void addBaseWork(const std::string &login, const std::string &workerId, uint64_t sharesNum, const UInt<256> &sharesWork, TimeInterval interval) {
-    AccumulationInterval_.expand(interval);
-    Map_.try_emplace(makeStatsKey(login, workerId), GridInterval_, KeepTime_).first->second.addBaseWork(sharesNum, sharesWork, interval.TimeEnd);
+  void addBaseWorkBatch(uint64_t msgId, const CUserWorkSummaryBatch &batch) {
+    if (msgId <= LastAcceptedMsgId_)
+      return;
+    LastAcceptedMsgId_ = msgId;
+    AccumulationInterval_.expand(batch.Time);
+    for (const auto &entry : batch.Entries)
+      Map_.try_emplace(makeStatsKey(entry.UserId, ""), GridInterval_, KeepTime_)
+        .first->second.addBaseWork(entry.SharesNum, entry.AcceptedWork, batch.Time.TimeEnd);
   }
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
-  void flush(Timestamp currentTime, uint64_t lastShareId,
-             const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db);
+  void flush(Timestamp currentTime, const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db);
   void exportRecentStats(std::chrono::seconds window, std::vector<CStatsExportData> &result) const;
+
 private:
   static TimeInterval emptyInterval() { return {Timestamp(std::chrono::milliseconds::max()), Timestamp()}; }
   void rebuildDatFile(const std::filesystem::path &dbPath, int64_t gridEndMs);
@@ -171,49 +201,9 @@ private:
   std::chrono::minutes GridInterval_;
   std::chrono::minutes KeepTime_;
   std::map<std::string, CStatsSeries> Map_;
-  uint64_t SavedShareId_ = 0;
+  uint64_t LastSavedMsgId_ = 0;
+  uint64_t LastAcceptedMsgId_ = 0;
   TimeInterval AccumulationInterval_ = emptyInterval();
-};
-
-template<>
-struct DbIo<CWorkSummary> {
-  static inline void serialize(xmstream &out, const CWorkSummary &data) {
-    DbIo<decltype(data.SharesNum)>::serialize(out, data.SharesNum);
-    DbIo<decltype(data.SharesWork)>::serialize(out, data.SharesWork);
-    DbIo<decltype(data.PrimePOWTarget)>::serialize(out, data.PrimePOWTarget);
-    DbIo<decltype(data.PrimePOWSharesNum)>::serialize(out, data.PrimePOWSharesNum);
-  }
-
-  static inline void unserialize(xmstream &in, CWorkSummary &data) {
-    DbIo<decltype(data.SharesNum)>::unserialize(in, data.SharesNum);
-    DbIo<decltype(data.SharesWork)>::unserialize(in, data.SharesWork);
-    DbIo<decltype(data.PrimePOWTarget)>::unserialize(in, data.PrimePOWTarget);
-    DbIo<decltype(data.PrimePOWSharesNum)>::unserialize(in, data.PrimePOWSharesNum);
-  }
-};
-
-template<>
-struct DbIo<CWorkSummaryEntry> {
-  static inline void serialize(xmstream &out, const CWorkSummaryEntry &data) {
-    DbIo<uint32_t>::serialize(out, data.CurrentRecordVersion);
-    DbIo<decltype(data.UserId)>::serialize(out, data.UserId);
-    DbIo<decltype(data.WorkerId)>::serialize(out, data.WorkerId);
-    DbIo<decltype(data.Data)>::serialize(out, data.Data);
-  }
-
-  static inline void unserialize(xmstream &in, CWorkSummaryEntry &data) {
-    uint32_t version;
-    DbIo<uint32_t>::unserialize(in, version);
-    if (version == 1) {
-      DbIo<decltype(data.UserId)>::unserialize(in, data.UserId);
-      DbIo<decltype(data.WorkerId)>::unserialize(in, data.WorkerId);
-      DbIo<decltype(data.Data)>::unserialize(in, data.Data);
-    } else {
-      // Unknown version — skip the rest of the file; remaining records are
-      // discarded intentionally since we cannot parse them reliably
-      in.seekEnd(0, true);
-    }
-  }
 };
 
 template<>
@@ -266,26 +256,6 @@ struct DbIo<CStatsExportData> {
     } else {
       in.seekEnd(0, true);
     }
-  }
-};
-
-template<typename T> struct ShareLogIo;
-
-template<>
-struct ShareLogIo<CWorkSummaryBatch> {
-  static inline void serialize(xmstream &out, const CWorkSummaryBatch &data) {
-    DbIo<TimeInterval>::serialize(out, data.Time);
-    DbIo<uint32_t>::serialize(out, static_cast<uint32_t>(data.Entries.size()));
-    for (const auto &entry : data.Entries)
-      DbIo<CWorkSummaryEntry>::serialize(out, entry);
-  }
-  static inline void unserialize(xmstream &in, CWorkSummaryBatch &data) {
-    DbIo<TimeInterval>::unserialize(in, data.Time);
-    uint32_t count;
-    DbIo<uint32_t>::unserialize(in, count);
-    data.Entries.resize(count);
-    for (auto &entry : data.Entries)
-      DbIo<CWorkSummaryEntry>::unserialize(in, entry);
   }
 };
 

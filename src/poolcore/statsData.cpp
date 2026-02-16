@@ -184,7 +184,6 @@ static bool parseStatsCacheFile(const std::string &coinName, CDatFile &file, CSt
   }
 
   file.LastShareId = fileData.LastShareId;
-  LOG_F(INFO, "<%s> Statistic cache file %s loaded successfully", coinName.c_str(), path_to_utf8(file.Path).c_str());
   return true;
 }
 
@@ -193,6 +192,7 @@ void CStatsSeriesSingle::load(const std::filesystem::path &dbPath, const std::st
   std::deque<CDatFile> files;
   enumerateDatFiles(files, dbPath / CachePath_, 3, true);
 
+  size_t loadedCount = 0;
   for (auto &file : files) {
     CStatsFileData fileData;
     if (!parseStatsCacheFile(coinName, file, fileData)) {
@@ -201,14 +201,21 @@ void CStatsSeriesSingle::load(const std::filesystem::path &dbPath, const std::st
     }
 
     if (fileData.Records.size() != 1) {
-      LOG_F(ERROR, "<%s> Pool stats file has %zu records, expected 1: %s", coinName.c_str(), fileData.Records.size(), path_to_utf8(file.Path).c_str());
+      LOG_F(ERROR,
+            "<%s> Pool stats file has %zu records, expected 1: %s",
+            coinName.c_str(),
+            fileData.Records.size(),
+            path_to_utf8(file.Path).c_str());
       std::filesystem::remove(file.Path);
       continue;
     }
 
     const auto &record = fileData.Records[0];
     if (!record.UserId.empty() || !record.WorkerId.empty()) {
-      LOG_F(ERROR, "<%s> Pool stats record has non-empty login/workerId: %s", coinName.c_str(), path_to_utf8(file.Path).c_str());
+      LOG_F(ERROR,
+            "<%s> Pool stats record has non-empty login/workerId: %s",
+            coinName.c_str(),
+            path_to_utf8(file.Path).c_str());
       std::filesystem::remove(file.Path);
       continue;
     }
@@ -229,8 +236,12 @@ void CStatsSeriesSingle::load(const std::filesystem::path &dbPath, const std::st
             record.Data.SharesWork.getDecimal().c_str());
     }
 
-    SavedShareId_ = std::max(SavedShareId_, file.LastShareId);
+    LastSavedMsgId_ = std::max(LastSavedMsgId_, file.LastShareId);
+    loadedCount++;
   }
+
+  LOG_F(INFO, "<%s> Loaded %zu pool stats cache files from %s", coinName.c_str(), loadedCount, path_to_utf8(CachePath_).c_str());
+  LastAcceptedMsgId_ = LastSavedMsgId_;
 }
 
 void CStatsSeriesMap::load(const std::filesystem::path &dbPath, const std::string &coinName)
@@ -238,6 +249,7 @@ void CStatsSeriesMap::load(const std::filesystem::path &dbPath, const std::strin
   std::deque<CDatFile> files;
   enumerateDatFiles(files, dbPath / CachePath_, 3, true);
 
+  size_t loadedCount = 0;
   for (auto &file : files) {
     CStatsFileData fileData;
     if (!parseStatsCacheFile(coinName, file, fileData)) {
@@ -271,8 +283,12 @@ void CStatsSeriesMap::load(const std::filesystem::path &dbPath, const std::strin
       }
     }
 
-    SavedShareId_ = std::max(SavedShareId_, file.LastShareId);
+    LastSavedMsgId_ = std::max(LastSavedMsgId_, file.LastShareId);
+    loadedCount++;
   }
+
+  LOG_F(INFO, "<%s> Loaded %zu stats cache files from %s", coinName.c_str(), loadedCount, path_to_utf8(CachePath_).c_str());
+  LastAcceptedMsgId_ = LastSavedMsgId_;
 }
 
 static void writeStatsRecord(const std::string &userId, const std::string &workerId, const CWorkSummary &data, xmstream &out)
@@ -297,7 +313,7 @@ void CStatsSeriesSingle::rebuildDatFile(const std::filesystem::path &dbPath, int
   for (auto it = Series_.Recent.rbegin(); it != Series_.Recent.rend(); ++it) {
     if (it->Time.TimeEnd == gridEnd) {
       xmstream stream;
-      DbIo<CStatsFileData>::serializeHeader(stream, SavedShareId_, 1);
+      DbIo<CStatsFileData>::serializeHeader(stream, LastSavedMsgId_, 1);
       writeStatsRecord("", "", it->Data, stream);
 
       auto filePath = datFilePath(dbPath, CachePath_, gridEndMs);
@@ -345,7 +361,7 @@ void CStatsSeriesMap::rebuildDatFile(const std::filesystem::path &dbPath, int64_
     return;
 
   xmstream header;
-  DbIo<CStatsFileData>::serializeHeader(header, SavedShareId_, recordCount);
+  DbIo<CStatsFileData>::serializeHeader(header, LastSavedMsgId_, recordCount);
 
   auto filePath = datFilePath(dbPath, CachePath_, gridEndMs);
   FileDescriptor fd;
@@ -358,10 +374,10 @@ void CStatsSeriesMap::rebuildDatFile(const std::filesystem::path &dbPath, int64_
   fd.close();
 }
 
-void CStatsSeriesSingle::flush(Timestamp currentTime, uint64_t lastShareId,
+void CStatsSeriesSingle::flush(Timestamp currentTime,
                                const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db)
 {
-  SavedShareId_ = lastShareId;
+  LastSavedMsgId_ = LastAcceptedMsgId_;
   if (isDebugStatistic() && (Series_.Current.SharesNum > 0 || !Series_.Current.SharesWork.isZero()))
     LOG_F(1, "Flush pool statistics (shares=%" PRIu64 ", work=%s)",
           Series_.Current.SharesNum,
@@ -385,10 +401,10 @@ void CStatsSeriesSingle::flush(Timestamp currentTime, uint64_t lastShareId,
   AccumulationInterval_ = emptyInterval();
 }
 
-void CStatsSeriesMap::flush(Timestamp currentTime, uint64_t lastShareId,
+void CStatsSeriesMap::flush(Timestamp currentTime,
                             const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db)
 {
-  SavedShareId_ = lastShareId;
+  LastSavedMsgId_ = LastAcceptedMsgId_;
 
   kvdb<rocksdbBase>::Batch batch;
   std::set<Timestamp> modifiedTimes, removedTimes;

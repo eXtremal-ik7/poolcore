@@ -35,7 +35,17 @@ static bool checkRequest(pool::proto::Request &req,
 template<typename X>
 class ZmqInstance : public CPoolInstance {
 public:
-  ZmqInstance(asyncBase *monitorBase, UserManager &userMgr, const std::vector<PoolBackend*> &linkedBackends, CThreadPool &threadPool, unsigned instanceId, unsigned instancesNum, rapidjson::Value &config) : CPoolInstance(monitorBase, userMgr, threadPool) {
+  ZmqInstance(asyncBase *monitorBase,
+              UserManager &userMgr,
+              const std::vector<PoolBackend*> &linkedBackends,
+              CThreadPool &threadPool,
+              StatisticServer *algoMetaStatistic,
+              ComplexMiningStats *miningStats,
+              unsigned instanceId,
+              unsigned instancesNum,
+              rapidjson::Value &config)
+      : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic, miningStats)
+  {
     Name_ = (std::string)X::Proto::TickerName + ".zmq";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
     X::Zmq::initialize();
@@ -64,7 +74,6 @@ public:
       Data_[i].FlushTimer = newUserEvent(Data_[i].WorkerBase, false, [](aioUserEvent*, void *arg) {
         static_cast<ZmqInstance*>(arg)->flushWork();
       }, this);
-      userEventStartTimer(Data_[i].FlushTimer, 1000000, 0);
     }
 
     if (!(config.HasMember("port") && config["port"].IsInt() &&
@@ -74,19 +83,38 @@ public:
       exit(1);
     }
 
-    uint16_t port = config["port"].GetInt();
+    ListenPort_ = config["port"].GetInt();
     WorkerPort_ = config["workerPort"].GetInt();
     HostName_ = config["hostName"].GetString();
 
     X::Zmq::initializeMiningConfig(MiningCfg_, config);
+  }
+
+  virtual void start() override {
+    for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
+      userEventStartTimer(Data_[i].FlushTimer, 1000000, 0);
 
     // Frontend listener
-    createListener(monitorBase, port, [](socketTy socket, HostAddress, void *arg) { static_cast<ZmqInstance*>(arg)->newFrontendConnection(socket); }, this);
+    createListener(MonitorBase_, ListenPort_, [](socketTy socket, HostAddress, void *arg) {
+      static_cast<ZmqInstance*>(arg)->newFrontendConnection(socket);
+    }, this);
 
     // Worker/signal listeners (2*<worker num> ports used)
-    for (unsigned i = 0; i < threadPool.threadsNum(); i++) {
-      createListener(Data_[i].WorkerBase, WorkerPort_ + i*2, [](socketTy socket, HostAddress address, void *arg) { static_cast<ZmqInstance*>(arg)->newWorkerConnection(socket, address); }, this);
-      createListener(Data_[i].WorkerBase, WorkerPort_ + i*2 + 1, [](socketTy socket, HostAddress, void *arg) { static_cast<ZmqInstance*>(arg)->newSignalsConnection(socket); }, this);
+    for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++) {
+      createListener(
+        Data_[i].WorkerBase,
+        WorkerPort_ + i*2,
+        [](socketTy socket, HostAddress address, void *arg) {
+          static_cast<ZmqInstance*>(arg)->newWorkerConnection(socket, address);
+        },
+        this);
+      createListener(
+        Data_[i].WorkerBase,
+        WorkerPort_ + i*2 + 1,
+        [](socketTy socket, HostAddress, void *arg) {
+          static_cast<ZmqInstance*>(arg)->newSignalsConnection(socket);
+        },
+        this);
     }
   }
 
@@ -564,6 +592,7 @@ private:
   std::unique_ptr<ThreadData[]> Data_;
   std::unordered_map<PoolBackend*, size_t> BackendMap_;
   unsigned CurrentWorker_ = 0;
+  uint16_t ListenPort_ = 0;
   uint16_t WorkerPort_ = 0;
   std::string HostName_;
   typename X::Zmq::MiningConfig MiningCfg_;

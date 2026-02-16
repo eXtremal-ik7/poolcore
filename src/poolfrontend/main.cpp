@@ -404,37 +404,68 @@ int main(int argc, char *argv[])
       }
 
 
-      CPoolInstance *instance = PoolInstanceFabric::get(monitorBase, *poolContext.UserMgr, linkedBackends, *poolContext.ThreadPool, instanceConfig.Type, instanceConfig.Protocol, static_cast<unsigned>(instIdx), static_cast<unsigned>(instIdxE), instanceConfig.InstanceConfig, poolContext.PriceFetcher.get());
+      // Validate that all linked backends use the same algorithm
+      std::string algo;
+      for (PoolBackend *linkedBackend: linkedBackends) {
+        if (!algo.empty() && linkedBackend->getCoinInfo().Algorithm != algo) {
+          LOG_F(ERROR,
+                "Linked backends with different algorithms (%s and %s) to one instance %s",
+                algo.c_str(),
+                linkedBackend->getCoinInfo().Algorithm.c_str(),
+                instanceConfig.Name.c_str());
+          return 1;
+        }
+
+        algo = linkedBackend->getCoinInfo().Algorithm;
+      }
+
+      StatisticServer *algoMetaStatistic = linkedBackends[0]->getAlgoMetaStatistic();
+      CPoolInstance *instance = PoolInstanceFabric::get(
+        monitorBase,
+        *poolContext.UserMgr,
+        linkedBackends,
+        *poolContext.ThreadPool,
+        algoMetaStatistic,
+        poolContext.MiningStats.get(),
+        instanceConfig.Type,
+        instanceConfig.Protocol,
+        static_cast<unsigned>(instIdx),
+        static_cast<unsigned>(instIdxE),
+        instanceConfig.InstanceConfig,
+        poolContext.PriceFetcher.get());
       if (!instance) {
         // Try create pool instances using extras
         for (const auto &proc: gPluginContext.CreatePoolInstanceProcs) {
-          instance = proc(monitorBase, *poolContext.UserMgr, linkedBackends, *poolContext.ThreadPool, instanceConfig.Type, instanceConfig.Protocol, static_cast<unsigned>(instIdx), static_cast<unsigned>(instIdxE), instanceConfig.InstanceConfig, poolContext.PriceFetcher.get());
+          instance = proc(
+            monitorBase,
+            *poolContext.UserMgr,
+            linkedBackends,
+            *poolContext.ThreadPool,
+            algoMetaStatistic,
+            poolContext.MiningStats.get(),
+            instanceConfig.Type,
+            instanceConfig.Protocol,
+            static_cast<unsigned>(instIdx),
+            static_cast<unsigned>(instIdxE),
+            instanceConfig.InstanceConfig,
+            poolContext.PriceFetcher.get());
           if (instance)
             break;
         }
 
         if (!instance) {
-          LOG_F(ERROR, "Can't create instance with type '%s' and prorotol '%s'", instanceConfig.Type.c_str(), instanceConfig.Protocol.c_str());
+          LOG_F(ERROR,
+                "Can't create instance with type '%s' and prorotol '%s'",
+                instanceConfig.Type.c_str(),
+                instanceConfig.Protocol.c_str());
           return 1;
         }
       }
 
-      instance->setComplexMiningStats(poolContext.MiningStats.get());
-
-      std::string algo;
-      for (PoolBackend *linkedBackend: linkedBackends) {
-        if (!algo.empty() && linkedBackend->getCoinInfo().Algorithm != algo) {
-          LOG_F(ERROR, "Linked backends with different algorithms (%s and %s) to one instance %s", algo.c_str(), linkedBackend->getCoinInfo().Algorithm.c_str(), instanceConfig.Name.c_str());
-          return 1;
-        }
-
-        algo = linkedBackend->getCoinInfo().Algorithm;
-
+      for (PoolBackend *linkedBackend: linkedBackends)
         linkedBackend->getClientDispatcher().connectWith(instance);
-        // TODO: send linked backend list to instance
-        instance->setAlgoMetaStatistic(linkedBackend->getAlgoMetaStatistic());
-      }
 
+      instance->start();
       poolContext.Instances[instIdx].reset(instance);
     }
   }

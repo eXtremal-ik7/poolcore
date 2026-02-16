@@ -124,6 +124,8 @@ private:
   std::set<MiningRound*> UnpayedRounds_;
   // Persistent state stored in accounting.state RocksDB
   struct CPersistentState {
+
+  public:
     // Accumulated share work per user for the current block search session; cleared on block found
     std::map<std::string, UInt<256>> CurrentScores;
     std::vector<CStatsExportData> RecentStats;
@@ -136,19 +138,26 @@ private:
 
     CPersistentState(const std::filesystem::path &dbPath);
     bool load();
-    void flushCurrentScores(uint64_t lastKnownShareId);
-    void flushBlockFoundState(uint64_t lastKnownShareId);
+    uint64_t lastAcceptedMsgId() const { return LastAcceptedMsgId_; }
+
+    void addScores(uint64_t msgId, const CUserWorkSummaryBatch &batch) {
+      if (msgId <= LastAcceptedMsgId_)
+        return;
+      LastAcceptedMsgId_ = msgId;
+      for (const auto &entry : batch.Entries)
+        CurrentScores[entry.UserId] += entry.AcceptedWork;
+    }
+
+    void flushCurrentScores();
+    void flushBlockFoundState();
     void flushPayoutQueue();
+
+  private:
+    uint64_t LastAcceptedMsgId_ = 0;
   };
 
   CPersistentState State_;
 
-  // Debugging only
-  struct {
-    uint64_t MinShareId = std::numeric_limits<uint64_t>::max();
-    uint64_t MaxShareId = 0;
-    uint64_t Count = 0;
-  } Dbg_;
   kvdb<rocksdbBase> _roundsDb;
   kvdb<rocksdbBase> _balanceDb;
   kvdb<rocksdbBase> _foundBlocksDb;
@@ -156,8 +165,6 @@ private:
   kvdb<rocksdbBase> _payoutDb;
   kvdb<rocksdbBase> PPLNSPayoutsDb;
   ShareLog<CUserWorkSummaryBatch> ShareLog_;
-
-  uint64_t LastKnownShareId_ = 0;
 
   CStatsSeriesMap UserStatsAcc_;
   aioUserEvent *UserStatsFlushEvent_;
@@ -185,8 +192,8 @@ public:
 
   void taskHandler();
 
-  uint64_t lastAggregatedShareId() { return std::min(State_.SavedShareId, UserStatsAcc_.savedShareId()); }
-  uint64_t lastKnownShareId() { return LastKnownShareId_; }
+  uint64_t lastAggregatedShareId() { return std::min(State_.SavedShareId, UserStatsAcc_.lastSavedMsgId()); }
+  uint64_t lastKnownShareId() { return std::max(State_.lastAcceptedMsgId(), UserStatsAcc_.lastAcceptedMsgId()); }
 
   void start();
   void stop();
@@ -198,7 +205,6 @@ public:
   void calculatePayments(MiningRound *R, const UInt<384> &generatedCoins);
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
   void onBlockFound(const CBlockFoundData &block);
-  void replayUserWorkSummary(uint64_t messageId, const CUserWorkSummaryBatch &batch);
   void processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash, bool *roundUpdated);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();

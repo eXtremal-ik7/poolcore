@@ -59,10 +59,15 @@ public:
                   UserManager &userMgr,
                   const std::vector<PoolBackend*> &linkedBackends,
                   CThreadPool &threadPool,
+                  StatisticServer *algoMetaStatistic,
+                  ComplexMiningStats *miningStats,
                   unsigned instanceId,
                   unsigned instancesNum,
                   rapidjson::Value &config,
-                  CPriceFetcher *priceFetcher) : CPoolInstance(monitorBase, userMgr, threadPool), CurrentThreadId_(0), PriceFetcher_(priceFetcher)
+                  CPriceFetcher *priceFetcher)
+      : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic, miningStats),
+        CurrentThreadId_(0),
+        PriceFetcher_(priceFetcher)
   {
     // Parse config
     jp::EErrorType acc = jp::EOk;
@@ -157,20 +162,27 @@ public:
       Data_[i].FlushTimer = newUserEvent(Data_[i].WorkerBase, false, [](aioUserEvent*, void *arg) {
         static_cast<StratumInstance*>(arg)->flushWork();
       }, this);
-      userEventStartTimer(Data_[i].FlushTimer, 1000000, 0);
 
       if (hasRtt) {
         Data_[i].Timer = newUserEvent(Data_[i].WorkerBase, false, [](aioUserEvent*, void *arg) {
           ((StratumInstance*)(arg))->rttTimerCb();
         }, this);
-        userEventStartTimer(Data_[i].Timer, 1000000, 0);
       }
     }
 
+    HasRtt_ = hasRtt;
+    ListenPort_ = port;
     X::Stratum::miningConfigInitialize(MiningCfg_, config);
+  }
 
-    // Main listener
-    createListener(monitorBase, port, [](socketTy socket, HostAddress address, void *arg) {
+  virtual void start() override {
+    for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++) {
+      userEventStartTimer(Data_[i].FlushTimer, 1000000, 0);
+      if (HasRtt_)
+        userEventStartTimer(Data_[i].Timer, 1000000, 0);
+    }
+
+    createListener(MonitorBase_, ListenPort_, [](socketTy socket, HostAddress address, void *arg) {
       static_cast<StratumInstance*>(arg)->newFrontendConnection(socket, address);
     }, this);
   }
@@ -1113,6 +1125,9 @@ private:
 
   // ASIC boost 'overt' data
   uint32_t VersionMask_ = 0x1FFFE000;
+
+  bool HasRtt_ = false;
+  uint16_t ListenPort_ = 0;
 
   // Price fetcher
   CPriceFetcher *PriceFetcher_ = nullptr;
