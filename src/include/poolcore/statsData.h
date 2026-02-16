@@ -35,24 +35,28 @@ struct CStats {
 };
 
 struct CStatsSeries {
+  CStatsSeries(std::chrono::minutes gridInterval, std::chrono::minutes keepTime)
+    : GridInterval_(gridInterval), KeepTime_(keepTime) {}
+
   std::deque<CWorkSummaryWithTime> Recent;
   CWorkSummary Current;
   Timestamp LastShareTime;
 
   void addWorkSummary(const CWorkSummary &data, Timestamp time);
   void addBaseWork(uint64_t sharesNum, const UInt<256> &sharesWork, Timestamp time);
-  void merge(std::vector<CWorkSummaryWithTime> &cells);
-  void flush(int64_t beginMs,
-             int64_t endMs,
-             int64_t gridIntervalMs,
-             Timestamp removeTimePoint,
+  void flush(Timestamp begin,
+             Timestamp end,
              std::string_view login,
              std::string_view workerId,
              Timestamp timeLabel,
              kvdb<rocksdbBase>::Batch *batch,
-             std::set<int64_t> &modifiedTimes,
-             std::set<int64_t> &removedTimes);
+             std::set<Timestamp> &modifiedTimes,
+             std::set<Timestamp> &removedTimes);
   void calcAverageMetrics(const CCoinInfo &coinInfo, std::chrono::seconds calculateInterval, Timestamp now, CStats &result) const;
+
+private:
+  std::chrono::minutes GridInterval_;
+  std::chrono::minutes KeepTime_;
 };
 
 // +file serialization
@@ -84,7 +88,7 @@ struct StatsRecord {
 
 struct CStatsSeriesSingle {
   CStatsSeriesSingle(const std::string &cachePath, std::chrono::minutes gridInterval, std::chrono::minutes keepTime)
-    : CachePath_(cachePath), GridInterval_(gridInterval), KeepTime_(keepTime) {}
+    : CachePath_(cachePath), GridInterval_(gridInterval), KeepTime_(keepTime), Series_(gridInterval, keepTime) {}
   CStatsSeries& series() { return Series_; }
   const CStatsSeries& series() const { return Series_; }
   uint64_t savedShareId() const { return SavedShareId_; }
@@ -151,12 +155,12 @@ struct CStatsSeriesMap {
   uint64_t savedShareId() const { return SavedShareId_; }
   void addWorkSummary(const std::string &login, const std::string &workerId, const CWorkSummary &data, TimeInterval interval) {
     AccumulationInterval_.expand(interval);
-    Map_[makeStatsKey(login, workerId)].addWorkSummary(data, interval.TimeEnd);
+    Map_.try_emplace(makeStatsKey(login, workerId), GridInterval_, KeepTime_).first->second.addWorkSummary(data, interval.TimeEnd);
   }
 
   void addBaseWork(const std::string &login, const std::string &workerId, uint64_t sharesNum, const UInt<256> &sharesWork, TimeInterval interval) {
     AccumulationInterval_.expand(interval);
-    Map_[makeStatsKey(login, workerId)].addBaseWork(sharesNum, sharesWork, interval.TimeEnd);
+    Map_.try_emplace(makeStatsKey(login, workerId), GridInterval_, KeepTime_).first->second.addBaseWork(sharesNum, sharesWork, interval.TimeEnd);
   }
 
   void load(const std::filesystem::path &dbPath, const std::string &coinName);

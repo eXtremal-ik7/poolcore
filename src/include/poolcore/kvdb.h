@@ -63,6 +63,14 @@ public:
       data.serializeKey(stream);
       getBatch(data.getPartitionId()).deleteRow((const uint8_t*)stream.data(), stream.sizeOf());
     }
+
+    bool empty() const {
+      for (const auto &b : Batches_) {
+        if (b.Batch.Count() > 0)
+          return false;
+      }
+      return true;
+    }
   };
 
   template<typename D>

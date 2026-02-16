@@ -17,8 +17,7 @@ struct CWorkSummary {
 
   void reset();
   void merge(const CWorkSummary &other);
-  CWorkSummary scaled(double fraction) const;
-  std::vector<CWorkSummaryWithTime> distributeToGrid(int64_t beginMs, int64_t endMs, int64_t gridIntervalMs) const;
+  void mergeScaled(const CWorkSummary &other, double fraction);
 };
 
 struct CWorkSummaryWithTime {

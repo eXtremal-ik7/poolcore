@@ -42,26 +42,6 @@ void CStatsSeries::addBaseWork(uint64_t sharesNum, const UInt<256> &sharesWork, 
   LastShareTime = time;
 }
 
-void CStatsSeries::merge(std::vector<CWorkSummaryWithTime> &cells)
-{
-  if (cells.empty())
-    return;
-  int64_t ci = static_cast<int64_t>(cells.size()) - 1;
-  int64_t ri = static_cast<int64_t>(Recent.size()) - 1;
-  while (ci >= 0) {
-    if (ri >= 0 && cells[ci].Time.TimeEnd == Recent[ri].Time.TimeEnd) {
-      Recent[ri--].Data.merge(cells[ci--].Data);
-    } else if (ri < 0 || cells[ci].Time.TimeEnd > Recent[ri].Time.TimeEnd) {
-      // Insert at the correct sorted position; in practice only appends at the end
-      Recent.insert(Recent.begin() + (ri + 1), std::move(cells[ci--]));
-    } else {
-      ri--;
-    }
-  }
-  if (!Recent.empty())
-    LastShareTime = std::max(LastShareTime, Recent.back().Time.TimeEnd);
-}
-
 void CStatsSeries::calcAverageMetrics(const CCoinInfo &coinInfo, std::chrono::seconds calculateInterval, Timestamp now, CStats &result) const
 {
   Timestamp windowBegin = now - calculateInterval;
@@ -106,40 +86,78 @@ void CStatsSeries::calcAverageMetrics(const CCoinInfo &coinInfo, std::chrono::se
   result.LastShareTime = LastShareTime;
 }
 
-void CStatsSeries::flush(int64_t beginMs,
-                         int64_t endMs,
-                         int64_t gridIntervalMs,
-                         Timestamp removeTimePoint,
+void CStatsSeries::flush(Timestamp begin,
+                         Timestamp end,
                          std::string_view login,
                          std::string_view workerId,
                          Timestamp timeLabel,
                          kvdb<rocksdbBase>::Batch *batch,
-                         std::set<int64_t> &modifiedTimes,
-                         std::set<int64_t> &removedTimes)
+                         std::set<Timestamp> &modifiedTimes,
+                         std::set<Timestamp> &removedTimes)
 {
+  Timestamp removeTimePoint = timeLabel - KeepTime_;
+
   if (Current.SharesNum > 0 || !Current.SharesWork.isZero()) {
-    auto cells = Current.distributeToGrid(beginMs, endMs, gridIntervalMs);
-    merge(cells);
-    Current.reset();
-    for (const auto &element : cells) {
+    Timestamp firstCellEnd = (begin + std::chrono::milliseconds(1)).alignUp(GridInterval_);
+    Timestamp lastCellEnd = end.alignUp(GridInterval_);
+
+    auto recentIt = Recent.begin();
+    for (Timestamp cellEnd = firstCellEnd; cellEnd <= lastCellEnd; cellEnd += GridInterval_) {
+      Timestamp cellBegin = cellEnd - GridInterval_;
+
+      double fraction = overlapFraction(begin, end, cellBegin, cellEnd);
+      if (fraction <= 0.0)
+        continue;
+
+      // Compute contribution for this cell
+      CWorkSummary contribution;
+      if (fraction >= 1.0)
+        contribution = Current;
+      else
+        contribution.mergeScaled(Current, fraction);
+
+      // Write to DB regardless of age
       if (batch) {
         StatsRecord record;
         record.Login = login;
         record.WorkerId = workerId;
-        record.Time = element.Time;
+        record.Time = TimeInterval(cellBegin, cellEnd);
         record.UpdateTime = timeLabel;
-        record.ShareCount = element.Data.SharesNum;
-        record.ShareWork = element.Data.SharesWork;
-        record.PrimePOWTarget = element.Data.PrimePOWTarget;
-        record.PrimePOWShareCount = element.Data.PrimePOWSharesNum;
+        record.ShareCount = contribution.SharesNum;
+        record.ShareWork = contribution.SharesWork;
+        record.PrimePOWTarget = contribution.PrimePOWTarget;
+        record.PrimePOWShareCount = contribution.PrimePOWSharesNum;
         batch->merge(record);
       }
-      modifiedTimes.insert(element.Time.TimeEnd.count());
+
+      // Skip adding to Recent if cell is too old
+      if (cellEnd < removeTimePoint)
+        continue;
+
+      // Advance iterator to find or insert position
+      while (recentIt != Recent.end() && recentIt->Time.TimeEnd < cellEnd)
+        ++recentIt;
+
+      // Merge contribution into Recent
+      if (recentIt != Recent.end() && recentIt->Time.TimeEnd == cellEnd) {
+        recentIt->Data.merge(contribution);
+      } else {
+        CWorkSummaryWithTime cell;
+        cell.Time = TimeInterval(cellBegin, cellEnd);
+        cell.Data = contribution;
+        recentIt = Recent.insert(recentIt, cell);
+      }
+
+      modifiedTimes.insert(cellEnd);
     }
+
+    Current.reset();
+    if (!Recent.empty())
+      LastShareTime = std::max(LastShareTime, Recent.back().Time.TimeEnd);
   }
 
   while (!Recent.empty() && Recent.front().Time.TimeEnd < removeTimePoint) {
-    removedTimes.insert(Recent.front().Time.TimeEnd.count());
+    removedTimes.insert(Recent.front().Time.TimeEnd);
     Recent.pop_front();
   }
 }
@@ -239,7 +257,7 @@ void CStatsSeriesMap::load(const std::filesystem::path &dbPath, const std::strin
     auto hint = Map_.begin();
     for (const auto &record : fileData.Records) {
       auto key = makeStatsKey(record.UserId, record.WorkerId);
-      hint = Map_.try_emplace(hint, std::move(key));
+      hint = Map_.try_emplace(hint, std::move(key), GridInterval_, KeepTime_);
       auto &acc = hint->second;
       CWorkSummaryWithTime entry;
       entry.Time = cellTime;
@@ -353,25 +371,20 @@ void CStatsSeriesSingle::flush(Timestamp timeLabel, uint64_t lastShareId,
           Series_.Current.SharesNum,
           Series_.Current.SharesWork.getDecimal().c_str());
 
-  int64_t gridIntervalMs = std::chrono::duration_cast<std::chrono::milliseconds>(GridInterval_).count();
-  Timestamp removeTimePoint = timeLabel - KeepTime_;
-
   kvdb<rocksdbBase>::Batch batch;
-  std::set<int64_t> modifiedTimes, removedTimes;
-  int64_t beginMs = AccumulationInterval_.TimeBegin.count();
-  int64_t endMs = std::max(AccumulationInterval_.TimeEnd, timeLabel).count();
-  Series_.flush(beginMs, endMs, gridIntervalMs, removeTimePoint,
+  std::set<Timestamp> modifiedTimes, removedTimes;
+  Series_.flush(AccumulationInterval_.TimeBegin, AccumulationInterval_.TimeEnd,
                 "", "", timeLabel, db ? &batch : nullptr, modifiedTimes, removedTimes);
 
   if (db)
     db->writeBatch(batch);
 
-  for (int64_t t : removedTimes)
+  for (Timestamp t : removedTimes)
     modifiedTimes.erase(t);
-  for (int64_t t : modifiedTimes)
-    rebuildDatFile(dbPath, t);
-  for (int64_t t : removedTimes)
-    removeDatFile(dbPath, CachePath_, t);
+  for (Timestamp t : modifiedTimes)
+    rebuildDatFile(dbPath, t.count());
+  for (Timestamp t : removedTimes)
+    removeDatFile(dbPath, CachePath_, t.count());
 
   AccumulationInterval_ = emptyInterval();
 }
@@ -380,14 +393,9 @@ void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
                             const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db)
 {
   SavedShareId_ = lastShareId;
-  int64_t gridIntervalMs = std::chrono::duration_cast<std::chrono::milliseconds>(GridInterval_).count();
-  Timestamp removeTimePoint = timeLabel - KeepTime_;
-
-  int64_t beginMs = AccumulationInterval_.TimeBegin.count();
-  int64_t endMs = std::max(AccumulationInterval_.TimeEnd, timeLabel).count();
 
   kvdb<rocksdbBase>::Batch batch;
-  std::set<int64_t> modifiedTimes, removedTimes;
+  std::set<Timestamp> modifiedTimes, removedTimes;
   for (auto it = Map_.begin(); it != Map_.end(); ) {
     auto [login, workerId] = splitStatsKey(it->first);
 
@@ -398,7 +406,7 @@ void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
             it->second.Current.SharesNum,
             it->second.Current.SharesWork.getDecimal().c_str());
 
-    it->second.flush(beginMs, endMs, gridIntervalMs, removeTimePoint,
+    it->second.flush(AccumulationInterval_.TimeBegin, AccumulationInterval_.TimeEnd,
                      login, workerId, timeLabel, db ? &batch : nullptr, modifiedTimes, removedTimes);
 
     if (it->second.Recent.empty())
@@ -411,12 +419,12 @@ void CStatsSeriesMap::flush(Timestamp timeLabel, uint64_t lastShareId,
     db->writeBatch(batch);
 
   // Don't rebuild .dat files for times that will be removed anyway (data aged past KeepTime)
-  for (int64_t t : removedTimes)
+  for (Timestamp t : removedTimes)
     modifiedTimes.erase(t);
-  for (int64_t t : modifiedTimes)
-    rebuildDatFile(dbPath, t);
-  for (int64_t t : removedTimes)
-    removeDatFile(dbPath, CachePath_, t);
+  for (Timestamp t : modifiedTimes)
+    rebuildDatFile(dbPath, t.count());
+  for (Timestamp t : removedTimes)
+    removeDatFile(dbPath, CachePath_, t.count());
 
   AccumulationInterval_ = emptyInterval();
 }
