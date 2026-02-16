@@ -69,7 +69,8 @@ public:
         Timestamp now = Timestamp::now();
         for (size_t j = 0; j < linkedBackends.size(); j++)
           Data_[i].Accumulators[j].initialize(linkedBackends[j]->getCoinInfo().WorkSummaryFlushInterval, now);
-        Data_[i].AlgoMetaAccumulator.initialize(std::chrono::seconds(10), now, false);
+        if (AlgoMetaStatistic_)
+          Data_[i].AlgoMetaAccumulator.initialize(AlgoMetaStatistic_->coinInfo().WorkSummaryFlushInterval, now, false);
       }
       Data_[i].FlushTimer = newUserEvent(Data_[i].WorkerBase, false, [](aioUserEvent*, void *arg) {
         static_cast<ZmqInstance*>(arg)->flushWork();
@@ -182,15 +183,16 @@ private:
       auto &acc = data.Accumulators[i];
       if (acc.shouldFlush(now)) {
         if (!acc.empty()) {
-          LinkedBackends_[i]->sendWorkSummary(acc.takeWorkerBatch());
-          LinkedBackends_[i]->sendUserWorkSummary(acc.takeUserBatch());
+          auto batch = acc.takeBatch();
+          LinkedBackends_[i]->sendWorkSummary(std::move(batch.Workers));
+          LinkedBackends_[i]->sendUserWorkSummary(std::move(batch.Users));
         }
         acc.resetFlushTime(now);
       }
     }
     if (AlgoMetaStatistic_ && data.AlgoMetaAccumulator.shouldFlush(now)) {
       if (!data.AlgoMetaAccumulator.empty())
-        AlgoMetaStatistic_->sendWorkSummary(data.AlgoMetaAccumulator.takeWorkerBatch());
+        AlgoMetaStatistic_->sendWorkSummary(std::move(data.AlgoMetaAccumulator.takeBatch().Workers));
       data.AlgoMetaAccumulator.resetFlushTime(now);
     }
   }
@@ -199,12 +201,13 @@ private:
     ThreadData &data = Data_[GetLocalThreadId()];
     auto &acc = data.Accumulators[globalBackendIdx];
     if (!acc.empty()) {
-      LinkedBackends_[globalBackendIdx]->sendWorkSummary(acc.takeWorkerBatch());
-      LinkedBackends_[globalBackendIdx]->sendUserWorkSummary(acc.takeUserBatch());
+      auto batch = acc.takeBatch();
+      LinkedBackends_[globalBackendIdx]->sendWorkSummary(std::move(batch.Workers));
+      LinkedBackends_[globalBackendIdx]->sendUserWorkSummary(std::move(batch.Users));
     }
     acc.resetFlushTime(Timestamp::now());
     if (AlgoMetaStatistic_ && !data.AlgoMetaAccumulator.empty()) {
-      AlgoMetaStatistic_->sendWorkSummary(data.AlgoMetaAccumulator.takeWorkerBatch());
+      AlgoMetaStatistic_->sendWorkSummary(std::move(data.AlgoMetaAccumulator.takeBatch().Workers));
       data.AlgoMetaAccumulator.resetFlushTime(Timestamp::now());
     }
   }

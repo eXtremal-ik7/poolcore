@@ -5,7 +5,13 @@
 #include <chrono>
 #include <map>
 
+struct CAccumulatorBatch {
+  CWorkSummaryBatch Workers;
+  CUserWorkSummaryBatch Users;
+};
+
 class CShareAccumulator {
+
 public:
   void initialize(std::chrono::seconds flushInterval, Timestamp now, bool accumulateUsers = true);
 
@@ -13,8 +19,7 @@ public:
                 const UInt<256> &workValue, Timestamp time,
                 double chainLength, uint32_t primePOWTarget, bool isPrimePOW);
 
-  CWorkSummaryBatch takeWorkerBatch();
-  CUserWorkSummaryBatch takeUserBatch();
+  CAccumulatorBatch takeBatch();
   bool empty() const;
   bool shouldFlush(Timestamp now) const { return now >= NextFlushTime_; }
   void resetFlushTime(Timestamp now) { NextFlushTime_ = now + FlushInterval_; }

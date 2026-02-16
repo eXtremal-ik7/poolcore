@@ -16,6 +16,10 @@
 
 std::string partByTime(time_t time);
 
+// Maximum reasonable time span for a single batch or accumulation interval.
+// Anything larger indicates corrupted timestamps and should be dropped.
+static constexpr auto MaxBatchTimeInterval = std::chrono::hours(1);
+
 struct CStats {
   std::string WorkerId;
   uint32_t ClientsNum = 0;

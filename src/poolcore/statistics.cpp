@@ -99,6 +99,16 @@ void StatisticDb::flushWorkers(Timestamp currentTime)
 
 void StatisticDb::onWorkSummary(const CWorkSummaryBatch &batch)
 {
+  if (batch.Time.TimeBegin > batch.Time.TimeEnd ||
+      (batch.Time.TimeEnd - batch.Time.TimeBegin) > MaxBatchTimeInterval) {
+    LOG_F(ERROR,
+          "StatisticDb::onWorkSummary: invalid batch time [%" PRId64 ", %" PRId64 "], %zu entries dropped",
+          batch.Time.TimeBegin.count(),
+          batch.Time.TimeEnd.count(),
+          batch.Entries.size());
+    return;
+  }
+
   uint64_t messageId = ShareLog_.addShare(batch);
   WorkerStats_.addBatch(messageId, batch);
   UserStats_.addBatch(messageId, batch, false);

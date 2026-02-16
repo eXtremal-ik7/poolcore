@@ -36,11 +36,14 @@ void CShareAccumulator::addShare(const std::string &userId, const std::string &w
   }
 }
 
-CWorkSummaryBatch CShareAccumulator::takeWorkerBatch()
+CAccumulatorBatch CShareAccumulator::takeBatch()
 {
-  CWorkSummaryBatch batch;
-  batch.Time = {BatchFirstTime_, BatchLastTime_};
-  batch.Entries.reserve(Workers_.size());
+  CAccumulatorBatch result;
+  TimeInterval time = {BatchFirstTime_, BatchLastTime_};
+
+  // Workers
+  result.Workers.Time = time;
+  result.Workers.Entries.reserve(Workers_.size());
   for (auto &[key, w] : Workers_) {
     CWorkSummaryEntry entry;
     entry.UserId = key.first;
@@ -49,30 +52,27 @@ CWorkSummaryBatch CShareAccumulator::takeWorkerBatch()
     entry.Data.SharesWork = w.SharesWork;
     entry.Data.PrimePOWTarget = w.PrimePOWTarget;
     entry.Data.PrimePOWSharesNum = std::move(w.PrimePOWSharesNum);
-    batch.Entries.emplace_back(std::move(entry));
+    result.Workers.Entries.emplace_back(std::move(entry));
   }
   Workers_.clear();
-  BatchFirstTime_ = Timestamp(std::chrono::milliseconds::max());
-  BatchLastTime_ = Timestamp();
-  return batch;
-}
 
-CUserWorkSummaryBatch CShareAccumulator::takeUserBatch()
-{
-  CUserWorkSummaryBatch batch;
-  batch.Time = {BatchFirstTime_, BatchLastTime_};
-  batch.Entries.reserve(Users_.size());
+  // Users
+  result.Users.Time = time;
+  result.Users.Entries.reserve(Users_.size());
   for (auto &[userId, u] : Users_) {
     CUserWorkSummary entry;
     entry.UserId = userId;
     entry.AcceptedWork = u.AcceptedWork;
     entry.SharesNum = u.SharesNum;
-    entry.Time = BatchLastTime_;
-    batch.Entries.emplace_back(std::move(entry));
+    entry.Time = time.TimeEnd;
+    result.Users.Entries.emplace_back(std::move(entry));
   }
   Users_.clear();
-  // Note: BatchFirstTime_/BatchLastTime_ reset in takeWorkerBatch
-  return batch;
+
+  // Reset
+  BatchFirstTime_ = Timestamp(std::chrono::milliseconds::max());
+  BatchLastTime_ = Timestamp();
+  return result;
 }
 
 bool CShareAccumulator::empty() const

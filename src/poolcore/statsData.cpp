@@ -98,58 +98,62 @@ void CStatsSeries::flush(Timestamp begin,
   Timestamp removeTimePoint = currentTime - KeepTime_;
 
   if (Current.SharesNum > 0 || !Current.SharesWork.isZero()) {
-    Timestamp firstCellEnd = (begin + std::chrono::milliseconds(1)).alignUp(GridInterval_);
-    Timestamp lastCellEnd = end.alignUp(GridInterval_);
+    if (begin > end || (end - begin) > MaxBatchTimeInterval) {
+      Current.reset();
+    } else {
+      Timestamp firstCellEnd = (begin + std::chrono::milliseconds(1)).alignUp(GridInterval_);
+      Timestamp lastCellEnd = end.alignUp(GridInterval_);
 
-    auto recentIt = Recent.begin();
-    for (Timestamp cellEnd = firstCellEnd; cellEnd <= lastCellEnd; cellEnd += GridInterval_) {
-      Timestamp cellBegin = cellEnd - GridInterval_;
+      auto recentIt = Recent.begin();
+      for (Timestamp cellEnd = firstCellEnd; cellEnd <= lastCellEnd; cellEnd += GridInterval_) {
+        Timestamp cellBegin = cellEnd - GridInterval_;
 
-      double fraction = overlapFraction(begin, end, cellBegin, cellEnd);
-      if (fraction <= 0.0)
-        continue;
+        double fraction = overlapFraction(begin, end, cellBegin, cellEnd);
+        if (fraction <= 0.0)
+          continue;
 
-      // Compute contribution for this cell
-      CWorkSummary contribution;
-      if (fraction >= 1.0)
-        contribution = Current;
-      else
-        contribution.mergeScaled(Current, fraction);
+        // Compute contribution for this cell
+        CWorkSummary contribution;
+        if (fraction >= 1.0)
+          contribution = Current;
+        else
+          contribution.mergeScaled(Current, fraction);
 
-      // Write to DB regardless of age
-      if (batch) {
-        CWorkSummaryEntryWithTime record;
-        record.UserId = login;
-        record.WorkerId = workerId;
-        record.Time = TimeInterval(cellBegin, cellEnd);
-        record.Data = contribution;
-        batch->merge(record);
+        // Write to DB regardless of age
+        if (batch) {
+          CWorkSummaryEntryWithTime record;
+          record.UserId = login;
+          record.WorkerId = workerId;
+          record.Time = TimeInterval(cellBegin, cellEnd);
+          record.Data = contribution;
+          batch->merge(record);
+        }
+
+        // Skip adding to Recent if cell is too old
+        if (cellEnd < removeTimePoint)
+          continue;
+
+        // Advance iterator to find or insert position
+        while (recentIt != Recent.end() && recentIt->Time.TimeEnd < cellEnd)
+          ++recentIt;
+
+        // Merge contribution into Recent
+        if (recentIt != Recent.end() && recentIt->Time.TimeEnd == cellEnd) {
+          recentIt->Data.merge(contribution);
+        } else {
+          CWorkSummaryWithTime cell;
+          cell.Time = TimeInterval(cellBegin, cellEnd);
+          cell.Data = contribution;
+          recentIt = Recent.insert(recentIt, cell);
+        }
+
+        modifiedTimes.insert(cellEnd);
       }
 
-      // Skip adding to Recent if cell is too old
-      if (cellEnd < removeTimePoint)
-        continue;
-
-      // Advance iterator to find or insert position
-      while (recentIt != Recent.end() && recentIt->Time.TimeEnd < cellEnd)
-        ++recentIt;
-
-      // Merge contribution into Recent
-      if (recentIt != Recent.end() && recentIt->Time.TimeEnd == cellEnd) {
-        recentIt->Data.merge(contribution);
-      } else {
-        CWorkSummaryWithTime cell;
-        cell.Time = TimeInterval(cellBegin, cellEnd);
-        cell.Data = contribution;
-        recentIt = Recent.insert(recentIt, cell);
-      }
-
-      modifiedTimes.insert(cellEnd);
+      Current.reset();
+      if (!Recent.empty())
+        LastShareTime = std::max(LastShareTime, Recent.back().Time.TimeEnd);
     }
-
-    Current.reset();
-    if (!Recent.empty())
-      LastShareTime = std::max(LastShareTime, Recent.back().Time.TimeEnd);
   }
 
   while (!Recent.empty() && Recent.front().Time.TimeEnd < removeTimePoint) {

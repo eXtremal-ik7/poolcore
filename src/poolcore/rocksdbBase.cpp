@@ -275,14 +275,13 @@ rocksdbBase::rocksdbBase(const std::filesystem::path &path) : _path(path)
   
   std::filesystem::directory_iterator dirItEnd;
   for (std::filesystem::directory_iterator dirIt(path); dirIt != dirItEnd; ++dirIt) {
-    if (is_directory(dirIt->status())) {
-      // Add a partition
+    if (is_directory(dirIt->status()))
       _partitions.push_back(partition(dirIt->path().filename()));
-      LOG_F(INFO, "   * found partition %s for %s", dirIt->path().c_str(), path.c_str());
-    }
   }
-  
+
   std::sort(_partitions.begin(), _partitions.end());
+  if (!_partitions.empty())
+    LOG_F(INFO, "Found %zu partitions for %s", _partitions.size(), path.c_str());
 }
 
 rocksdbBase::~rocksdbBase()

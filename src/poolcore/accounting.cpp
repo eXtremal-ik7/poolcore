@@ -468,6 +468,16 @@ void AccountingDb::calculatePayments(MiningRound *R, const UInt<384> &generatedC
 
 void AccountingDb::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
 {
+  if (batch.Time.TimeBegin > batch.Time.TimeEnd ||
+      (batch.Time.TimeEnd - batch.Time.TimeBegin) > MaxBatchTimeInterval) {
+    LOG_F(ERROR,
+          "AccountingDb::onUserWorkSummary: invalid batch time [%" PRId64 ", %" PRId64 "], %zu entries dropped",
+          batch.Time.TimeBegin.count(),
+          batch.Time.TimeEnd.count(),
+          batch.Entries.size());
+    return;
+  }
+
   uint64_t messageId = ShareLog_.addShare(batch);
   State_.addScores(messageId, batch);
   UserStatsAcc_.addBaseWorkBatch(messageId, batch);

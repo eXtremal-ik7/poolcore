@@ -183,6 +183,51 @@ TEST(StatsData, Flush)
     EXPECT_EQ(series.Recent[0].Data.SharesNum, 500u);
     EXPECT_EQ(modified.size(), 1u);
   }
+
+  // Invalid interval (begin > end): Current dropped, Recent cleanup still works
+  {
+    CStatsSeries series(minutes(1), minutes(0));
+    CWorkSummary work;
+    work.SharesNum = 42;
+    work.SharesWork = UInt<256>(999u);
+    series.addWorkSummary(work, T1min);
+
+    // Add an old Recent entry to verify removal still happens
+    CWorkSummaryWithTime old;
+    old.Time = TimeInterval(Timestamp(0), T1min);
+    old.Data.SharesNum = 10;
+    series.Recent.push_back(old);
+
+    // Sentinel pattern from the bug: {INT64_MAX, 0}
+    Timestamp sentinel(std::chrono::milliseconds::max());
+    modified.clear(); removed.clear();
+    series.flush(sentinel, Timestamp(0), "user1", "w1", T2min, nullptr, modified, removed);
+
+    EXPECT_EQ(series.Current.SharesNum, 0u);
+    EXPECT_TRUE(series.Current.SharesWork.isZero());
+    EXPECT_TRUE(modified.empty());
+    // Old Recent entry removed (keepTime=0, currentTime=120s > entry.TimeEnd=60s)
+    EXPECT_TRUE(series.Recent.empty());
+    EXPECT_EQ(removed.size(), 1u);
+  }
+
+  // Interval exceeds MaxBatchTimeInterval: Current dropped
+  {
+    CStatsSeries series(minutes(1), minutes(10));
+    CWorkSummary work;
+    work.SharesNum = 100;
+    work.SharesWork = UInt<256>(500u);
+    series.addWorkSummary(work, T1min);
+
+    Timestamp tooWide = Timestamp(0) + MaxBatchTimeInterval + std::chrono::minutes(1);
+    modified.clear(); removed.clear();
+    series.flush(Timestamp(0), tooWide, "user1", "w1", tooWide, nullptr, modified, removed);
+
+    EXPECT_EQ(series.Current.SharesNum, 0u);
+    EXPECT_TRUE(series.Current.SharesWork.isZero());
+    EXPECT_TRUE(series.Recent.empty());
+    EXPECT_TRUE(modified.empty());
+  }
 }
 
 TEST(StatsData, CalcAverageMetrics)
