@@ -46,10 +46,17 @@ PoolBackend::PoolBackend(asyncBase *base,
   PayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   CheckBalanceEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   clientDispatcher.setBackend(this);
+
+  if (CoinInfo_.PPSIncludeTransactionFees) {
+    FeeEstimationService_ = std::make_unique<CFeeEstimationService>(base, clientDispatcher, CoinInfo_);
+    clientDispatcher.setFeeEstimationService(FeeEstimationService_.get());
+  }
+
   _timeout = 8*1000000;
 
   _statistics.reset(new StatisticDb(_base, _cfg, CoinInfo_));
   _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, priceFetcher));
+  _accounting->setFeeEstimationService(FeeEstimationService_.get());
 
   ProfitSwitchCoeff_ = CoinInfo_.ProfitSwitchDefaultCoeff;
 
@@ -72,6 +79,8 @@ void PoolBackend::stop()
   TaskHandler_.stop(CoinInfo_.Name.c_str(), "PoolBackend task handler");
   _accounting->stop();
   _statistics->stop();
+  if (FeeEstimationService_)
+    FeeEstimationService_->stop();
   coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend check confirmations handler", &CheckConfirmationsHandlerFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend check balance handler", &CheckBalanceHandlerFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend payout handler", &PayoutHandlerFinished_);
@@ -88,6 +97,8 @@ void PoolBackend::backendMain()
   TaskHandler_.start();
   _accounting->start();
   _statistics->start();
+  if (FeeEstimationService_)
+    FeeEstimationService_->start();
   coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->checkConfirmationsHandler(); }, this, 0x100000, coroutineFinishCb, &CheckConfirmationsHandlerFinished_));
   coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->checkBalanceHandler(); }, this, 0x100000, coroutineFinishCb, &CheckBalanceHandlerFinished_));
   coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->payoutHandler(); }, this, 0x100000, coroutineFinishCb, &PayoutHandlerFinished_));

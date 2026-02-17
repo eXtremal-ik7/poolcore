@@ -9,6 +9,7 @@ add_library(poolcore STATIC
   dbFormat.cpp
   base58.cpp
   clientDispatcher.cpp
+  feeEstimator.cpp
   kvdb.cpp
   poolCore.cpp
   poolInstance.cpp

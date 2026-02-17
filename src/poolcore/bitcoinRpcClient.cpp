@@ -843,6 +843,106 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioWalletService(asyncBase*, 
   return CNetworkClient::EStatusOk;
 }
 
+bool CBitcoinRpcClient::ioGetBlockTxFees(asyncBase *base,
+                                         int64_t fromHeight,
+                                         int64_t toHeight,
+                                         std::vector<BlockTxFeeInfo> &result)
+{
+  if (fromHeight > toHeight)
+    return false;
+
+  std::unique_ptr<CConnection> connection(getConnection(base));
+  if (!connection)
+    return false;
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, 10000000) != 0)
+    return false;
+
+  // Build batch JSON-RPC: array of getblockstats calls
+  xmstream postData;
+  {
+    JSON::Array batch(postData);
+    for (int64_t h = fromHeight; h <= toHeight; h++) {
+      batch.addField();
+      {
+        JSON::Object query(postData);
+        query.addString("method", "getblockstats");
+        query.addField("params");
+        {
+          JSON::Array params(postData);
+          params.addInt(h);
+          params.addField();
+          {
+            JSON::Array fields(postData);
+            fields.addString("totalfee");
+            fields.addString("time");
+          }
+        }
+      }
+    }
+  }
+
+  rapidjson::Document document;
+  std::string httpQuery = buildPostQuery(postData.data<const char>(), postData.sizeOf(), HostName_, Wallet_, BasicAuth_);
+  if (ioQueryJson(*connection, httpQuery, document, 120 * 1000000) != EStatusOk) {
+    LOG_F(WARNING,
+          "%s %s: getblockstats batch request failed",
+          CoinInfo_.Name.c_str(),
+          FullHostName_.c_str());
+    return false;
+  }
+
+  if (!document.IsArray()) {
+    LOG_F(WARNING,
+          "%s %s: getblockstats batch: expected array response",
+          CoinInfo_.Name.c_str(),
+          FullHostName_.c_str());
+    return false;
+  }
+
+  int64_t expectedSize = toHeight - fromHeight + 1;
+  if (static_cast<int64_t>(document.GetArray().Size()) != expectedSize) {
+    LOG_F(WARNING,
+          "%s %s: getblockstats batch: expected %" PRId64 " results, got %u",
+          CoinInfo_.Name.c_str(),
+          FullHostName_.c_str(),
+          expectedSize,
+          document.GetArray().Size());
+    return false;
+  }
+
+  result.reserve(result.size() + static_cast<size_t>(expectedSize));
+  for (rapidjson::SizeType i = 0, ie = document.GetArray().Size(); i != ie; ++i) {
+    rapidjson::Value &entry = document.GetArray()[i];
+    if (!entry.HasMember("result") || !entry["result"].IsObject()) {
+      LOG_F(WARNING,
+            "%s %s: getblockstats: invalid result at index %u",
+            CoinInfo_.Name.c_str(),
+            FullHostName_.c_str(),
+            i);
+      return false;
+    }
+
+    rapidjson::Value &r = entry["result"];
+    if (!r.HasMember("totalfee") || !r["totalfee"].IsInt64() ||
+        !r.HasMember("time") || !r["time"].IsInt64()) {
+      LOG_F(WARNING,
+            "%s %s: getblockstats: missing fields at index %u",
+            CoinInfo_.Name.c_str(),
+            FullHostName_.c_str(),
+            i);
+      return false;
+    }
+
+    BlockTxFeeInfo info;
+    info.Height = fromHeight + static_cast<int64_t>(i);
+    info.Time = r["time"].GetInt64();
+    info.TotalFee = r["totalfee"].GetInt64();
+    result.push_back(info);
+  }
+
+  return true;
+}
+
 void CBitcoinRpcClient::poll()
 {
   socketTy S = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
@@ -925,6 +1025,8 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
       WorkFetcher_.LongPollId.clear();
     }
   }
+
+  blockTemplate->Height = height;
 
   // Get unique work id
   uint64_t workId = blockTemplate->UniqueWorkId = readHexBE<uint64_t>(prevBlockHash.c_str(), 16);

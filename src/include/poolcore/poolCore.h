@@ -70,6 +70,8 @@ struct CCoinInfo {
   bool CanBeSecondaryCoin = false;
   bool ResetWorkOnBlockChange = true;
 
+  bool PPSIncludeTransactionFees = true;
+
   std::chrono::seconds WorkSummaryFlushInterval = std::chrono::seconds(6);
 
   bool checkAddress(const std::string &address, EAddressType type) const;
@@ -153,6 +155,12 @@ public:
     std::string Error;
   };
 
+  struct BlockTxFeeInfo {
+    int64_t Height;
+    int64_t Time;
+    int64_t TotalFee;
+  };
+
   class CSubmitBlockOperation {
   public:
     CSubmitBlockOperation(CNetworkClient::SumbitBlockCb callback, size_t clientsNum) : Callback_(callback), ClientsNum_(clientsNum) {}
@@ -182,6 +190,7 @@ public:
   virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance) = 0;
   virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) = 0;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, CSubmitBlockOperation *operation) = 0;
+  virtual bool ioGetBlockTxFees(asyncBase *base, int64_t fromHeight, int64_t toHeight, std::vector<BlockTxFeeInfo> &result) = 0;
 
   virtual void poll() = 0;
 

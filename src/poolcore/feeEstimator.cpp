@@ -1,0 +1,132 @@
+#include "poolcore/feeEstimator.h"
+#include "poolcore/clientDispatcher.h"
+
+#include "poolcommon/coroutineJoin.h"
+#include "poolcommon/utils.h"
+#include "asyncio/coroutine.h"
+#include "loguru.hpp"
+
+void CFeeEstimator::addBlock(int64_t time, int64_t totalFee)
+{
+  Window_.push_back({time, totalFee});
+}
+
+void CFeeEstimator::trimWindow(int64_t latestTime)
+{
+  int64_t cutoff = latestTime - WindowSeconds;
+  while (Window_.size() > MinBlocks && Window_.front().Time < cutoff)
+    Window_.pop_front();
+}
+
+int64_t CFeeEstimator::computeNormalizedAvgFee() const
+{
+  if (Window_.empty())
+    return 0;
+
+  std::vector<int64_t> fees;
+  fees.reserve(Window_.size());
+  for (auto &e : Window_)
+    fees.push_back(e.TotalFee);
+
+  std::sort(fees.begin(), fees.end());
+
+  size_t trim = fees.size() / 10;
+  size_t start = trim;
+  size_t end = fees.size() - trim;
+  if (start >= end) {
+    start = 0;
+    end = fees.size();
+  }
+
+  int64_t sum = 0;
+  for (size_t i = start; i < end; i++)
+    sum += fees[i];
+
+  return sum / static_cast<int64_t>(end - start);
+}
+
+// CFeeEstimationService
+
+CFeeEstimationService::CFeeEstimationService(asyncBase *base, CNetworkClientDispatcher &dispatcher, const CCoinInfo &coinInfo)
+    : Base_(base), Dispatcher_(dispatcher), CoinInfo_(coinInfo)
+{
+}
+
+void CFeeEstimationService::start()
+{
+  UpdateEvent_ = newUserEvent(Base_, 0, nullptr, nullptr);
+  coroutineCall(coroutineNewWithCb(
+    [](void *arg) { static_cast<CFeeEstimationService*>(arg)->updateCoroutine(); },
+    this,
+    0x100000,
+    coroutineFinishCb,
+    &Finished_));
+}
+
+void CFeeEstimationService::stop()
+{
+  if (!UpdateEvent_)
+    return;
+  ShutdownRequested_ = true;
+  userEventActivate(UpdateEvent_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "fee estimation", &Finished_);
+}
+
+void CFeeEstimationService::onNewBlock(int64_t height)
+{
+  if (height <= PendingHeight_)
+    return;
+  PendingHeight_ = height;
+  userEventActivate(UpdateEvent_);
+}
+
+void CFeeEstimationService::updateCoroutine()
+{
+  for (;;) {
+    ioWaitUserEvent(UpdateEvent_);
+    if (ShutdownRequested_)
+      break;
+
+    int64_t height = PendingHeight_;
+    if (height == 0 || !Supported_)
+      continue;
+
+    // Last confirmed block
+    int64_t toHeight = height - 1;
+    int64_t fromHeight;
+    if (LastBlockHeight_ == 0) {
+      // Initial load: fetch up to 300 blocks
+      fromHeight = std::max<int64_t>(1, toHeight - 299);
+    } else {
+      fromHeight = LastBlockHeight_ + 1;
+    }
+
+    if (fromHeight > toHeight)
+      continue;
+
+    std::vector<CNetworkClient::BlockTxFeeInfo> fees;
+    bool ok = Dispatcher_.ioGetBlockTxFees(Base_, fromHeight, toHeight, fees);
+    if (!ok) {
+      LOG_F(WARNING,
+            "%s: fee estimation disabled (getblockstats not supported or RPC error)",
+            CoinInfo_.Name.c_str());
+      Supported_ = false;
+      continue;
+    }
+
+    for (auto &entry : fees)
+      Estimator_.addBlock(entry.Time, entry.TotalFee);
+    if (!fees.empty())
+      Estimator_.trimWindow(fees.back().Time);
+    LastBlockHeight_ = toHeight;
+
+    int64_t avgFee = Estimator_.computeNormalizedAvgFee();
+    AverageFee_ = avgFee > 0 ? fromRational(static_cast<uint64_t>(avgFee)) : UInt<384>();
+    std::string avgFeeFormatted = FormatMoney(AverageFee_, CoinInfo_.FractionalPartSize);
+    LOG_F(INFO,
+          "%s: average block tx fee: %s (%zu blocks in window)",
+          CoinInfo_.Name.c_str(),
+          avgFeeFormatted.c_str(),
+          Estimator_.size());
+  }
+}

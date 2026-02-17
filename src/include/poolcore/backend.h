@@ -3,6 +3,7 @@
 
 #include "accounting.h"
 #include "blockTemplate.h"
+#include "feeEstimator.h"
 #include "priceFetcher.h"
 #include "statistics.h"
 #include "usermgr.h"
@@ -78,6 +79,7 @@ private:
   CCoinInfo CoinInfo_;
   UserManager &UserMgr_;
   CNetworkClientDispatcher &ClientDispatcher_;
+  std::unique_ptr<CFeeEstimationService> FeeEstimationService_;
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
   StatisticServer *AlgoMetaStatistic_ = nullptr;
@@ -120,6 +122,7 @@ public:
   const PoolBackendConfig &getConfig() const { return _cfg; }
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
   CNetworkClientDispatcher &getClientDispatcher() const { return ClientDispatcher_; }
+  CFeeEstimationService *feeEstimationService() { return FeeEstimationService_.get(); }
   double getProfitSwitchCoeff() const { return ProfitSwitchCoeff_; }
   void setProfitSwitchCoeff(double profitSwithCoeff) { ProfitSwitchCoeff_ = profitSwithCoeff; }
   StatisticServer *getAlgoMetaStatistic() { return AlgoMetaStatistic_; }

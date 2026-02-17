@@ -1,4 +1,5 @@
 #include "poolcore/accounting.h"
+#include "poolcore/feeEstimator.h"
 #include "poolcommon/coroutineJoin.h"
 #include "poolcommon/debug.h"
 #include "poolcommon/mergeSorted.h"
@@ -51,6 +52,7 @@ template<> struct DbIo<CPPSState> {
     DbIo<CPPSBalanceSnapshot>::serialize(dst, data.Min);
     DbIo<CPPSBalanceSnapshot>::serialize(dst, data.Max);
     DbIo<double>::serialize(dst, data.LastSaturateCoeff);
+    DbIo<UInt<384>>::serialize(dst, data.LastAverageTxFee);
     DbIo<Timestamp>::serialize(dst, data.Time);
   }
 
@@ -61,6 +63,7 @@ template<> struct DbIo<CPPSState> {
     DbIo<CPPSBalanceSnapshot>::unserialize(src, data.Min);
     DbIo<CPPSBalanceSnapshot>::unserialize(src, data.Max);
     DbIo<double>::unserialize(src, data.LastSaturateCoeff);
+    DbIo<UInt<384>>::unserialize(src, data.LastAverageTxFee);
     DbIo<Timestamp>::unserialize(src, data.Time);
   }
 };
@@ -567,15 +570,9 @@ void AccountingDb::ppsPayout()
   State_.PPSState.Balance -= totalPaid;
   State_.PPSState.updateMinMax(Timestamp::now());
   LOG_F(INFO,
-        "[%s] PPS payout total: %s (PPS balance: %s / %.3f blocks, sqLambda: %.4f)",
+        "[%s] PPS payout total: %s",
         CoinInfo_.Name.c_str(),
-        FormatMoney(totalPaid, CoinInfo_.FractionalPartSize).c_str(),
-        FormatMoney(State_.PPSState.Balance, CoinInfo_.FractionalPartSize).c_str(),
-        CPPSState::balanceInBlocks(State_.PPSState.Balance, State_.PPSState.LastBaseBlockReward),
-        CPPSState::sqLambda(
-          State_.PPSState.Balance,
-          State_.PPSState.LastBaseBlockReward,
-          State_.PPSState.TotalBlocksFound));
+        FormatMoney(totalPaid, CoinInfo_.FractionalPartSize).c_str());
 
   _balanceDb.writeBatch(batch);
   State_.PPSPendingBalance.clear();
@@ -826,14 +823,19 @@ void AccountingDb::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
   }
 
   // Compute saturation and fee coefficients once per batch
-  double satCoeff = 1.0;
+  double saturateCoeff = 1.0;
   double effectiveCoeff = 1.0;
+  UInt<384> averageTxFee;
   if (ppsEnabled) {
     double currentBalanceInBlocks =
       CPPSState::balanceInBlocks(State_.PPSState.Balance, State_.PPSState.LastBaseBlockReward);
-    satCoeff = State_.PPSConfig.saturateCoeff(currentBalanceInBlocks);
-    effectiveCoeff = satCoeff * (1.0 - State_.PPSConfig.PoolFee / 100.0);
-    State_.PPSState.LastSaturateCoeff = satCoeff;
+    saturateCoeff = State_.PPSConfig.saturateCoeff(currentBalanceInBlocks);
+    effectiveCoeff = saturateCoeff * (1.0 - State_.PPSConfig.PoolFee / 100.0);
+    State_.PPSState.LastSaturateCoeff = saturateCoeff;
+    if (FeeEstimationService_) {
+      averageTxFee = FeeEstimationService_->averageFee();
+      State_.PPSState.LastAverageTxFee = averageTxFee;
+    }
   }
 
   for (const auto &entry : batch.Entries) {
@@ -855,19 +857,12 @@ void AccountingDb::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
 
       if (!entry.ExpectedWork.isZero()) {
         // Fixed-point 128.256: high 128 bits = integer satoshi, low 256 bits = fractional
-        UInt<384> batchCost = entry.BaseBlockReward;
+        UInt<384> batchCost = entry.BaseBlockReward + averageTxFee;
         batchCost /= entry.ExpectedWork;
         batchCost *= entry.AcceptedWork;
         batchCost.mulfp(effectiveCoeff);
 
         State_.PPSPendingBalance[entry.UserId] += batchCost;
-        LOG_F(INFO,
-              "PPS: user=%s shares=%" PRIu64 " reward=%s %s (coeff=%.4f)",
-              entry.UserId.c_str(),
-              entry.SharesNum,
-              FormatMoneyFull(batchCost, CoinInfo_.FractionalPartSize).c_str(),
-              CoinInfo_.Name.c_str(),
-              effectiveCoeff);
       }
     }
   }
@@ -1486,6 +1481,34 @@ void AccountingDb::checkBalance()
         FormatMoney(queued, CoinInfo_.FractionalPartSize).c_str(),
         FormatMoney(confirmationWait, CoinInfo_.FractionalPartSize).c_str(),
         FormatMoney(net, CoinInfo_.FractionalPartSize).c_str());
+
+  if (State_.PPSModeEnabled.load(std::memory_order_relaxed)) {
+    const auto &pps = State_.PPSState;
+    const auto &reward = pps.LastBaseBlockReward;
+    double currentBalanceInBlocks = CPPSState::balanceInBlocks(pps.Balance, reward);
+    double currentSqLambda = CPPSState::sqLambda(pps.Balance, reward, pps.TotalBlocksFound);
+    double minBalanceInBlocks = CPPSState::balanceInBlocks(pps.Min.Balance, reward);
+    double minSqLambda = CPPSState::sqLambda(pps.Min.Balance, reward, pps.Min.TotalBlocksFound);
+    double maxBalanceInBlocks = CPPSState::balanceInBlocks(pps.Max.Balance, reward);
+    double maxSqLambda = CPPSState::sqLambda(pps.Max.Balance, reward, pps.Max.TotalBlocksFound);
+    LOG_F(INFO,
+          "PPS state: balance=%s (%.3f blocks, sqLambda=%.4f),"
+          " min=%s (%.3f blocks, sqLambda=%.4f),"
+          " max=%s (%.3f blocks, sqLambda=%.4f),"
+          " blocks=%.3f, saturateCoeff=%.4f, avgTxFee=%s",
+          FormatMoney(pps.Balance, CoinInfo_.FractionalPartSize).c_str(),
+          currentBalanceInBlocks,
+          currentSqLambda,
+          FormatMoney(pps.Min.Balance, CoinInfo_.FractionalPartSize).c_str(),
+          minBalanceInBlocks,
+          minSqLambda,
+          FormatMoney(pps.Max.Balance, CoinInfo_.FractionalPartSize).c_str(),
+          maxBalanceInBlocks,
+          maxSqLambda,
+          pps.TotalBlocksFound,
+          pps.LastSaturateCoeff,
+          FormatMoney(pps.LastAverageTxFee, CoinInfo_.FractionalPartSize).c_str());
+  }
 }
 
 bool AccountingDb::requestPayout(const std::string &address, const UInt<384> &value, bool force)

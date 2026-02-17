@@ -5,14 +5,19 @@
 #include "loguru.hpp"
 #include <memory>
 
-class CNetworkClientDispatcher {  
+class CFeeEstimationService;
+
+class CNetworkClientDispatcher {
+
 public:
-  CNetworkClientDispatcher(asyncBase *base, const CCoinInfo &coinInfo, unsigned threadsNum) : CoinInfo_(coinInfo) {
+  CNetworkClientDispatcher(asyncBase *base, const CCoinInfo &coinInfo, unsigned threadsNum)
+      : CoinInfo_(coinInfo) {
     CurrentClientIdx_.resize(threadsNum, 0);
     WorkFetcherReconnectTimer_ = newUserEvent(base, 0, [](aioUserEvent*, void *arg) {
       static_cast<CNetworkClientDispatcher*>(arg)->onWorkFetchReconnectTimer();
     }, this);
   }
+
   void addGetWorkClient(CNetworkClient *client) {
     GetWorkClients_.emplace_back(client);
     client->setDispatcher(this);
@@ -25,11 +30,13 @@ public:
 
   PoolBackend *backend() { return Backend_; }
   void setBackend(PoolBackend *backend) { Backend_ = backend; }
+  void setFeeEstimationService(CFeeEstimationService *service) { FeeEstimationService_ = service; }
 
   // Common API
   bool ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result);
   bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &query);
   bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockExtraInfoQuery> &query);
+  bool ioGetBlockTxFees(asyncBase *base, int64_t fromHeight, int64_t toHeight, std::vector<CNetworkClient::BlockTxFeeInfo> &result);
   CNetworkClient::EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, CNetworkClient::BuildTransactionResult &result);
   CNetworkClient::EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string &txId, std::string &error);
   CNetworkClient::EOperationStatus ioWalletService(asyncBase *base, std::string &error);
@@ -69,6 +76,7 @@ private:
   size_t CurrentWorkFetcherIdx = 0;
 
   std::vector<CPoolInstance*> LinkedInstances_;
+  CFeeEstimationService *FeeEstimationService_ = nullptr;
 
   aioUserEvent *WorkFetcherReconnectTimer_ = nullptr;
   EWorkState WorkState_ = EWorkOk;

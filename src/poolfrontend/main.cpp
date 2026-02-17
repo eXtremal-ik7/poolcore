@@ -355,6 +355,7 @@ int main(int argc, char *argv[])
       poolContext.Backends.emplace_back(backend);
       if (coinConfig.ProfitSwitchCoeff != 0.0)
         backend->setProfitSwitchCoeff(coinConfig.ProfitSwitchCoeff);
+
       poolContext.ClientDispatchers.emplace_back(dispatcher.release());
       poolContext.UserMgr->configAddCoin(coinInfo, backendConfig.DefaultPayoutThreshold, backend);
 

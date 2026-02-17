@@ -64,6 +64,8 @@ public:
 
   // Last applied saturation coefficient (1.0 = no correction)
   double LastSaturateCoeff = 1.0;
+  // Last average transaction fee per block (fixed-point 128.256)
+  UInt<384> LastAverageTxFee;
 
   // Timestamp of this snapshot (used as kvdb key for history)
   Timestamp Time;
@@ -188,6 +190,7 @@ private:
   UserManager &UserManager_;
   CNetworkClientDispatcher &ClientDispatcher_;
   CPriceFetcher &PriceFetcher_;
+  CFeeEstimationService *FeeEstimationService_ = nullptr;
   
   std::map<std::string, UserBalanceRecord> _balanceMap;
   std::deque<std::unique_ptr<MiningRound>> _allRounds;
@@ -343,6 +346,7 @@ public:
   }
 
   bool isPPSEnabled() const { return State_.PPSModeEnabled.load(std::memory_order_relaxed); }
+  void setFeeEstimationService(CFeeEstimationService *service) { FeeEstimationService_ = service; }
 
   // Asynchronous multi calls
   static void queryUserBalanceMulti(AccountingDb **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceInfo*, size_t)> callback) {

@@ -965,6 +965,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
+      info.PPSIncludeTransactionFees = false;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "XPM.testnet") == 0) {
@@ -979,6 +980,7 @@ public:
       info.DefaultRpcPort = 9914;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
+      info.PPSIncludeTransactionFees = false;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
     } else if (strcmp(coinName, "ZEC") == 0) {

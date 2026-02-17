@@ -1,6 +1,7 @@
 #include "poolcore/clientDispatcher.h"
 
 #include "poolcore/blockTemplate.h"
+#include "poolcore/feeEstimator.h"
 #include "poolcore/thread.h"
 #include "loguru.hpp"
 
@@ -36,6 +37,22 @@ bool CNetworkClientDispatcher::ioGetBlockExtraInfo(asyncBase *base, int64_t orph
   size_t &currentClientIdx = CurrentClientIdx_[threadId];
   for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
     if (RPCClients_[currentClientIdx]->ioGetBlockExtraInfo(base, orphanAgeLimit, query))
+      return true;
+    currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
+  }
+
+  return false;
+}
+
+bool CNetworkClientDispatcher::ioGetBlockTxFees(asyncBase *base,
+                                                 int64_t fromHeight,
+                                                 int64_t toHeight,
+                                                 std::vector<CNetworkClient::BlockTxFeeInfo> &result)
+{
+  unsigned threadId = GetGlobalThreadId();
+  size_t &currentClientIdx = CurrentClientIdx_[threadId];
+  for (size_t i = 0, ie = RPCClients_.size(); i != ie; ++i) {
+    if (RPCClients_[currentClientIdx]->ioGetBlockTxFees(base, fromHeight, toHeight, result))
       return true;
     currentClientIdx = (currentClientIdx + 1) % RPCClients_.size();
   }
@@ -210,4 +227,7 @@ void CNetworkClientDispatcher::onWorkFetcherNewWork(CBlockTemplate *blockTemplat
   intrusive_ptr<CBlockTemplate> holder(blockTemplate);
   for (auto &instance : LinkedInstances_)
     instance->checkNewBlockTemplate(blockTemplate, Backend_);
+
+  if (FeeEstimationService_)
+    FeeEstimationService_->onNewBlock(blockTemplate->Height);
 }

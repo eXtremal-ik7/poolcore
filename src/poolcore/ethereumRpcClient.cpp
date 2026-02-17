@@ -572,6 +572,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     if (CoinInfo_.BigEpoch)
       epochNumber /= 2;
 
+    blockTemplate->Height = static_cast<int64_t>(height);
     blockTemplate->DagFile = Dispatcher_->backend()->dagFile(epochNumber);
     if (blockTemplate->DagFile.get() != nullptr)
       templateIsOk = true;

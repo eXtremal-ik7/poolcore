@@ -29,6 +29,7 @@ public:
   virtual bool ioGetBlockExtraInfo(asyncBase*, int64_t, std::vector<GetBlockExtraInfoQuery>&) override {
     return false;
   }
+  virtual bool ioGetBlockTxFees(asyncBase *base, int64_t fromHeight, int64_t toHeight, std::vector<BlockTxFeeInfo> &result) override;
   virtual void poll() override;
 
 private:

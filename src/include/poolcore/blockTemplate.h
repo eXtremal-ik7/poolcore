@@ -36,6 +36,7 @@ public:
   std::string Ticker;
   EWorkType WorkType;
   uint64_t UniqueWorkId;
+  int64_t Height = 0;
   double Difficulty;
   intrusive_ptr<EthashDagWrapper> DagFile;
   uintptr_t ref_fetch_add(uintptr_t count) const { return Refs_.fetch_add(count); }
