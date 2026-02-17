@@ -30,6 +30,7 @@ struct CPPSConfig {
 public:
   static bool parseSaturationFunction(const std::string &name, ESaturationFunction *out);
   static const char *saturationFunctionName(ESaturationFunction value);
+  double saturateCoeff(double balanceInBlocks) const;
 
   double PoolFee = 4.0;
   ESaturationFunction SaturationFunction = ESaturationFunction::None;
@@ -38,11 +39,46 @@ public:
   double SaturationAPositive = 0.0;
 };
 
+struct CPPSBalanceSnapshot {
+
+public:
+  UInt<384> Balance;
+  double TotalBlocksFound = 0.0;
+  Timestamp Time;
+};
+
 struct CPPSState {
+
+public:
   // Pool-side PPS balance: increases when block found (PPS deduction from PPLNS),
   // decreases when PPS rewards are accrued to users.
   // Can go negative — that's the pool's risk.
   UInt<384> Balance;
+  // Base reward of the last known block (subsidy without tx fees, fixed-point 128.256)
+  UInt<384> LastBaseBlockReward;
+  // Fractional count of blocks found (only PPS portion of each block)
+  double TotalBlocksFound = 0.0;
+
+  CPPSBalanceSnapshot Min;
+  CPPSBalanceSnapshot Max;
+
+  // Last applied saturation coefficient (1.0 = no correction)
+  double LastSaturateCoeff = 1.0;
+
+  // Timestamp of this snapshot (used as kvdb key for history)
+  Timestamp Time;
+
+  static double balanceInBlocks(const UInt<384> &balance, const UInt<384> &baseBlockReward);
+  static double sqLambda(
+    const UInt<384> &balance,
+    const UInt<384> &baseBlockReward,
+    double totalBlocksFound);
+  void updateMinMax(Timestamp now);
+
+  std::string getPartitionId() const { return partByTime(Time.toUnixTime()); }
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;
+  bool deserializeValue(const void *data, size_t size);
 };
 
 class AccountingDb {
@@ -221,6 +257,7 @@ private:
   kvdb<rocksdbBase> _poolBalanceDb;
   kvdb<rocksdbBase> _payoutDb;
   kvdb<rocksdbBase> PPLNSPayoutsDb;
+  kvdb<rocksdbBase> PPSHistoryDb_;
   ShareLog<CUserWorkSummaryBatch> ShareLog_;
 
   std::unordered_map<std::string, UserSettingsRecord> UserSettings_;

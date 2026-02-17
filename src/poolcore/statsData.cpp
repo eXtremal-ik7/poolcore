@@ -6,13 +6,6 @@
 #include <cassert>
 #include <cinttypes>
 
-template<typename T>
-static void dbIoSerialize(xmstream &dst, const T &data) { DbIo<T>::serialize(dst, data); }
-template<typename T>
-static void dbIoUnserialize(xmstream &src, T &data) { DbIo<T>::unserialize(src, data); }
-template<typename T>
-static void dbKeyIoSerialize(xmstream &dst, const T &data) { DbKeyIo<T>::serialize(dst, data); }
-
 void CStats::merge(const CWorkSummary &data)
 {
   SharesNum += data.SharesNum;

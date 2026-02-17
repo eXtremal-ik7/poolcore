@@ -2,14 +2,6 @@
 #include "poolcore/backendData.h"
 #include <string.h>
 
-template<typename T>
-static void dbIoSerialize(xmstream &dst, const T &data) { DbIo<T>::serialize(dst, data); }
-template<typename T>
-static void dbIoUnserialize(xmstream &src, T &data) { DbIo<T>::unserialize(src, data); }
-
-template<typename T>
-static void dbKeyIoSerialize(xmstream &dst, const T &data) { DbKeyIo<T>::serialize(dst, data); }
-
 // StatsRecord2
 
 bool StatsRecord2::deserializeValue(const void *data, size_t size)

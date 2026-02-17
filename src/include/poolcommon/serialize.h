@@ -38,6 +38,13 @@ struct DbIo {
   static void unserialize(xmstream &in, T &data);
 };
 
+template<typename T>
+inline void dbKeyIoSerialize(xmstream &dst, const T &data) { DbKeyIo<T>::serialize(dst, data); }
+template<typename T>
+inline void dbIoSerialize(xmstream &dst, const T &data) { DbIo<T>::serialize(dst, data); }
+template<typename T>
+inline void dbIoUnserialize(xmstream &src, T &data) { DbIo<T>::unserialize(src, data); }
+
 // Serialization for simple integer types
 template<typename T>
 struct DbKeyIo<T, typename std::enable_if<is_simple_numeric<T>::value, void>::type> {

@@ -4,14 +4,6 @@
 #include <inttypes.h>
 #include <time.h>
 
-template<typename T>
-void dbIoSerialize(xmstream &dst, const T &data) { DbIo<T>::serialize(dst, data); }
-template<typename T>
-void dbIoUnserialize(xmstream &src, T &data) { DbIo<T>::unserialize(src, data); }
-
-template<typename T>
-void dbKeyIoSerialize(xmstream &dst, const T &data) { DbKeyIo<T>::serialize(dst, data); }
-
 std::string partByHeight(uint64_t height)
 {
   char buffer[16];
