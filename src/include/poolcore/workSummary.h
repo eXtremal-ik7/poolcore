@@ -6,8 +6,6 @@
 #include <string>
 #include <vector>
 
-template<typename T> struct ShareLogIo;
-
 struct CWorkSummaryWithTime;
 
 struct CWorkSummary {
@@ -44,6 +42,10 @@ struct CUserWorkSummary {
   UInt<256> AcceptedWork;
   uint64_t SharesNum = 0;
   Timestamp Time;
+  // Block reward without fees (for PPS)
+  UInt<384> BaseBlockReward;
+  // Expected work to find a block (network difficulty)
+  UInt<256> ExpectedWork;
 };
 
 struct CUserWorkSummaryBatch {
@@ -101,6 +103,8 @@ struct DbIo<CUserWorkSummary> {
     DbIo<decltype(data.AcceptedWork)>::serialize(stream, data.AcceptedWork);
     DbIo<decltype(data.SharesNum)>::serialize(stream, data.SharesNum);
     DbIo<decltype(data.Time)>::serialize(stream, data.Time);
+    DbIo<decltype(data.BaseBlockReward)>::serialize(stream, data.BaseBlockReward);
+    DbIo<decltype(data.ExpectedWork)>::serialize(stream, data.ExpectedWork);
   }
 
   static inline void unserialize(xmstream &stream, CUserWorkSummary &data) {
@@ -108,46 +112,34 @@ struct DbIo<CUserWorkSummary> {
     DbIo<decltype(data.AcceptedWork)>::unserialize(stream, data.AcceptedWork);
     DbIo<decltype(data.SharesNum)>::unserialize(stream, data.SharesNum);
     DbIo<decltype(data.Time)>::unserialize(stream, data.Time);
+    DbIo<decltype(data.BaseBlockReward)>::unserialize(stream, data.BaseBlockReward);
+    DbIo<decltype(data.ExpectedWork)>::unserialize(stream, data.ExpectedWork);
   }
 };
 
-// +share log serialization
-
 template<>
-struct ShareLogIo<CWorkSummaryBatch> {
+struct DbIo<CWorkSummaryBatch> {
   static inline void serialize(xmstream &out, const CWorkSummaryBatch &data) {
-    DbIo<TimeInterval>::serialize(out, data.Time);
-    DbIo<uint32_t>::serialize(out, static_cast<uint32_t>(data.Entries.size()));
-    for (const auto &entry : data.Entries)
-      DbIo<CWorkSummaryEntry>::serialize(out, entry);
+    DbIo<decltype(data.Time)>::serialize(out, data.Time);
+    DbIo<decltype(data.Entries)>::serialize(out, data.Entries);
   }
 
   static inline void unserialize(xmstream &in, CWorkSummaryBatch &data) {
-    DbIo<TimeInterval>::unserialize(in, data.Time);
-    uint32_t count;
-    DbIo<uint32_t>::unserialize(in, count);
-    data.Entries.resize(count);
-    for (auto &entry : data.Entries)
-      DbIo<CWorkSummaryEntry>::unserialize(in, entry);
+    DbIo<decltype(data.Time)>::unserialize(in, data.Time);
+    DbIo<decltype(data.Entries)>::unserialize(in, data.Entries);
   }
 };
 
 template<>
-struct ShareLogIo<CUserWorkSummaryBatch> {
+struct DbIo<CUserWorkSummaryBatch> {
   static inline void serialize(xmstream &out, const CUserWorkSummaryBatch &data) {
-    DbIo<TimeInterval>::serialize(out, data.Time);
-    DbIo<uint32_t>::serialize(out, static_cast<uint32_t>(data.Entries.size()));
-    for (const auto &entry : data.Entries)
-      DbIo<CUserWorkSummary>::serialize(out, entry);
+    DbIo<decltype(data.Time)>::serialize(out, data.Time);
+    DbIo<decltype(data.Entries)>::serialize(out, data.Entries);
   }
 
   static inline void unserialize(xmstream &in, CUserWorkSummaryBatch &data) {
-    DbIo<TimeInterval>::unserialize(in, data.Time);
-    uint32_t count;
-    DbIo<uint32_t>::unserialize(in, count);
-    data.Entries.resize(count);
-    for (auto &entry : data.Entries)
-      DbIo<CUserWorkSummary>::unserialize(in, entry);
+    DbIo<decltype(data.Time)>::unserialize(in, data.Time);
+    DbIo<decltype(data.Entries)>::unserialize(in, data.Entries);
   }
 };
 

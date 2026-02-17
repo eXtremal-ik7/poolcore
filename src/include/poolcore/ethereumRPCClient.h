@@ -195,7 +195,6 @@ private:
   };
 
   int64_t ioSearchUncle(CConnection *connection, int64_t height, const std::string &hash, int64_t bestBlockHeight, std::string &publicHash);
-  UInt<384> getConstBlockReward(int64_t height);
 
   // Raw Ethereum API - methods
   CNetworkClient::EOperationStatus ethGetBalance(CConnection *connection, const std::string &address, UInt<384> *balance);

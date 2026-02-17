@@ -19,6 +19,11 @@ public:
                 const UInt<256> &workValue, Timestamp time,
                 double chainLength, uint32_t primePOWTarget, bool isPrimePOW);
 
+  void setBlockInfo(const UInt<384> &baseBlockReward, const UInt<256> &expectedWork) {
+    BaseBlockReward_ = baseBlockReward;
+    ExpectedWork_ = expectedWork;
+  }
+
   CAccumulatorBatch takeBatch();
   bool empty() const;
   bool shouldFlush(Timestamp now) const { return now >= NextFlushTime_; }
@@ -42,6 +47,8 @@ private:
   Timestamp NextFlushTime_;
   std::chrono::seconds FlushInterval_ = std::chrono::seconds(6);
   bool AccumulateUsers_ = true;
+  UInt<384> BaseBlockReward_;
+  UInt<256> ExpectedWork_;
   Timestamp BatchFirstTime_ = Timestamp(std::chrono::milliseconds::max());
   Timestamp BatchLastTime_;
 };

@@ -151,14 +151,18 @@ template<typename T> struct DbIo<std::vector<T>> {
   static inline void unserialize(xmstream &src, std::vector<T> &data) {
     VarSize size = 0;
     DbIo<VarSize>::unserialize(src, size);
-    if (size.Size > src.remaining()) {
-      src.seekEnd(0, true);
-      return;
-    }
 
-    data.resize(size.Size);
-    for (uint64_t i = 0; i < size.Size; i++)
-      DbIo<T>::unserialize(src, data[i]);
+    constexpr uint64_t safeResizeLimit = 128 * 1048576ull / sizeof(T);
+    if (size.Size <= safeResizeLimit) {
+      data.resize(size.Size);
+      for (uint64_t i = 0; i < size.Size; i++)
+        DbIo<T>::unserialize(src, data[i]);
+    } else {
+      for (uint64_t i = 0; i < size.Size; i++) {
+        T &element = data.emplace_back();
+        DbIo<T>::unserialize(src, element);
+      }
+    }
   }
 };
 
@@ -173,11 +177,6 @@ template<typename T> struct DbIo<std::list<T>> {
   static inline void unserialize(xmstream &src, std::list<T> &data) {
     VarSize size = 0;
     DbIo<VarSize>::unserialize(src, size);
-    if (size.Size > src.remaining()) {
-      src.seekEnd(0, true);
-      return;
-    }
-
     for (uint64_t i = 0; i < size.Size; i++) {
       T &element = data.emplace_back();
       DbIo<T>::unserialize(src, element);
@@ -198,11 +197,6 @@ template<typename K, typename V> struct DbIo<std::map<K, V>> {
   static inline void unserialize(xmstream &src, std::map<K, V> &data) {
     VarSize size = 0;
     DbIo<VarSize>::unserialize(src, size);
-    if (size.Size > src.remaining()) {
-      src.seekEnd(0, true);
-      return;
-    }
-
     for (uint64_t i = 0; i < size.Size; i++) {
       K key;
       V value;

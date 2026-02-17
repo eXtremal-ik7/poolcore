@@ -58,6 +58,7 @@ public:
   virtual uint64_t height(size_t workIdx) = 0;
   virtual size_t txNum(size_t workIdx) = 0;
   virtual UInt<384> blockReward(size_t workIdx) = 0;
+  virtual UInt<384> baseBlockReward(size_t workIdx) = 0;
   virtual UInt<256> expectedWork(size_t workIdx) = 0;
   virtual void buildBlock(size_t workIdx, xmstream &stream) = 0;
   virtual bool ready() = 0;
@@ -162,6 +163,7 @@ public:
   virtual uint64_t height(size_t workIdx) final { return Works_[workIdx].Work->height(0); }
   virtual size_t txNum(size_t workIdx) final { return Works_[workIdx].Work->txNum(0); }
   virtual UInt<384> blockReward(size_t workIdx) final { return Works_[workIdx].Work->blockReward(0); }
+  virtual UInt<384> baseBlockReward(size_t workIdx) final { return Works_[workIdx].Work->baseBlockReward(0); }
   virtual UInt<256> expectedWork(size_t workIdx) final { return Works_[workIdx].Work->expectedWork(0); }
   virtual bool ready() final { return true; }
   virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) final { return Works_[workIdx].Work->getAbstractProfitValue(0, price, coeff); }
@@ -201,6 +203,7 @@ public:
   virtual BaseBlob<256> shareHash() final { return BaseBlob<256>::zero(); }
   virtual std::string blockHash(size_t) final { return std::string(); }
   virtual UInt<256> expectedWork(size_t) final { return UInt<256>::zero(); }
+  virtual UInt<384> baseBlockReward(size_t) final { return UInt<384>::zero(); }
   virtual void buildBlock(size_t, xmstream&) final {}
   virtual bool ready() final { return false; }
   virtual void mutate() final {}

@@ -10,6 +10,28 @@
 
 namespace ETH {
 
+inline UInt<384> getConstBlockReward(const std::string &coinName, int64_t height)
+{
+  static constexpr int64_t ByzantiumHeight = 4370000;
+  static constexpr int64_t ConstantinopleHeight = 7280000;
+  static constexpr int64_t ETC256Height = 15000001;
+  static const UInt<384> gwei = UInt<384>(1000000000ULL) << 256;
+
+  if (coinName == "ETC") {
+    if (height < ETC256Height)
+      return 3200000000ULL * gwei;
+    else
+      return 2560000000ULL * gwei;
+  }
+
+  if (height < ByzantiumHeight)
+    return 5 * 1000000000ULL * gwei;
+  else if (height < ConstantinopleHeight)
+    return 3 * 1000000000ULL * gwei;
+  else
+    return 2 * 1000000000ULL * gwei;
+}
+
 struct BlockSubmitData {
   char Nonce[16+2+1];
   char HeaderHash[64+2+1];
@@ -193,6 +215,7 @@ public:
     }
 
     UInt<384> blockReward(size_t) final { return BlockReward_; }
+    UInt<384> baseBlockReward(size_t) final { return BaseBlockReward_; }
 
   private:
     std::string HeaderHashHex_;
@@ -204,6 +227,7 @@ public:
     BaseBlob<256> MixHash_;
     intrusive_ptr<EthashDagWrapper> DagFile_;
     UInt<384> BlockReward_ = UInt<384>::zero();
+    UInt<384> BaseBlockReward_ = UInt<384>::zero();
   };
 
   static constexpr bool MergedMiningSupport = false;

@@ -241,15 +241,29 @@ Active user sessions.
 
 ## File-based Storage
 
+### ShareLog record format
+
+Common binary record format used by all ShareLog files (`shareLog.h`).
+
+Each record: `ShareLogMsgHeader` + data payload.
+
+- **ShareLogMsgHeader** (16 bytes):
+  - Id: uint64 LE — unique message id
+  - Length: uint32 LE — payload size in bytes
+  - Crc32: uint32 LE — CRC-32C (Castagnoli) of payload bytes
+- **Payload**: `Length` bytes, serialized via `DbIo<T>::serialize`
+- On replay: CRC-32C is verified; mismatch stops replay at that record
+- **File naming**: `{firstMessageId}.dat`
+- **File rotation**: new file when current reaches `ShareLogFileSizeLimit` (default 4MB)
+
 ### 13. ShareLog (statistic.worklog)
 
 Persistent message log for statistics replay on restart.
 
 - **Path**: `{dbPath}/statistic.worklog/*.dat`
 - **Owner**: `StatisticDb`
-- **Format** (per entry): MessageId (uint64 LE) + CWorkSummaryBatch
-  - CWorkSummaryBatch: TimeInterval + count (uint32) + `vector<CWorkSummaryEntry>`
-- **File rotation**: new file at 4MB
+- **Payload type**: CWorkSummaryBatch
+  - CWorkSummaryBatch: TimeInterval + `vector<CWorkSummaryEntry>`
 
 ### 14. ShareLog (accounting.worklog)
 
@@ -257,10 +271,9 @@ Persistent message log for accounting replay on restart.
 
 - **Path**: `{dbPath}/accounting.worklog/*.dat`
 - **Owner**: `AccountingDb`
-- **Format** (per entry): MessageId (uint64 LE) + CUserWorkSummaryBatch
-  - CUserWorkSummaryBatch: TimeInterval + count (uint32) + `vector<CUserWorkSummary>`
-    - CUserWorkSummary: UserId (string), AcceptedWork (`UInt<256>`), SharesNum (uint64), Time (Timestamp)
-- **File rotation**: new file at 4MB
+- **Payload type**: CUserWorkSummaryBatch
+  - CUserWorkSummaryBatch: TimeInterval + `vector<CUserWorkSummary>`
+    - CUserWorkSummary: UserId (string), AcceptedWork (`UInt<256>`), SharesNum (uint64), Time (Timestamp), BaseBlockReward (`UInt<384>`), ExpectedWork (`UInt<256>`)
 
 ### 15. Statistics Cache (.dat files)
 

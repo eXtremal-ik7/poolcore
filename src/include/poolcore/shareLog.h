@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <functional>
 #include <vector>
+#include "poolcommon/crc32.h"
 #include "poolcommon/debug.h"
 #include "poolcommon/datFile.h"
 #include "poolcommon/file.h"
@@ -13,26 +14,10 @@
 #include "p2putils/xmstream.h"
 #include <inttypes.h>
 
-template<typename T>
-struct ShareLogIo {
-  static void serialize(xmstream &out, const T &data);
-  static void unserialize(xmstream &in, T &data);
-};
-
-template<typename T>
-struct ShareLogIo<std::vector<T>> {
-  static void serialize(xmstream &out, const std::vector<T> &data) {
-    DbIo<uint32_t>::serialize(out, static_cast<uint32_t>(data.size()));
-    for (const auto &entry : data)
-      DbIo<T>::serialize(out, entry);
-  }
-  static void unserialize(xmstream &in, std::vector<T> &data) {
-    uint32_t count;
-    DbIo<uint32_t>::unserialize(in, count);
-    data.resize(count);
-    for (auto &entry : data)
-      DbIo<T>::unserialize(in, entry);
-  }
+struct ShareLogMsgHeader {
+  uint64_t Id;
+  uint32_t Length;
+  uint32_t Crc32;
 };
 
 template<typename T>
@@ -70,10 +55,31 @@ public:
     }
   }
 
-  uint64_t addShare(const T &data) {
+  // Record format: [ShareLogMsgHeader][data]
+  // CRC32C covers data bytes (Length bytes after header)
+  uint64_t addMessage(const T &data) {
     uint64_t id = CurrentMessageId_++;
-    ShareLogInMemory_.writele<uint64_t>(id);
-    ShareLogIo<T>::serialize(ShareLogInMemory_, data);
+
+    // Reserve header, serialize data
+    size_t headerPos = ShareLogInMemory_.offsetOf();
+    ShareLogInMemory_.reserve(sizeof(ShareLogMsgHeader));
+    size_t dataStart = ShareLogInMemory_.offsetOf();
+    DbIo<T>::serialize(ShareLogInMemory_, data);
+    size_t dataEnd = ShareLogInMemory_.offsetOf();
+
+    uint32_t dataSize = static_cast<uint32_t>(dataEnd - dataStart);
+
+    // Patch header
+    ShareLogMsgHeader *header = reinterpret_cast<ShareLogMsgHeader*>(
+      static_cast<uint8_t*>(ShareLogInMemory_.data()) + headerPos
+    );
+    header->Id = xhtole(id);
+    header->Length = xhtole(dataSize);
+    header->Crc32 = xhtole(crc32c(
+      static_cast<const uint8_t*>(ShareLogInMemory_.data()) + dataStart,
+      dataSize
+    ));
+
     return id;
   }
 
@@ -130,11 +136,38 @@ private:
     uint64_t maxMessageId = 0;
     stream.seekSet(0);
     while (stream.remaining()) {
-      id = stream.readle<uint64_t>();
+      if (stream.remaining() < sizeof(ShareLogMsgHeader)) {
+        LOG_F(ERROR, "ShareLog: truncated header in %s", path_to_utf8(file.Path).c_str());
+        break;
+      }
+
+      const ShareLogMsgHeader *header =
+        reinterpret_cast<const ShareLogMsgHeader*>(stream.seek<uint8_t>(sizeof(ShareLogMsgHeader)));
+      id = xletoh(header->Id);
+      uint32_t dataSize = xletoh(header->Length);
+      uint32_t storedCrc = xletoh(header->Crc32);
+
+      if (dataSize > stream.remaining()) {
+        LOG_F(ERROR, "ShareLog: truncated data in %s", path_to_utf8(file.Path).c_str());
+        break;
+      }
+
+      uint8_t *dataPtr = stream.seek<uint8_t>(dataSize);
+      uint32_t computedCrc = crc32c(dataPtr, dataSize);
+      if (computedCrc != storedCrc) {
+        LOG_F(ERROR,
+          "ShareLog: CRC32C mismatch in %s (stored %08X, computed %08X)",
+          path_to_utf8(file.Path).c_str(),
+          storedCrc,
+          computedCrc);
+        break;
+      }
+
+      xmstream payload(dataPtr, dataSize);
       T data;
-      ShareLogIo<T>::unserialize(stream, data);
-      if (stream.eof()) {
-        LOG_F(ERROR, "Corrupted file %s", path_to_utf8(file.Path).c_str());
+      DbIo<T>::unserialize(payload, data);
+      if (payload.eof()) {
+        LOG_F(ERROR, "ShareLog: corrupted payload in %s", path_to_utf8(file.Path).c_str());
         break;
       }
 

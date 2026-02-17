@@ -46,6 +46,7 @@ bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, std::string 
   this->Height_ = strtoul(resultValue[3].GetString()+2, nullptr, 16);
   // Block reward can't be calculated at this moment
   this->BlockReward_ = UInt<384>::zero();
+  this->BaseBlockReward_ = ETH::getConstBlockReward(blockTemplate.Ticker, this->Height_);
 
   // Copy reference to DAG file & check it
   DagFile_ = blockTemplate.DagFile;

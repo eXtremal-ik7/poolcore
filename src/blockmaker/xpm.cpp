@@ -695,6 +695,9 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
     work.CoinbaseTx.write<uint8_t>(0);
   }
 
+  // Base block reward (subsidy without fees) for PPS
+  work.BaseBlockReward = targetGetMint(work.Header.nBits);
+
   // Calculate reward & serialize coinbase transaction again
   work.BlockReward = coinbaseTx.txOut[0].value = targetGetMint(work.Header.nBits) - getFee(work.CoinbaseTx.sizeOf(), false);
   work.CoinbaseTx.reset();

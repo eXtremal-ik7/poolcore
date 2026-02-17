@@ -206,10 +206,6 @@ private:
       LinkedBackends_[globalBackendIdx]->sendUserWorkSummary(std::move(batch.Users));
     }
     acc.resetFlushTime(Timestamp::now());
-    if (AlgoMetaStatistic_ && !data.AlgoMetaAccumulator.empty()) {
-      AlgoMetaStatistic_->sendWorkSummary(std::move(data.AlgoMetaAccumulator.takeBatch().Workers));
-      data.AlgoMetaAccumulator.resetFlushTime(Timestamp::now());
-    }
   }
 
 private:
@@ -497,6 +493,12 @@ private:
     }
     for (Connection *connection: disconnected)
       delete connection;
+
+    // Flush accumulated shares before sending new work
+    flushAccumulator(data.Work.BackendId);
+
+    // Set block info (base reward + expected work) for accumulator from new work
+    data.Accumulators[data.Work.BackendId].setBlockInfo(data.Work.baseBlockReward(), data.Work.expectedWork());
 
     // Send signals
     for (Connection *connection: data.SignalSockets)

@@ -478,7 +478,48 @@ void AccountingDb::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
     return;
   }
 
-  uint64_t messageId = ShareLog_.addShare(batch);
+  for (const auto &entry : batch.Entries) {
+    std::string batchCostStr;
+    std::string batchCostCoinStr;
+    if (!entry.ExpectedWork.isZero()) {
+      // Fixed-point 128.256: high 128 bits = integer satoshi, low 256 bits = fractional
+      UInt<384> batchCost = entry.BaseBlockReward;
+      batchCost /= entry.ExpectedWork;
+      batchCost *= entry.AcceptedWork;
+
+      UInt<384> intPart = batchCost >> 256;
+      UInt<384> fracPart = batchCost - (intPart << 256);
+      UInt<384> fracDigits = (fracPart * 1000000000000ULL) >> 256;
+      char buf[32];
+      snprintf(buf, sizeof(buf), "%012" PRIu64, fracDigits.low64());
+      batchCostStr = intPart.getDecimal() + "." + buf;
+
+      // Same value in coins: divide integer satoshi by 10^FractionalPartSize
+      UInt<384> coinFactor(1u);
+      for (unsigned i = 0; i < CoinInfo_.FractionalPartSize; i++)
+        coinFactor *= 10u;
+      UInt<384> coinInt, coinSatFrac;
+      intPart.divmod(coinFactor, &coinInt, &coinSatFrac);
+      char coinBuf[64];
+      snprintf(coinBuf,
+               sizeof(coinBuf),
+               "%0*" PRIu64 "%012" PRIu64,
+               (int)CoinInfo_.FractionalPartSize,
+               coinSatFrac.low64(),
+               fracDigits.low64());
+      batchCostCoinStr = coinInt.getDecimal() + "." + coinBuf;
+    }
+    LOG_F(INFO,
+          "PPS-DEBUG: user=%s shares=%" PRIu64 " expectedWork=%s batchCost=%s sat (%s %s)",
+          entry.UserId.c_str(),
+          entry.SharesNum,
+          entry.ExpectedWork.getHex().c_str(),
+          batchCostStr.c_str(),
+          batchCostCoinStr.c_str(),
+          CoinInfo_.Name.c_str());
+  }
+
+  uint64_t messageId = ShareLog_.addMessage(batch);
   State_.addScores(messageId, batch);
   UserStatsAcc_.addBaseWorkBatch(messageId, batch);
 }

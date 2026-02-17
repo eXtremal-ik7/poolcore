@@ -109,7 +109,7 @@ void StatisticDb::onWorkSummary(const CWorkSummaryBatch &batch)
     return;
   }
 
-  uint64_t messageId = ShareLog_.addShare(batch);
+  uint64_t messageId = ShareLog_.addMessage(batch);
   WorkerStats_.addBatch(messageId, batch);
   UserStats_.addBatch(messageId, batch, false);
   PoolStatsAcc_.addBatch(messageId, batch);

@@ -16,12 +16,6 @@
 #include <netdb.h>
 #endif
 
-static constexpr int64_t ByzantiumHeight = 4370000;
-static constexpr int64_t ConstantinopleHeight = 7280000;
-static constexpr int64_t ETC256Height = 15000001;
-
-static const UInt<384> gwei = UInt<384>(1000000000ULL) << 256;
-
 // Parse hex string (with or without "0x" prefix) as wei and return UInt<384> with wei in upper 128 bits
 static UInt<384> fromWeiHex(const char *hex) {
   if (hex[0] == '0' && hex[1] == 'x')
@@ -256,7 +250,7 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
     if (block.MixHash != UInt<256>::fromHex(query.Hash.c_str())) {
       int64_t uncleHeight = ioSearchUncle(connection.get(), query.Height, query.Hash, bestBlockHeight, query.PublicHash);
       if (uncleHeight) {
-        UInt<384> reward = getConstBlockReward(uncleHeight) * (8 - (uncleHeight-query.Height)) / 8u;
+        UInt<384> reward = ETH::getConstBlockReward(CoinInfo_.Name, uncleHeight) * (8 - (uncleHeight-query.Height)) / 8u;
         query.Confirmations = bestBlockHeight - uncleHeight;
         query.BlockReward = reward;
       // TODO: remove static_cast
@@ -272,7 +266,7 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
     }
 
     // Get block reward
-    UInt<384> constReward = getConstBlockReward(query.Height);
+    UInt<384> constReward = ETH::getConstBlockReward(CoinInfo_.Name, query.Height);
     UInt<384> totalTxFee = query.TxFee;
     if (totalTxFee == 0u) {
       for (const auto &txObject: block.Transactions) {
@@ -647,23 +641,6 @@ int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t heigh
   }
 
   return 0;
-}
-
-UInt<384> CEthereumRpcClient::getConstBlockReward(int64_t height)
-{
-  if (CoinInfo_.Name == "ETC") {
-    if (height < ETC256Height)
-      return 3200000000ULL * gwei;
-    else
-      return 2560000000ULL * gwei;
-  }
-
-  if (height < ByzantiumHeight)
-    return 5 * 1000000000ULL * gwei;
-  else if (height < ConstantinopleHeight)
-    return 3 * 1000000000ULL * gwei;
-  else
-    return 2 * 1000000000ULL * gwei;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(CConnection *connection, const std::string &address, UInt<384> *balance)

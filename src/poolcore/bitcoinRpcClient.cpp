@@ -411,8 +411,15 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphanA
     }
 
     if (value["result"].IsNull()) {
-      HasGetBlockChainInfo_ = false;
-      return ioGetBlockConfirmations(base, orphanAgeLimit, query);
+      if (HasGetBlockChainInfo_) {
+        HasGetBlockChainInfo_ = false;
+        return ioGetBlockConfirmations(base, orphanAgeLimit, query);
+      }
+      LOG_F(WARNING,
+            "%s %s: both getblockchaininfo and getinfo returned null",
+            CoinInfo_.Name.c_str(),
+            FullHostName_.c_str());
+      return false;
     }
 
     value = value["result"];

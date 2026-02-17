@@ -961,32 +961,6 @@ static uint64_t getStatsCacheMaxShareId(const std::filesystem::path &srcCoinPath
   return maxShareId;
 }
 
-// Write a single worklog message file in new ShareLog format
-template<typename BatchT>
-static bool writeWorklogMessage(const std::filesystem::path &worklogDir, uint64_t messageId, const BatchT &batch)
-{
-  if (batch.Entries.empty())
-    return true;
-
-  std::filesystem::create_directories(worklogDir);
-
-  xmstream stream;
-  stream.writele<uint64_t>(messageId);
-  ShareLogIo<BatchT>::serialize(stream, batch);
-
-  std::filesystem::path filePath = worklogDir / (std::to_string(messageId) + ".dat");
-  FileDescriptor fd;
-  if (!fd.open(filePath)) {
-    LOG_F(ERROR, "  Can't create worklog file %s", filePath.string().c_str());
-    return false;
-  }
-
-  fd.write(stream.data(), stream.sizeOf());
-  fd.close();
-  LOG_F(INFO, "  Wrote %s: %zu entries", filePath.string().c_str(), batch.Entries.size());
-  return true;
-}
-
 // Find the index in shares array where aggregation should start.
 // Scans for exact UniqueShareId match; returns index after the found share.
 // Returns nullopt if threshold not found (0 means no .dat files, >0 means ID not in log).
@@ -1182,12 +1156,14 @@ static bool migrateShareLogToWorklog(const std::filesystem::path &srcCoinPath,
     }
 
     std::filesystem::path statsWorklogDir = dstCoinPath / "statistic.worklog";
+    std::filesystem::create_directories(statsWorklogDir);
+    ShareLog<CWorkSummaryBatch> statsLog(statsWorklogDir, "migrate", INT64_MAX);
+    statsLog.startLogging(1);
+
     if (statsMinStart != statsMaxStart) {
-      // Gap exists: two messages
-      if (!writeWorklogMessage(statsWorklogDir, 1, gapBatch))
-        return false;
-      if (!writeWorklogMessage(statsWorklogDir, 2, commonBatch))
-        return false;
+      // Gap exists: two messages (id=1 gap, id=2 common)
+      statsLog.addMessage(gapBatch);
+      statsLog.addMessage(commonBatch);
 
       // Override cache LastShareId: accumulator with lower start (more shares) replays both messages
       if (*poolStart < *workersStart) {
@@ -1198,13 +1174,14 @@ static bool migrateShareLogToWorklog(const std::filesystem::path &srcCoinPath,
         *workersCacheLastShareId = 0;
       }
     } else {
-      // No gap: single message
-      if (!writeWorklogMessage(statsWorklogDir, 1, commonBatch))
-        return false;
+      // No gap: single message (id=1)
+      statsLog.addMessage(commonBatch);
 
       *poolCacheLastShareId = 0;
       *workersCacheLastShareId = 0;
     }
+
+    statsLog.flush();
 
     LOG_F(INFO, "  Statistics worklog migration summary:");
     LOG_F(INFO, "    Stats pool: %zu shares (from index %zu)", shares.size() - *poolStart, *poolStart);
@@ -1221,8 +1198,11 @@ static bool migrateShareLogToWorklog(const std::filesystem::path &srcCoinPath,
     aggregateAccountingEntries(shares, *accountingStart, shares.size(), old2, accountingBatch);
 
     std::filesystem::path accWorklogDir = dstCoinPath / "accounting.worklog";
-    if (!writeWorklogMessage(accWorklogDir, 1, accountingBatch))
-      return false;
+    std::filesystem::create_directories(accWorklogDir);
+    ShareLog<CUserWorkSummaryBatch> accLog(accWorklogDir, "migrate", INT64_MAX);
+    accLog.startLogging(1);
+    accLog.addMessage(accountingBatch);
+    accLog.flush();
 
     LOG_F(INFO, "  Accounting worklog migration: %zu shares (from index %zu)", shares.size() - *accountingStart, *accountingStart);
     logAccountingEntrySummary("Accounting", accountingBatch.Entries);

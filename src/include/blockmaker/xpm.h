@@ -159,6 +159,7 @@ public:
     unsigned BlockHexExtraNonceOffset;
     size_t TransactionsNum;
     uint64_t BlockReward;
+    uint64_t BaseBlockReward = 0;
 
     Proto::BlockHeader Header;
     std::vector<BaseBlob<256>> MerklePath;
@@ -173,6 +174,7 @@ public:
     BaseBlob<256> hash() { return Header.GetHash(); }
     size_t txNum() { return TransactionsNum; }
     UInt<384> blockReward() { return fromRational(BlockReward); }
+    UInt<384> baseBlockReward() { return fromRational(BaseBlockReward); }
     const xmstream &blockHexData() { return BlockHexData; }
     UInt<256> expectedWork();
 

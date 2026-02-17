@@ -206,6 +206,8 @@ public:
     }
   }
 
+  bool isNewBlock(size_t backendIdx) const { return !KnownWorkMap_[backendIdx]; }
+
   bool needSendResetSignal(CWork *work) {
     bool result = false;
     for (unsigned i = 0; i < work->backendsNum(); i++) {

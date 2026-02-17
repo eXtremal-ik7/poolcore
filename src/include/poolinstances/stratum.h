@@ -326,6 +326,16 @@ public:
       // Send work to all miners
       auto beginPt = std::chrono::steady_clock::now();
 
+      // Flush accumulators for backends with new block
+      for (size_t i = 0; i < LinkedBackends_.size(); i++) {
+        if (data.WorkStorage.isNewBlock(i))
+          flushAccumulator(i);
+      }
+
+      // Set block info (base reward + expected work) for accumulators from new work
+      for (size_t i = 0; i < work->backendsNum(); i++)
+        data.Accumulators[work->backendId(i)].setBlockInfo(work->baseBlockReward(i), work->expectedWork(i));
+
       // Calculate reset flag for new work & build notify message
       bool resetPreviousWork = data.WorkStorage.needSendResetSignal(work);
       work->buildNotifyMessage(resetPreviousWork);
@@ -477,10 +487,6 @@ private:
       LinkedBackends_[globalBackendIdx]->sendUserWorkSummary(std::move(batch.Users));
     }
     acc.resetFlushTime(Timestamp::now());
-    if (AlgoMetaStatistic_ && !data.AlgoMetaAccumulator.empty()) {
-      AlgoMetaStatistic_->sendWorkSummary(std::move(data.AlgoMetaAccumulator.takeBatch().Workers));
-      data.AlgoMetaAccumulator.resetFlushTime(Timestamp::now());
-    }
   }
 
 private:

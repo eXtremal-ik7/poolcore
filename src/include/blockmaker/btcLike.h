@@ -205,6 +205,16 @@ public:
 
     CoinbaseBuilder_.prepare(&this->BlockReward_, resultValue);
 
+    // Compute base block reward (subsidy without fees) for PPS
+    {
+      uint64_t totalFees = 0;
+      for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
+        if (transactions[i].HasMember("fee") && transactions[i]["fee"].IsUint64())
+          totalFees += transactions[i]["fee"].GetUint64();
+      }
+      BaseBlockReward_ = this->BlockReward_ - totalFees;
+    }
+
     this->BlockReward_ -= blockRewardDelta;
 
     if (txFilter)
@@ -242,6 +252,7 @@ public:
   }
 
   UInt<384> blockReward(size_t) final { return fromRational(BlockReward_); }
+  UInt<384> baseBlockReward(size_t) final { return fromRational(BaseBlockReward_); }
 
 public:
   // Implementation
@@ -313,6 +324,7 @@ public:
   typename Proto::CheckConsensusCtx ConsensusCtx_;
 
   uint64_t BlockReward_ = 0;
+  uint64_t BaseBlockReward_ = 0;
 };
 
 }
