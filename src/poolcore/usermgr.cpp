@@ -1,4 +1,5 @@
 #include "poolcore/usermgr.h"
+#include "poolcore/backend.h"
 #include "poolcommon/totp.h"
 #include "blockmaker/sha256.h"
 #include "loguru.hpp"
@@ -1003,6 +1004,13 @@ void UserManager::updateCredentialsImpl(const std::string &sessionId, const std:
 
 void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, const std::string &totp, Task::DefaultCb callback)
 {
+  // Validate coin
+  auto backendIt = Backends_.find(settings.Coin);
+  if (backendIt == Backends_.end()) {
+    callback("unknown_coin");
+    return;
+  }
+
   // check 2fa
   {
     decltype (UsersCache_)::accessor accessor;
@@ -1036,6 +1044,10 @@ void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, const s
     LOG_F(INFO, "setup %s/%s address: %s", settings.Login.c_str(), settings.Coin.c_str(), settings.Address.c_str());
   else
     LOG_F(INFO, "change %s/%s %s -> %s", settings.Login.c_str(), settings.Coin.c_str(), oldSettings.Address.c_str(), settings.Address.c_str());
+
+  // Notify backend about settings update
+  backendIt->second->sendUserSettingsUpdate(settings);
+
   callback("ok");
 }
 
@@ -1328,6 +1340,16 @@ bool UserManager::getUserCoinSettings(const std::string &login, const std::strin
   } else {
     return false;
   }
+}
+
+std::vector<UserSettingsRecord> UserManager::getAllCoinSettings(const std::string &coin)
+{
+  std::vector<UserSettingsRecord> result;
+  for (auto it = SettingsCache_.begin(); it != SettingsCache_.end(); ++it) {
+    if (it->second.Coin == coin)
+      result.push_back(it->second);
+  }
+  return result;
 }
 
 std::string UserManager::getFeePlanId(const std::string &login)

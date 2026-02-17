@@ -67,6 +67,7 @@ private:
   void onBackendQueryPPLNSPayouts(rapidjson::Document &document);
   void onBackendQueryPPLNSAcc(rapidjson::Document &document);
   void onBackendUpdateProfitSwitchCoeff(rapidjson::Document &document);
+  void onBackendUpdatePPSConfig(rapidjson::Document &document);
   void onBackendPoolLuck(rapidjson::Document &document);
 
   void onInstanceEnumerateAll(rapidjson::Document &document);
@@ -118,6 +119,7 @@ private:
     fnBackendQueryPPLNSPayouts,
     fnBackendQueryPPLNSAcc,
     fnBackendUpdateProfitSwitchCoeff,
+    fnBackendUpdatePPSConfig,
     fnBackendPoolLuck,
 
     // Instance functions

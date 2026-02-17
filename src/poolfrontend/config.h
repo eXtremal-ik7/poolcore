@@ -50,6 +50,7 @@ struct CCoinConfig {
   std::vector<CMiningAddressConfig> MiningAddresses;
   std::string CoinbaseMsg;
   double ProfitSwitchCoeff;
+  unsigned PPSPayoutInterval;
   std::string PoolZAddr;
   std::string PoolTAddr;
 

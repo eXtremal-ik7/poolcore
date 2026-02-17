@@ -7,6 +7,7 @@
 #include <list>
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 template<class T, typename Enable=void>
@@ -203,6 +204,28 @@ template<typename K, typename V> struct DbIo<std::map<K, V>> {
       DbIo<K>::unserialize(src, key);
       DbIo<V>::unserialize(src, value);
       data.insert(std::make_pair(key, value));
+    }
+  }
+};
+
+template<typename K, typename V> struct DbIo<std::unordered_map<K, V>> {
+  static inline void serialize(xmstream &dst, const std::unordered_map<K, V> &data) {
+    DbIo<VarSize>::serialize(dst, data.size());
+    for (const auto &v: data) {
+      DbIo<K>::serialize(dst, v.first);
+      DbIo<V>::serialize(dst, v.second);
+    }
+  }
+
+  static inline void unserialize(xmstream &src, std::unordered_map<K, V> &data) {
+    VarSize size = 0;
+    DbIo<VarSize>::unserialize(src, size);
+    for (uint64_t i = 0; i < size.Size; i++) {
+      K key;
+      V value;
+      DbIo<K>::unserialize(src, key);
+      DbIo<V>::unserialize(src, value);
+      data.emplace(std::move(key), std::move(value));
     }
   }
 };

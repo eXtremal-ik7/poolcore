@@ -249,6 +249,7 @@ void CCoinConfig::load(const rapidjson::Value &value, std::string &errorDescript
 
   jsonParseString(value, "coinbaseMsg", CoinbaseMsg, "", error, localPath, errorDescription);
   jsonParseDouble(value, "profitSwitchCoeff", &ProfitSwitchCoeff, 0.0, error, localPath, errorDescription);
+  jsonParseUInt(value, "ppsPayoutInterval", &PPSPayoutInterval, 5, error, localPath, errorDescription);
 
   // ZEC specific
   jsonParseString(value, "pool_zaddr", PoolZAddr, "", error, localPath, errorDescription);

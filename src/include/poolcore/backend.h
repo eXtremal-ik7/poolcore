@@ -60,6 +60,15 @@ private:
     std::unique_ptr<CBlockFoundData> Block_;
   };
 
+  class TaskUserSettingsUpdate : public Task<PoolBackend> {
+  public:
+    TaskUserSettingsUpdate(UserSettingsRecord settings) : Settings_(std::move(settings)) {}
+    void run(PoolBackend *backend) final { backend->onUserSettingsUpdate(Settings_); }
+
+  private:
+    UserSettingsRecord Settings_;
+  };
+
 private:
   asyncBase *_base;
   uint64_t _timeout;
@@ -95,6 +104,7 @@ private:
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
   void onWorkSummary(const CWorkSummaryBatch &batch);
   void onBlockFound(const CBlockFoundData &block);
+  void onUserSettingsUpdate(const UserSettingsRecord &settings);
 
 public:
   PoolBackend(const PoolBackend&) = delete;
@@ -128,6 +138,7 @@ public:
   void sendUserWorkSummary(CUserWorkSummaryBatch &&batch) { TaskHandler_.push(new TaskUserWorkSummary(std::move(batch))); }
   void sendWorkSummary(CWorkSummaryBatch &&batch) { TaskHandler_.push(new TaskWorkSummary(std::move(batch))); }
   void sendBlockFound(CBlockFoundData *block) { TaskHandler_.push(new TaskBlockFound(block)); }
+  void sendUserSettingsUpdate(UserSettingsRecord settings) { TaskHandler_.push(new TaskUserSettingsUpdate(std::move(settings))); }
 
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }

@@ -290,6 +290,7 @@ int main(int argc, char *argv[])
         backendConfig.MiningAddresses.add(CMiningAddress(addr.Address, addr.PrivateKey), addr.Weight);
       }
 
+      backendConfig.PPSPayoutInterval = std::chrono::minutes(coinConfig.PPSPayoutInterval);
       backendConfig.CoinBaseMsg = coinConfig.CoinbaseMsg;
       if (backendConfig.CoinBaseMsg.empty())
         backendConfig.CoinBaseMsg = config.PoolName;
@@ -355,7 +356,7 @@ int main(int argc, char *argv[])
       if (coinConfig.ProfitSwitchCoeff != 0.0)
         backend->setProfitSwitchCoeff(coinConfig.ProfitSwitchCoeff);
       poolContext.ClientDispatchers.emplace_back(dispatcher.release());
-      poolContext.UserMgr->configAddCoin(coinInfo, backendConfig.DefaultPayoutThreshold);
+      poolContext.UserMgr->configAddCoin(coinInfo, backendConfig.DefaultPayoutThreshold, backend);
 
       // Initialize algorithm meta statistic
       auto AlgoIt = knownAlgo.find(coinInfo.Algorithm);

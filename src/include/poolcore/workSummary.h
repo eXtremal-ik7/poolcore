@@ -41,7 +41,6 @@ struct CUserWorkSummary {
   std::string UserId;
   UInt<256> AcceptedWork;
   uint64_t SharesNum = 0;
-  Timestamp Time;
   // Block reward without fees (for PPS)
   UInt<384> BaseBlockReward;
   // Expected work to find a block (network difficulty)
@@ -102,7 +101,6 @@ struct DbIo<CUserWorkSummary> {
     DbIo<decltype(data.UserId)>::serialize(stream, data.UserId);
     DbIo<decltype(data.AcceptedWork)>::serialize(stream, data.AcceptedWork);
     DbIo<decltype(data.SharesNum)>::serialize(stream, data.SharesNum);
-    DbIo<decltype(data.Time)>::serialize(stream, data.Time);
     DbIo<decltype(data.BaseBlockReward)>::serialize(stream, data.BaseBlockReward);
     DbIo<decltype(data.ExpectedWork)>::serialize(stream, data.ExpectedWork);
   }
@@ -111,7 +109,6 @@ struct DbIo<CUserWorkSummary> {
     DbIo<decltype(data.UserId)>::unserialize(stream, data.UserId);
     DbIo<decltype(data.AcceptedWork)>::unserialize(stream, data.AcceptedWork);
     DbIo<decltype(data.SharesNum)>::unserialize(stream, data.SharesNum);
-    DbIo<decltype(data.Time)>::unserialize(stream, data.Time);
     DbIo<decltype(data.BaseBlockReward)>::unserialize(stream, data.BaseBlockReward);
     DbIo<decltype(data.ExpectedWork)>::unserialize(stream, data.ExpectedWork);
   }

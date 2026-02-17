@@ -10,6 +10,7 @@ static inline UInt<384> fromRational(uint64_t value) {
 }
 
 std::string FormatMoney(const UInt<384> &n, unsigned decimalDigits, bool fPlus=false);
+std::string FormatMoneyFull(const UInt<384> &n, unsigned decimalDigits);
 bool parseMoneyValue(const char *value, unsigned decimalDigits, UInt<384> *out);
 
 static inline uint8_t hexDigit2bin(char c)

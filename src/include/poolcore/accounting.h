@@ -8,8 +8,42 @@
 #include "poolcommon/multiCall.h"
 #include "poolcommon/taskHandler.h"
 #include "poolcore/clientDispatcher.h"
+#include <atomic>
 
 class CPriceFetcher;
+
+inline std::string ppsMetaUserId() { return std::string("pps\0meta", 8); }
+
+enum class ESaturationFunction : uint32_t {
+  None = 0,
+  Tangent,
+  Clamp,
+  Cubic,
+  Softsign,
+  Norm,
+  Atan,
+  Exp,
+};
+
+struct CPPSConfig {
+
+public:
+  static bool parseSaturationFunction(const std::string &name, ESaturationFunction *out);
+  static const char *saturationFunctionName(ESaturationFunction value);
+
+  double PoolFee = 4.0;
+  ESaturationFunction SaturationFunction = ESaturationFunction::None;
+  double SaturationB0 = 0.0;
+  double SaturationANegative = 0.0;
+  double SaturationAPositive = 0.0;
+};
+
+struct CPPSState {
+  // Pool-side PPS balance: increases when block found (PPS deduction from PPLNS),
+  // decreases when PPS rewards are accrued to users.
+  // Can go negative — that's the pool's risk.
+  UInt<384> Balance;
+};
 
 class AccountingDb {
 public:
@@ -128,11 +162,17 @@ private:
   public:
     // Accumulated share work per user for the current block search session; cleared on block found
     std::map<std::string, UInt<256>> CurrentScores;
+    // Accumulated PPS value per user (fixed-point 128.256 format); cleared on PPS payout
+    std::unordered_map<std::string, UInt<384>> PPSPendingBalance;
     std::vector<CStatsExportData> RecentStats;
     uint64_t SavedShareId = 0;
     Timestamp CurrentRoundStartTime;
     std::list<PayoutDbRecord> PayoutQueue;
     std::unordered_set<std::string> KnownTransactions;
+
+    std::atomic<bool> PPSModeEnabled{false};
+    CPPSConfig PPSConfig;
+    CPPSState PPSState;
 
     rocksdbBase Db;
 
@@ -148,8 +188,10 @@ private:
         CurrentScores[entry.UserId] += entry.AcceptedWork;
     }
 
-    void flushCurrentScores();
-    void flushBlockFoundState();
+    void setLastAcceptedMsgId(uint64_t msgId) { LastAcceptedMsgId_ = msgId; }
+
+    void flushState();
+    void flushPPSConfig();
     void flushPayoutQueue();
 
   private:
@@ -157,6 +199,21 @@ private:
   };
 
   CPersistentState State_;
+
+  class TaskUpdatePPSConfig : public Task<AccountingDb> {
+
+  public:
+    TaskUpdatePPSConfig(bool enabled, CPPSConfig cfg, DefaultCb callback) :
+      PPSModeEnabled_(enabled), Config_(std::move(cfg)), Callback_(std::move(callback)) {}
+    void run(AccountingDb *accounting) final {
+      accounting->updatePPSConfigImpl(PPSModeEnabled_, Config_, Callback_);
+    }
+
+  private:
+    bool PPSModeEnabled_;
+    CPPSConfig Config_;
+    DefaultCb Callback_;
+  };
 
   kvdb<rocksdbBase> _roundsDb;
   kvdb<rocksdbBase> _balanceDb;
@@ -166,12 +223,17 @@ private:
   kvdb<rocksdbBase> PPLNSPayoutsDb;
   ShareLog<CUserWorkSummaryBatch> ShareLog_;
 
+  std::unordered_map<std::string, UserSettingsRecord> UserSettings_;
+
   CStatsSeriesMap UserStatsAcc_;
   aioUserEvent *UserStatsFlushEvent_;
   bool UserStatsFlushFinished_ = false;
 
   aioUserEvent *ShareLogFlushEvent_ = nullptr;
   bool ShareLogFlushFinished_ = false;
+
+  aioUserEvent *PPSPayoutEvent_ = nullptr;
+  bool PPSPayoutFinished_ = false;
 
   TaskHandlerCoroutine<AccountingDb> TaskHandler_;
   aioUserEvent *FlushTimerEvent_;
@@ -181,6 +243,8 @@ private:
   void printRecentStatistic();
   void flushUserStats(Timestamp currentTime);
   void shareLogFlushHandler();
+  void ppsPayoutHandler();
+  void ppsPayout();
 
 public:
   AccountingDb(asyncBase *base,
@@ -205,6 +269,7 @@ public:
   void calculatePayments(MiningRound *R, const UInt<384> &generatedCoins);
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
   void onBlockFound(const CBlockFoundData &block);
+  void onUserSettingsUpdate(const UserSettingsRecord &settings);
   void processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash, bool *roundUpdated);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();
@@ -236,6 +301,11 @@ public:
   }
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { TaskHandler_.push(new TaskQueryBalance(user, callback)); }
   void poolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) { TaskHandler_.push(new TaskPoolLuck(std::move(intervals), callback)); }
+  void updatePPSConfig(bool enabled, CPPSConfig cfg, DefaultCb cb) {
+    TaskHandler_.push(new TaskUpdatePPSConfig(enabled, std::move(cfg), cb));
+  }
+
+  bool isPPSEnabled() const { return State_.PPSModeEnabled.load(std::memory_order_relaxed); }
 
   // Asynchronous multi calls
   static void queryUserBalanceMulti(AccountingDb **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceInfo*, size_t)> callback) {
@@ -251,6 +321,7 @@ private:
   void queryPPLNSPayoutsImpl(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback);
   void queryPPLNSPayoutsAccImpl(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, QueryPPLNSAccCallback callback);
   void poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback);
+  void updatePPSConfigImpl(bool enabled, const CPPSConfig &cfg, DefaultCb callback);
 };
 
 #endif //__ACCOUNTING_H_

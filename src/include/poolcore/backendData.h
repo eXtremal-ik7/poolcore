@@ -93,6 +93,7 @@ struct PoolBackendConfig {
   std::chrono::minutes StatisticUserFlushInterval = std::chrono::minutes(3);
   std::chrono::minutes StatisticWorkerFlushInterval = std::chrono::minutes(5);
   std::chrono::minutes AccountingPPLNSWindow = std::chrono::minutes(30);
+  std::chrono::minutes PPSPayoutInterval = std::chrono::minutes(5);
   std::chrono::hours StatisticKeepWorkerNamesTime = std::chrono::hours(24);
 
   SelectorByWeight<CMiningAddress> MiningAddresses;
@@ -316,6 +317,11 @@ struct UserSessionRecord {
   }
 };
 
+enum class EMiningMode : uint32_t {
+  PPLNS = 0,
+  PPS = 1
+};
+
 struct UserSettingsRecord {
   enum { CurrentRecordVersion = 1 };
 
@@ -324,6 +330,7 @@ struct UserSettingsRecord {
   std::string Address;
   UInt<384> MinimalPayout;
   bool AutoPayout;
+  EMiningMode MiningMode = EMiningMode::PPLNS;
 
   UserSettingsRecord() {}
   std::string getPartitionId() const { return "default"; }
@@ -352,15 +359,20 @@ private:
 
 struct UserBalanceRecord {
   enum { CurrentRecordVersion = 1 };
-  
+
   std::string Login;
   UInt<384> Balance;
   UInt<384> Requested;
   UInt<384> Paid;
+  UInt<384> PPSPaid;
 
   UserBalanceRecord() {}
   UserBalanceRecord(const std::string &userIdArg, const UInt<384>&) :
-    Login(userIdArg), Balance(UInt<384>::zero()), Requested(UInt<384>::zero()), Paid(UInt<384>::zero()) {}
+    Login(userIdArg),
+    Balance(UInt<384>::zero()),
+    Requested(UInt<384>::zero()),
+    Paid(UInt<384>::zero()),
+    PPSPaid(UInt<384>::zero()) {}
       
   std::string getPartitionId() const { return "default"; }
   bool deserializeValue(const void *data, size_t size);

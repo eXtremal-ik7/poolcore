@@ -11,6 +11,8 @@
 #include <thread>
 #include <unordered_set>
 
+class PoolBackend;
+
 class UserManager {
 public:
   enum ESpecialUser {
@@ -281,12 +283,13 @@ public:
   bool sendMail(const std::string &login, const std::string &emailAddress, const std::string &emailTitlePrefix, const std::string &linkPrefix, const BaseBlob<512> &actionId, const std::string &mainText, std::string &error);
   bool check2fa(const std::string &secret, const std::string &receivedCode);
 
-  void configAddCoin(const CCoinInfo &info, const UInt<384> &defaultMinimalPayout) {
+  void configAddCoin(const CCoinInfo &info, const UInt<384> &defaultMinimalPayout, PoolBackend *backend) {
     BackendParameters backendParameters;
     backendParameters.DefaultMinimalPayout = defaultMinimalPayout;
     CoinInfo_.push_back(info);
     BackendParameters_.push_back(backendParameters);
     CoinIdxMap_[info.Name] = CoinInfo_.size() - 1;
+    Backends_[info.Name] = backend;
   }
 
   void setBaseCfg(const std::string &poolName,
@@ -381,6 +384,7 @@ public:
   bool validateSession(const std::string &id, const std::string &targetLogin, UserWithAccessRights &result, bool needWriteAccess);
   bool getUserCredentials(const std::string &login, Credentials &out);
   bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);
+  std::vector<UserSettingsRecord> getAllCoinSettings(const std::string &coin);
   std::string getFeePlanId(const std::string &login);
   bool getFeePlan(const std::string &sessionId, const std::string &feePlanId, std::string &status, UserFeePlanRecord &result);
   bool enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<UserFeePlanRecord> &result);
@@ -466,6 +470,7 @@ private:
   std::vector<CCoinInfo> CoinInfo_;
   std::vector<BackendParameters> BackendParameters_;
   std::unordered_map<std::string, size_t> CoinIdxMap_;
+  std::unordered_map<std::string, PoolBackend*> Backends_;
 
   struct {
     std::string PoolName;

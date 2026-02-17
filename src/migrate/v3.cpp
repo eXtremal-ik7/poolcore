@@ -1067,7 +1067,6 @@ static void aggregateAccountingEntries(const std::vector<ParsedShare> &shares, s
     entry.UserId = userId;
     entry.AcceptedWork = ua.AcceptedWork;
     entry.SharesNum = ua.SharesNum;
-    entry.Time = Timestamp::fromUnixTime(ua.MaxTime);
   }
 }
 

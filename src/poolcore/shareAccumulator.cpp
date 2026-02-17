@@ -64,7 +64,6 @@ CAccumulatorBatch CShareAccumulator::takeBatch()
     entry.UserId = userId;
     entry.AcceptedWork = u.AcceptedWork;
     entry.SharesNum = u.SharesNum;
-    entry.Time = time.TimeEnd;
     entry.BaseBlockReward = BaseBlockReward_;
     entry.ExpectedWork = ExpectedWork_;
     result.Users.Entries.emplace_back(std::move(entry));

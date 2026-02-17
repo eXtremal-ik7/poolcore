@@ -1,5 +1,6 @@
 #include "poolcommon/utils.h"
 #include "poolcommon/uint.h"
+#include <inttypes.h>
 
 std::string FormatMoney(const UInt<384> &n, unsigned decimalDigits, bool fPlus)
 {
@@ -47,6 +48,64 @@ std::string FormatMoney(const UInt<384> &n, unsigned decimalDigits, bool fPlus)
     if (lastNonZero != std::string::npos)
       result += fractional.substr(0, lastNonZero + 1);
   }
+
+  return result;
+}
+
+std::string FormatMoneyFull(const UInt<384> &n, unsigned decimalDigits)
+{
+  // Upper 128 bits = satoshi count, lower 256 bits = fractional satoshi
+  UInt<128> satoshi = UInt<128>::truncate(n >> 256);
+  UInt<256> frac256 = UInt<256>::truncate(n);
+
+  bool isNegative = satoshi.isNegative();
+  if (isNegative)
+    satoshi.negate();
+
+  std::string result;
+  result.reserve(96);
+
+  if (isNegative)
+    result.push_back('-');
+
+  // Compute rationalPartSize = 10^decimalDigits
+  UInt<128> rationalPartSize(1u);
+  for (unsigned i = 0; i < decimalDigits; i++)
+    rationalPartSize.mul64(10u);
+
+  // Compute quotient (coins) and remainder (fractional coins in satoshi)
+  UInt<128> quotient;
+  UInt<128> remainder;
+  satoshi.divmod(rationalPartSize, &quotient, &remainder);
+
+  result += quotient.getDecimal();
+  result.push_back('.');
+
+  // Fractional coins part (fixed width = decimalDigits)
+  {
+    std::string fractional = remainder.getDecimal();
+    for (size_t i = fractional.length(); i < decimalDigits; i++)
+      result.push_back('0');
+    result += fractional;
+  }
+
+  // Sub-satoshi part: multiply frac256 by 10^16 and shift right 256
+  {
+    UInt<384> wide(frac256);
+    for (unsigned i = 0; i < 16; i++)
+      wide *= 10u;
+    uint64_t subSatoshi = (wide >> 256).low64();
+
+    char buf[17];
+    snprintf(buf, sizeof(buf), "%016" PRIu64, subSatoshi);
+    result += buf;
+  }
+
+  // Remove trailing zeros after the decimal point
+  size_t lastNonZero = result.find_last_not_of('0');
+  if (lastNonZero != std::string::npos && result[lastNonZero] == '.')
+    lastNonZero--;
+  result.resize(lastNonZero + 1);
 
   return result;
 }

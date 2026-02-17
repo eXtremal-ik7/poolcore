@@ -221,6 +221,11 @@ bool UserSettingsRecord::deserializeValue(const void *data, size_t size)
   dbIoUnserialize(stream, Address);
   dbIoUnserialize(stream, MinimalPayout);
   dbIoUnserialize(stream, AutoPayout);
+  {
+    uint32_t mode;
+    dbIoUnserialize(stream, mode);
+    MiningMode = static_cast<EMiningMode>(mode);
+  }
   return !stream.eof();
 }
 
@@ -238,6 +243,7 @@ void UserSettingsRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Address);
   dbIoSerialize(stream, MinimalPayout);
   dbIoSerialize(stream, AutoPayout);
+  dbIoSerialize(stream, static_cast<uint32_t>(MiningMode));
 }
 
 bool UserPersonalFeeRecord::deserializeValue(const void *data, size_t size)
@@ -373,7 +379,8 @@ bool UserBalanceRecord::deserializeValue(const void *data, size_t size)
   dbIoUnserialize(stream, Balance);
   dbIoUnserialize(stream, Requested);
   dbIoUnserialize(stream, Paid);
-  
+  dbIoUnserialize(stream, PPSPaid);
+
   return !stream.eof();
 }
 
@@ -391,6 +398,7 @@ void UserBalanceRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Balance);
   dbIoSerialize(stream, Requested);
   dbIoSerialize(stream, Paid);
+  dbIoSerialize(stream, PPSPaid);
 }
 
 // ====================== FoundBlock ======================

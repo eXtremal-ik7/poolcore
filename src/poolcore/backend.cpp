@@ -150,6 +150,11 @@ void PoolBackend::onBlockFound(const CBlockFoundData &block)
   _accounting->onBlockFound(block);
 }
 
+void PoolBackend::onUserSettingsUpdate(const UserSettingsRecord &settings)
+{
+  _accounting->onUserSettingsUpdate(settings);
+}
+
 void PoolBackend::onUpdateDag(unsigned epochNumber, bool bigEpoch)
 {
   if (epochNumber+1 >= MaxEpochNum)
