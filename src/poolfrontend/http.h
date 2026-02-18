@@ -51,6 +51,7 @@ private:
   void onUserUpdateFeePlan(rapidjson::Document &document);
   void onUserDeleteFeePlan(rapidjson::Document &document);
   void onUserChangeFeePlan(rapidjson::Document &document);
+  void onUserRenewFeePlanReferralId(rapidjson::Document &document);
   void onUserActivate2faInitiate(rapidjson::Document &document);
   void onUserDeactivate2faInitiate(rapidjson::Document &document);
 
@@ -68,6 +69,8 @@ private:
   void onBackendQueryProfitSwitchCoeff(rapidjson::Document &document);
   void onBackendQueryPPLNSPayouts(rapidjson::Document &document);
   void onBackendQueryPPLNSAcc(rapidjson::Document &document);
+  void onBackendQueryPPSPayouts(rapidjson::Document &document);
+  void onBackendQueryPPSPayoutsAcc(rapidjson::Document &document);
   void onBackendUpdateProfitSwitchCoeff(rapidjson::Document &document);
   void onBackendGetPPSConfig(rapidjson::Document &document);
   void onBackendUpdatePPSConfig(rapidjson::Document &document);
@@ -105,6 +108,7 @@ private:
     fnUserUpdateFeePlan,
     fnUserDeleteFeePlan,
     fnUserChangeFeePlan,
+    fnUserRenewFeePlanReferralId,
     fnUserActivate2faInitiate,
     fnUserDeactivate2faInitiate,
 
@@ -123,6 +127,8 @@ private:
     fnBackendQueryProfitSwitchCoeff,
     fnBackendQueryPPLNSPayouts,
     fnBackendQueryPPLNSAcc,
+    fnBackendQueryPPSPayouts,
+    fnBackendQueryPPSPayoutsAcc,
     fnBackendUpdateProfitSwitchCoeff,
     fnBackendGetPPSConfig,
     fnBackendUpdatePPSConfig,

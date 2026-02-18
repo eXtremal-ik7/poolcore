@@ -111,9 +111,21 @@ Per-user PPLNS payout records per round.
   - BlockHeight: uint64
   - RoundEndTime: Timestamp
   - PayoutValue: `UInt<384>`
-  - PayoutValueWithoutFee: `UInt<384>`
-  - AcceptedWork: `UInt<256>`
-  - PrimePOWTarget: uint32
+  - RateToBTC: double
+  - RateBTCToUSD: double
+
+### 5a. pps.payouts
+
+Per-user PPS payout records per payout cycle.
+
+- **Partition**: "YYYY.MM" (by IntervalBegin)
+- **Key**: Login (string), IntervalBegin (Timestamp)
+- **Value**:
+  - Version: uint32 = 1
+  - Login: string
+  - IntervalBegin: Timestamp
+  - IntervalEnd: Timestamp
+  - PayoutValue: `UInt<384>`
   - RateToBTC: double
   - RateBTCToUSD: double
 

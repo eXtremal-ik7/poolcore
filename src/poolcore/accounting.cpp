@@ -104,9 +104,6 @@ void AccountingDb::CPPLNSPayoutAcc::merge(const CPPLNSPayout &record, unsigned f
   UInt<384> usdValue = record.PayoutValue;
   usdValue.mulfp(record.RateToBTC * record.RateBTCToUSD / std::pow(10.0, fractionalPartSize));
   TotalUSD += usdValue;
-
-  TotalIncomingWork += record.AcceptedWork;
-  PrimePOWTarget = std::min(PrimePOWTarget, record.PrimePOWTarget);
 }
 
 void AccountingDb::CPPLNSPayoutAcc::mergeScaled(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize)
@@ -122,12 +119,34 @@ void AccountingDb::CPPLNSPayoutAcc::mergeScaled(const CPPLNSPayout &record, doub
   UInt<384> usdValue = payoutValue;
   usdValue.mulfp(record.RateToBTC * record.RateBTCToUSD / std::pow(10.0, fractionalPartSize));
   TotalUSD += usdValue;
+}
 
-  UInt<256> w = record.AcceptedWork;
-  w.mulfp(coeff);
-  TotalIncomingWork += w;
+void AccountingDb::CPPSPayoutAcc::merge(const CPPSPayout &record, unsigned fractionalPartSize)
+{
+  TotalCoin += record.PayoutValue;
 
-  PrimePOWTarget = std::min(PrimePOWTarget, record.PrimePOWTarget);
+  UInt<384> btcValue = record.PayoutValue;
+  btcValue.mulfp(record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize)));
+  TotalBTC += btcValue;
+
+  UInt<384> usdValue = record.PayoutValue;
+  usdValue.mulfp(record.RateToBTC * record.RateBTCToUSD / std::pow(10.0, fractionalPartSize));
+  TotalUSD += usdValue;
+}
+
+void AccountingDb::CPPSPayoutAcc::mergeScaled(const CPPSPayout &record, double coeff, unsigned fractionalPartSize)
+{
+  UInt<384> payoutValue = record.PayoutValue;
+  payoutValue.mulfp(coeff);
+  TotalCoin += payoutValue;
+
+  UInt<384> btcValue = payoutValue;
+  btcValue.mulfp(record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize)));
+  TotalBTC += btcValue;
+
+  UInt<384> usdValue = payoutValue;
+  usdValue.mulfp(record.RateToBTC * record.RateBTCToUSD / std::pow(10.0, fractionalPartSize));
+  TotalUSD += usdValue;
 }
 
 bool CPPSConfig::parseSaturationFunction(const std::string &name, ESaturationFunction *out)
@@ -468,6 +487,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   _poolBalanceDb(config.dbPath / "poolBalance.2"),
   _payoutDb(config.dbPath / "payouts.2"),
   PPLNSPayoutsDb(config.dbPath / "pplns.payouts.2"),
+  PPSPayoutsDb(config.dbPath / "pps.payouts"),
   PPSHistoryDb_(config.dbPath / "pps.history"),
   ShareLog_(config.dbPath / "accounting.worklog", coinInfo.Name, config.ShareLogFileSizeLimit),
   UserStatsAcc_("accounting.userstats", config.StatisticUserGridInterval, config.AccountingPPLNSWindow * 2),
@@ -586,6 +606,11 @@ void AccountingDb::ppsPayout()
 
   LOG_F(INFO, "[%s] PPS payout: %zu users", CoinInfo_.Name.c_str(), State_.PPSPendingBalance.size());
 
+  Timestamp now = Timestamp::now();
+  Timestamp intervalBegin = now - _cfg.PPSPayoutInterval;
+  double rateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
+  double rateBTCToUSD = PriceFetcher_.getBtcUsd();
+
   UInt<384> totalPaid = UInt<384>::zero();
   kvdb<rocksdbBase>::Batch batch;
   for (auto &[userId, value] : State_.PPSPendingBalance) {
@@ -599,11 +624,22 @@ void AccountingDb::ppsPayout()
     totalPaid += value;
     batch.put(balance);
 
+    {
+      CPPSPayout record;
+      record.Login = userId;
+      record.IntervalBegin = intervalBegin;
+      record.IntervalEnd = now;
+      record.PayoutValue = value;
+      record.RateToBTC = rateToBTC;
+      record.RateBTCToUSD = rateBTCToUSD;
+      PPSPayoutsDb.put(record);
+    }
+
     LOG_F(INFO, " * %s: +%s", userId.c_str(), FormatMoneyFull(value, CoinInfo_.FractionalPartSize).c_str());
   }
 
   State_.PPSState.Balance -= totalPaid;
-  State_.PPSState.updateMinMax(Timestamp::now());
+  State_.PPSState.updateMinMax(now);
   LOG_F(INFO,
         "[%s] PPS payout total: %s",
         CoinInfo_.Name.c_str(),
@@ -611,7 +647,7 @@ void AccountingDb::ppsPayout()
 
   _balanceDb.writeBatch(batch);
   State_.PPSPendingBalance.clear();
-  State_.PPSState.Time = Timestamp::now();
+  State_.PPSState.Time = now;
   State_.flushState();
   PPSHistoryDb_.put(State_.PPSState);
 }
@@ -1098,9 +1134,6 @@ void AccountingDb::processRoundConfirmation(MiningRound *R, int64_t confirmation
         record.BlockHeight = R->Height;
         record.RoundEndTime = R->EndTime;
         record.PayoutValue = I->Value;
-        record.PayoutValueWithoutFee = I->ValueWithoutFee;
-        record.AcceptedWork = I->AcceptedWork;
-        record.PrimePOWTarget = R->PrimePOWTarget;
         record.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
         record.RateBTCToUSD = PriceFetcher_.getBtcUsd();
         PPLNSPayoutsDb.put(record);
@@ -1813,11 +1846,118 @@ void AccountingDb::queryPPLNSPayoutsAccImpl(const std::string &login, int64_t ti
     It->prev<CPPLNSPayout>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
-  for (auto &p : payoutAccs) {
-    p.AvgHashRate = CoinInfo_.calculateAveragePower(p.TotalIncomingWork, groupByInterval, p.PrimePOWTarget);
+  callback(payoutAccs);
+}
+
+std::vector<AccountingDb::CPPSPayoutAcc> AccountingDb::queryPPSPayoutsAcc(
+  const std::string &login,
+  int64_t timeFrom,
+  int64_t timeTo,
+  int64_t groupByInterval)
+{
+  std::vector<CPPSPayoutAcc> payoutAccs;
+
+  constexpr int64_t MaxOutputCells = 3200;
+  if (timeTo <= timeFrom ||
+      groupByInterval <= 0 ||
+      (timeTo - timeFrom) % groupByInterval != 0 ||
+      (timeTo - timeFrom) / groupByInterval > MaxOutputCells) {
+    return payoutAccs;
   }
 
-  callback(payoutAccs);
+  auto &db = getPPSPayoutsDb();
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
+
+  CPPSPayout valueRecord;
+  xmstream resumeKey;
+  auto validPredicate = [&login](const CPPSPayout &record) -> bool {
+    return record.Login == login;
+  };
+
+  Timestamp gridStart = Timestamp::fromUnixTime(timeFrom);
+  Timestamp gridEnd = Timestamp::fromUnixTime(timeTo);
+  auto groupBy = std::chrono::seconds(groupByInterval);
+  size_t count = (gridEnd - gridStart) / groupBy;
+
+  payoutAccs.resize(count);
+  for (size_t i = 0; i < count; i++)
+    payoutAccs[i].IntervalEnd = timeFrom + groupByInterval * static_cast<int64_t>(i + 1);
+
+  {
+    CPPSPayout record;
+    record.Login = login;
+    record.IntervalBegin = Timestamp(std::numeric_limits<int64_t>::max());
+    record.serializeKey(resumeKey);
+  }
+
+  {
+    CPPSPayout keyRecord;
+    keyRecord.Login = login;
+    keyRecord.IntervalBegin = gridEnd;
+    It->seekForPrev<CPPSPayout>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+  }
+
+  while (It->valid()) {
+    if (valueRecord.IntervalEnd <= gridStart)
+      break;
+
+    Timestamp clampedBegin = std::max(valueRecord.IntervalBegin, gridStart);
+    Timestamp clampedEnd = std::min(valueRecord.IntervalEnd, gridEnd);
+
+    size_t firstIdx = static_cast<size_t>((clampedBegin - gridStart) / groupBy);
+    size_t lastIdx = static_cast<size_t>((clampedEnd - gridStart + groupBy - std::chrono::milliseconds(1)) / groupBy);
+
+    Timestamp cellBegin = gridStart + groupBy * static_cast<int64_t>(firstIdx);
+    Timestamp cellEnd = cellBegin + groupBy;
+    for (size_t i = firstIdx; i < lastIdx; i++) {
+      double coeff = overlapFraction(valueRecord.IntervalBegin, valueRecord.IntervalEnd, cellBegin, cellEnd);
+      if (coeff >= 1.0)
+        payoutAccs[i].merge(valueRecord, CoinInfo_.FractionalPartSize);
+      else
+        payoutAccs[i].mergeScaled(valueRecord, coeff, CoinInfo_.FractionalPartSize);
+
+      cellBegin = cellEnd;
+      cellEnd += groupBy;
+    }
+
+    It->prev<CPPSPayout>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+  }
+
+  return payoutAccs;
+}
+
+std::vector<CPPSPayout> AccountingDb::queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count)
+{
+  auto &db = getPPSPayoutsDb();
+  std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
+
+  CPPSPayout valueRecord;
+  xmstream resumeKey;
+  auto validPredicate = [&login](const CPPSPayout &record) -> bool {
+    return record.Login == login;
+  };
+
+  {
+    CPPSPayout record;
+    record.Login = login;
+    record.IntervalBegin = Timestamp(std::numeric_limits<int64_t>::max());
+    record.serializeKey(resumeKey);
+  }
+
+  {
+    CPPSPayout keyRecord;
+    keyRecord.Login = login;
+    keyRecord.IntervalBegin = timeFrom == 0 ? Timestamp(std::numeric_limits<int64_t>::max()) : Timestamp::fromUnixTime(timeFrom);
+    It->seekForPrev<CPPSPayout>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+  }
+
+  std::vector<CPPSPayout> payouts;
+  for (unsigned i = 0; i < count && It->valid(); i++) {
+    payouts.emplace_back(valueRecord);
+    It->prev<CPPSPayout>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
+  }
+
+  return payouts;
 }
 
 void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback)

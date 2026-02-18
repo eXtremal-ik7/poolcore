@@ -225,10 +225,6 @@ static bool migratePPLNSPayouts(const std::filesystem::path &srcCoinPath, const 
     newRecord.BlockHeight = oldRecord.BlockHeight;
     newRecord.RoundEndTime = Timestamp::fromUnixTime(oldRecord.RoundEndTime);
     newRecord.PayoutValue = fromRational(static_cast<uint64_t>(oldRecord.PayoutValue));
-    newRecord.PayoutValueWithoutFee = fromRational(static_cast<uint64_t>(oldRecord.PayoutValueWithoutFee));
-    newRecord.AcceptedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-    newRecord.AcceptedWork.mulfp(oldRecord.AcceptedWork);
-    newRecord.PrimePOWTarget = oldRecord.PrimePOWTarget;
     newRecord.RateToBTC = oldRecord.RateToBTC;
     newRecord.RateBTCToUSD = oldRecord.RateBTCToUSD;
 

@@ -247,6 +247,22 @@ class Poolfrontend:
             data.update({"targetLogin": targetLogin})
         return self.__call__("backendQueryPPLNSAcc", data, requiredStatus, debug)
 
+    def backendQueryPPSPayouts(self, sessionId, coin, targetLogin=None, timeFrom=None, count=None, requiredStatus=None, debug=None):
+        data = {"id": sessionId, "coin": coin}
+        if targetLogin is not None:
+            data.update({"targetLogin": targetLogin})
+        if timeFrom is not None:
+            data.update({"timeFrom": timeFrom})
+        if count is not None:
+            data.update({"count": count})
+        return self.__call__("backendQueryPPSPayouts", data, requiredStatus, debug)
+
+    def backendQueryPPSPayoutsAcc(self, sessionId, coin, timeFrom, timeTo, groupByInterval, targetLogin=None, requiredStatus=None, debug=None):
+        data = {"id": sessionId, "coin": coin, "timeFrom": timeFrom, "timeTo": timeTo, "groupByInterval": groupByInterval}
+        if targetLogin is not None:
+            data.update({"targetLogin": targetLogin})
+        return self.__call__("backendQueryPPSPayoutsAcc", data, requiredStatus, debug)
+
     def backendQueryProfitSwitchCoeff(self, adminSessionId, requiredStatus=None, debug=None):
         return self.__call__("backendQueryProfitSwitchCoeff", {"id": adminSessionId}, requiredStatus, debug)
 

@@ -36,6 +36,8 @@ public:
     bool HasTwoFactor;
     // Personal fee
     std::string FeePlan;
+    // Referral registration
+    std::string ReferralId;
   };
 
   struct UserInfo {
@@ -51,6 +53,7 @@ public:
 
     // Indexed by EMiningMode
     std::vector<ModeConfig> Modes;
+    BaseBlob<256> ReferralId;
   };
 
   struct UserWithAccessRights {
@@ -264,6 +267,23 @@ public:
     DefaultCb Callback_;
   };
 
+  class RenewFeePlanReferralIdTask : public Task {
+  public:
+    using Cb = std::function<void(const char*, const std::string&)>;
+    RenewFeePlanReferralIdTask(
+      UserManager *userMgr,
+      const std::string &sessionId,
+      const std::string &feePlanId,
+      Cb callback) :
+      Task(userMgr), SessionId_(sessionId), FeePlanId_(feePlanId), Callback_(callback) {}
+    void run() final { UserMgr_->renewFeePlanReferralIdImpl(SessionId_, FeePlanId_, Callback_); }
+
+  private:
+    std::string SessionId_;
+    std::string FeePlanId_;
+    Cb Callback_;
+  };
+
   class Activate2faInitiateTask : public Task {
   public:
     using Cb = std::function<void(const char*, const char*)>;
@@ -408,6 +428,7 @@ public:
   void updateFeePlan(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, CModeFeeConfig &&config, Task::DefaultCb callback) { startAsyncTask(new UpdateFeePlanTask(this, sessionId, feePlanId, mode, std::move(config), callback)); }
   void deleteFeePlan(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback) { startAsyncTask(new DeleteFeePlanTask(this, sessionId, feePlanId, callback)); }
   void changeFeePlan(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback) { startAsyncTask(new ChangeFeePlanTask(this, sessionId, targetLogin, newFeePlan, callback)); }
+  void renewFeePlanReferralId(const std::string &sessionId, const std::string &feePlanId, RenewFeePlanReferralIdTask::Cb callback) { startAsyncTask(new RenewFeePlanReferralIdTask(this, sessionId, feePlanId, callback)); }
   void activate2faInitiate(const std::string &sessionId, const std::string &targetLogin, Activate2faInitiateTask::Cb callback) { startAsyncTask(new Activate2faInitiateTask(this, sessionId, targetLogin, callback)); }
   void deactivate2faInitiate(const std::string &sessionId, const std::string &targetLogin, Task::DefaultCb callback) { startAsyncTask(new Deactivate2faInitiateTask(this, sessionId, targetLogin, callback)); }
 
@@ -420,7 +441,7 @@ public:
   std::vector<UserSettingsRecord> getAllCoinSettings(const std::string &coin);
   void fillUserCoinSettings(const std::string &coin, std::unordered_map<std::string, UserSettingsRecord> &out);
   std::string getFeePlanId(const std::string &login);
-  bool queryFeePlan(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, std::string &status, CModeFeeConfig &result);
+  bool queryFeePlan(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, std::string &status, BaseBlob<256> &referralIdOut, CModeFeeConfig &result);
   bool enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<std::string> &result);
   std::vector<UserFeePair> getFeeRecord(const std::string &feePlanId, EMiningMode mode, const std::string &coin);
   std::vector<std::pair<std::string, std::vector<UserFeePair>>> getAllFeeRecords(EMiningMode mode, const std::string &coin);
@@ -444,6 +465,7 @@ private:
   void updateFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, const CModeFeeConfig &config, Task::DefaultCb callback);
   void deleteFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback);
   void changeFeePlanImpl(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback);
+  void renewFeePlanReferralIdImpl(const std::string &sessionId, const std::string &feePlanId, RenewFeePlanReferralIdTask::Cb callback);
   void activate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Activate2faInitiateTask::Cb callback);
   void deactivate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Task::DefaultCb callback);
 
@@ -501,6 +523,7 @@ private:
 
   // Thread local structures
   std::unordered_map<BaseBlob<512>, UserActionRecord> ActionsCache_;
+  std::unordered_map<BaseBlob<256>, std::string> ReferralIdMap_;
   std::unordered_set<std::string> AllEmails_;
   std::map<std::string, BaseBlob<512>> LoginSessionMap_;
   std::map<std::string, BaseBlob<512>> LoginActionMap_;

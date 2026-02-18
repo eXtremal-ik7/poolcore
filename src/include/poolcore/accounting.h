@@ -110,14 +110,20 @@ public:
     UInt<384> TotalCoin = UInt<384>::zero();
     UInt<384> TotalBTC = UInt<384>::zero();
     UInt<384> TotalUSD = UInt<384>::zero();
-    UInt<256> TotalIncomingWork = UInt<256>::zero();
-    uint64_t AvgHashRate = 0;
-    uint32_t PrimePOWTarget = -1U;
 
     void merge(const CPPLNSPayout &record, unsigned fractionalPartSize);
     void mergeScaled(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize);
   };
 
+  struct CPPSPayoutAcc {
+    int64_t IntervalEnd = 0;
+    UInt<384> TotalCoin = UInt<384>::zero();
+    UInt<384> TotalBTC = UInt<384>::zero();
+    UInt<384> TotalUSD = UInt<384>::zero();
+
+    void merge(const CPPSPayout &record, unsigned fractionalPartSize);
+    void mergeScaled(const CPPSPayout &record, double coeff, unsigned fractionalPartSize);
+  };
 
 private:
   using DefaultCb = std::function<void(const char*)>;
@@ -283,6 +289,7 @@ private:
   kvdb<rocksdbBase> _poolBalanceDb;
   kvdb<rocksdbBase> _payoutDb;
   kvdb<rocksdbBase> PPLNSPayoutsDb;
+  kvdb<rocksdbBase> PPSPayoutsDb;
   kvdb<rocksdbBase> PPSHistoryDb_;
   ShareLog<CUserWorkSummaryBatch> ShareLog_;
   CStatsSeriesMap UserStatsAcc_;
@@ -354,6 +361,10 @@ public:
   kvdb<rocksdbBase> &getPayoutDb() { return _payoutDb; }
   kvdb<rocksdbBase> &getBalanceDb() { return _balanceDb; }
   kvdb<rocksdbBase> &getPPLNSPayoutsDb() { return PPLNSPayoutsDb; }
+  kvdb<rocksdbBase> &getPPSPayoutsDb() { return PPSPayoutsDb; }
+
+  std::vector<CPPSPayout> queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count);
+  std::vector<CPPSPayoutAcc> queryPPSPayoutsAcc(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval);
 
   const std::map<std::string, UserBalanceRecord> &getUserBalanceMap() { return _balanceMap; }
 

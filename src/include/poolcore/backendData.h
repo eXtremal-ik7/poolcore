@@ -265,6 +265,7 @@ struct UserFeePlanRecord {
   std::string FeePlanId;
   // Indexed by EMiningMode
   std::vector<CModeFeeConfig> Modes;
+  BaseBlob<256> ReferralId;
 
   UserFeePlanRecord() {}
   std::string getPartitionId() const { return "default"; }
@@ -425,13 +426,27 @@ struct CPPLNSPayout {
   uint64_t BlockHeight;
   Timestamp RoundEndTime;
   UInt<384> PayoutValue;
-  UInt<384> PayoutValueWithoutFee;
-  UInt<256> AcceptedWork;
-  uint32_t PrimePOWTarget;
   double RateToBTC;
   double RateBTCToUSD;
 
   std::string getPartitionId() const { return partByTime(RoundStartTime.toUnixTime()); }
+  bool deserializeValue(const void *data, size_t size);
+  void serializeKey(xmstream &stream) const;
+  void serializeValue(xmstream &stream) const;
+};
+
+struct CPPSPayout {
+  enum { CurrentRecordVersion = 1 };
+  // Key
+  std::string Login;
+  Timestamp IntervalBegin;
+  // Value
+  Timestamp IntervalEnd;
+  UInt<384> PayoutValue;
+  double RateToBTC;
+  double RateBTCToUSD;
+
+  std::string getPartitionId() const { return partByTime(IntervalBegin.toUnixTime()); }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;

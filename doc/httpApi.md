@@ -21,6 +21,7 @@
    * [userUpdateFeePlan](#userupdatefeeplan)
    * [userDeleteFeePlan](#userdeletefeeplan)
    * [userChangeFeePlan](#userchangefeeplan)
+   * [userRenewFeePlanReferralId](#userrenewfeeplanreferralid)
    * [userActivate2faInitiate](#useractivate2fainitiate)
    * [userDeactivate2faInitiate](#userdeactivate2fainitiate)
 * [Backend API functions](#backend-api-functions)
@@ -36,6 +37,8 @@
    * [backendQueryWorkerStatsHistory](#backendqueryworkerstatshistory)
    * [backendQueryPPLNSPayouts](#backendquerypplnspayouts)
    * [backendQueryPPLNSAcc](#backendquerypplnsacc)
+   * [backendQueryPPSPayouts](#backendqueryppsppayouts)
+   * [backendQueryPPSPayoutsAcc](#backendqueryppsppayoutsacc)
    * [backendQueryProfitSwitchCoeff](#backendqueryprofitswitchcoeff)
    * [backendUpdateProfitSwitchCoeff](#backendupdateprofitswitchcoeff)
    * [backendGetPPSConfig](#backendgetppsconfig)
@@ -107,6 +110,7 @@ Pool frontend must have a handler for configured activation link fornat.
 * [optional] isReadOnly:boolean - if true, user will have no write access to his account (option available for admin account only)
 * [optional] id:string - unique user session id returned by userlogin function, only admin session is usable
 * [optional] feePlanId:string - fee plan for user (option available for admin account only)
+* [optional] referralId:string - referral ID (hex, 64 chars) to assign fee plan automatically; mutually exclusive with feePlanId
 
 ### return values:
 * status:string - can be one of common status values or:
@@ -120,6 +124,8 @@ Pool frontend must have a handler for configured activation link fornat.
   * email_send_error: error received from SMTP server, details in pool log
   * fee_plan_not_allowed: setup fee plan available only from admin account
   * fee_plan_not_exists: non-existent fee plan sent
+  * invalid_referral_id: referral ID not found
+  * request_format_error: both feePlanId and referralId specified
 
 ### curl example:
 ```
@@ -513,6 +519,7 @@ Returns fee plan configuration for specified mining mode (for admin or observer 
   * invalid_mining_mode: invalid mode value
 * feePlanId:string - fee plan identifier
 * mode:string - mining mode
+* referralId:string|null - referral ID (hex, 64 chars) or null if not generated
 * default:[UserFeePair] - default fee config ({userId:string, percentage:double})
 * coinSpecific:[CoinFeeConfig] - per-coin overrides ({coinName:string, config:[UserFeePair]})
 
@@ -527,6 +534,7 @@ curl -X POST -d '{"id": "ADMIN_SESSION_ID", "feePlanId": "special", "mode": "ppl
   "status": "ok",
   "feePlanId": "special",
   "mode": "pplns",
+  "referralId": "a1b2c3...64hex...",
   "default": [
     {"userId": "adm1", "percentage": 1.0},
     {"userId": "adm2", "percentage": 1.0}
@@ -624,6 +632,32 @@ curl -X POST -d '{"id": "ADMIN_SESSION_ID", "targetLogin": "user1", "feePlanId":
 ```
 {
   "status": "ok"
+}
+```
+
+## userRenewFeePlanReferralId
+Generate (or regenerate) a referral ID for a fee plan. The old referral ID (if any) is invalidated. Access: admin only.
+
+### arguments:
+* [required] id:string - admin session id
+* [required] feePlanId:string - unique fee plan identifier
+
+### return values:
+* status:string - can be one of common status values or:
+  * unknown_id: invalid session id or insufficient permissions
+  * unknown_fee_plan: fee plan does not exist
+* referralId:string - new referral ID (hex, 64 chars)
+
+### curl example:
+```
+curl -X POST -d '{"id": "ADMIN_SESSION_ID", "feePlanId": "special"}' http://localhost:18880/api/userRenewFeePlanReferralId
+```
+
+### response examples:
+```
+{
+  "status": "ok",
+  "referralId": "a1b2c3d4e5f6...64hex..."
 }
 ```
 
@@ -1187,14 +1221,69 @@ Constraints: timeTo > timeFrom, groupByInterval > 0, (timeTo - timeFrom) must be
   * invalid_coin: coin does not exist
   * invalid_interval: interval constraints violated
 * payouts: array of objects with fields:
-  * timeEnd:integer - end of interval (unix time)
-  * coin:string - total payout in coin
-  * btc:string - total payout in BTC
-  * usd:string - total payout in USD
+  * timeLabel:integer - end of interval (unix time)
+  * value:string - total payout in coin
+  * valueBTC:string - total payout in BTC
+  * valueUSD:string - total payout in USD
 
 ### curl example:
 ```
 curl -X POST -d '{"id": "...session...", "coin": "BTC", "timeFrom": 1700000000, "timeTo": 1700086400, "groupByInterval": 3600}' http://localhost:18880/api/backendQueryPPLNSAcc
+```
+
+## backendQueryPPSPayouts
+Returns PPS payout history for user
+
+### arguments:
+* [required] id:string - user session id
+* [required] coin:string
+* [optional] targetLogin:string - target user login (only for admin session id)
+* [optional] timeFrom:integer (default=0) - search payouts from this time point (unix time)
+* [optional] count:integer (default=20) - requested payouts count
+
+### return values:
+* status:string - can be one of common status values or:
+  * unknown_id: invalid session id
+  * invalid_coin: coin does not exist
+* payouts: array of objects with fields:
+  * startTime:integer - PPS interval start time (unix time)
+  * endTime:integer - PPS interval end time (unix time)
+  * value:string - payout value
+  * coinBtcRate:double - coin/BTC exchange rate at the time
+  * btcUsdRate:double - BTC/USD exchange rate at the time
+
+### curl example:
+```
+curl -X POST -d '{"id": "...session...", "coin": "BTC", "count": 10}' http://localhost:18880/api/backendQueryPPSPayouts
+```
+
+## backendQueryPPSPayoutsAcc
+Returns accumulated PPS payouts grouped by time interval
+
+### arguments:
+* [required] id:string - user session id
+* [required] coin:string
+* [required] timeFrom:integer - begin of time interval (unix time)
+* [required] timeTo:integer - end of time interval (unix time)
+* [required] groupByInterval:integer - grouping interval in seconds
+* [optional] targetLogin:string - target user login (only for admin session id)
+
+Constraints: timeTo > timeFrom, groupByInterval > 0, (timeTo - timeFrom) must be divisible by groupByInterval, max 3200 intervals.
+
+### return values:
+* status:string - can be one of common status values or:
+  * unknown_id: invalid session id
+  * invalid_coin: coin does not exist
+  * invalid_interval: interval constraints violated
+* payouts: array of objects with fields:
+  * timeLabel:integer - end of interval (unix time)
+  * value:string - total payout in coin
+  * valueBTC:string - total payout in BTC
+  * valueUSD:string - total payout in USD
+
+### curl example:
+```
+curl -X POST -d '{"id": "...session...", "coin": "BTC", "timeFrom": 1700000000, "timeTo": 1700086400, "groupByInterval": 3600}' http://localhost:18880/api/backendQueryPPSPayoutsAcc
 ```
 
 ## backendQueryProfitSwitchCoeff

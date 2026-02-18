@@ -285,6 +285,7 @@ bool UserFeePlanRecord::deserializeValue(const void *data, size_t size)
   xmstream stream(const_cast<void*>(data), size);
   dbIoUnserialize(stream, FeePlanId);
   dbIoUnserialize(stream, Modes);
+  dbIoUnserialize(stream, ReferralId);
   return !stream.eof();
 }
 
@@ -297,6 +298,7 @@ void UserFeePlanRecord::serializeValue(xmstream &stream) const
 {
   dbIoSerialize(stream, FeePlanId);
   dbIoSerialize(stream, Modes);
+  dbIoSerialize(stream, ReferralId);
 }
 
 // UserActionRecord
@@ -488,9 +490,6 @@ bool CPPLNSPayout::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, BlockHeight);
     dbIoUnserialize(stream, RoundEndTime);
     dbIoUnserialize(stream, PayoutValue);
-    dbIoUnserialize(stream, PayoutValueWithoutFee);
-    dbIoUnserialize(stream, AcceptedWork);
-    dbIoUnserialize(stream, PrimePOWTarget);
     dbIoUnserialize(stream, RateToBTC);
     dbIoUnserialize(stream, RateBTCToUSD);
   }
@@ -514,9 +513,42 @@ void CPPLNSPayout::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, BlockHeight);
   dbIoSerialize(stream, RoundEndTime);
   dbIoSerialize(stream, PayoutValue);
-  dbIoSerialize(stream, PayoutValueWithoutFee);
-  dbIoSerialize(stream, AcceptedWork);
-  dbIoSerialize(stream, PrimePOWTarget);
+  dbIoSerialize(stream, RateToBTC);
+  dbIoSerialize(stream, RateBTCToUSD);
+}
+
+// ====================== CPPSPayout ======================
+
+bool CPPSPayout::deserializeValue(const void *data, size_t size)
+{
+  xmstream stream((void*)data, size);
+  uint32_t version;
+  dbIoUnserialize(stream, version);
+  if (version == 1) {
+    dbIoUnserialize(stream, Login);
+    dbIoUnserialize(stream, IntervalBegin);
+    dbIoUnserialize(stream, IntervalEnd);
+    dbIoUnserialize(stream, PayoutValue);
+    dbIoUnserialize(stream, RateToBTC);
+    dbIoUnserialize(stream, RateBTCToUSD);
+  }
+
+  return !stream.eof();
+}
+
+void CPPSPayout::serializeKey(xmstream &stream) const
+{
+  dbKeyIoSerialize(stream, Login);
+  dbKeyIoSerialize(stream, IntervalBegin);
+}
+
+void CPPSPayout::serializeValue(xmstream &stream) const
+{
+  dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
+  dbIoSerialize(stream, Login);
+  dbIoSerialize(stream, IntervalBegin);
+  dbIoSerialize(stream, IntervalEnd);
+  dbIoSerialize(stream, PayoutValue);
   dbIoSerialize(stream, RateToBTC);
   dbIoSerialize(stream, RateBTCToUSD);
 }

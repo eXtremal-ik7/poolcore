@@ -355,9 +355,13 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
     for (const auto &coinCfg: record.Modes[i].CoinSpecific)
       plan.Modes[i].CoinSpecific[coinCfg.CoinName] = coinCfg.Config;
   }
+  plan.ReferralId = record.ReferralId;
 
   FeePlanCache_.erase(record.FeePlanId);
   FeePlanCache_.insert(std::make_pair(record.FeePlanId, plan));
+
+  if (!record.ReferralId.isNull())
+    ReferralIdMap_[record.ReferralId] = record.FeePlanId;
 
   LOG_F(INFO, "UserManager: accepted fee plan %s", record.FeePlanId.c_str());
   for (size_t i = 0, ie = record.Modes.size(); i != ie; ++i) {
@@ -397,6 +401,7 @@ void UserManager::buildFeePlanRecord(const std::string &feePlanId, const FeePlan
   result.Modes.resize(plan.Modes.size());
   for (size_t i = 0, ie = plan.Modes.size(); i != ie; ++i)
     buildModeFeeConfig(plan.Modes[i], result.Modes[i]);
+  result.ReferralId = plan.ReferralId;
 }
 
 void UserManager::collectLinkedFeePlans(const std::string &userId, std::unordered_set<std::string> &plans)
@@ -717,9 +722,10 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
     }
   }
 
-  // Check personal fee
-  const std::string &feePlan = credentials.FeePlan.empty() ? "default" : credentials.FeePlan;
+  // Check personal fee plan
+  std::string feePlan = credentials.FeePlan.empty() ? "default" : credentials.FeePlan;
   if (feePlan != "default") {
+    // Direct assignment by name: admin only
     if (login != "admin") {
       callback("fee_plan_not_allowed");
       return;
@@ -729,6 +735,15 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
       callback("fee_plan_not_exists");
       return;
     }
+  } else if (!credentials.ReferralId.empty()) {
+    // Referral registration (only when feePlanId not set explicitly)
+    auto referralId = BaseBlob<256>::fromHexRaw(credentials.ReferralId.c_str());
+    auto it = ReferralIdMap_.find(referralId);
+    if (it == ReferralIdMap_.end()) {
+      callback("invalid_referral_id");
+      return;
+    }
+    feePlan = it->second;
   }
 
   // Prepare credentials (hashing password, activate link, etc...)
@@ -1263,6 +1278,13 @@ void UserManager::deleteFeePlanImpl(const std::string &sessionId, const std::str
     }
   }
 
+  // Remove referral ID from map
+  {
+    decltype(FeePlanCache_)::const_accessor accessor;
+    if (FeePlanCache_.find(accessor, feePlanId) && !accessor->second.ReferralId.isNull())
+      ReferralIdMap_.erase(accessor->second.ReferralId);
+  }
+
   // Delete from cache and DB
   FeePlanCache_.erase(feePlanId);
   UserFeePlanRecord record;
@@ -1312,6 +1334,42 @@ void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::str
     backend->sendUserFeePlanChange(tokenInfo.Login, newFeePlan);
 
   callback("ok");
+}
+
+void UserManager::renewFeePlanReferralIdImpl(
+  const std::string &sessionId,
+  const std::string &feePlanId,
+  RenewFeePlanReferralIdTask::Cb callback)
+{
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
+    callback("unknown_id", "");
+    return;
+  }
+
+  decltype(FeePlanCache_)::accessor accessor;
+  if (!FeePlanCache_.find(accessor, feePlanId)) {
+    callback("unknown_fee_plan", "");
+    return;
+  }
+
+  // Remove old referral ID from map
+  if (!accessor->second.ReferralId.isNull())
+    ReferralIdMap_.erase(accessor->second.ReferralId);
+
+  // Generate new referral ID
+  BaseBlob<256> newId;
+  makeRandom(newId);
+  accessor->second.ReferralId = newId;
+  ReferralIdMap_[newId] = feePlanId;
+
+  // Persist to DB
+  UserFeePlanRecord record;
+  buildFeePlanRecord(feePlanId, accessor->second, record);
+  UserFeePlanDb_.put(record);
+
+  LOG_F(INFO, "UserManager: renewed referral ID for fee plan %s: %s", feePlanId.c_str(), newId.getHexRaw().c_str());
+  callback("ok", newId.getHexRaw());
 }
 
 void UserManager::activate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Activate2faInitiateTask::Cb callback)
@@ -1544,7 +1602,13 @@ std::string UserManager::getFeePlanId(const std::string &login)
     return "default";
 }
 
-bool UserManager::queryFeePlan(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, std::string &status, CModeFeeConfig &result)
+bool UserManager::queryFeePlan(
+  const std::string &sessionId,
+  const std::string &feePlanId,
+  EMiningMode mode,
+  std::string &status,
+  BaseBlob<256> &referralIdOut,
+  CModeFeeConfig &result)
 {
   UserWithAccessRights tokenInfo;
   if (!validateSession(sessionId, "", tokenInfo, false) || (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
@@ -1561,6 +1625,8 @@ bool UserManager::queryFeePlan(const std::string &sessionId, const std::string &
   size_t modeIndex = static_cast<size_t>(mode);
   if (modeIndex < accessor->second.Modes.size())
     buildModeFeeConfig(accessor->second.Modes[modeIndex], result);
+
+  referralIdOut = accessor->second.ReferralId;
 
   status = "ok";
   return true;
