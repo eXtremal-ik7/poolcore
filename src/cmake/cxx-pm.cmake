@@ -36,10 +36,12 @@ function(cxxpm_initialize url hash)
   # Download requested version
   #  string(SUBSTRING <string> <begin> <length> <out-var>)
   string(SUBSTRING ${hash} 0 8 HASH32)
+  if (POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+  endif()
   FetchContent_Declare(cxx-pm-${HASH32}
     URL ${url}
     URL_HASH SHA256=${hash}
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
   
   FetchContent_MakeAvailable(cxx-pm-${HASH32})
