@@ -332,7 +332,6 @@ Array of JSON objects with these fields:
 * status:string - can be one of common status values or:
   * unknown_id: invalid session id
 * name:string - coin ticker
-* ppsAvailable:boolean - whether PPS mining mode is enabled for this coin
 * address:string - payout address; can be null
 * payoutThreshold:integer: minimal value for automatic payout; can be null
 * autoPayoutEnabled:boolean - enables or disables automatic payouts
@@ -349,7 +348,6 @@ curl -X POST -d "{\"id\": \"d71f5e21d7273b268178d43a0df53449374b846d8043fbd0038a
    "coins":[
       {
          "name":"BTC",
-         "ppsAvailable":true,
          "address":null,
          "payoutThreshold":null,
          "autoPayoutEnabled":false,
@@ -357,7 +355,6 @@ curl -X POST -d "{\"id\": \"d71f5e21d7273b268178d43a0df53449374b846d8043fbd0038a
       },
       {
          "name":"XPM",
-         "ppsAvailable":false,
          "address":"ATWDYBwVDvswyZADMbEo5yBt4tH2zfGjd1",
          "payoutThreshold":"100.00",
          "autoPayoutEnabled":true,
@@ -705,10 +702,10 @@ curl -X POST -d '{"id": "ae860bab2faca258c790563a5f97640e55c3c8f23df3fbfde07ed46
 ```
 
 ## backendQueryCoins
-Function returns coins listed on pool
+Function returns coins listed on pool with fee information
 
 ### arguments:
-none
+* [optional] id:string - user session id; if provided, fees are calculated from the user's fee plan; otherwise the default fee plan is used
 
 ### return values:
 * status:string - can be one of common status values
@@ -716,34 +713,40 @@ none
   * name:string - unique coin id
   * fullName:string - display coin name
   * algorithm:string - mining algorithm
+  * minimalPayout:string - minimal allowed payout amount
+  * ppsAvailable:boolean - whether PPS mining mode is enabled for this coin
+  * pplnsFee:double - total PPLNS fee percentage from user's fee plan
+  * ppsFee:double - total PPS fee percentage combining pool PPS fee and user's fee plan
 
 ### curl example:
-```curl -X POST http://localhost:18880/api/backendQueryCoins```
+```
+curl -X POST -d '{}' http://localhost:18880/api/backendQueryCoins
+curl -X POST -d '{"id": "...session..."}' http://localhost:18880/api/backendQueryCoins
+```
 
 ### response examples:
 ```
-{"status": "ok", 
-  "coins":[
-   {
-      "name":"BTC",
-      "fullName":"Bitcoin",
-      "algorithm":"sha256"
-   },
-   {
-      "name":"DGB.sha256",
-      "fullName":"Digibyte(sha256)",
-      "algorithm":"sha256"
-   },
-   {
-      "name":"BTC.regtest",
-      "fullName":"Bitcoin",
-      "algorithm":"sha256"
-   },
-   {
-      "name":"LTC.testnet",
-      "fullName":"Litecoin",
-      "algorithm":"scrypt"
-   }
+{
+  "status": "ok",
+  "coins": [
+    {
+      "name": "BTC",
+      "fullName": "Bitcoin",
+      "algorithm": "sha256",
+      "minimalPayout": "0.001",
+      "ppsAvailable": true,
+      "pplnsFee": 1.0,
+      "ppsFee": 5.0
+    },
+    {
+      "name": "LTC.testnet",
+      "fullName": "Litecoin",
+      "algorithm": "scrypt",
+      "minimalPayout": "0.01",
+      "ppsAvailable": false,
+      "pplnsFee": 1.0,
+      "ppsFee": 5.0
+    }
   ]
 }
 ```

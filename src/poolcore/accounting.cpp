@@ -870,15 +870,14 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
   }
   result.AccountingBatch.LastBaseBlockReward = lastBaseBlockReward;
 
-  // Compute saturation and fee coefficients once per batch
+  // Compute saturation coefficient once per batch
   double saturateCoeff = 1.0;
-  double effectiveCoeff = 1.0;
+  double ppsPoolFee = ppsConfig.PoolFee;
   UInt<384> averageTxFee = State_.PPSState.LastAverageTxFee;
   if (ppsEnabled) {
     double currentBalanceInBlocks =
       CPPSState::balanceInBlocks(State_.PPSState.Balance, lastBaseBlockReward);
     saturateCoeff = ppsConfig.saturateCoeff(currentBalanceInBlocks);
-    effectiveCoeff = saturateCoeff * (1.0 - ppsConfig.PoolFee / 100.0);
     if (FeeEstimationService_)
       averageTxFee = FeeEstimationService_->averageFee();
   }
@@ -907,9 +906,13 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
         UInt<384> batchCost = lastBaseBlockReward + averageTxFee;
         batchCost /= entry.ExpectedWork;
         batchCost *= entry.AcceptedWork;
-        batchCost.mulfp(effectiveCoeff);
+        batchCost.mulfp(saturateCoeff);
 
-        // Apply PPS fee plan
+        // Pool fee (stays in PPS balance, not distributed)
+        UInt<384> poolFeeValue = batchCost;
+        poolFeeValue.mulfp(ppsPoolFee / 100.0);
+
+        // User fee plan (distributed to fee recipients)
         auto feePlanIt = UserFeePlanIds_.find(entry.UserId);
         const std::string &feePlanId =
           feePlanIt != UserFeePlanIds_.end() ? feePlanIt->second : defaultFeePlan;
@@ -917,23 +920,29 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
         const auto &feeRecord =
           cacheIt != FeePlanCache_.end() ? cacheIt->second : emptyFeeRecord;
 
-        UInt<384> feeSum = UInt<384>::zero();
+        UInt<384> userFeeSum = UInt<384>::zero();
         std::vector<UInt<384>> feeValues;
         for (const auto &fee : feeRecord) {
           UInt<384> feeValue = batchCost;
           feeValue.mulfp(fee.Percentage / 100.0);
           feeValues.push_back(feeValue);
-          feeSum += feeValue;
+          userFeeSum += feeValue;
         }
 
-        if (feeSum <= batchCost) {
+        UInt<384> totalFeeSum = poolFeeValue + userFeeSum;
+        if (totalFeeSum <= batchCost) {
           for (size_t i = 0, ie = feeRecord.size(); i != ie; ++i)
             result.AccountingBatch.PPSBalances.emplace_back(feeRecord[i].UserId, feeValues[i]);
-          result.AccountingBatch.PPSBalances.emplace_back(entry.UserId, batchCost - feeSum);
+          result.AccountingBatch.PPSBalances.emplace_back(entry.UserId, batchCost - totalFeeSum);
         } else {
+          double userFeePct = 0.0;
+          for (const auto &fee : feeRecord)
+            userFeePct += fee.Percentage;
           LOG_F(ERROR,
-            "PPS user %s: fee sum exceeds reward, fees not applied",
-            entry.UserId.c_str());
+            "PPS user %s: fee sum (pool %.2f%% + user %.2f%%) exceeds 100%%, fees not applied",
+            entry.UserId.c_str(),
+            ppsPoolFee,
+            userFeePct);
           result.AccountingBatch.PPSBalances.emplace_back(entry.UserId, batchCost);
         }
       }

@@ -654,8 +654,6 @@ void PoolHttpConnection::onUserGetSettings(rapidjson::Document &document)
         JSON::Object coin(stream);
         UserSettingsRecord settings;
         coin.addString("name", coinInfo.Name.c_str());
-        PoolBackend *backend = Server_.backend(coinInfo.Name);
-        coin.addBoolean("ppsAvailable", backend && backend->accountingDb()->isPPSEnabled());
         if (Server_.userManager().getUserCoinSettings(tokenInfo.Login, coinInfo.Name, settings)) {
           coin.addString("address", settings.Address);
           coin.addString("payoutThreshold", FormatMoney(settings.MinimalPayout, coinInfo.FractionalPartSize));
@@ -1453,8 +1451,18 @@ void PoolHttpConnection::onBackendQueryWorkerStatsHistory(rapidjson::Document &d
   queryStatsHistory(statistic, tokenInfo.Login, workerId, timeFrom, timeTo, groupByInterval, currentTime);
 }
 
-void PoolHttpConnection::onBackendQueryCoins(rapidjson::Document&)
+void PoolHttpConnection::onBackendQueryCoins(rapidjson::Document &document)
 {
+  // Parse optional session id for user-specific fee calculation
+  bool validAcc = true;
+  std::string sessionId;
+  jsonParseString(document, "id", sessionId, "", &validAcc);
+
+  std::string feePlanId = "default";
+  UserManager::UserWithAccessRights tokenInfo;
+  if (!sessionId.empty() && Server_.userManager().validateSession(sessionId, "", tokenInfo, false))
+    feePlanId = Server_.userManager().getFeePlanId(tokenInfo.Login);
+
   xmstream stream;
   reply200(stream);
   size_t offset = startChunk(stream);
@@ -1472,8 +1480,19 @@ void PoolHttpConnection::onBackendQueryCoins(rapidjson::Document&)
         object.addString("fullName", info.FullName);
         object.addString("algorithm", info.Algorithm);
         object.addString("minimalPayout", FormatMoney(backend->getConfig().MinimalAllowedPayout, info.FractionalPartSize));
-        // TODO: calculate fee for current user
-        object.addDouble("totalFee", 0.0);
+        object.addBoolean("ppsAvailable", backend->accountingDb()->isPPSEnabled());
+
+        // PPLNS fee: sum of user fee plan percentages
+        double pplnsFee = 0.0;
+        for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::PPLNS, info.Name))
+          pplnsFee += fee.Percentage;
+        object.addDouble("pplnsFee", pplnsFee);
+
+        // PPS fee: pool PPS fee + user fee plan
+        double ppsFee = backend->accountingDb()->ppsPoolFee();
+        for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::PPS, info.Name))
+          ppsFee += fee.Percentage;
+        object.addDouble("ppsFee", ppsFee);
       }
     }
   }
