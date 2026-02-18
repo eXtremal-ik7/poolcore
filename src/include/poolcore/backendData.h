@@ -1,6 +1,7 @@
 #ifndef __BACKEND_DATA_H_
 #define __BACKEND_DATA_H_
 
+#include "poolcore/poolCore.h"
 #include "poolcore/workSummary.h"
 #include "poolcommon/baseBlob.h"
 #include "poolcommon/serialize.h"
@@ -250,19 +251,20 @@ struct UserFeePair {
   double Percentage;
 };
 
-using UserFeeConfig = std::vector<UserFeePair>;
-
-struct CoinSpecificFeeRecord2 {
+struct CUserFeeConfig {
   std::string CoinName;
-  UserFeeConfig Config;
+  std::vector<UserFeePair> Config;
+};
+
+struct CModeFeeConfig {
+  std::vector<UserFeePair> Default;
+  std::vector<CUserFeeConfig> CoinSpecific;
 };
 
 struct UserFeePlanRecord {
-  enum { CurrentRecordVersion = 1 };
-
   std::string FeePlanId;
-  UserFeeConfig Default;
-  std::vector<CoinSpecificFeeRecord2> CoinSpecificFee;
+  // Indexed by EMiningMode
+  std::vector<CModeFeeConfig> Modes;
 
   UserFeePlanRecord() {}
   std::string getPartitionId() const { return "default"; }
@@ -315,11 +317,6 @@ struct UserSessionRecord {
     LastAccessTime = time;
     Dirty = true;
   }
-};
-
-enum class EMiningMode : uint32_t {
-  PPLNS = 0,
-  PPS = 1
 };
 
 struct UserSettingsRecord {

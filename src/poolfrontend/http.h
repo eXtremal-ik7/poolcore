@@ -46,8 +46,10 @@ private:
   void onUserUpdateSettings(rapidjson::Document &document);
   void onUserEnumerateAll(rapidjson::Document &document);
   void onUserEnumerateFeePlan(rapidjson::Document &document);
-  void onUserGetFeePlan(rapidjson::Document &document);
+  void onUserCreateFeePlan(rapidjson::Document &document);
+  void onUserQueryFeePlan(rapidjson::Document &document);
   void onUserUpdateFeePlan(rapidjson::Document &document);
+  void onUserDeleteFeePlan(rapidjson::Document &document);
   void onUserChangeFeePlan(rapidjson::Document &document);
   void onUserActivate2faInitiate(rapidjson::Document &document);
   void onUserDeactivate2faInitiate(rapidjson::Document &document);
@@ -97,9 +99,11 @@ private:
     fnUserUpdateCredentials,
     fnUserUpdateSettings,
     fnUserEnumerateAll,
-    fnUserGetFeePlan,
     fnUserEnumerateFeePlan,
+    fnUserCreateFeePlan,
+    fnUserQueryFeePlan,
     fnUserUpdateFeePlan,
+    fnUserDeleteFeePlan,
     fnUserChangeFeePlan,
     fnUserActivate2faInitiate,
     fnUserDeactivate2faInitiate,

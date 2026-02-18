@@ -16,6 +16,26 @@ class CPreparedQuery;
 class CNetworkClientDispatcher;
 struct asyncBase;
 
+enum class EMiningMode : unsigned {
+  PPLNS = 0,
+  PPS,
+  Count
+};
+
+inline const char *miningModeName(EMiningMode mode)
+{
+  static const char *names[] = {"pplns", "pps"};
+  unsigned index = static_cast<unsigned>(mode);
+  return index < std::size(names) ? names[index] : "unknown";
+}
+
+inline bool parseMiningMode(const std::string &name, EMiningMode &mode)
+{
+  if (name == "pplns") { mode = EMiningMode::PPLNS; return true; }
+  if (name == "pps") { mode = EMiningMode::PPS; return true; }
+  return false;
+}
+
 struct CCoinInfoOld2 {
   int64_t ExtraMultiplier = 100;
   double WorkMultiplier = 4294967296.0;

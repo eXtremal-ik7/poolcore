@@ -19,19 +19,23 @@ def call(functionName, data, requiredStatus=None):
         raise("required status error")
     return result
 
-def userUpdateFeePlan(sessionId, feePlanId, default, coinSpecificFee=None, requiredStatus=None):
-    data = {"id": sessionId, "feePlanId": feePlanId, "default": default}
-    if coinSpecificFee is not None:
-        data.update({"coinSpecificFee": coinSpecificFee})
+def userCreateFeePlan(sessionId, feePlanId, requiredStatus=None):
+    return call("userCreateFeePlan", {"id": sessionId, "feePlanId": feePlanId}, requiredStatus)
+
+def userQueryFeePlan(sessionId, feePlanId, mode, requiredStatus=None):
+    return call("userQueryFeePlan", {"id": sessionId, "feePlanId": feePlanId, "mode": mode}, requiredStatus)
+
+def userUpdateFeePlan(sessionId, feePlanId, mode, default, coinSpecific=None, requiredStatus=None):
+    data = {"id": sessionId, "feePlanId": feePlanId, "mode": mode, "default": default}
+    if coinSpecific is not None:
+        data.update({"coinSpecific": coinSpecific})
     return call("userUpdateFeePlan", data, requiredStatus)
 
-def userEnumerateFeePlan(sessionId, requiredStatus=None):
-    data = {"id": sessionId}
-    return call("userEnumerateFeePlan", data, requiredStatus)
+def userDeleteFeePlan(sessionId, feePlanId, requiredStatus=None):
+    return call("userDeleteFeePlan", {"id": sessionId, "feePlanId": feePlanId}, requiredStatus)
 
-def userGetFeePlan(sessionId, feePlanId, requiredStatus=None):
-    data = {"id": sessionId, "feePlanId": feePlanId}
-    return call("userGetFeePlan", data, requiredStatus)
+def userEnumerateFeePlan(sessionId, requiredStatus=None):
+    return call("userEnumerateFeePlan", {"id": sessionId}, requiredStatus)
 
 def userChangeFeePlan(sessionId, targetLogin, feePlanId, requiredStatus=None):
     data = {"id": sessionId, "targetLogin": targetLogin, "feePlanId": feePlanId}
@@ -114,54 +118,41 @@ def testUserUpdateFeePlan(adminSessionId, user1SessionId):
     extra = [{"userId": "adm1", "percentage": 10}, {"userId": "adm2", "percentage": 10}, {"userId": "adm3", "percentage": 10}]
 
     # Check that default fee plan is empty
-    plan = userGetFeePlan(adminSessionId, "default", requiredStatus="ok")["plan"]
-    if plan != {"feePlanId": "default", "default": [], "coinSpecificFee": []}:
+    result = userQueryFeePlan(adminSessionId, "default", "pplns", requiredStatus="ok")
+    if result["default"] != [] or result["coinSpecific"] != []:
         raise Exception("default fee plan not empty at startup")
 
-    userUpdateFeePlan(user1SessionId, "default", default=[{"userId": "nouser", "percentage": 1.0}], requiredStatus="unknown_id")
-    userUpdateFeePlan(adminSessionId, "default", default=[{"userId": "nouser", "percentage": 1.0}], requiredStatus="unknown_login")
-    userUpdateFeePlan(adminSessionId, "default", default=[{"userId": "adm1", "percentage": 4.0}], requiredStatus="ok")
+    userUpdateFeePlan(user1SessionId, "default", "pplns", default=[{"userId": "nouser", "percentage": 1.0}], requiredStatus="unknown_id")
+    userUpdateFeePlan(adminSessionId, "default", "pplns", default=[{"userId": "nouser", "percentage": 1.0}], requiredStatus="unknown_login")
+    userUpdateFeePlan(adminSessionId, "default", "pplns", default=[{"userId": "adm1", "percentage": 4.0}], requiredStatus="ok")
 
-    userUpdateFeePlan(adminSessionId, "default", default=default, requiredStatus="ok")
+    userUpdateFeePlan(adminSessionId, "default", "pplns", default=default, requiredStatus="ok")
 
-    userUpdateFeePlan(adminSessionId, "special", default=special, coinSpecificFee=[{"coin": "none", "config": extra}], requiredStatus="invalid_coin")
-    userUpdateFeePlan(adminSessionId, "special", default=special, coinSpecificFee=[{"coin": "LTC.regtest", "config": extra}], requiredStatus="ok")
+    userCreateFeePlan(adminSessionId, "special", requiredStatus="ok")
+    userCreateFeePlan(adminSessionId, "special", requiredStatus="fee_plan_already_exists")
+    userUpdateFeePlan(adminSessionId, "special", "pplns", default=special, coinSpecific=[{"coinName": "none", "config": extra}], requiredStatus="invalid_coin")
+    userUpdateFeePlan(adminSessionId, "special", "pplns", default=special, coinSpecific=[{"coinName": "LTC.regtest", "config": extra}], requiredStatus="ok")
 
 def testUserEnumerateFeePlan(adminSessionId, user1SessionId):
-    default = [{"userId": "adm1", "percentage": 4.0}, {"userId": "adm2", "percentage": 4.0}]
-    special = [{"userId": "adm1", "percentage": 1.0}, {"userId": "adm2", "percentage": 1.0}, {"userId": "adm3", "percentage": 1.0}]
-    extra = [{"userId": "adm1", "percentage": 10}, {"userId": "adm2", "percentage": 10}, {"userId": "adm3", "percentage": 10}]
-
     userEnumerateFeePlan(user1SessionId, requiredStatus="unknown_id")
     result = userEnumerateFeePlan(adminSessionId, requiredStatus="ok")["plans"]
-    if result != [
-        {"feePlanId": "default",
-         "default": default,
-         "coinSpecificFee": []},
-        {"feePlanId": "special",
-         "default": special,
-         "coinSpecificFee": [{"coin": "LTC.regtest", "config": extra}]}
-    ]:
+    if sorted(result) != ["default", "special"]:
         raise Exception("userEnumerateFeePlan error")
 
-def testUserGetFeePlan(adminSessionId, user1SessionId):
+def testUserQueryFeePlan(adminSessionId, user1SessionId):
     default = [{"userId": "adm1", "percentage": 4.0}, {"userId": "adm2", "percentage": 4.0}]
     special = [{"userId": "adm1", "percentage": 1.0}, {"userId": "adm2", "percentage": 1.0}, {"userId": "adm3", "percentage": 1.0}]
     extra = [{"userId": "adm1", "percentage": 10}, {"userId": "adm2", "percentage": 10}, {"userId": "adm3", "percentage": 10}]
 
-    userGetFeePlan(user1SessionId, "default", requiredStatus="unknown_id")
-    userGetFeePlan(adminSessionId, "none", requiredStatus="unknown_fee_plan")
-    result = userGetFeePlan(adminSessionId, "default", requiredStatus="ok")["plan"]
-    if result != {"feePlanId": "default",
-                  "default": default,
-                  "coinSpecificFee": []}:
-        raise Exception("userGetFeePlan error")
+    userQueryFeePlan(user1SessionId, "default", "pplns", requiredStatus="unknown_id")
+    userQueryFeePlan(adminSessionId, "none", "pplns", requiredStatus="unknown_fee_plan")
+    result = userQueryFeePlan(adminSessionId, "default", "pplns", requiredStatus="ok")
+    if result["default"] != default or result["coinSpecific"] != []:
+        raise Exception("userQueryFeePlan error for default plan")
 
-    result = userGetFeePlan(adminSessionId, "special", requiredStatus="ok")["plan"]
-    if result != {"feePlanId": "special",
-                  "default": special,
-                  "coinSpecificFee": [{"coin": "LTC.regtest", "config": extra}]}:
-        raise Exception("userGetFeePlan error")
+    result = userQueryFeePlan(adminSessionId, "special", "pplns", requiredStatus="ok")
+    if result["default"] != special or result["coinSpecific"] != [{"coinName": "LTC.regtest", "config": extra}]:
+        raise Exception("userQueryFeePlan error for special plan")
 
 def testUserCreate_2(adminSessionId, adm1SessionId):
     # Create user without session id but with fee plan
@@ -283,8 +274,8 @@ adm3SessionId = userLogin("adm3", "12345678", requiredStatus = "ok")["sessionid"
 testUserUpdateFeePlan(adminSessionId, adm1SessionId)
 #### userEnumerateFeePlan #####
 testUserEnumerateFeePlan(adminSessionId, adm1SessionId)
-##### userGetFeePlan #####
-testUserGetFeePlan(adminSessionId, adm1SessionId)
+##### userQueryFeePlan #####
+testUserQueryFeePlan(adminSessionId, adm1SessionId)
 
 ##### userCreate 2 #####
 testUserCreate_2(adminSessionId, adm1SessionId)

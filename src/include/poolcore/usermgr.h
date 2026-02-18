@@ -43,11 +43,14 @@ public:
     std::string EMail;
   };
 
-  using UserFeeConfig = std::vector<UserFeePair>;
-
   struct FeePlan {
-    UserFeeConfig Default;
-    std::unordered_map<std::string, UserFeeConfig> CoinSpecificFee;
+    struct ModeConfig {
+      std::vector<UserFeePair> Default;
+      std::unordered_map<std::string, std::vector<UserFeePair>> CoinSpecific;
+    };
+
+    // Indexed by EMiningMode
+    std::vector<ModeConfig> Modes;
   };
 
   struct UserWithAccessRights {
@@ -211,13 +214,41 @@ public:
     Cb Callback_;
   };
 
-  class UpdateFeePlanTask: public Task {
+  class CreateFeePlanTask: public Task {
   public:
-    UpdateFeePlanTask(UserManager *userMgr, const std::string &sessionId, UserFeePlanRecord &&plan, DefaultCb callback) : Task(userMgr), SessionId_(sessionId), Plan_(plan), Callback_(callback) {}
-    void run() final { UserMgr_->updateFeePlanImpl(SessionId_, Plan_, Callback_); }
+    CreateFeePlanTask(UserManager *userMgr, const std::string &sessionId, const std::string &feePlanId, DefaultCb callback) :
+      Task(userMgr), SessionId_(sessionId), FeePlanId_(feePlanId), Callback_(callback) {}
+    void run() final { UserMgr_->createFeePlanImpl(SessionId_, FeePlanId_, Callback_); }
+
   private:
     std::string SessionId_;
-    UserFeePlanRecord Plan_;
+    std::string FeePlanId_;
+    DefaultCb Callback_;
+  };
+
+  class UpdateFeePlanTask: public Task {
+  public:
+    UpdateFeePlanTask(UserManager *userMgr, const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, CModeFeeConfig &&config, DefaultCb callback) :
+      Task(userMgr), SessionId_(sessionId), FeePlanId_(feePlanId), Mode_(mode), Config_(config), Callback_(callback) {}
+    void run() final { UserMgr_->updateFeePlanImpl(SessionId_, FeePlanId_, Mode_, Config_, Callback_); }
+
+  private:
+    std::string SessionId_;
+    std::string FeePlanId_;
+    EMiningMode Mode_;
+    CModeFeeConfig Config_;
+    DefaultCb Callback_;
+  };
+
+  class DeleteFeePlanTask: public Task {
+  public:
+    DeleteFeePlanTask(UserManager *userMgr, const std::string &sessionId, const std::string &feePlanId, DefaultCb callback) :
+      Task(userMgr), SessionId_(sessionId), FeePlanId_(feePlanId), Callback_(callback) {}
+    void run() final { UserMgr_->deleteFeePlanImpl(SessionId_, FeePlanId_, Callback_); }
+
+  private:
+    std::string SessionId_;
+    std::string FeePlanId_;
     DefaultCb Callback_;
   };
 
@@ -373,7 +404,9 @@ public:
   void updateCredentials(const std::string &id, const std::string &targetLogin, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UpdateCredentialsTask(this, id, targetLogin, std::move(credentials), callback)); }
   void updateSettings(UserSettingsRecord &&settings, const std::string &totp, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), totp, callback)); }
   void enumerateUsers(const std::string &sessionId, EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, sessionId, callback)); }
-  void updateFeePlan(const std::string &sessionId, UserFeePlanRecord &&plan, Task::DefaultCb callback) { startAsyncTask(new UpdateFeePlanTask(this, sessionId, std::move(plan), callback)); }
+  void createFeePlan(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback) { startAsyncTask(new CreateFeePlanTask(this, sessionId, feePlanId, callback)); }
+  void updateFeePlan(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, CModeFeeConfig &&config, Task::DefaultCb callback) { startAsyncTask(new UpdateFeePlanTask(this, sessionId, feePlanId, mode, std::move(config), callback)); }
+  void deleteFeePlan(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback) { startAsyncTask(new DeleteFeePlanTask(this, sessionId, feePlanId, callback)); }
   void changeFeePlan(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback) { startAsyncTask(new ChangeFeePlanTask(this, sessionId, targetLogin, newFeePlan, callback)); }
   void activate2faInitiate(const std::string &sessionId, const std::string &targetLogin, Activate2faInitiateTask::Cb callback) { startAsyncTask(new Activate2faInitiateTask(this, sessionId, targetLogin, callback)); }
   void deactivate2faInitiate(const std::string &sessionId, const std::string &targetLogin, Task::DefaultCb callback) { startAsyncTask(new Deactivate2faInitiateTask(this, sessionId, targetLogin, callback)); }
@@ -385,10 +418,13 @@ public:
   bool getUserCredentials(const std::string &login, Credentials &out);
   bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);
   std::vector<UserSettingsRecord> getAllCoinSettings(const std::string &coin);
+  void fillUserCoinSettings(const std::string &coin, std::unordered_map<std::string, UserSettingsRecord> &out);
   std::string getFeePlanId(const std::string &login);
-  bool getFeePlan(const std::string &sessionId, const std::string &feePlanId, std::string &status, UserFeePlanRecord &result);
-  bool enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<UserFeePlanRecord> &result);
-  UserFeeConfig getFeeRecord(const std::string &feePlanId, const std::string &coin);
+  bool queryFeePlan(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, std::string &status, CModeFeeConfig &result);
+  bool enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<std::string> &result);
+  std::vector<UserFeePair> getFeeRecord(const std::string &feePlanId, EMiningMode mode, const std::string &coin);
+  std::vector<std::pair<std::string, std::vector<UserFeePair>>> getAllFeeRecords(EMiningMode mode, const std::string &coin);
+  void fillUserFeePlanIds(std::unordered_map<std::string, std::string> &out);
 
 private:
   // Asynchronous api implementation
@@ -404,7 +440,9 @@ private:
   void updateCredentialsImpl(const std::string &sessionId, const std::string &targetLogin, const Credentials &credentials, Task::DefaultCb callback);
   void updateSettingsImpl(const UserSettingsRecord &settings, const std::string &totp, Task::DefaultCb callback);
   void enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback);
-  void updateFeePlanImpl(const std::string &sessionId, const UserFeePlanRecord &plan, Task::DefaultCb callback);
+  void createFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback);
+  void updateFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, const CModeFeeConfig &config, Task::DefaultCb callback);
+  void deleteFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback);
   void changeFeePlanImpl(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback);
   void activate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Activate2faInitiateTask::Cb callback);
   void deactivate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Task::DefaultCb callback);
@@ -436,6 +474,7 @@ private:
 
   bool acceptFeePlanRecord(const UserFeePlanRecord &record, std::string &error);
   void buildFeePlanRecord(const std::string &feePlanId, const FeePlan &plan, UserFeePlanRecord &result);
+  void buildModeFeeConfig(const FeePlan::ModeConfig &mode, CModeFeeConfig &result);
   void collectLinkedFeePlans(const std::string &userId, std::unordered_set<std::string> &plans);
 
   void userManagerMain();

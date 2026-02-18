@@ -70,6 +70,38 @@ private:
     UserSettingsRecord Settings_;
   };
 
+  class TaskFeePlanUpdate : public Task<PoolBackend> {
+  public:
+    TaskFeePlanUpdate(std::string feePlanId, EMiningMode mode, std::vector<UserFeePair> feeRecord) :
+      FeePlanId_(std::move(feePlanId)), Mode_(mode), FeeRecord_(std::move(feeRecord)) {}
+    void run(PoolBackend *backend) final { backend->onFeePlanUpdate(FeePlanId_, Mode_, FeeRecord_); }
+
+  private:
+    std::string FeePlanId_;
+    EMiningMode Mode_;
+    std::vector<UserFeePair> FeeRecord_;
+  };
+
+  class TaskFeePlanDelete : public Task<PoolBackend> {
+  public:
+    TaskFeePlanDelete(std::string feePlanId) : FeePlanId_(std::move(feePlanId)) {}
+    void run(PoolBackend *backend) final { backend->onFeePlanDelete(FeePlanId_); }
+
+  private:
+    std::string FeePlanId_;
+  };
+
+  class TaskUserFeePlanChange : public Task<PoolBackend> {
+  public:
+    TaskUserFeePlanChange(std::string login, std::string feePlanId) :
+      Login_(std::move(login)), FeePlanId_(std::move(feePlanId)) {}
+    void run(PoolBackend *backend) final { backend->onUserFeePlanChange(Login_, FeePlanId_); }
+
+  private:
+    std::string Login_;
+    std::string FeePlanId_;
+  };
+
 private:
   asyncBase *_base;
   uint64_t _timeout;
@@ -107,6 +139,9 @@ private:
   void onWorkSummary(const CWorkSummaryBatch &batch);
   void onBlockFound(const CBlockFoundData &block);
   void onUserSettingsUpdate(const UserSettingsRecord &settings);
+  void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<UserFeePair> &feeRecord);
+  void onFeePlanDelete(const std::string &feePlanId);
+  void onUserFeePlanChange(const std::string &login, const std::string &feePlanId);
 
 public:
   PoolBackend(const PoolBackend&) = delete;
@@ -142,6 +177,13 @@ public:
   void sendWorkSummary(CWorkSummaryBatch &&batch) { TaskHandler_.push(new TaskWorkSummary(std::move(batch))); }
   void sendBlockFound(CBlockFoundData *block) { TaskHandler_.push(new TaskBlockFound(block)); }
   void sendUserSettingsUpdate(UserSettingsRecord settings) { TaskHandler_.push(new TaskUserSettingsUpdate(std::move(settings))); }
+  void sendFeePlanUpdate(std::string feePlanId, EMiningMode mode, std::vector<UserFeePair> feeRecord) {
+    TaskHandler_.push(new TaskFeePlanUpdate(std::move(feePlanId), mode, std::move(feeRecord)));
+  }
+  void sendFeePlanDelete(std::string feePlanId) { TaskHandler_.push(new TaskFeePlanDelete(std::move(feePlanId))); }
+  void sendUserFeePlanChange(std::string login, std::string feePlanId) {
+    TaskHandler_.push(new TaskUserFeePlanChange(std::move(login), std::move(feePlanId)));
+  }
 
   AccountingDb *accountingDb() { return _accounting.get(); }
   StatisticDb *statisticDb() { return _statistics.get(); }

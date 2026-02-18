@@ -7,11 +7,18 @@
 #include "poolcore/priceFetcher.h"
 #include "loguru.hpp"
 #include <math.h>
+#include <thread>
 
 static const UInt<384> ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE = fromRational(10000u);
 
+namespace {
+const std::string defaultFeePlan = "default";
+const std::vector<::UserFeePair> emptyFeeRecord;
+} // namespace
+
 template<> struct DbIo<CPPSConfig> {
   static inline void serialize(xmstream &dst, const CPPSConfig &data) {
+    DbIo<bool>::serialize(dst, data.Enabled);
     DbIo<double>::serialize(dst, data.PoolFee);
     DbIo<uint32_t>::serialize(dst, static_cast<uint32_t>(data.SaturationFunction));
     DbIo<double>::serialize(dst, data.SaturationB0);
@@ -20,6 +27,7 @@ template<> struct DbIo<CPPSConfig> {
   }
 
   static inline void unserialize(xmstream &src, CPPSConfig &data) {
+    DbIo<bool>::unserialize(src, data.Enabled);
     DbIo<double>::unserialize(src, data.PoolFee);
     uint32_t saturationFunction = 0;
     DbIo<uint32_t>::unserialize(src, saturationFunction);
@@ -283,7 +291,8 @@ void AccountingDb::printRecentStatistic()
 }
 
 AccountingDb::CPersistentState::CPersistentState(const std::filesystem::path &dbPath)
-  : Db(dbPath)
+  : DbPath_(dbPath),
+    Db(dbPath / "accounting.state")
 {
 }
 
@@ -313,12 +322,10 @@ bool AccountingDb::CPersistentState::load()
       DbIo<decltype(PPSPendingBalance)>::unserialize(stream, PPSPendingBalance);
     } else if (keyStr == "currentroundstart") {
       DbIo<Timestamp>::unserialize(stream, CurrentRoundStartTime);
-    } else if (keyStr == "ppsenabled") {
-      bool enabled = false;
-      DbIo<bool>::unserialize(stream, enabled);
-      PPSModeEnabled.store(enabled, std::memory_order_relaxed);
     } else if (keyStr == "ppsconfig") {
-      DbIo<CPPSConfig>::unserialize(stream, PPSConfig);
+      CPPSConfig cfg;
+      DbIo<CPPSConfig>::unserialize(stream, cfg);
+      PPSConfig.store(cfg, std::memory_order_relaxed);
     } else if (keyStr == "ppsstate") {
       DbIo<CPPSState>::unserialize(stream, PPSState);
     } else if (keyStr == "payoutqueue") {
@@ -413,23 +420,9 @@ void AccountingDb::CPersistentState::flushState()
 
 void AccountingDb::CPersistentState::flushPPSConfig()
 {
-  rocksdbBase::CBatch batch = Db.batch("default");
-
-  {
-    xmstream stream;
-    DbIo<bool>::serialize(stream, PPSModeEnabled.load(std::memory_order_relaxed));
-    std::string key = "ppsenabled";
-    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
-  }
-
-  {
-    xmstream stream;
-    DbIo<CPPSConfig>::serialize(stream, PPSConfig);
-    std::string key = "ppsconfig";
-    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
-  }
-
-  Db.writeBatch(batch);
+  xmstream stream;
+  DbIo<CPPSConfig>::serialize(stream, PPSConfig.load(std::memory_order_relaxed));
+  Db.put("default", "ppsconfig", 9, stream.data(), stream.sizeOf());
 }
 
 void AccountingDb::CPersistentState::flushPayoutQueue()
@@ -442,9 +435,18 @@ void AccountingDb::CPersistentState::flushPayoutQueue()
   Db.put("default", key.data(), key.size(), stream.data(), stream.sizeOf());
 }
 
-void AccountingDb::flushUserStats(Timestamp currentTime)
+void AccountingDb::CPersistentState::applyBatch(uint64_t msgId, const CAccountingStateBatch &batch)
 {
-  UserStatsAcc_.flush(currentTime, _cfg.dbPath, nullptr);
+  if (msgId <= LastAcceptedMsgId_)
+    return;
+  LastAcceptedMsgId_ = msgId;
+  PPSState.LastSaturateCoeff = batch.LastSaturateCoeff;
+  PPSState.LastBaseBlockReward = batch.LastBaseBlockReward;
+  PPSState.LastAverageTxFee = batch.LastAverageTxFee;
+  for (const auto &[user, work] : batch.PPLNSScores)
+    CurrentScores[user] += work;
+  for (const auto &[user, amount] : batch.PPSBalances)
+    PPSPendingBalance[user] += amount;
 }
 
 AccountingDb::AccountingDb(asyncBase *base,
@@ -459,7 +461,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   UserManager_(userMgr),
   ClientDispatcher_(clientDispatcher),
   PriceFetcher_(priceFetcher),
-  State_(config.dbPath / "accounting.state"),
+  State_(config.dbPath),
   _roundsDb(config.dbPath / "rounds.3"),
   _balanceDb(config.dbPath / "balance.2"),
   _foundBlocksDb(config.dbPath / "foundBlocks.2"),
@@ -473,11 +475,32 @@ AccountingDb::AccountingDb(asyncBase *base,
 {
   FlushTimerEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   ShareLogFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
+  UserStatsFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   PPSPayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);
 
+  // Start loading user data from UserManager in parallel with local DB loading
+  std::thread settingsThread([this]() {
+    UserManager_.fillUserCoinSettings(CoinInfo_.Name, UserSettings_);
+    LOG_F(INFO, "AccountingDb: loaded %zu user settings for %s", UserSettings_.size(), CoinInfo_.Name.c_str());
+  });
+
+  std::thread feePlanIdsThread([this]() {
+    UserManager_.fillUserFeePlanIds(UserFeePlanIds_);
+    LOG_F(INFO, "AccountingDb: loaded %zu user fee plan assignments for %s", UserFeePlanIds_.size(), CoinInfo_.Name.c_str());
+  });
+
+  std::thread feePlansThread([this]() {
+    for (unsigned m = 0; m < static_cast<unsigned>(EMiningMode::Count); ++m) {
+      EMiningMode mode = static_cast<EMiningMode>(m);
+      auto records = UserManager_.getAllFeeRecords(mode, CoinInfo_.Name);
+      for (auto &[feePlanId, feeList] : records)
+        FeePlanCache_[{feePlanId, mode}] = std::move(feeList);
+    }
+    LOG_F(INFO, "AccountingDb: loaded %zu fee plan entries for %s", FeePlanCache_.size(), CoinInfo_.Name.c_str());
+  });
+
+  UserStatsAcc_.load(config.dbPath, coinInfo.Name);
   State_.load();
-  UserStatsAcc_.load(_cfg.dbPath, coinInfo.Name);
-  UserStatsFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   LOG_F(INFO, "loaded %u payouts from db", static_cast<unsigned>(State_.PayoutQueue.size()));
 
   {
@@ -512,18 +535,22 @@ AccountingDb::AccountingDb(asyncBase *base,
     LOG_F(INFO, "loaded %u user balance data from db", (unsigned)_balanceMap.size());
   }
 
-  // Load user settings for this coin
-  {
-    auto allSettings = UserManager_.getAllCoinSettings(CoinInfo_.Name);
-    for (auto &s : allSettings)
-      UserSettings_.emplace(s.Login, std::move(s));
-    LOG_F(INFO, "AccountingDb: loaded %zu user settings for %s", UserSettings_.size(), CoinInfo_.Name.c_str());
-  }
+  // Wait for user data loading threads before replay
+  // (replay needs UserSettings_, UserFeePlanIds_, FeePlanCache_ for PPS mode handling)
+  settingsThread.join();
+  feePlanIdsThread.join();
+  feePlansThread.join();
 
-  ShareLog_.replay([this](uint64_t messageId, const CUserWorkSummaryBatch &batch) {
-    State_.addScores(messageId, batch);
-    UserStatsAcc_.addBaseWorkBatch(messageId, batch);
-  });
+  {
+    uint64_t replayFrom = std::min(State_.lastAcceptedMsgId(), UserStatsAcc_.lastSavedMsgId());
+    ShareLog_.replay([this, replayFrom](uint64_t messageId, const CUserWorkSummaryBatch &batch) {
+      if (messageId <= replayFrom)
+        return;
+      auto processed = processWorkSummaryBatch(batch);
+      State_.applyBatch(messageId, processed.AccountingBatch);
+      UserStatsAcc_.addBaseWorkBatch(messageId, processed.StatsBatch);
+    });
+  }
 
   printRecentStatistic();
   if (!State_.CurrentScores.empty()) {
@@ -536,7 +563,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   // Flush replayed data immediately so AccumulationInterval_ is reset.
   // Otherwise, if the pool was down for a long time, the first live share
   // would stretch the interval and corrupt grid distribution.
-  flushUserStats(Timestamp::now());
+  UserStatsAcc_.flush(Timestamp::now(), _cfg.dbPath, nullptr);
 
   ShareLog_.startLogging(lastKnownShareId() + 1);
 }
@@ -589,6 +616,16 @@ void AccountingDb::ppsPayout()
   PPSHistoryDb_.put(State_.PPSState);
 }
 
+void AccountingDb::userStatsFlushHandler()
+{
+  for (;;) {
+    ioSleep(UserStatsFlushEvent_, std::chrono::microseconds(_cfg.StatisticUserFlushInterval).count());
+    UserStatsAcc_.flush(Timestamp::now(), _cfg.dbPath, nullptr);
+    if (ShutdownRequested_)
+      break;
+  }
+}
+
 void AccountingDb::ppsPayoutHandler()
 {
   for (;;) {
@@ -615,13 +652,7 @@ void AccountingDb::start()
   }, this, 0x20000, coroutineFinishCb, &FlushFinished_));
 
   coroutineCall(coroutineNewWithCb([](void *arg) {
-    AccountingDb *db = static_cast<AccountingDb*>(arg);
-    for (;;) {
-      ioSleep(db->UserStatsFlushEvent_, std::chrono::microseconds(db->_cfg.StatisticUserFlushInterval).count());
-      db->flushUserStats(Timestamp::now());
-      if (db->ShutdownRequested_)
-        break;
-    }
+    static_cast<AccountingDb*>(arg)->userStatsFlushHandler();
   }, this, 0x20000, coroutineFinishCb, &UserStatsFlushFinished_));
 
   coroutineCall(coroutineNewWithCb([](void *arg) {
@@ -634,12 +665,12 @@ void AccountingDb::stop()
   TaskHandler_.stop(CoinInfo_.Name.c_str(), "accounting: task handler");
   ShutdownRequested_ = true;
   userEventActivate(FlushTimerEvent_);
-  userEventActivate(UserStatsFlushEvent_);
   userEventActivate(ShareLogFlushEvent_);
+  userEventActivate(UserStatsFlushEvent_);
   userEventActivate(PPSPayoutEvent_);
   coroutineJoin(CoinInfo_.Name.c_str(), "accounting: flush thread", &FlushFinished_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: user stats flush", &UserStatsFlushFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "accounting: share log flush", &ShareLogFlushFinished_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: user stats flush", &UserStatsFlushFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "accounting: pps payout", &PPSPayoutFinished_);
   ShareLog_.flush();
 }
@@ -668,7 +699,7 @@ bool AccountingDb::hasUnknownReward()
   return CoinInfo_.HasDagFile;
 }
 
-void AccountingDb::calculatePayments(MiningRound *R, const UInt<384> &generatedCoins)
+void AccountingDb::calculatePPLNSPayments(MiningRound *R, const UInt<384> &generatedCoins)
 {
   R->AvailableCoins = generatedCoins;
   R->Payouts.clear();
@@ -692,12 +723,10 @@ void AccountingDb::calculatePayments(MiningRound *R, const UInt<384> &generatedC
     State_.PPSState.TotalBlocksFound += ppsFraction;
     State_.PPSState.updateMinMax(Timestamp::now());
     LOG_F(INFO,
-          " * PPS deduction: %s (%.3f of block, remaining for PPLNS: %s, PPS balance: %s / %.3f blocks)",
+          " * PPS deduction: %s (%.3f of block, remaining for PPLNS: %s)",
           FormatMoney(ppsShare, CoinInfo_.FractionalPartSize).c_str(),
           ppsFraction,
-          FormatMoney(R->AvailableCoins, CoinInfo_.FractionalPartSize).c_str(),
-          FormatMoney(State_.PPSState.Balance, CoinInfo_.FractionalPartSize).c_str(),
-          CPPSState::balanceInBlocks(State_.PPSState.Balance, State_.PPSState.LastBaseBlockReward));
+          FormatMoney(R->AvailableCoins, CoinInfo_.FractionalPartSize).c_str());
   }
 
   if (R->TotalShareValue.isZero()) {
@@ -705,10 +734,11 @@ void AccountingDb::calculatePayments(MiningRound *R, const UInt<384> &generatedC
     return;
   }
 
+  static const std::string defaultFeePlan = "default";
+  static const std::vector<::UserFeePair> emptyFeeRecord;
   UInt<384> totalPayout = UInt<384>::zero();
   std::vector<CUserPayout> payouts;
   std::map<std::string, UInt<384>> feePayouts;
-  std::unordered_map<std::string, UserManager::UserFeeConfig> feePlans;
   UInt<384> minShareCost = R->AvailableCoins / R->TotalShareValue;
   for (const auto &record: R->UserShares) {
     // Calculate payout
@@ -716,12 +746,10 @@ void AccountingDb::calculatePayments(MiningRound *R, const UInt<384> &generatedC
     totalPayout += payoutValue;
 
     // get fee plan for user
-    std::string feePlanId = UserManager_.getFeePlanId(record.UserId);
-    auto It = feePlans.find(feePlanId);
-    if (It == feePlans.end())
-      It = feePlans.insert(It, std::make_pair(feePlanId, UserManager_.getFeeRecord(feePlanId, CoinInfo_.Name)));
-
-    UserManager::UserFeeConfig &feeRecord = It->second;
+    auto feePlanIt = UserFeePlanIds_.find(record.UserId);
+    const std::string &feePlanId = feePlanIt != UserFeePlanIds_.end() ? feePlanIt->second : defaultFeePlan;
+    auto cacheIt = FeePlanCache_.find({feePlanId, EMiningMode::PPLNS});
+    const std::vector<::UserFeePair> &feeRecord = cacheIt != FeePlanCache_.end() ? cacheIt->second : emptyFeeRecord;
 
     UInt<384> feeValuesSum = UInt<384>::zero();
     std::vector<UInt<384>> feeValues;
@@ -815,36 +843,47 @@ void AccountingDb::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
   }
 
   uint64_t messageId = ShareLog_.addMessage(batch);
+  auto processed = processWorkSummaryBatch(batch);
+  State_.applyBatch(messageId, processed.AccountingBatch);
+  UserStatsAcc_.addBaseWorkBatch(messageId, processed.StatsBatch);
+}
+
+CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSummaryBatch &batch)
+{
+  CProcessedWorkSummary result;
+  result.StatsBatch.Time = batch.Time;
 
   // Special meta-user for aggregating PPS shares into PPLNS scoring
   CUserWorkSummary ppsMeta;
   ppsMeta.UserId = ppsMetaUserId();
 
-  bool ppsEnabled = State_.PPSModeEnabled.load(std::memory_order_relaxed);
+  CPPSConfig ppsConfig = State_.PPSConfig.load(std::memory_order_relaxed);
+  bool ppsEnabled = ppsConfig.Enabled;
 
-  // Update LastBaseBlockReward from batch (all entries share the same value)
+  // Determine LastBaseBlockReward from batch (all entries share the same value)
+  UInt<384> lastBaseBlockReward = State_.PPSState.LastBaseBlockReward;
   for (const auto &entry : batch.Entries) {
     if (!entry.BaseBlockReward.isZero()) {
-      State_.PPSState.LastBaseBlockReward = entry.BaseBlockReward;
+      lastBaseBlockReward = entry.BaseBlockReward;
       break;
     }
   }
+  result.AccountingBatch.LastBaseBlockReward = lastBaseBlockReward;
 
   // Compute saturation and fee coefficients once per batch
   double saturateCoeff = 1.0;
   double effectiveCoeff = 1.0;
-  UInt<384> averageTxFee;
+  UInt<384> averageTxFee = State_.PPSState.LastAverageTxFee;
   if (ppsEnabled) {
     double currentBalanceInBlocks =
-      CPPSState::balanceInBlocks(State_.PPSState.Balance, State_.PPSState.LastBaseBlockReward);
-    saturateCoeff = State_.PPSConfig.saturateCoeff(currentBalanceInBlocks);
-    effectiveCoeff = saturateCoeff * (1.0 - State_.PPSConfig.PoolFee / 100.0);
-    State_.PPSState.LastSaturateCoeff = saturateCoeff;
-    if (FeeEstimationService_) {
+      CPPSState::balanceInBlocks(State_.PPSState.Balance, lastBaseBlockReward);
+    saturateCoeff = ppsConfig.saturateCoeff(currentBalanceInBlocks);
+    effectiveCoeff = saturateCoeff * (1.0 - ppsConfig.PoolFee / 100.0);
+    if (FeeEstimationService_)
       averageTxFee = FeeEstimationService_->averageFee();
-      State_.PPSState.LastAverageTxFee = averageTxFee;
-    }
   }
+  result.AccountingBatch.LastSaturateCoeff = saturateCoeff;
+  result.AccountingBatch.LastAverageTxFee = averageTxFee;
 
   for (const auto &entry : batch.Entries) {
     EMiningMode mode = EMiningMode::PPLNS;
@@ -856,8 +895,8 @@ void AccountingDb::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
 
     if (mode == EMiningMode::PPLNS) {
       // PPLNS: add shares to scores and user stats
-      State_.CurrentScores[entry.UserId] += entry.AcceptedWork;
-      UserStatsAcc_.addUserWorkSummary(entry);
+      result.AccountingBatch.PPLNSScores.emplace_back(entry.UserId, entry.AcceptedWork);
+      result.StatsBatch.Entries.push_back({entry.UserId, entry.AcceptedWork, entry.SharesNum, {}, {}});
     } else {
       // PPS: aggregate shares for meta-user, calculate reward
       ppsMeta.SharesNum += entry.SharesNum;
@@ -865,30 +904,75 @@ void AccountingDb::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
 
       if (!entry.ExpectedWork.isZero()) {
         // Fixed-point 128.256: high 128 bits = integer satoshi, low 256 bits = fractional
-        UInt<384> batchCost = entry.BaseBlockReward + averageTxFee;
+        UInt<384> batchCost = lastBaseBlockReward + averageTxFee;
         batchCost /= entry.ExpectedWork;
         batchCost *= entry.AcceptedWork;
         batchCost.mulfp(effectiveCoeff);
 
-        State_.PPSPendingBalance[entry.UserId] += batchCost;
+        // Apply PPS fee plan
+        auto feePlanIt = UserFeePlanIds_.find(entry.UserId);
+        const std::string &feePlanId =
+          feePlanIt != UserFeePlanIds_.end() ? feePlanIt->second : defaultFeePlan;
+        auto cacheIt = FeePlanCache_.find({feePlanId, EMiningMode::PPS});
+        const auto &feeRecord =
+          cacheIt != FeePlanCache_.end() ? cacheIt->second : emptyFeeRecord;
+
+        UInt<384> feeSum = UInt<384>::zero();
+        std::vector<UInt<384>> feeValues;
+        for (const auto &fee : feeRecord) {
+          UInt<384> feeValue = batchCost;
+          feeValue.mulfp(fee.Percentage / 100.0);
+          feeValues.push_back(feeValue);
+          feeSum += feeValue;
+        }
+
+        if (feeSum <= batchCost) {
+          for (size_t i = 0, ie = feeRecord.size(); i != ie; ++i)
+            result.AccountingBatch.PPSBalances.emplace_back(feeRecord[i].UserId, feeValues[i]);
+          result.AccountingBatch.PPSBalances.emplace_back(entry.UserId, batchCost - feeSum);
+        } else {
+          LOG_F(ERROR,
+            "PPS user %s: fee sum exceeds reward, fees not applied",
+            entry.UserId.c_str());
+          result.AccountingBatch.PPSBalances.emplace_back(entry.UserId, batchCost);
+        }
       }
     }
   }
 
   // Add aggregated PPS shares to scores and user stats under meta-user
   if (ppsMeta.SharesNum) {
-    State_.CurrentScores[ppsMeta.UserId] += ppsMeta.AcceptedWork;
-    UserStatsAcc_.addUserWorkSummary(ppsMeta);
+    result.AccountingBatch.PPLNSScores.emplace_back(ppsMeta.UserId, ppsMeta.AcceptedWork);
+    result.StatsBatch.Entries.push_back(
+      {ppsMeta.UserId, ppsMeta.AcceptedWork, ppsMeta.SharesNum, {}, {}});
   }
 
-  State_.setLastAcceptedMsgId(messageId);
-  UserStatsAcc_.setLastAcceptedMsgId(messageId);
-  UserStatsAcc_.expandAccumulationInterval(batch.Time);
+  return result;
 }
 
 void AccountingDb::onUserSettingsUpdate(const UserSettingsRecord &settings)
 {
   UserSettings_[settings.Login] = settings;
+}
+
+void AccountingDb::onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::UserFeePair> &feeRecord)
+{
+  FeePlanCache_[{feePlanId, mode}] = feeRecord;
+  LOG_F(INFO, "AccountingDb %s: fee plan '%s' updated for mode %s, %zu entries",
+    CoinInfo_.Name.c_str(), feePlanId.c_str(), miningModeName(mode), feeRecord.size());
+}
+
+void AccountingDb::onFeePlanDelete(const std::string &feePlanId)
+{
+  for (unsigned m = 0; m < static_cast<unsigned>(EMiningMode::Count); ++m)
+    FeePlanCache_.erase({feePlanId, static_cast<EMiningMode>(m)});
+  LOG_F(INFO, "AccountingDb %s: fee plan '%s' deleted", CoinInfo_.Name.c_str(), feePlanId.c_str());
+}
+
+void AccountingDb::onUserFeePlanChange(const std::string &login, const std::string &feePlanId)
+{
+  UserFeePlanIds_[login] = feePlanId;
+  LOG_F(INFO, "AccountingDb %s: user '%s' fee plan changed to '%s'", CoinInfo_.Name.c_str(), login.c_str(), feePlanId.c_str());
 }
 
 void AccountingDb::onBlockFound(const CBlockFoundData &block)
@@ -930,7 +1014,7 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block)
   // Merge shares for current block with older shares (PPLNS)
   // RecentStats is a snapshot from the previous block-found event; CurrentScores covers
   // all work since then (replayed from ShareLog after restart). Together they always span
-  // the full PPLNS window — no re-export from UserStatsAcc_ is needed here.
+  // the full PPLNS window — no re-export from UserStatsAcc is needed here.
   {
     Timestamp acceptSharesTime = block.Time - _cfg.AccountingPPLNSWindow;
     mergeSorted(State_.RecentStats.begin(), State_.RecentStats.end(), State_.CurrentScores.begin(), State_.CurrentScores.end(),
@@ -957,7 +1041,7 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block)
 
   // Calculate payments
   if (!hasUnknownReward())
-    calculatePayments(R, block.GeneratedCoins);
+    calculatePPLNSPayments(R, block.GeneratedCoins);
 
   // NOTE: crash between _roundsDb.put and flushState will leave
   // data inconsistent — round is persisted but State_ (CurrentScores,
@@ -1085,7 +1169,7 @@ void AccountingDb::checkBlockExtraInfo()
 
       // Update payment info
       R->TxFee = confirmationsQuery[i].TxFee;
-      calculatePayments(R, confirmationsQuery[i].BlockReward);
+      calculatePPLNSPayments(R, confirmationsQuery[i].BlockReward);
     }
 
     bool roundUpdated = false;
@@ -1490,7 +1574,7 @@ void AccountingDb::checkBalance()
         FormatMoney(confirmationWait, CoinInfo_.FractionalPartSize).c_str(),
         FormatMoney(net, CoinInfo_.FractionalPartSize).c_str());
 
-  if (State_.PPSModeEnabled.load(std::memory_order_relaxed)) {
+  if (State_.PPSConfig.load(std::memory_order_relaxed).Enabled) {
     const auto &pps = State_.PPSState;
     const auto &reward = pps.LastBaseBlockReward;
     double currentBalanceInBlocks = CPPSState::balanceInBlocks(pps.Balance, reward);
@@ -1784,10 +1868,10 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
 
 void AccountingDb::queryPPSConfigImpl(QueryPPSConfigCallback callback)
 {
-  callback(State_.PPSModeEnabled.load(std::memory_order_relaxed), State_.PPSConfig);
+  callback(State_.PPSConfig.load(std::memory_order_relaxed));
 }
 
-void AccountingDb::updatePPSConfigImpl(bool enabled, const CPPSConfig &cfg, DefaultCb callback)
+void AccountingDb::updatePPSConfigImpl(const CPPSConfig &cfg, DefaultCb callback)
 {
   if (cfg.SaturationFunction != ESaturationFunction::None) {
     if (cfg.SaturationB0 <= 0.0 ||
@@ -1798,13 +1882,12 @@ void AccountingDb::updatePPSConfigImpl(bool enabled, const CPPSConfig &cfg, Defa
     }
   }
 
-  State_.PPSModeEnabled.store(enabled, std::memory_order_relaxed);
-  State_.PPSConfig = cfg;
+  State_.PPSConfig.store(cfg, std::memory_order_relaxed);
   State_.flushPPSConfig();
   LOG_F(INFO,
     "[%s] PPS config updated: enabled=%d, poolFee=%.2f, saturation=%s, B0=%.4f, aNeg=%.4f, aPos=%.4f",
     CoinInfo_.Name.c_str(),
-    static_cast<int>(enabled),
+    static_cast<int>(cfg.Enabled),
     cfg.PoolFee,
     CPPSConfig::saturationFunctionName(cfg.SaturationFunction),
     cfg.SaturationB0,

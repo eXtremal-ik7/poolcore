@@ -25,8 +25,10 @@ std::unordered_map<std::string, std::pair<int, PoolHttpConnection::FunctionTy>> 
   {"userUpdateSettings", {hmPost, fnUserUpdateSettings}},
   {"userEnumerateAll", {hmPost, fnUserEnumerateAll}},
   {"userEnumerateFeePlan", {hmPost, fnUserEnumerateFeePlan}},
-  {"userGetFeePlan", {hmPost, fnUserGetFeePlan}},
+  {"userCreateFeePlan", {hmPost, fnUserCreateFeePlan}},
+  {"userQueryFeePlan", {hmPost, fnUserQueryFeePlan}},
   {"userUpdateFeePlan", {hmPost, fnUserUpdateFeePlan}},
+  {"userDeleteFeePlan", {hmPost, fnUserDeleteFeePlan}},
   {"userChangeFeePlan", {hmPost, fnUserChangeFeePlan}},
   {"userActivate2faInitiate", {hmPost, fnUserActivate2faInitiate}},
   {"userDeactivate2faInitiate", {hmPost, fnUserDeactivate2faInitiate}},
@@ -179,7 +181,7 @@ static inline void parseUserCredentials(rapidjson::Value &document, UserManager:
   jsonParseString(document, "feePlanId", credentials.FeePlan, "", validAcc);
 }
 
-static void addUserFeeConfig(xmstream &stream, const UserFeeConfig &config)
+static void addUserFeeConfig(xmstream &stream, const std::vector<UserFeePair> &config)
 {
   JSON::Array cfg(stream);
   for (const auto &pair: config) {
@@ -190,23 +192,19 @@ static void addUserFeeConfig(xmstream &stream, const UserFeeConfig &config)
   }
 }
 
-static void addUserFeePlan(xmstream &stream, const UserFeePlanRecord &plan)
+static void addModeFeeConfigFields(xmstream &stream, JSON::Object &parent, const CModeFeeConfig &modeCfg)
 {
-  JSON::Object result(stream);
-  result.addString("feePlanId", plan.FeePlanId);
-  result.addField("default");
-    addUserFeeConfig(stream, plan.Default);
-  result.addField("coinSpecificFee");
+  parent.addField("default");
+  addUserFeeConfig(stream, modeCfg.Default);
+  parent.addField("coinSpecific");
   {
-    JSON::Array coinSpecificFee(stream);
-    for (const auto &specificFee: plan.CoinSpecificFee) {
-      {
-        coinSpecificFee.addField();
-        JSON::Object coin(stream);
-        coin.addString("coin", specificFee.CoinName);
-        coin.addField("config");
-          addUserFeeConfig(stream, specificFee.Config);
-      }
+    JSON::Array coinArray(stream);
+    for (const auto &cfg: modeCfg.CoinSpecific) {
+      coinArray.addField();
+      JSON::Object coin(stream);
+      coin.addString("coinName", cfg.CoinName);
+      coin.addField("config");
+      addUserFeeConfig(stream, cfg.Config);
     }
   }
 }
@@ -270,8 +268,10 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
       case fnUserUpdateSettings: onUserUpdateSettings(document); break;
       case fnUserEnumerateAll: onUserEnumerateAll(document); break;
       case fnUserEnumerateFeePlan: onUserEnumerateFeePlan(document); break;
-      case fnUserGetFeePlan: onUserGetFeePlan(document); break;
+      case fnUserCreateFeePlan: onUserCreateFeePlan(document); break;
+      case fnUserQueryFeePlan: onUserQueryFeePlan(document); break;
       case fnUserUpdateFeePlan: onUserUpdateFeePlan(document); break;
+      case fnUserDeleteFeePlan: onUserDeleteFeePlan(document); break;
       case fnUserChangeFeePlan: onUserChangeFeePlan(document); break;
       case fnUserActivate2faInitiate: onUserActivate2faInitiate(document); break;
       case fnUserDeactivate2faInitiate: onUserDeactivate2faInitiate(document); break;
@@ -850,63 +850,116 @@ void PoolHttpConnection::onUserEnumerateAll(rapidjson::Document &document)
   });
 }
 
-void PoolHttpConnection::onUserUpdateFeePlan(rapidjson::Document &document)
+static void jsonParseUserFeeConfig(rapidjson::Value &value, const char *fieldName, std::vector<UserFeePair> &config, bool *validAcc)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  UserFeePlanRecord record;
+  if (!value.HasMember(fieldName) || !value[fieldName].IsArray()) {
+    *validAcc = false;
+    return;
+  }
 
-  auto jsonParseUserFeeConfig = [](rapidjson::Value &value, const char *fieldName, UserFeeConfig &config, bool *validAcc) {
-    if (!value.HasMember(fieldName) || !value[fieldName].IsArray()) {
+  rapidjson::Value::Array pairs = value[fieldName].GetArray();
+  for (rapidjson::SizeType i = 0, ie = pairs.Size(); i != ie; ++i) {
+    if (!pairs[i].IsObject()) {
       *validAcc = false;
       return;
     }
 
-    rapidjson::Value::Array pairs = value[fieldName].GetArray();
-    for (rapidjson::SizeType i = 0, ie = pairs.Size(); i != ie; ++i) {
-      if (!pairs[i].IsObject()) {
+    config.emplace_back();
+    jsonParseString(pairs[i], "userId", config.back().UserId, validAcc);
+    jsonParseNumber(pairs[i], "percentage", &config.back().Percentage, validAcc);
+  }
+}
+
+static void jsonParseModeFeeConfig(rapidjson::Value &document, CModeFeeConfig &modeCfg, bool *validAcc)
+{
+  jsonParseUserFeeConfig(document, "default", modeCfg.Default, validAcc);
+  if (document.HasMember("coinSpecific") && document["coinSpecific"].IsArray()) {
+    rapidjson::Value::Array coinArray = document["coinSpecific"].GetArray();
+    for (rapidjson::SizeType i = 0, ie = coinArray.Size(); i != ie; ++i) {
+      if (!coinArray[i].IsObject()) {
         *validAcc = false;
-        return;
-      }
-
-      config.emplace_back();
-      jsonParseString(pairs[i], "userId", config.back().UserId, validAcc);
-      jsonParseNumber(pairs[i], "percentage", &config.back().Percentage, validAcc);
-    }
-  };
-
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "feePlanId", record.FeePlanId, &validAcc);
-  jsonParseUserFeeConfig(document, "default", record.Default, &validAcc);
-  if (document.HasMember("coinSpecificFee") && document["coinSpecificFee"].IsArray()) {
-    rapidjson::Value::Array coinSpecificFee = document["coinSpecificFee"].GetArray();
-    for (rapidjson::SizeType i = 0, ie = coinSpecificFee.Size(); i != ie; ++i) {
-      if (!coinSpecificFee[i].IsObject()) {
-        validAcc = false;
         break;
       }
 
-      record.CoinSpecificFee.emplace_back();
-      jsonParseString(coinSpecificFee[i], "coin", record.CoinSpecificFee.back().CoinName, &validAcc);
-      jsonParseUserFeeConfig(coinSpecificFee[i], "config", record.CoinSpecificFee.back().Config, &validAcc);
+      modeCfg.CoinSpecific.emplace_back();
+      jsonParseString(coinArray[i], "coinName", modeCfg.CoinSpecific.back().CoinName, validAcc);
+      jsonParseUserFeeConfig(coinArray[i], "config", modeCfg.CoinSpecific.back().Config, validAcc);
     }
   }
+}
+
+void PoolHttpConnection::onUserCreateFeePlan(rapidjson::Document &document)
+{
+  bool validAcc = true;
+  std::string sessionId;
+  std::string feePlanId;
+  jsonParseString(document, "id", sessionId, &validAcc);
+  jsonParseString(document, "feePlanId", feePlanId, &validAcc);
+  if (!validAcc) {
+    replyWithStatus("json_format_error");
+    return;
+  }
+
+  objectIncrementReference(aioObjectHandle(Socket_), 1);
+  Server_.userManager().createFeePlan(sessionId, feePlanId, [this](const char *status) {
+    replyWithStatus(status);
+    objectDecrementReference(aioObjectHandle(Socket_), 1);
+  });
+}
+
+void PoolHttpConnection::onUserUpdateFeePlan(rapidjson::Document &document)
+{
+  bool validAcc = true;
+  std::string sessionId;
+  std::string feePlanId;
+  std::string modeName;
+  CModeFeeConfig modeConfig;
+
+  jsonParseString(document, "id", sessionId, &validAcc);
+  jsonParseString(document, "feePlanId", feePlanId, &validAcc);
+  jsonParseString(document, "mode", modeName, &validAcc);
+  jsonParseModeFeeConfig(document, modeConfig, &validAcc);
 
   if (!validAcc) {
     replyWithStatus("json_format_error");
     return;
   }
 
+  EMiningMode mode;
+  if (!parseMiningMode(modeName, mode)) {
+    replyWithStatus("invalid_mining_mode");
+    return;
+  }
+
   // Check coin
-  for (const auto &specificFee: record.CoinSpecificFee) {
-    if (!Server_.backend(specificFee.CoinName)) {
+  for (const auto &cfg: modeConfig.CoinSpecific) {
+    if (!Server_.backend(cfg.CoinName)) {
       replyWithStatus("invalid_coin");
       return;
     }
   }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().updateFeePlan(sessionId, std::move(record), [this](const char *status) {
+  Server_.userManager().updateFeePlan(sessionId, feePlanId, mode, std::move(modeConfig), [this](const char *status) {
+    replyWithStatus(status);
+    objectDecrementReference(aioObjectHandle(Socket_), 1);
+  });
+}
+
+void PoolHttpConnection::onUserDeleteFeePlan(rapidjson::Document &document)
+{
+  bool validAcc = true;
+  std::string sessionId;
+  std::string feePlanId;
+  jsonParseString(document, "id", sessionId, &validAcc);
+  jsonParseString(document, "feePlanId", feePlanId, &validAcc);
+  if (!validAcc) {
+    replyWithStatus("json_format_error");
+    return;
+  }
+
+  objectIncrementReference(aioObjectHandle(Socket_), 1);
+  Server_.userManager().deleteFeePlan(sessionId, feePlanId, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
@@ -923,7 +976,7 @@ void PoolHttpConnection::onUserEnumerateFeePlan(rapidjson::Document &document)
   }
 
   std::string status;
-  std::vector<UserFeePlanRecord> result;
+  std::vector<std::string> result;
   if (Server_.userManager().enumerateFeePlan(sessionId, status, result)) {
     xmstream stream;
     reply200(stream);
@@ -935,10 +988,8 @@ void PoolHttpConnection::onUserEnumerateFeePlan(rapidjson::Document &document)
       answer.addField("plans");
       {
         JSON::Array plans(stream);
-        for (const auto &plan: result) {
-          plans.addField();
-          addUserFeePlan(stream, plan);
-        }
+        for (const auto &planId: result)
+          plans.addString(planId);
       }
     }
 
@@ -949,21 +1000,29 @@ void PoolHttpConnection::onUserEnumerateFeePlan(rapidjson::Document &document)
   }
 }
 
-void PoolHttpConnection::onUserGetFeePlan(rapidjson::Document &document)
+void PoolHttpConnection::onUserQueryFeePlan(rapidjson::Document &document)
 {
   bool validAcc = true;
   std::string sessionId;
   std::string feePlanId;
+  std::string modeName;
   jsonParseString(document, "id", sessionId, &validAcc);
   jsonParseString(document, "feePlanId", feePlanId, &validAcc);
+  jsonParseString(document, "mode", modeName, &validAcc);
   if (!validAcc) {
     replyWithStatus("json_format_error");
     return;
   }
 
+  EMiningMode mode;
+  if (!parseMiningMode(modeName, mode)) {
+    replyWithStatus("invalid_mining_mode");
+    return;
+  }
+
   std::string status;
-  UserFeePlanRecord result;
-  if (Server_.userManager().getFeePlan(sessionId, feePlanId, status, result)) {
+  CModeFeeConfig result;
+  if (Server_.userManager().queryFeePlan(sessionId, feePlanId, mode, status, result)) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -971,8 +1030,9 @@ void PoolHttpConnection::onUserGetFeePlan(rapidjson::Document &document)
     {
       JSON::Object answer(stream);
       answer.addString("status", "ok");
-      answer.addField("plan");
-      addUserFeePlan(stream, result);
+      answer.addString("feePlanId", feePlanId);
+      answer.addString("mode", miningModeName(mode));
+      addModeFeeConfigFields(stream, answer, result);
     }
 
     finishChunk(stream, offset);
@@ -1904,14 +1964,14 @@ void PoolHttpConnection::onBackendGetPPSConfig(rapidjson::Document &document)
   }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->queryPPSConfig([this](bool enabled, const CPPSConfig &cfg) {
+  backend->accountingDb()->queryPPSConfig([this](const CPPSConfig &cfg) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
     {
       JSON::Object response(stream);
       response.addString("status", "ok");
-      response.addBoolean("ppsModeEnabled", enabled);
+      response.addBoolean("ppsModeEnabled", cfg.Enabled);
       response.addDouble("ppsPoolFee", cfg.PoolFee);
       response.addString("ppsSaturationFunction", CPPSConfig::saturationFunctionName(cfg.SaturationFunction));
       response.addDouble("ppsSaturationB0", cfg.SaturationB0);
@@ -1975,6 +2035,7 @@ void PoolHttpConnection::onBackendUpdatePPSConfig(rapidjson::Document &document)
   }
 
   CPPSConfig cfg;
+  cfg.Enabled = ppsModeEnabled;
   cfg.PoolFee = ppsPoolFee;
   cfg.SaturationFunction = saturationFunction;
   cfg.SaturationB0 = ppsSaturationB0;
@@ -1982,7 +2043,7 @@ void PoolHttpConnection::onBackendUpdatePPSConfig(rapidjson::Document &document)
   cfg.SaturationAPositive = ppsSaturationAPositive;
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->updatePPSConfig(ppsModeEnabled, cfg, [this](const char *status) {
+  backend->accountingDb()->updatePPSConfig(cfg, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });

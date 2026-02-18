@@ -193,15 +193,6 @@ public:
         .first->second.addBaseWork(entry.SharesNum, entry.AcceptedWork, batch.Time.TimeEnd);
   }
 
-  void addUserWorkSummary(const CUserWorkSummary &entry) {
-    auto &series = Map_.try_emplace(makeStatsKey(entry.UserId, ""), GridInterval_, KeepTime_).first->second;
-    series.Current.SharesNum += entry.SharesNum;
-    series.Current.SharesWork += entry.AcceptedWork;
-  }
-
-  void setLastAcceptedMsgId(uint64_t msgId) { LastAcceptedMsgId_ = msgId; }
-  void expandAccumulationInterval(TimeInterval time) { AccumulationInterval_.expand(time); }
-
   void load(const std::filesystem::path &dbPath, const std::string &coinName);
   void flush(Timestamp currentTime, const std::filesystem::path &dbPath, kvdb<rocksdbBase> *db);
   void exportRecentStats(std::chrono::seconds window, std::vector<CStatsExportData> &result) const;

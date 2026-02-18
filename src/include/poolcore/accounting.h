@@ -33,6 +33,7 @@ public:
   static const std::vector<const char*> &saturationFunctionNames();
   double saturateCoeff(double balanceInBlocks) const;
 
+  bool Enabled = false;
   double PoolFee = 4.0;
   ESaturationFunction SaturationFunction = ESaturationFunction::None;
   double SaturationB0 = 0.0;
@@ -84,6 +85,19 @@ public:
   bool deserializeValue(const void *data, size_t size);
 };
 
+struct CAccountingStateBatch {
+  double LastSaturateCoeff = 1.0;
+  UInt<384> LastBaseBlockReward;
+  UInt<384> LastAverageTxFee;
+  std::vector<std::pair<std::string, UInt<256>>> PPLNSScores;
+  std::vector<std::pair<std::string, UInt<384>>> PPSBalances;
+};
+
+struct CProcessedWorkSummary {
+  CAccountingStateBatch AccountingBatch;
+  CUserWorkSummaryBatch StatsBatch;
+};
+
 class AccountingDb {
 public:
   struct UserBalanceInfo {
@@ -113,12 +127,20 @@ private:
   using QueryPPLNSPayoutsCallback = std::function<void(const std::vector<CPPLNSPayout>&)>;
   using QueryPPLNSAccCallback = std::function<void(const std::vector<CPPLNSPayoutAcc>&)>;
   using PoolLuckCallback = std::function<void(const std::vector<double>&)>;
-  using QueryPPSConfigCallback = std::function<void(bool enabled, const CPPSConfig&)>;
+  using QueryPPSConfigCallback = std::function<void(const CPPSConfig&)>;
 
-  struct UserFeePair {
-    std::string UserId;
-    double FeeCoeff;
-    UserFeePair(const std::string &userId, double fee) : UserId(userId), FeeCoeff(fee) {}
+  struct FeePlanCacheKey {
+    std::string FeePlanId;
+    EMiningMode Mode;
+    bool operator==(const FeePlanCacheKey &other) const = default;
+  };
+
+  struct FeePlanCacheKeyHash {
+    size_t operator()(const FeePlanCacheKey &key) const {
+      size_t h = std::hash<std::string>{}(key.FeePlanId);
+      h ^= std::hash<unsigned>{}(static_cast<unsigned>(key.Mode)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      return h;
+    }
   };
 
   class TaskManualPayout : public Task<AccountingDb> {
@@ -211,32 +233,22 @@ private:
     std::list<PayoutDbRecord> PayoutQueue;
     std::unordered_set<std::string> KnownTransactions;
 
-    std::atomic<bool> PPSModeEnabled{false};
-    CPPSConfig PPSConfig;
+    std::atomic<CPPSConfig> PPSConfig{CPPSConfig{}};
     CPPSState PPSState;
-
-    rocksdbBase Db;
 
     CPersistentState(const std::filesystem::path &dbPath);
     bool load();
     uint64_t lastAcceptedMsgId() const { return LastAcceptedMsgId_; }
 
-    void addScores(uint64_t msgId, const CUserWorkSummaryBatch &batch) {
-      if (msgId <= LastAcceptedMsgId_)
-        return;
-      LastAcceptedMsgId_ = msgId;
-      for (const auto &entry : batch.Entries)
-        CurrentScores[entry.UserId] += entry.AcceptedWork;
-    }
-
-    void setLastAcceptedMsgId(uint64_t msgId) { LastAcceptedMsgId_ = msgId; }
-
+    void applyBatch(uint64_t msgId, const CAccountingStateBatch &batch);
     void flushState();
     void flushPPSConfig();
     void flushPayoutQueue();
 
   private:
     uint64_t LastAcceptedMsgId_ = 0;
+    std::filesystem::path DbPath_;
+    rocksdbBase Db;
   };
 
   CPersistentState State_;
@@ -254,14 +266,13 @@ private:
   class TaskUpdatePPSConfig : public Task<AccountingDb> {
 
   public:
-    TaskUpdatePPSConfig(bool enabled, CPPSConfig cfg, DefaultCb callback) :
-      PPSModeEnabled_(enabled), Config_(std::move(cfg)), Callback_(std::move(callback)) {}
+    TaskUpdatePPSConfig(CPPSConfig cfg, DefaultCb callback) :
+      Config_(std::move(cfg)), Callback_(std::move(callback)) {}
     void run(AccountingDb *accounting) final {
-      accounting->updatePPSConfigImpl(PPSModeEnabled_, Config_, Callback_);
+      accounting->updatePPSConfigImpl(Config_, Callback_);
     }
 
   private:
-    bool PPSModeEnabled_;
     CPPSConfig Config_;
     DefaultCb Callback_;
   };
@@ -274,15 +285,17 @@ private:
   kvdb<rocksdbBase> PPLNSPayoutsDb;
   kvdb<rocksdbBase> PPSHistoryDb_;
   ShareLog<CUserWorkSummaryBatch> ShareLog_;
+  CStatsSeriesMap UserStatsAcc_;
 
   std::unordered_map<std::string, UserSettingsRecord> UserSettings_;
-
-  CStatsSeriesMap UserStatsAcc_;
-  aioUserEvent *UserStatsFlushEvent_;
-  bool UserStatsFlushFinished_ = false;
+  std::unordered_map<std::string, std::string> UserFeePlanIds_;
+  std::unordered_map<FeePlanCacheKey, std::vector<::UserFeePair>, FeePlanCacheKeyHash> FeePlanCache_;
 
   aioUserEvent *ShareLogFlushEvent_ = nullptr;
   bool ShareLogFlushFinished_ = false;
+
+  aioUserEvent *UserStatsFlushEvent_ = nullptr;
+  bool UserStatsFlushFinished_ = false;
 
   aioUserEvent *PPSPayoutEvent_ = nullptr;
   bool PPSPayoutFinished_ = false;
@@ -293,8 +306,8 @@ private:
   bool FlushFinished_ = false;
 
   void printRecentStatistic();
-  void flushUserStats(Timestamp currentTime);
   void shareLogFlushHandler();
+  void userStatsFlushHandler();
   void ppsPayoutHandler();
   void ppsPayout();
 
@@ -318,10 +331,14 @@ public:
   bool requestPayout(const std::string &address, const UInt<384> &value, bool force = false);
 
   bool hasUnknownReward();
-  void calculatePayments(MiningRound *R, const UInt<384> &generatedCoins);
+  void calculatePPLNSPayments(MiningRound *R, const UInt<384> &generatedCoins);
+  CProcessedWorkSummary processWorkSummaryBatch(const CUserWorkSummaryBatch &batch);
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
   void onBlockFound(const CBlockFoundData &block);
   void onUserSettingsUpdate(const UserSettingsRecord &settings);
+  void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::UserFeePair> &feeRecord);
+  void onFeePlanDelete(const std::string &feePlanId);
+  void onUserFeePlanChange(const std::string &login, const std::string &feePlanId);
   void processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash, bool *roundUpdated);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();
@@ -354,11 +371,12 @@ public:
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { TaskHandler_.push(new TaskQueryBalance(user, callback)); }
   void poolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) { TaskHandler_.push(new TaskPoolLuck(std::move(intervals), callback)); }
   void queryPPSConfig(QueryPPSConfigCallback callback) { TaskHandler_.push(new TaskQueryPPSConfig(std::move(callback))); }
-  void updatePPSConfig(bool enabled, CPPSConfig cfg, DefaultCb cb) {
-    TaskHandler_.push(new TaskUpdatePPSConfig(enabled, std::move(cfg), cb));
+  void updatePPSConfig(CPPSConfig cfg, DefaultCb cb) {
+    TaskHandler_.push(new TaskUpdatePPSConfig(std::move(cfg), cb));
   }
 
-  bool isPPSEnabled() const { return State_.PPSModeEnabled.load(std::memory_order_relaxed); }
+  bool isPPSEnabled() const { return State_.PPSConfig.load(std::memory_order_relaxed).Enabled; }
+  double ppsPoolFee() const { return State_.PPSConfig.load(std::memory_order_relaxed).PoolFee; }
   void setFeeEstimationService(CFeeEstimationService *service) { FeeEstimationService_ = service; }
 
   // Asynchronous multi calls
@@ -376,7 +394,7 @@ private:
   void queryPPLNSPayoutsAccImpl(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, QueryPPLNSAccCallback callback);
   void poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback);
   void queryPPSConfigImpl(QueryPPSConfigCallback callback);
-  void updatePPSConfigImpl(bool enabled, const CPPSConfig &cfg, DefaultCb callback);
+  void updatePPSConfigImpl(const CPPSConfig &cfg, DefaultCb callback);
 };
 
 #endif //__ACCOUNTING_H_

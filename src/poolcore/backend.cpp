@@ -166,6 +166,21 @@ void PoolBackend::onUserSettingsUpdate(const UserSettingsRecord &settings)
   _accounting->onUserSettingsUpdate(settings);
 }
 
+void PoolBackend::onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<UserFeePair> &feeRecord)
+{
+  _accounting->onFeePlanUpdate(feePlanId, mode, feeRecord);
+}
+
+void PoolBackend::onFeePlanDelete(const std::string &feePlanId)
+{
+  _accounting->onFeePlanDelete(feePlanId);
+}
+
+void PoolBackend::onUserFeePlanChange(const std::string &login, const std::string &feePlanId)
+{
+  _accounting->onUserFeePlanChange(login, feePlanId);
+}
+
 void PoolBackend::onUpdateDag(unsigned epochNumber, bool bigEpoch)
 {
   if (epochNumber+1 >= MaxEpochNum)

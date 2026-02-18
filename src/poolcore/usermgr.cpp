@@ -220,7 +220,9 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
 
   {
     // Fee plan
-    FeePlanCache_.insert(std::make_pair("default", FeePlan()));
+    FeePlan defaultPlan;
+    defaultPlan.Modes.resize(static_cast<size_t>(EMiningMode::Count));
+    FeePlanCache_.insert(std::make_pair("default", std::move(defaultPlan)));
     std::unique_ptr<rocksdbBase::IteratorType> It(UserFeePlanDb_.iterator());
     for (It->seekFirst(); It->valid(); It->next()) {
       UserFeePlanRecord record;
@@ -264,12 +266,21 @@ void UserManager::stop()
 
 bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::string &error)
 {
-  auto acceptProc = [this](const UserFeeConfig &config, const std::string &planId, std::string &error) -> bool {
-    double sum = 0.0;
+  // Validate individual entries and compute sum; extraFee is added to the total (PPS pool fee)
+  auto acceptProc = [this](
+    const std::vector<UserFeePair> &config, const std::string &planId, double extraFee, std::string &error) -> bool
+  {
+    double sum = extraFee;
     for (const auto &pair: config) {
       if (UsersCache_.count(pair.UserId) == 0) {
         error = "unknown_login";
         LOG_F(ERROR, "UserManager: can't accept fee plan '%s', user %s not exists", planId.c_str(), pair.UserId.c_str());
+        return false;
+      }
+
+      if (pair.Percentage < 0.0) {
+        error = "invalid_percentage";
+        LOG_F(ERROR, "UserManager: can't accept fee plan '%s', negative percentage for user %s", planId.c_str(), pair.UserId.c_str());
         return false;
       }
 
@@ -278,14 +289,14 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
 
     if (sum >= 100.0) {
       error = "fee_too_much";
-        LOG_F(ERROR, "UserManager: can't accept fee plan '%s', fee %.2lf too big", planId.c_str(), sum);
+      LOG_F(ERROR, "UserManager: can't accept fee plan '%s', fee %.2lf too big", planId.c_str(), sum);
       return false;
     }
 
     return true;
   };
 
-  auto feeConfigToString = [](const UserFeeConfig &config) -> std::string {
+  auto feeConfigToString = [](const std::vector<UserFeePair> &config) -> std::string {
     std::string result;
     for (const auto &pair: config) {
       result.append(pair.UserId);
@@ -297,56 +308,110 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
     return result;
   };
 
-  if (!acceptProc(record.Default, record.FeePlanId, error))
-    return false;
-  for (const auto &cfg: record.CoinSpecificFee) {
-    if (!acceptProc(cfg.Config, record.FeePlanId, error))
-      return false;
+  for (size_t i = 0, ie = record.Modes.size(); i != ie; ++i) {
+    EMiningMode mode = static_cast<EMiningMode>(i);
+    const auto &modeCfg = record.Modes[i];
+
+    if (mode == EMiningMode::PPS) {
+      // Find max PPS pool fee among coins not covered by coin-specific config
+      std::unordered_set<std::string> coveredCoins;
+      for (const auto &coinCfg : modeCfg.CoinSpecific)
+        coveredCoins.insert(coinCfg.CoinName);
+
+      double maxUncoveredPpsFee = 0.0;
+      for (const auto &[coinName, backend] : Backends_) {
+        if (!coveredCoins.count(coinName))
+          maxUncoveredPpsFee = std::max(maxUncoveredPpsFee, backend->accountingDb()->ppsPoolFee());
+      }
+
+      // Validate default with worst-case PPS pool fee
+      if (!acceptProc(modeCfg.Default, record.FeePlanId, maxUncoveredPpsFee, error))
+        return false;
+
+      // Validate coin-specific entries with that coin's PPS pool fee
+      for (const auto &coinCfg : modeCfg.CoinSpecific) {
+        double extraFee = 0.0;
+        auto backendIt = Backends_.find(coinCfg.CoinName);
+        if (backendIt != Backends_.end())
+          extraFee = backendIt->second->accountingDb()->ppsPoolFee();
+        if (!acceptProc(coinCfg.Config, record.FeePlanId, extraFee, error))
+          return false;
+      }
+    } else {
+      // PPLNS: no extra fee
+      if (!acceptProc(modeCfg.Default, record.FeePlanId, 0.0, error))
+        return false;
+      for (const auto &coinCfg : modeCfg.CoinSpecific) {
+        if (!acceptProc(coinCfg.Config, record.FeePlanId, 0.0, error))
+          return false;
+      }
+    }
   }
 
   FeePlan plan;
-  plan.Default = record.Default;
-  for (const auto &specificFee: record.CoinSpecificFee)
-    plan.CoinSpecificFee[specificFee.CoinName] = specificFee.Config;
+  plan.Modes.resize(record.Modes.size());
+  for (size_t i = 0, ie = record.Modes.size(); i != ie; ++i) {
+    plan.Modes[i].Default = record.Modes[i].Default;
+    for (const auto &coinCfg: record.Modes[i].CoinSpecific)
+      plan.Modes[i].CoinSpecific[coinCfg.CoinName] = coinCfg.Config;
+  }
 
   FeePlanCache_.erase(record.FeePlanId);
   FeePlanCache_.insert(std::make_pair(record.FeePlanId, plan));
 
   LOG_F(INFO, "UserManager: accepted fee plan %s", record.FeePlanId.c_str());
-  LOG_F(INFO, " * default: %s", feeConfigToString(record.Default).c_str());
-  for (const auto &specificFee: record.CoinSpecificFee)
-    LOG_F(INFO, " * %s: %s", specificFee.CoinName.c_str(), feeConfigToString(specificFee.Config).c_str());
+  for (size_t i = 0, ie = record.Modes.size(); i != ie; ++i) {
+    const char *modeName = miningModeName(static_cast<EMiningMode>(i));
+    LOG_F(INFO, " [%s] default: %s", modeName, feeConfigToString(record.Modes[i].Default).c_str());
+    for (const auto &coinCfg: record.Modes[i].CoinSpecific)
+      LOG_F(INFO, " [%s] %s: %s", modeName, coinCfg.CoinName.c_str(), feeConfigToString(coinCfg.Config).c_str());
+  }
 
   return true;
+}
+
+void UserManager::buildModeFeeConfig(const FeePlan::ModeConfig &mode, CModeFeeConfig &result)
+{
+  auto sortByUserId = [](const UserFeePair &l, const UserFeePair &r) { return l.UserId < r.UserId; };
+
+  result.Default = mode.Default;
+  std::sort(result.Default.begin(), result.Default.end(), sortByUserId);
+
+  result.CoinSpecific.clear();
+  for (const auto &coinFee: mode.CoinSpecific) {
+    auto &cfg = result.CoinSpecific.emplace_back();
+    cfg.CoinName = coinFee.first;
+    cfg.Config = coinFee.second;
+    std::sort(cfg.Config.begin(), cfg.Config.end(), sortByUserId);
+  }
+
+  std::sort(
+    result.CoinSpecific.begin(),
+    result.CoinSpecific.end(),
+    [](const CUserFeeConfig &l, const CUserFeeConfig &r) { return l.CoinName < r.CoinName; });
 }
 
 void UserManager::buildFeePlanRecord(const std::string &feePlanId, const FeePlan &plan, UserFeePlanRecord &result)
 {
   result.FeePlanId = feePlanId;
-  result.Default = plan.Default;
-  result.CoinSpecificFee.clear();
-  std::sort(result.Default.begin(), result.Default.end(), [](const UserFeePair &l, const UserFeePair &r) { return l.UserId < r.UserId; });
-  for (const auto &specificFee: plan.CoinSpecificFee) {
-    auto &cfg = result.CoinSpecificFee.emplace_back();
-    cfg.CoinName = specificFee.first;
-    cfg.Config = specificFee.second;
-    std::sort(cfg.Config.begin(), cfg.Config.end(), [](const UserFeePair &l, const UserFeePair &r) { return l.UserId < r.UserId; });
-  }
-
-  std::sort(result.CoinSpecificFee.begin(), result.CoinSpecificFee.end(), [](const CoinSpecificFeeRecord2 &l, const CoinSpecificFeeRecord2 &r) { return l.CoinName < r.CoinName; });
+  result.Modes.resize(plan.Modes.size());
+  for (size_t i = 0, ie = plan.Modes.size(); i != ie; ++i)
+    buildModeFeeConfig(plan.Modes[i], result.Modes[i]);
 }
 
 void UserManager::collectLinkedFeePlans(const std::string &userId, std::unordered_set<std::string> &plans)
 {
-  for (const auto &plan: FeePlanCache_) {
-    for (const auto &pair: plan.second.Default) {
-      if (pair.UserId == userId)
-        plans.insert(plan.first);
-    }
-    for (const auto &coin: plan.second.CoinSpecificFee) {
-      for (const auto &pair: coin.second) {
+  for (const auto &entry: FeePlanCache_) {
+    for (const auto &modeCfg: entry.second.Modes) {
+      for (const auto &pair: modeCfg.Default) {
         if (pair.UserId == userId)
-          plans.insert(plan.first);
+          plans.insert(entry.first);
+      }
+      for (const auto &coin: modeCfg.CoinSpecific) {
+        for (const auto &pair: coin.second) {
+          if (pair.UserId == userId)
+            plans.insert(entry.first);
+        }
       }
     }
   }
@@ -756,6 +821,10 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
 
   UsersDb_.put(userRecord);
 
+  // Notify all backends about new user's fee plan
+  for (const auto &[coinName, backend] : Backends_)
+    backend->sendUserFeePlanChange(credentials.Login, feePlan);
+
   LOG_F(INFO, "New user: %s (%s) email: %s; actionId: %s", userRecord.Login.c_str(), userRecord.Name.c_str(), userRecord.EMail.c_str(), actionRecord.Id.getHexLE().c_str());
   callback("ok");
 }
@@ -1098,23 +1167,117 @@ void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUser
   callback("ok", result);
 }
 
-void UserManager::updateFeePlanImpl(const std::string &sessionId, const UserFeePlanRecord &plan, Task::DefaultCb callback)
+void UserManager::createFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback)
 {
   UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, "", tokenInfo, true)) {
+  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
     callback("unknown_id");
     return;
   }
 
-  if (tokenInfo.Login != "admin") {
+  if (FeePlanCache_.count(feePlanId)) {
+    callback("fee_plan_already_exists");
+    return;
+  }
+
+  FeePlan plan;
+  plan.Modes.resize(static_cast<size_t>(EMiningMode::Count));
+  FeePlanCache_.insert(std::make_pair(feePlanId, plan));
+
+  UserFeePlanRecord record;
+  record.FeePlanId = feePlanId;
+  record.Modes.resize(static_cast<size_t>(EMiningMode::Count));
+  UserFeePlanDb_.put(record);
+
+  LOG_F(INFO, "UserManager: created fee plan %s", feePlanId.c_str());
+  callback("ok");
+}
+
+void UserManager::updateFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, const CModeFeeConfig &config, Task::DefaultCb callback)
+{
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
     callback("unknown_id");
     return;
   }
 
+  // Read current plan from cache
+  UserFeePlanRecord record;
+  {
+    decltype(FeePlanCache_)::const_accessor accessor;
+    if (!FeePlanCache_.find(accessor, feePlanId)) {
+      callback("unknown_fee_plan");
+      return;
+    }
+    buildFeePlanRecord(accessor->first, accessor->second, record);
+  }
+
+  // Replace specified mode
+  size_t modeIndex = static_cast<size_t>(mode);
+  if (modeIndex >= record.Modes.size())
+    record.Modes.resize(modeIndex + 1);
+  record.Modes[modeIndex] = config;
+
+  // Validate and update cache
   std::string error = "ok";
-  if (acceptFeePlanRecord(plan, error))
-    UserFeePlanDb_.put(plan);
+  if (acceptFeePlanRecord(record, error)) {
+    UserFeePlanDb_.put(record);
+    // Notify all backends about fee plan change for the updated mode
+    for (const auto &[coinName, backend] : Backends_)
+      backend->sendFeePlanUpdate(feePlanId, mode, getFeeRecord(feePlanId, mode, coinName));
+  }
   callback(error.c_str());
+}
+
+void UserManager::deleteFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback)
+{
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
+    callback("unknown_id");
+    return;
+  }
+
+  if (feePlanId == "default") {
+    callback("cant_delete_default_plan");
+    return;
+  }
+
+  if (!FeePlanCache_.count(feePlanId)) {
+    callback("unknown_fee_plan");
+    return;
+  }
+
+  // Collect affected users
+  std::vector<std::string> affectedUsers;
+  for (const auto &entry: UsersCache_) {
+    if (entry.second.FeePlanId == feePlanId)
+      affectedUsers.push_back(entry.first);
+  }
+
+  // Reset each to "default"
+  for (const auto &login: affectedUsers) {
+    decltype(UsersCache_)::accessor accessor;
+    if (UsersCache_.find(accessor, login)) {
+      accessor->second.FeePlanId = "default";
+      UsersDb_.put(accessor->second);
+    }
+  }
+
+  // Delete from cache and DB
+  FeePlanCache_.erase(feePlanId);
+  UserFeePlanRecord record;
+  record.FeePlanId = feePlanId;
+  UserFeePlanDb_.deleteRow(record);
+
+  // Notify all backends about affected users reset to default, then delete the plan
+  for (const auto &[coinName, backend] : Backends_) {
+    for (const auto &login : affectedUsers)
+      backend->sendUserFeePlanChange(login, "default");
+    backend->sendFeePlanDelete(feePlanId);
+  }
+
+  LOG_F(INFO, "UserManager: deleted fee plan %s, reset %zu users to default", feePlanId.c_str(), affectedUsers.size());
+  callback("ok");
 }
 
 void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback)
@@ -1143,6 +1306,11 @@ void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::str
   }
 
   UsersDb_.put(record);
+
+  // Notify all backends about user's fee plan change
+  for (const auto &[coinName, backend] : Backends_)
+    backend->sendUserFeePlanChange(tokenInfo.Login, newFeePlan);
+
   callback("ok");
 }
 
@@ -1358,6 +1526,14 @@ std::vector<UserSettingsRecord> UserManager::getAllCoinSettings(const std::strin
   return result;
 }
 
+void UserManager::fillUserCoinSettings(const std::string &coin, std::unordered_map<std::string, UserSettingsRecord> &out)
+{
+  for (auto it = SettingsCache_.begin(); it != SettingsCache_.end(); ++it) {
+    if (it->second.Coin == coin)
+      out.emplace(it->second.Login, it->second);
+  }
+}
+
 std::string UserManager::getFeePlanId(const std::string &login)
 {
   static const std::string defaultPlan = "default";
@@ -1368,49 +1544,71 @@ std::string UserManager::getFeePlanId(const std::string &login)
     return "default";
 }
 
-bool UserManager::getFeePlan(const std::string &sessionId, const std::string &feePlanId, std::string &status, UserFeePlanRecord &result)
+bool UserManager::queryFeePlan(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, std::string &status, CModeFeeConfig &result)
 {
   UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
+  if (!validateSession(sessionId, "", tokenInfo, false) || (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
     status = "unknown_id";
     return false;
   }
 
-  decltype (FeePlanCache_)::const_accessor accessor;
-  if (FeePlanCache_.find(accessor, feePlanId)) {
-    buildFeePlanRecord(accessor->first, accessor->second, result);
-    status = "ok";
-    return true;
-  } else {
+  decltype(FeePlanCache_)::const_accessor accessor;
+  if (!FeePlanCache_.find(accessor, feePlanId)) {
     status = "unknown_fee_plan";
     return false;
   }
-}
 
-bool UserManager::enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<UserFeePlanRecord> &result)
-{
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
-    status = "unknown_id";
-    return false;
-  }
-
-  for (const auto &plan: FeePlanCache_)
-    buildFeePlanRecord(plan.first, plan.second, result.emplace_back());
-
-  std::sort(result.begin(), result.end(), [](const UserFeePlanRecord &l, const UserFeePlanRecord &r) { return l.FeePlanId < r.FeePlanId; });
+  size_t modeIndex = static_cast<size_t>(mode);
+  if (modeIndex < accessor->second.Modes.size())
+    buildModeFeeConfig(accessor->second.Modes[modeIndex], result);
 
   status = "ok";
   return true;
 }
 
-UserManager::UserFeeConfig UserManager::getFeeRecord(const std::string &feePlanId, const std::string &coin)
+bool UserManager::enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<std::string> &result)
+{
+  UserWithAccessRights tokenInfo;
+  if (!validateSession(sessionId, "", tokenInfo, false) || (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
+    status = "unknown_id";
+    return false;
+  }
+
+  for (const auto &entry: FeePlanCache_)
+    result.push_back(entry.first);
+  std::sort(result.begin(), result.end());
+
+  status = "ok";
+  return true;
+}
+
+// Returns flat fee list for a given plan/mode/coin (no fee chain resolution)
+std::vector<UserFeePair> UserManager::getFeeRecord(const std::string &feePlanId, EMiningMode mode, const std::string &coin)
 {
   decltype (FeePlanCache_)::const_accessor accessor;
   if (FeePlanCache_.find(accessor, feePlanId)) {
-    auto It = accessor->second.CoinSpecificFee.find(coin);
-    return It != accessor->second.CoinSpecificFee.end() ? It->second : accessor->second.Default;
-  } else {
-    return UserFeeConfig();
+    const auto &plan = accessor->second;
+    if (static_cast<size_t>(mode) < plan.Modes.size()) {
+      const auto &modeCfg = plan.Modes[static_cast<size_t>(mode)];
+      auto It = modeCfg.CoinSpecific.find(coin);
+      return It != modeCfg.CoinSpecific.end() ? It->second : modeCfg.Default;
+    }
+  }
+  return {};
+}
+
+std::vector<std::pair<std::string, std::vector<UserFeePair>>> UserManager::getAllFeeRecords(EMiningMode mode, const std::string &coin)
+{
+  std::vector<std::pair<std::string, std::vector<UserFeePair>>> result;
+  for (const auto &entry : FeePlanCache_)
+    result.emplace_back(entry.first, getFeeRecord(entry.first, mode, coin));
+  return result;
+}
+
+void UserManager::fillUserFeePlanIds(std::unordered_map<std::string, std::string> &out)
+{
+  for (const auto &entry : UsersCache_) {
+    const std::string &feePlanId = !entry.second.FeePlanId.empty() ? entry.second.FeePlanId : "default";
+    out.emplace(entry.first, feePlanId);
   }
 }

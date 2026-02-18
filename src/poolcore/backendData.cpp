@@ -75,15 +75,28 @@ struct DbIo<UserFeePair> {
 };
 
 template<>
-struct DbIo<CoinSpecificFeeRecord2> {
-  static inline void serialize(xmstream &stream, const CoinSpecificFeeRecord2 &data) {
+struct DbIo<CUserFeeConfig> {
+  static inline void serialize(xmstream &stream, const CUserFeeConfig &data) {
     dbIoSerialize(stream, data.CoinName);
     dbIoSerialize(stream, data.Config);
   }
 
-  static inline void unserialize(xmstream &stream, CoinSpecificFeeRecord2 &data) {
+  static inline void unserialize(xmstream &stream, CUserFeeConfig &data) {
     dbIoUnserialize(stream, data.CoinName);
     dbIoUnserialize(stream, data.Config);
+  }
+};
+
+template<>
+struct DbIo<CModeFeeConfig> {
+  static inline void serialize(xmstream &stream, const CModeFeeConfig &data) {
+    dbIoSerialize(stream, data.Default);
+    dbIoSerialize(stream, data.CoinSpecific);
+  }
+
+  static inline void unserialize(xmstream &stream, CModeFeeConfig &data) {
+    dbIoUnserialize(stream, data.Default);
+    dbIoUnserialize(stream, data.CoinSpecific);
   }
 };
 
@@ -270,14 +283,8 @@ void UserPersonalFeeRecord::serializeValue(xmstream &stream) const
 bool UserFeePlanRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream(const_cast<void*>(data), size);
-  uint32_t version;
-  dbIoUnserialize(stream, version);
-  if (version == 1) {
-    dbIoUnserialize(stream, FeePlanId);
-    dbIoUnserialize(stream, Default);
-    dbIoUnserialize(stream, CoinSpecificFee);
-  }
-
+  dbIoUnserialize(stream, FeePlanId);
+  dbIoUnserialize(stream, Modes);
   return !stream.eof();
 }
 
@@ -288,10 +295,8 @@ void UserFeePlanRecord::serializeKey(xmstream &stream) const
 
 void UserFeePlanRecord::serializeValue(xmstream &stream) const
 {
-  dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
   dbIoSerialize(stream, FeePlanId);
-  dbIoSerialize(stream, Default);
-  dbIoSerialize(stream, CoinSpecificFee);
+  dbIoSerialize(stream, Modes);
 }
 
 // UserActionRecord

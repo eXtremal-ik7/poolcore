@@ -100,16 +100,22 @@ class Poolfrontend:
     def userEnumerateFeePlan(self, adminSessionId, requiredStatus=None, debug=None):
         return self.__call__("userEnumerateFeePlan", {"id": adminSessionId}, requiredStatus, debug)
 
-    def userGetFeePlan(self, adminSessionId, feePlanId, requiredStatus=None, debug=None):
-        return self.__call__("userGetFeePlan", {"id": adminSessionId, "feePlanId": feePlanId}, requiredStatus, debug)
+    def userCreateFeePlan(self, adminSessionId, feePlanId, requiredStatus=None, debug=None):
+        return self.__call__("userCreateFeePlan", {"id": adminSessionId, "feePlanId": feePlanId}, requiredStatus, debug)
+
+    def userQueryFeePlan(self, adminSessionId, feePlanId, mode, requiredStatus=None, debug=None):
+        return self.__call__("userQueryFeePlan", {"id": adminSessionId, "feePlanId": feePlanId, "mode": mode}, requiredStatus, debug)
 
     # example:
-    #  pool.userUpdateFeePlan(adminSessionId, "default", [{"userId": "user1", "percentage": 5.0}], coinSpecificFee=[{"coin": "BTC.regtest", "config": [{"userId": "user1", "percentage": 3.0}]}])
-    def userUpdateFeePlan(self, adminSessionId, feePlanId, default, coinSpecificFee=None, requiredStatus=None, debug=None):
-        data = {"id": adminSessionId, "feePlanId": feePlanId, "default": default}
-        if coinSpecificFee is not None:
-            data.update({"coinSpecificFee": coinSpecificFee})
+    #  pool.userUpdateFeePlan(adminSessionId, "default", "pplns", [{"userId": "user1", "percentage": 5.0}], coinSpecific=[{"coinName": "BTC.regtest", "config": [{"userId": "user1", "percentage": 3.0}]}])
+    def userUpdateFeePlan(self, adminSessionId, feePlanId, mode, default, coinSpecific=None, requiredStatus=None, debug=None):
+        data = {"id": adminSessionId, "feePlanId": feePlanId, "mode": mode, "default": default}
+        if coinSpecific is not None:
+            data.update({"coinSpecific": coinSpecific})
         return self.__call__("userUpdateFeePlan", data, requiredStatus, debug)
+
+    def userDeleteFeePlan(self, adminSessionId, feePlanId, requiredStatus=None, debug=None):
+        return self.__call__("userDeleteFeePlan", {"id": adminSessionId, "feePlanId": feePlanId}, requiredStatus, debug)
 
     def userChangeFeePlan(self, adminSessionId, targetLogin, feePlanId, requiredStatus=None, debug=None):
         return self.__call__("userChangeFeePlan", {"id": adminSessionId, "targetLogin": targetLogin, "feePlanId": feePlanId}, requiredStatus, debug)
