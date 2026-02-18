@@ -272,6 +272,12 @@ class Poolfrontend:
     def backendGetPPSConfig(self, sessionId, coin, requiredStatus=None, debug=None):
         return self.__call__("backendGetPPSConfig", {"id": sessionId, "coin": coin}, requiredStatus, debug)
 
+    def backendGetPPSState(self, sessionId, coin, requiredStatus=None, debug=None):
+        return self.__call__("backendGetPPSState", {"id": sessionId, "coin": coin}, requiredStatus, debug)
+
+    def backendQueryPPSHistory(self, sessionId, coin, timeFrom, timeTo, requiredStatus=None, debug=None):
+        return self.__call__("backendQueryPPSHistory", {"id": sessionId, "coin": coin, "timeFrom": timeFrom, "timeTo": timeTo}, requiredStatus, debug)
+
     def backendUpdatePPSConfig(self, sessionId, coin, ppsModeEnabled, ppsPoolFee, ppsSaturationFunction=None, ppsSaturationB0=None, ppsSaturationANegative=None, ppsSaturationAPositive=None, requiredStatus=None, debug=None):
         data = {"id": sessionId, "coin": coin, "ppsModeEnabled": ppsModeEnabled, "ppsPoolFee": ppsPoolFee}
         if ppsSaturationFunction is not None:

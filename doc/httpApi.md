@@ -42,6 +42,8 @@
    * [backendQueryProfitSwitchCoeff](#backendqueryprofitswitchcoeff)
    * [backendUpdateProfitSwitchCoeff](#backendupdateprofitswitchcoeff)
    * [backendGetPPSConfig](#backendgetppsconfig)
+   * [backendGetPPSState](#backendgetppsstate)
+   * [backendQueryPPSHistory](#backendqueryppshistory)
    * [backendUpdatePPSConfig](#backendupdateppsconfig)
    * [backendPoolLuck](#backendpoolluck)
 * [Other API functions](#other-api-functions)
@@ -1378,6 +1380,124 @@ curl -X POST -d '{"id": "...session...", "coin": "BTC"}' http://localhost:18880/
   "ppsSaturationANegative": 0.5,
   "ppsSaturationAPositive": 0.3,
   "saturationFunctions": ["none", "tanh", "clamp", "cubic", "softsign", "norm", "atan", "exp"]
+}
+```
+
+## backendGetPPSState
+Returns current PPS balance state for specified coin. Access: admin and observer only.
+
+### arguments:
+* [required] id:string - admin or observer session id
+* [required] coin:string
+
+### return values:
+* status:string - can be one of common status values or:
+  * unknown_id: invalid session id or insufficient permissions
+  * invalid_coin: coin does not exist
+* state: object with fields:
+  * time:integer - timestamp of last state update (unix time)
+  * balance:string - current PPS pool balance (formatted)
+  * balanceInBlocks:double - balance expressed in block rewards
+  * sqLambda:double - statistical deviation metric (balance / sqrt(totalBlocksFound))
+  * totalBlocksFound:double - fractional count of blocks found (PPS portion only)
+  * lastSaturateCoeff:double - last applied saturation coefficient (1.0 = no correction)
+  * lastBaseBlockReward:string - base block reward without tx fees (formatted)
+  * lastAverageTxFee:string - average transaction fee per block (formatted)
+  * min: object - minimum balance snapshot:
+    * time:integer - unix time
+    * balance:string - formatted balance at minimum
+    * balanceInBlocks:double
+    * sqLambda:double
+  * max: object - maximum balance snapshot:
+    * time:integer - unix time
+    * balance:string - formatted balance at maximum
+    * balanceInBlocks:double
+    * sqLambda:double
+
+### curl example:
+```
+curl -X POST -d '{"id": "...session...", "coin": "BTC"}' http://localhost:18880/api/backendGetPPSState
+```
+
+### response examples:
+```
+{
+  "status": "ok",
+  "state": {
+    "time": 1700000000,
+    "balance": "0.12345678",
+    "balanceInBlocks": 0.020,
+    "sqLambda": 0.145,
+    "totalBlocksFound": 3.500,
+    "lastSaturateCoeff": 0.9800,
+    "lastBaseBlockReward": "6.25000000",
+    "lastAverageTxFee": "0.01500000",
+    "min": {
+      "time": 1699990000,
+      "balance": "-0.05000000",
+      "balanceInBlocks": -0.008,
+      "sqLambda": -0.042
+    },
+    "max": {
+      "time": 1699995000,
+      "balance": "0.20000000",
+      "balanceInBlocks": 0.032,
+      "sqLambda": 0.170
+    }
+  }
+}
+```
+
+## backendQueryPPSHistory
+Returns PPS balance state history for specified coin and time range. Access: admin and observer only.
+
+### arguments:
+* [required] id:string - admin or observer session id
+* [required] coin:string
+* [required] timeFrom:integer - begin of time interval (unix time)
+* [required] timeTo:integer - end of time interval (unix time)
+
+### return values:
+* status:string - can be one of common status values or:
+  * unknown_id: invalid session id or insufficient permissions
+  * invalid_coin: coin does not exist
+* history: array of state objects (same fields as backendGetPPSState state object)
+
+### curl example:
+```
+curl -X POST -d '{"id": "...session...", "coin": "BTC", "timeFrom": 1700000000, "timeTo": 1700086400}' http://localhost:18880/api/backendQueryPPSHistory
+```
+
+### response examples:
+```
+{
+  "status": "ok",
+  "history": [
+    {
+      "time": 1700000000,
+      "balance": "0.10000000",
+      "balanceInBlocks": 0.016,
+      "sqLambda": 0.100,
+      "totalBlocksFound": 2.500,
+      "lastSaturateCoeff": 1.0000,
+      "lastBaseBlockReward": "6.25000000",
+      "lastAverageTxFee": "0.01200000",
+      "min": { "time": 1699990000, "balance": "-0.05000000", "balanceInBlocks": -0.008, "sqLambda": -0.042 },
+      "max": { "time": 1699995000, "balance": "0.15000000", "balanceInBlocks": 0.024, "sqLambda": 0.130 }
+    },
+    {
+      "time": 1700003600,
+      "balance": "0.12345678",
+      "balanceInBlocks": 0.020,
+      "sqLambda": 0.145,
+      "totalBlocksFound": 3.500,
+      "lastSaturateCoeff": 0.9800,
+      "lastBaseBlockReward": "6.25000000",
+      "lastAverageTxFee": "0.01500000",
+      "min": { "time": 1699990000, "balance": "-0.05000000", "balanceInBlocks": -0.008, "sqLambda": -0.042 },
+      "max": { "time": 1700002000, "balance": "0.20000000", "balanceInBlocks": 0.032, "sqLambda": 0.170 }
+    }
+  ]
 }
 ```
 

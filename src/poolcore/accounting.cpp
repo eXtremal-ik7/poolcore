@@ -152,6 +152,7 @@ void AccountingDb::CPPSPayoutAcc::mergeScaled(const CPPSPayout &record, double c
 bool CPPSConfig::parseSaturationFunction(const std::string &name, ESaturationFunction *out)
 {
   struct { const char *name; ESaturationFunction value; } table[] = {
+    {"none",     ESaturationFunction::None},
     {"tanh",     ESaturationFunction::Tangent},
     {"clamp",    ESaturationFunction::Clamp},
     {"cubic",    ESaturationFunction::Cubic},
@@ -2018,6 +2019,35 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
 void AccountingDb::queryPPSConfigImpl(QueryPPSConfigCallback callback)
 {
   callback(State_.PPSConfig.load(std::memory_order_relaxed));
+}
+
+void AccountingDb::queryPPSStateImpl(QueryPPSStateCallback callback)
+{
+  callback(State_.PPSState);
+}
+
+std::vector<CPPSState> AccountingDb::queryPPSHistory(int64_t timeFrom, int64_t timeTo)
+{
+  std::unique_ptr<rocksdbBase::IteratorType> It(PPSHistoryDb_.iterator());
+
+  CPPSState searchKey;
+  searchKey.Time = Timestamp::fromUnixTime(timeFrom);
+  It->seek(searchKey);
+
+  Timestamp limit = Timestamp::fromUnixTime(timeTo);
+  std::vector<CPPSState> result;
+  while (It->valid()) {
+    CPPSState record;
+    RawData data = It->value();
+    if (!record.deserializeValue(data.data, data.size))
+      break;
+    if (record.Time > limit)
+      break;
+    result.emplace_back(record);
+    It->next();
+  }
+
+  return result;
 }
 
 void AccountingDb::updatePPSConfigImpl(const CPPSConfig &cfg, DefaultCb callback)

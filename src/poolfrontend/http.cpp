@@ -52,6 +52,8 @@ std::unordered_map<std::string, std::pair<int, PoolHttpConnection::FunctionTy>> 
   {"backendQueryPPSPayoutsAcc", {hmPost, fnBackendQueryPPSPayoutsAcc}},
   {"backendUpdateProfitSwitchCoeff", {hmPost, fnBackendUpdateProfitSwitchCoeff}},
   {"backendGetPPSConfig", {hmPost, fnBackendGetPPSConfig}},
+  {"backendGetPPSState", {hmPost, fnBackendGetPPSState}},
+  {"backendQueryPPSHistory", {hmPost, fnBackendQueryPPSHistory}},
   {"backendUpdatePPSConfig", {hmPost, fnBackendUpdatePPSConfig}},
   {"backendPoolLuck", {hmPost, fnBackendPoolLuck}},
   // Instance functions
@@ -298,6 +300,8 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
       case fnBackendQueryPPSPayoutsAcc : onBackendQueryPPSPayoutsAcc(document); break;
       case fnBackendUpdateProfitSwitchCoeff : onBackendUpdateProfitSwitchCoeff(document); break;
       case fnBackendGetPPSConfig : onBackendGetPPSConfig(document); break;
+      case fnBackendGetPPSState : onBackendGetPPSState(document); break;
+      case fnBackendQueryPPSHistory : onBackendQueryPPSHistory(document); break;
       case fnBackendUpdatePPSConfig : onBackendUpdatePPSConfig(document); break;
       case fnBackendPoolLuck : onBackendPoolLuck(document); break;
       case fnInstanceEnumerateAll : onInstanceEnumerateAll(document); break;
@@ -2179,6 +2183,133 @@ void PoolHttpConnection::onBackendGetPPSConfig(rapidjson::Document &document)
     aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
+}
+
+static void serializePPSState(
+  xmstream &stream,
+  const CPPSState &pps,
+  unsigned fractionalPartSize)
+{
+  const auto &reward = pps.LastBaseBlockReward;
+  JSON::Object obj(stream);
+  obj.addInt("time", pps.Time.toUnixTime());
+  obj.addString("balance", FormatMoney(pps.Balance, fractionalPartSize));
+  obj.addDouble("balanceInBlocks", CPPSState::balanceInBlocks(pps.Balance, reward));
+  obj.addDouble("sqLambda", CPPSState::sqLambda(pps.Balance, reward, pps.TotalBlocksFound));
+  obj.addDouble("totalBlocksFound", pps.TotalBlocksFound);
+  obj.addDouble("lastSaturateCoeff", pps.LastSaturateCoeff);
+  obj.addString("lastBaseBlockReward", FormatMoney(pps.LastBaseBlockReward, fractionalPartSize));
+  obj.addString("lastAverageTxFee", FormatMoney(pps.LastAverageTxFee, fractionalPartSize));
+  obj.addField("min");
+  {
+    JSON::Object minObj(stream);
+    minObj.addInt("time", pps.Min.Time.toUnixTime());
+    minObj.addString("balance", FormatMoney(pps.Min.Balance, fractionalPartSize));
+    minObj.addDouble("balanceInBlocks", CPPSState::balanceInBlocks(pps.Min.Balance, reward));
+    minObj.addDouble("sqLambda", CPPSState::sqLambda(pps.Min.Balance, reward, pps.Min.TotalBlocksFound));
+  }
+  obj.addField("max");
+  {
+    JSON::Object maxObj(stream);
+    maxObj.addInt("time", pps.Max.Time.toUnixTime());
+    maxObj.addString("balance", FormatMoney(pps.Max.Balance, fractionalPartSize));
+    maxObj.addDouble("balanceInBlocks", CPPSState::balanceInBlocks(pps.Max.Balance, reward));
+    maxObj.addDouble("sqLambda", CPPSState::sqLambda(pps.Max.Balance, reward, pps.Max.TotalBlocksFound));
+  }
+}
+
+void PoolHttpConnection::onBackendGetPPSState(rapidjson::Document &document)
+{
+  bool validAcc = true;
+  std::string sessionId;
+  std::string coin;
+  jsonParseString(document, "id", sessionId, &validAcc);
+  jsonParseString(document, "coin", coin, &validAcc);
+  if (!validAcc) {
+    replyWithStatus("json_format_error");
+    return;
+  }
+
+  UserManager::UserWithAccessRights tokenInfo;
+  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) ||
+      (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
+    replyWithStatus("unknown_id");
+    return;
+  }
+
+  PoolBackend *backend = Server_.backend(coin);
+  if (!backend) {
+    replyWithStatus("invalid_coin");
+    return;
+  }
+
+  unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
+  objectIncrementReference(aioObjectHandle(Socket_), 1);
+  backend->accountingDb()->queryPPSState([this, fractionalPartSize](const CPPSState &pps) {
+    xmstream stream;
+    reply200(stream);
+    size_t offset = startChunk(stream);
+    {
+      JSON::Object response(stream);
+      response.addString("status", "ok");
+      response.addField("state");
+      serializePPSState(stream, pps, fractionalPartSize);
+    }
+    finishChunk(stream, offset);
+    aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
+    objectDecrementReference(aioObjectHandle(Socket_), 1);
+  });
+}
+
+void PoolHttpConnection::onBackendQueryPPSHistory(rapidjson::Document &document)
+{
+  bool validAcc = true;
+  std::string sessionId;
+  std::string coin;
+  int64_t timeFrom;
+  int64_t timeTo;
+  jsonParseString(document, "id", sessionId, &validAcc);
+  jsonParseString(document, "coin", coin, &validAcc);
+  jsonParseInt64(document, "timeFrom", &timeFrom, &validAcc);
+  jsonParseInt64(document, "timeTo", &timeTo, &validAcc);
+  if (!validAcc) {
+    replyWithStatus("json_format_error");
+    return;
+  }
+
+  UserManager::UserWithAccessRights tokenInfo;
+  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) ||
+      (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
+    replyWithStatus("unknown_id");
+    return;
+  }
+
+  PoolBackend *backend = Server_.backend(coin);
+  if (!backend) {
+    replyWithStatus("invalid_coin");
+    return;
+  }
+
+  unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
+  auto result = backend->accountingDb()->queryPPSHistory(timeFrom, timeTo);
+
+  xmstream stream;
+  reply200(stream);
+  size_t offset = startChunk(stream);
+  {
+    JSON::Object response(stream);
+    response.addString("status", "ok");
+    response.addField("history");
+    {
+      JSON::Array arr(stream);
+      for (const auto &pps : result) {
+        arr.addField();
+        serializePPSState(stream, pps, fractionalPartSize);
+      }
+    }
+  }
+  finishChunk(stream, offset);
+  aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
 void PoolHttpConnection::onBackendUpdatePPSConfig(rapidjson::Document &document)

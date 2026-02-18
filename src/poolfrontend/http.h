@@ -73,6 +73,8 @@ private:
   void onBackendQueryPPSPayoutsAcc(rapidjson::Document &document);
   void onBackendUpdateProfitSwitchCoeff(rapidjson::Document &document);
   void onBackendGetPPSConfig(rapidjson::Document &document);
+  void onBackendGetPPSState(rapidjson::Document &document);
+  void onBackendQueryPPSHistory(rapidjson::Document &document);
   void onBackendUpdatePPSConfig(rapidjson::Document &document);
   void onBackendPoolLuck(rapidjson::Document &document);
 
@@ -131,6 +133,8 @@ private:
     fnBackendQueryPPSPayoutsAcc,
     fnBackendUpdateProfitSwitchCoeff,
     fnBackendGetPPSConfig,
+    fnBackendGetPPSState,
+    fnBackendQueryPPSHistory,
     fnBackendUpdatePPSConfig,
     fnBackendPoolLuck,
 
