@@ -19,6 +19,8 @@ static void buildGetQuery(const std::string address, const std::string &host, xm
   out.write("Host: ");
     out.write(host.data(), host.size());
     out.write("\r\n");
+  out.write("User-Agent: poolcore/1.0\r\n");
+  out.write("Accept: application/json\r\n");
   out.write("\r\n");
 }
 
