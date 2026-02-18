@@ -167,13 +167,6 @@ static inline void jsonParseNumber(rapidjson::Value &document, const char *name,
   }
 }
 
-static double fnormalize(double v)
-{
-  if (std::isnan(v) || std::isinf(v))
-    return 0.0;
-  return v;
-}
-
 static inline void parseUserCredentials(rapidjson::Value &document, UserManager::Credentials &credentials, bool *validAcc)
 {
   jsonParseString(document, "login", credentials.Login, "", validAcc);
@@ -1875,7 +1868,7 @@ void PoolHttpConnection::onBackendQueryPPLNSPayouts(rapidjson::Document &documen
   }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->queryPPLNSPayouts(tokenInfo.Login, timeFrom, hashFrom, count, [this, backend](const std::vector<CPPLNSPayout>& result) {
+  backend->accountingDb()->queryPPLNSPayouts(tokenInfo.Login, timeFrom, hashFrom, count, [this, backend](const std::vector<AccountingDb::CPPLNSPayoutInfo>& result) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -1893,9 +1886,9 @@ void PoolHttpConnection::onBackendQueryPPLNSPayouts(rapidjson::Document &documen
             payoutObject.addInt("endTime", payout.RoundEndTime.toUnixTime());
             payoutObject.addString("hash", payout.BlockHash);
             payoutObject.addInt("height", payout.BlockHeight);
-            payoutObject.addString("value", FormatMoney(payout.PayoutValue, backend->getCoinInfo().FractionalPartSize));
-            payoutObject.addDouble("coinBtcRate", fnormalize(payout.RateToBTC));
-            payoutObject.addDouble("btcUsdRate", fnormalize(payout.RateBTCToUSD));
+            payoutObject.addString("value", FormatMoney(payout.Value, backend->getCoinInfo().FractionalPartSize));
+            payoutObject.addString("valueBTC", FormatMoney(payout.ValueBTC, 8));
+            payoutObject.addString("valueUSD", FormatMoney(payout.ValueUSD, 8));
           }
         }
       }
@@ -2023,9 +2016,9 @@ void PoolHttpConnection::onBackendQueryPPSPayouts(rapidjson::Document &document)
           JSON::Object payoutObject(stream);
           payoutObject.addInt("startTime", payout.IntervalBegin.toUnixTime());
           payoutObject.addInt("endTime", payout.IntervalEnd.toUnixTime());
-          payoutObject.addString("value", FormatMoney(payout.PayoutValue, backend->getCoinInfo().FractionalPartSize));
-          payoutObject.addDouble("coinBtcRate", fnormalize(payout.RateToBTC));
-          payoutObject.addDouble("btcUsdRate", fnormalize(payout.RateBTCToUSD));
+          payoutObject.addString("value", FormatMoney(payout.Value, backend->getCoinInfo().FractionalPartSize));
+          payoutObject.addString("valueBTC", FormatMoney(payout.ValueBTC, 8));
+          payoutObject.addString("valueUSD", FormatMoney(payout.ValueUSD, 8));
         }
       }
     }

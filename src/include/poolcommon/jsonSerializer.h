@@ -40,7 +40,7 @@ public:
     addField(name);
 
     char buffer[64];
-    snprintf(buffer, sizeof(buffer), "%lf", number);
+    snprintf(buffer, sizeof(buffer), "%.12g", number);
     Stream_.write(static_cast<const char*>(buffer));
   }
 
@@ -146,7 +146,7 @@ public:
     addField();
 
     char buffer[64];
-    snprintf(buffer, sizeof(buffer), "%.6lf", number);
+    snprintf(buffer, sizeof(buffer), "%.12g", number);
     Stream_.write(static_cast<const char*>(buffer));
   }
 

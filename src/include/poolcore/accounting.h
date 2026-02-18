@@ -105,6 +105,24 @@ public:
     UInt<384> Queued;
   };
 
+  struct CPPLNSPayoutInfo {
+    Timestamp RoundStartTime;
+    Timestamp RoundEndTime;
+    std::string BlockHash;
+    uint64_t BlockHeight;
+    UInt<384> Value;
+    UInt<384> ValueBTC;
+    UInt<384> ValueUSD;
+  };
+
+  struct CPPSPayoutInfo {
+    Timestamp IntervalBegin;
+    Timestamp IntervalEnd;
+    UInt<384> Value;
+    UInt<384> ValueBTC;
+    UInt<384> ValueUSD;
+  };
+
   struct CPPLNSPayoutAcc {
     int64_t IntervalEnd = 0;
     UInt<384> TotalCoin = UInt<384>::zero();
@@ -130,7 +148,7 @@ private:
   using ManualPayoutCallback = std::function<void(bool)>;
   using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
   using QueryBalanceCallback = std::function<void(const UserBalanceInfo&)>;
-  using QueryPPLNSPayoutsCallback = std::function<void(const std::vector<CPPLNSPayout>&)>;
+  using QueryPPLNSPayoutsCallback = std::function<void(const std::vector<CPPLNSPayoutInfo>&)>;
   using QueryPPLNSAccCallback = std::function<void(const std::vector<CPPLNSPayoutAcc>&)>;
   using PoolLuckCallback = std::function<void(const std::vector<double>&)>;
   using QueryPPSConfigCallback = std::function<void(const CPPSConfig&)>;
@@ -374,7 +392,7 @@ public:
   kvdb<rocksdbBase> &getPPLNSPayoutsDb() { return PPLNSPayoutsDb; }
   kvdb<rocksdbBase> &getPPSPayoutsDb() { return PPSPayoutsDb; }
 
-  std::vector<CPPSPayout> queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count);
+  std::vector<CPPSPayoutInfo> queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count);
   std::vector<CPPSPayoutAcc> queryPPSPayoutsAcc(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval);
   std::vector<CPPSState> queryPPSHistory(int64_t timeFrom, int64_t timeTo);
 

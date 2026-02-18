@@ -95,57 +95,63 @@ bool CPPSState::deserializeValue(const void *data, size_t size)
 
 void AccountingDb::CPPLNSPayoutAcc::merge(const CPPLNSPayout &record, unsigned fractionalPartSize)
 {
+  double rateScale = record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
   TotalCoin += record.PayoutValue;
 
   UInt<384> btcValue = record.PayoutValue;
-  btcValue.mulfp(record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize)));
+  btcValue.mulfp(rateScale);
   TotalBTC += btcValue;
 
   UInt<384> usdValue = record.PayoutValue;
-  usdValue.mulfp(record.RateToBTC * record.RateBTCToUSD / std::pow(10.0, fractionalPartSize));
+  usdValue.mulfp(rateScale * record.RateBTCToUSD);
   TotalUSD += usdValue;
 }
 
 void AccountingDb::CPPLNSPayoutAcc::mergeScaled(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize)
 {
+  double rateScale = record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
+
   UInt<384> payoutValue = record.PayoutValue;
   payoutValue.mulfp(coeff);
   TotalCoin += payoutValue;
 
   UInt<384> btcValue = payoutValue;
-  btcValue.mulfp(record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize)));
+  btcValue.mulfp(rateScale);
   TotalBTC += btcValue;
 
   UInt<384> usdValue = payoutValue;
-  usdValue.mulfp(record.RateToBTC * record.RateBTCToUSD / std::pow(10.0, fractionalPartSize));
+  usdValue.mulfp(rateScale * record.RateBTCToUSD);
   TotalUSD += usdValue;
 }
 
 void AccountingDb::CPPSPayoutAcc::merge(const CPPSPayout &record, unsigned fractionalPartSize)
 {
+  double rateScale = record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
   TotalCoin += record.PayoutValue;
 
   UInt<384> btcValue = record.PayoutValue;
-  btcValue.mulfp(record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize)));
+  btcValue.mulfp(rateScale);
   TotalBTC += btcValue;
 
   UInt<384> usdValue = record.PayoutValue;
-  usdValue.mulfp(record.RateToBTC * record.RateBTCToUSD / std::pow(10.0, fractionalPartSize));
+  usdValue.mulfp(rateScale * record.RateBTCToUSD);
   TotalUSD += usdValue;
 }
 
 void AccountingDb::CPPSPayoutAcc::mergeScaled(const CPPSPayout &record, double coeff, unsigned fractionalPartSize)
 {
+  double rateScale = record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
+
   UInt<384> payoutValue = record.PayoutValue;
   payoutValue.mulfp(coeff);
   TotalCoin += payoutValue;
 
   UInt<384> btcValue = payoutValue;
-  btcValue.mulfp(record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize)));
+  btcValue.mulfp(rateScale);
   TotalBTC += btcValue;
 
   UInt<384> usdValue = payoutValue;
-  usdValue.mulfp(record.RateToBTC * record.RateBTCToUSD / std::pow(10.0, fractionalPartSize));
+  usdValue.mulfp(rateScale * record.RateBTCToUSD);
   TotalUSD += usdValue;
 }
 
@@ -1760,9 +1766,22 @@ void AccountingDb::queryPPLNSPayoutsImpl(const std::string &login, int64_t timeF
     It->seekForPrev<CPPLNSPayout>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
-  std::vector<CPPLNSPayout> payouts;
+  unsigned fractionalPartSize = CoinInfo_.FractionalPartSize;
+  double rateScale = std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
+
+  std::vector<CPPLNSPayoutInfo> payouts;
   for (unsigned i = 0; i < count && It->valid(); i++) {
-    payouts.emplace_back(valueRecord);
+    CPPLNSPayoutInfo info;
+    info.RoundStartTime = valueRecord.RoundStartTime;
+    info.RoundEndTime = valueRecord.RoundEndTime;
+    info.BlockHash = std::move(valueRecord.BlockHash);
+    info.BlockHeight = valueRecord.BlockHeight;
+    info.Value = valueRecord.PayoutValue;
+    info.ValueBTC = valueRecord.PayoutValue;
+    info.ValueBTC.mulfp(valueRecord.RateToBTC * rateScale);
+    info.ValueUSD = valueRecord.PayoutValue;
+    info.ValueUSD.mulfp(valueRecord.RateToBTC * valueRecord.RateBTCToUSD * rateScale);
+    payouts.emplace_back(std::move(info));
     It->prev<CPPLNSPayout>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
@@ -1927,7 +1946,7 @@ std::vector<AccountingDb::CPPSPayoutAcc> AccountingDb::queryPPSPayoutsAcc(
   return payoutAccs;
 }
 
-std::vector<CPPSPayout> AccountingDb::queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count)
+std::vector<AccountingDb::CPPSPayoutInfo> AccountingDb::queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count)
 {
   auto &db = getPPSPayoutsDb();
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
@@ -1952,9 +1971,20 @@ std::vector<CPPSPayout> AccountingDb::queryPPSPayouts(const std::string &login, 
     It->seekForPrev<CPPSPayout>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
-  std::vector<CPPSPayout> payouts;
+  unsigned fractionalPartSize = CoinInfo_.FractionalPartSize;
+  double rateScale = std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
+
+  std::vector<CPPSPayoutInfo> payouts;
   for (unsigned i = 0; i < count && It->valid(); i++) {
-    payouts.emplace_back(valueRecord);
+    CPPSPayoutInfo info;
+    info.IntervalBegin = valueRecord.IntervalBegin;
+    info.IntervalEnd = valueRecord.IntervalEnd;
+    info.Value = valueRecord.PayoutValue;
+    info.ValueBTC = valueRecord.PayoutValue;
+    info.ValueBTC.mulfp(valueRecord.RateToBTC * rateScale);
+    info.ValueUSD = valueRecord.PayoutValue;
+    info.ValueUSD.mulfp(valueRecord.RateToBTC * valueRecord.RateBTCToUSD * rateScale);
+    payouts.emplace_back(std::move(info));
     It->prev<CPPSPayout>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 

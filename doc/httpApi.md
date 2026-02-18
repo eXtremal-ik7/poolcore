@@ -1195,9 +1195,9 @@ Returns PPLNS payout history for user
   * endTime:integer - round end time (unix time)
   * hash:string - block hash
   * height:integer - block height
-  * value:string - payout value
-  * coinBtcRate:double - coin/BTC exchange rate at the time
-  * btcUsdRate:double - BTC/USD exchange rate at the time
+  * value:string - payout value in coin
+  * valueBTC:string - payout value in BTC
+  * valueUSD:string - payout value in USD
 
 ### curl example:
 ```
@@ -1250,9 +1250,9 @@ Returns PPS payout history for user
 * payouts: array of objects with fields:
   * startTime:integer - PPS interval start time (unix time)
   * endTime:integer - PPS interval end time (unix time)
-  * value:string - payout value
-  * coinBtcRate:double - coin/BTC exchange rate at the time
-  * btcUsdRate:double - BTC/USD exchange rate at the time
+  * value:string - payout value in coin
+  * valueBTC:string - payout value in BTC
+  * valueUSD:string - payout value in USD
 
 ### curl example:
 ```
