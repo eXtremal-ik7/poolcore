@@ -46,6 +46,7 @@ std::unordered_map<std::string, std::pair<int, PoolHttpConnection::FunctionTy>> 
   {"backendQueryPPLNSPayouts", {hmPost, fnBackendQueryPPLNSPayouts}},
   {"backendQueryPPLNSAcc", {hmPost, fnBackendQueryPPLNSAcc}},
   {"backendUpdateProfitSwitchCoeff", {hmPost, fnBackendUpdateProfitSwitchCoeff}},
+  {"backendGetPPSConfig", {hmPost, fnBackendGetPPSConfig}},
   {"backendUpdatePPSConfig", {hmPost, fnBackendUpdatePPSConfig}},
   {"backendPoolLuck", {hmPost, fnBackendPoolLuck}},
   // Instance functions
@@ -145,6 +146,17 @@ static inline void jsonParseNumber(rapidjson::Value &document, const char *name,
       *validAcc = false;
   } else {
     *validAcc = false;
+  }
+}
+
+static inline void jsonParseNumber(rapidjson::Value &document, const char *name, double *out, double defaultValue, bool *validAcc) {
+  if (document.HasMember(name)) {
+    if (document[name].IsNumber())
+      *out = document[name].GetDouble();
+    else
+      *validAcc = false;
+  } else {
+    *out = defaultValue;
   }
 }
 
@@ -278,6 +290,7 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
       case fnBackendQueryPPLNSPayouts : onBackendQueryPPLNSPayouts(document); break;
       case fnBackendQueryPPLNSAcc : onBackendQueryPPLNSAcc(document); break;
       case fnBackendUpdateProfitSwitchCoeff : onBackendUpdateProfitSwitchCoeff(document); break;
+      case fnBackendGetPPSConfig : onBackendGetPPSConfig(document); break;
       case fnBackendUpdatePPSConfig : onBackendUpdatePPSConfig(document); break;
       case fnBackendPoolLuck : onBackendPoolLuck(document); break;
       case fnInstanceEnumerateAll : onInstanceEnumerateAll(document); break;
@@ -641,14 +654,18 @@ void PoolHttpConnection::onUserGetSettings(rapidjson::Document &document)
         JSON::Object coin(stream);
         UserSettingsRecord settings;
         coin.addString("name", coinInfo.Name.c_str());
+        PoolBackend *backend = Server_.backend(coinInfo.Name);
+        coin.addBoolean("ppsAvailable", backend && backend->accountingDb()->isPPSEnabled());
         if (Server_.userManager().getUserCoinSettings(tokenInfo.Login, coinInfo.Name, settings)) {
           coin.addString("address", settings.Address);
           coin.addString("payoutThreshold", FormatMoney(settings.MinimalPayout, coinInfo.FractionalPartSize));
           coin.addBoolean("autoPayoutEnabled", settings.AutoPayout);
+          coin.addString("miningMode", settings.MiningMode == EMiningMode::PPS ? "pps" : "pplns");
         } else {
           coin.addNull("address");
           coin.addNull("payoutThreshold");
           coin.addBoolean("autoPayoutEnabled", false);
+          coin.addString("miningMode", "pplns");
         }
       }
     } else {
@@ -694,13 +711,24 @@ void PoolHttpConnection::onUserUpdateSettings(rapidjson::Document &document)
   std::string totp;
   jsonParseString(document, "id", sessionId, &validAcc);
   jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
+  std::string miningMode;
   jsonParseString(document, "coin", settings.Coin, &validAcc);
   jsonParseString(document, "address", settings.Address, &validAcc);
   jsonParseString(document, "payoutThreshold", payoutThreshold, &validAcc);
   jsonParseBoolean(document, "autoPayoutEnabled", &settings.AutoPayout, &validAcc);
+  jsonParseString(document, "miningMode", miningMode, "pplns", &validAcc);
   jsonParseString(document, "totp", totp, "", &validAcc);
   if (!validAcc) {
     replyWithStatus("json_format_error");
+    return;
+  }
+
+  if (miningMode == "pplns") {
+    settings.MiningMode = EMiningMode::PPLNS;
+  } else if (miningMode == "pps") {
+    settings.MiningMode = EMiningMode::PPS;
+  } else {
+    replyWithStatus("invalid_mining_mode");
     return;
   }
 
@@ -1032,7 +1060,7 @@ void PoolHttpConnection::onBackendManualPayout(rapidjson::Document &document)
   std::string coin;
   jsonParseString(document, "id", sessionId, &validAcc);
   jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, "", &validAcc);
+  jsonParseString(document, "coin", coin, &validAcc);
   if (!validAcc) {
     replyWithStatus("json_format_error");
     return;
@@ -1850,6 +1878,59 @@ void PoolHttpConnection::onBackendUpdateProfitSwitchCoeff(rapidjson::Document &d
   replyWithStatus("ok");
 }
 
+void PoolHttpConnection::onBackendGetPPSConfig(rapidjson::Document &document)
+{
+  bool validAcc = true;
+  std::string sessionId;
+  std::string coin;
+  jsonParseString(document, "id", sessionId, &validAcc);
+  jsonParseString(document, "coin", coin, &validAcc);
+  if (!validAcc) {
+    replyWithStatus("json_format_error");
+    return;
+  }
+
+  UserManager::UserWithAccessRights tokenInfo;
+  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) ||
+      (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
+    replyWithStatus("unknown_id");
+    return;
+  }
+
+  PoolBackend *backend = Server_.backend(coin);
+  if (!backend) {
+    replyWithStatus("invalid_coin");
+    return;
+  }
+
+  objectIncrementReference(aioObjectHandle(Socket_), 1);
+  backend->accountingDb()->queryPPSConfig([this](bool enabled, const CPPSConfig &cfg) {
+    xmstream stream;
+    reply200(stream);
+    size_t offset = startChunk(stream);
+    {
+      JSON::Object response(stream);
+      response.addString("status", "ok");
+      response.addBoolean("ppsModeEnabled", enabled);
+      response.addDouble("ppsPoolFee", cfg.PoolFee);
+      response.addString("ppsSaturationFunction", CPPSConfig::saturationFunctionName(cfg.SaturationFunction));
+      response.addDouble("ppsSaturationB0", cfg.SaturationB0);
+      response.addDouble("ppsSaturationANegative", cfg.SaturationANegative);
+      response.addDouble("ppsSaturationAPositive", cfg.SaturationAPositive);
+      response.addField("saturationFunctions");
+      {
+        JSON::Array arr(stream);
+        for (const char *name : CPPSConfig::saturationFunctionNames())
+          arr.addString(name);
+      }
+    }
+
+    finishChunk(stream, offset);
+    aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
+    objectDecrementReference(aioObjectHandle(Socket_), 1);
+  });
+}
+
 void PoolHttpConnection::onBackendUpdatePPSConfig(rapidjson::Document &document)
 {
   bool validAcc = true;
@@ -1866,9 +1947,9 @@ void PoolHttpConnection::onBackendUpdatePPSConfig(rapidjson::Document &document)
   jsonParseBoolean(document, "ppsModeEnabled", &ppsModeEnabled, &validAcc);
   jsonParseNumber(document, "ppsPoolFee", &ppsPoolFee, &validAcc);
   jsonParseString(document, "ppsSaturationFunction", ppsSaturationFunction, "", &validAcc);
-  jsonParseNumber(document, "ppsSaturationB0", &ppsSaturationB0, &validAcc);
-  jsonParseNumber(document, "ppsSaturationANegative", &ppsSaturationANegative, &validAcc);
-  jsonParseNumber(document, "ppsSaturationAPositive", &ppsSaturationAPositive, &validAcc);
+  jsonParseNumber(document, "ppsSaturationB0", &ppsSaturationB0, 0.0, &validAcc);
+  jsonParseNumber(document, "ppsSaturationANegative", &ppsSaturationANegative, 0.0, &validAcc);
+  jsonParseNumber(document, "ppsSaturationAPositive", &ppsSaturationAPositive, 0.0, &validAcc);
 
   if (!validAcc) {
     replyWithStatus("json_format_error");

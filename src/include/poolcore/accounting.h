@@ -30,6 +30,7 @@ struct CPPSConfig {
 public:
   static bool parseSaturationFunction(const std::string &name, ESaturationFunction *out);
   static const char *saturationFunctionName(ESaturationFunction value);
+  static const std::vector<const char*> &saturationFunctionNames();
   double saturateCoeff(double balanceInBlocks) const;
 
   double PoolFee = 4.0;
@@ -112,6 +113,7 @@ private:
   using QueryPPLNSPayoutsCallback = std::function<void(const std::vector<CPPLNSPayout>&)>;
   using QueryPPLNSAccCallback = std::function<void(const std::vector<CPPLNSPayoutAcc>&)>;
   using PoolLuckCallback = std::function<void(const std::vector<double>&)>;
+  using QueryPPSConfigCallback = std::function<void(bool enabled, const CPPSConfig&)>;
 
   struct UserFeePair {
     std::string UserId;
@@ -239,6 +241,16 @@ private:
 
   CPersistentState State_;
 
+  class TaskQueryPPSConfig : public Task<AccountingDb> {
+
+  public:
+    TaskQueryPPSConfig(QueryPPSConfigCallback callback) : Callback_(std::move(callback)) {}
+    void run(AccountingDb *accounting) final { accounting->queryPPSConfigImpl(Callback_); }
+
+  private:
+    QueryPPSConfigCallback Callback_;
+  };
+
   class TaskUpdatePPSConfig : public Task<AccountingDb> {
 
   public:
@@ -341,6 +353,7 @@ public:
   }
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { TaskHandler_.push(new TaskQueryBalance(user, callback)); }
   void poolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) { TaskHandler_.push(new TaskPoolLuck(std::move(intervals), callback)); }
+  void queryPPSConfig(QueryPPSConfigCallback callback) { TaskHandler_.push(new TaskQueryPPSConfig(std::move(callback))); }
   void updatePPSConfig(bool enabled, CPPSConfig cfg, DefaultCb cb) {
     TaskHandler_.push(new TaskUpdatePPSConfig(enabled, std::move(cfg), cb));
   }
@@ -362,6 +375,7 @@ private:
   void queryPPLNSPayoutsImpl(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback);
   void queryPPLNSPayoutsAccImpl(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, QueryPPLNSAccCallback callback);
   void poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback);
+  void queryPPSConfigImpl(QueryPPSConfigCallback callback);
   void updatePPSConfigImpl(bool enabled, const CPPSConfig &cfg, DefaultCb callback);
 };
 

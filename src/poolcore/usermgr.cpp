@@ -1011,6 +1011,12 @@ void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, const s
     return;
   }
 
+  // PPS mode requires global PPS to be enabled for this coin
+  if (settings.MiningMode == EMiningMode::PPS && !backendIt->second->accountingDb()->isPPSEnabled()) {
+    callback("pps_not_available");
+    return;
+  }
+
   // check 2fa
   {
     decltype (UsersCache_)::accessor accessor;

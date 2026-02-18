@@ -164,6 +164,14 @@ const char *CPPSConfig::saturationFunctionName(ESaturationFunction value)
   }
 }
 
+const std::vector<const char*> &CPPSConfig::saturationFunctionNames()
+{
+  static const std::vector<const char*> names = {
+    "none", "tanh", "clamp", "cubic", "softsign", "norm", "atan", "exp"
+  };
+  return names;
+}
+
 double CPPSConfig::saturateCoeff(double balanceInBlocks) const
 {
   if (SaturationFunction == ESaturationFunction::None)
@@ -1774,8 +1782,22 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
   callback(result);
 }
 
+void AccountingDb::queryPPSConfigImpl(QueryPPSConfigCallback callback)
+{
+  callback(State_.PPSModeEnabled.load(std::memory_order_relaxed), State_.PPSConfig);
+}
+
 void AccountingDb::updatePPSConfigImpl(bool enabled, const CPPSConfig &cfg, DefaultCb callback)
 {
+  if (cfg.SaturationFunction != ESaturationFunction::None) {
+    if (cfg.SaturationB0 <= 0.0 ||
+        cfg.SaturationANegative < 0.0 || cfg.SaturationANegative > 1.0 ||
+        cfg.SaturationAPositive < 0.0 || cfg.SaturationAPositive > 1.0) {
+      callback("invalid_saturation_params");
+      return;
+    }
+  }
+
   State_.PPSModeEnabled.store(enabled, std::memory_order_relaxed);
   State_.PPSConfig = cfg;
   State_.flushPPSConfig();
