@@ -683,6 +683,13 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
     return;
   }
 
+  for (char c : credentials.Login) {
+    if (c < 32 || c > 126) {
+      callback("login_format_invalid");
+      return;
+    }
+  }
+
   // Check password format
   if (credentials.Password.size() < 8 || credentials.Password.size() > 64) {
     callback("password_format_invalid");

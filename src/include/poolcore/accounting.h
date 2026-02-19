@@ -12,7 +12,7 @@
 
 class CPriceFetcher;
 
-inline std::string ppsMetaUserId() { return std::string("pps\0meta", 8); }
+inline std::string ppsMetaUserId() { return "pps.meta\x01"; }
 
 enum class ESaturationFunction : uint32_t {
   None = 0,
