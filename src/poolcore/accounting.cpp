@@ -623,33 +623,21 @@ void AccountingDb::ppsPayout()
 
   Timestamp now = Timestamp::now();
   Timestamp intervalBegin = now - _cfg.PPSPayoutInterval;
-  double rateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
-  double rateBTCToUSD = PriceFetcher_.getBtcUsd();
+
+  CRewardParams rewardParams;
+  rewardParams.IntervalBegin = intervalBegin;
+  rewardParams.IntervalEnd = now;
+  rewardParams.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
+  rewardParams.RateBTCToUSD = PriceFetcher_.getBtcUsd();
 
   UInt<384> totalPaid = UInt<384>::zero();
-  kvdb<rocksdbBase>::Batch batch;
+  kvdb<rocksdbBase>::Batch balanceBatch;
+  kvdb<rocksdbBase>::Batch payoutBatch;
+  bool payoutQueued = false;
   for (auto &[userId, value] : State_.PPSPendingBalance) {
-    auto balanceIt = _balanceMap.find(userId);
-    if (balanceIt == _balanceMap.end())
-      balanceIt = _balanceMap.emplace(userId, UserBalanceRecord(userId, _cfg.DefaultPayoutThreshold)).first;
-
-    UserBalanceRecord &balance = balanceIt->second;
-    balance.Balance += value;
-    balance.PPSPaid += value;
     totalPaid += value;
-    batch.put(balance);
-
-    {
-      CPPSPayout record;
-      record.Login = userId;
-      record.IntervalBegin = intervalBegin;
-      record.IntervalEnd = now;
-      record.PayoutValue = value;
-      record.RateToBTC = rateToBTC;
-      record.RateBTCToUSD = rateBTCToUSD;
-      PPSPayoutsDb.put(record);
-    }
-
+    if (applyReward(userId, value, EMiningMode::PPS, rewardParams, balanceBatch, payoutBatch))
+      payoutQueued = true;
     LOG_F(INFO, " * %s: +%s", userId.c_str(), FormatMoneyFull(value, CoinInfo_.FractionalPartSize).c_str());
   }
 
@@ -659,14 +647,10 @@ void AccountingDb::ppsPayout()
         CoinInfo_.Name.c_str(),
         FormatMoney(totalPaid, CoinInfo_.FractionalPartSize).c_str());
 
-  _balanceDb.writeBatch(batch);
-
-  // Check auto-payout threshold for each PPS recipient
-  bool payoutQueued = false;
-  for (const auto &[userId, value] : State_.PPSPendingBalance) {
-    if (requestPayout(userId, UInt<384>::zero()))
-      payoutQueued = true;
-  }
+  if (!balanceBatch.empty())
+    _balanceDb.writeBatch(balanceBatch);
+  if (!payoutBatch.empty())
+    PPSPayoutsDb.writeBatch(payoutBatch);
 
   State_.PPSPendingBalance.clear();
   State_.PPSState.Time = now;
@@ -1170,22 +1154,27 @@ bool AccountingDb::processRoundConfirmation(MiningRound *R, int64_t confirmation
       calculatePPLNSPayments(R);
     }
 
-    for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I) {
-      requestPayout(I->UserId, I->Value);
+    CRewardParams rewardParams;
+    rewardParams.RoundStartTime = R->StartTime;
+    rewardParams.RoundEndTime = R->EndTime;
+    rewardParams.BlockHash = R->BlockHash;
+    rewardParams.BlockHeight = R->Height;
+    rewardParams.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
+    rewardParams.RateBTCToUSD = PriceFetcher_.getBtcUsd();
 
-      {
-        CPPLNSPayout record;
-        record.Login = I->UserId;
-        record.RoundStartTime = R->StartTime;
-        record.BlockHash = R->BlockHash;
-        record.BlockHeight = R->Height;
-        record.RoundEndTime = R->EndTime;
-        record.PayoutValue = I->Value;
-        record.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
-        record.RateBTCToUSD = PriceFetcher_.getBtcUsd();
-        PPLNSPayoutsDb.put(record);
-      }
+    kvdb<rocksdbBase>::Batch balanceBatch;
+    kvdb<rocksdbBase>::Batch payoutBatch;
+    bool payoutQueued = false;
+    for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I) {
+      if (applyReward(I->UserId, I->Value, EMiningMode::PPLNS, rewardParams, balanceBatch, payoutBatch))
+        payoutQueued = true;
     }
+    if (!balanceBatch.empty())
+      _balanceDb.writeBatch(balanceBatch);
+    if (!payoutBatch.empty())
+      PPLNSPayoutsDb.writeBatch(payoutBatch);
+    if (payoutQueued)
+      State_.flushPayoutQueue();
 
     R->PendingConfirmation = false;
     R->Payouts.clear();
@@ -1708,7 +1697,12 @@ void AccountingDb::checkBalance()
   }
 }
 
-bool AccountingDb::requestPayout(const std::string &address, const UInt<384> &value, bool force)
+bool AccountingDb::applyReward(const std::string &address,
+                               const UInt<384> &value,
+                               EMiningMode mode,
+                               const CRewardParams &rewardParams,
+                               kvdb<rocksdbBase>::Batch &balanceBatch,
+                               kvdb<rocksdbBase>::Batch &payoutBatch)
 {
   bool result = false;
   auto It = _balanceMap.find(address);
@@ -1718,17 +1712,64 @@ bool AccountingDb::requestPayout(const std::string &address, const UInt<384> &va
   UserBalanceRecord &balance = It->second;
   balance.Balance += value;
 
+  if (mode == EMiningMode::PPS) {
+    balance.PPSPaid += value;
+
+    CPPSPayout record;
+    record.Login = address;
+    record.IntervalBegin = rewardParams.IntervalBegin;
+    record.IntervalEnd = rewardParams.IntervalEnd;
+    record.PayoutValue = value;
+    record.RateToBTC = rewardParams.RateToBTC;
+    record.RateBTCToUSD = rewardParams.RateBTCToUSD;
+    payoutBatch.put(record);
+  } else {
+    CPPLNSPayout record;
+    record.Login = address;
+    record.RoundStartTime = rewardParams.RoundStartTime;
+    record.BlockHash = rewardParams.BlockHash;
+    record.BlockHeight = rewardParams.BlockHeight;
+    record.RoundEndTime = rewardParams.RoundEndTime;
+    record.PayoutValue = value;
+    record.RateToBTC = rewardParams.RateToBTC;
+    record.RateBTCToUSD = rewardParams.RateBTCToUSD;
+    payoutBatch.put(record);
+  }
+
   auto settingsIt = UserSettings_.find(balance.Login);
   UInt<384> nonQueuedBalance = balance.Balance - balance.Requested;
-  if (!nonQueuedBalance.isNegative() && settingsIt != UserSettings_.end() &&
-      (force || (settingsIt->second.AutoPayout && nonQueuedBalance >= settingsIt->second.MinimalPayout))) {
+  if (!nonQueuedBalance.isNegative() &&
+      settingsIt != UserSettings_.end() &&
+      settingsIt->second.AutoPayout &&
+      nonQueuedBalance >= settingsIt->second.MinimalPayout) {
     State_.PayoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
     balance.Requested += nonQueuedBalance;
     result = true;
   }
 
-  _balanceDb.put(balance);
+  balanceBatch.put(balance);
   return result;
+}
+
+bool AccountingDb::requestManualPayout(const std::string &address)
+{
+  auto It = _balanceMap.find(address);
+  if (It == _balanceMap.end())
+    return false;
+
+  UserBalanceRecord &balance = It->second;
+  auto settingsIt = UserSettings_.find(balance.Login);
+  if (settingsIt == UserSettings_.end())
+    return false;
+
+  UInt<384> nonQueuedBalance = balance.Balance - balance.Requested;
+  if (nonQueuedBalance.isNegative())
+    return false;
+
+  State_.PayoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
+  balance.Requested += nonQueuedBalance;
+  _balanceDb.put(balance);
+  return true;
 }
 
 void AccountingDb::manualPayoutImpl(const std::string &user, DefaultCb callback)
@@ -1739,7 +1780,7 @@ void AccountingDb::manualPayoutImpl(const std::string &user, DefaultCb callback)
     UInt<384> nonQueuedBalance = B.Balance - B.Requested;
     // Check global minimum (dust protection); per-user MinimalPayout is bypassed for manual payouts
     if (!nonQueuedBalance.isNegative() && nonQueuedBalance >= _cfg.MinimalAllowedPayout) {
-      bool result = requestPayout(user, UInt<384>::zero(), true);
+      bool result = requestManualPayout(user);
       const char *status = result ? "ok" : "payout_error";
       if (result) {
         LOG_F(INFO, "Manual payout success for %s", user.c_str());

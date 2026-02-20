@@ -91,6 +91,19 @@ public:
   bool deserializeValue(const void *data, size_t size);
 };
 
+struct CRewardParams {
+  double RateToBTC = 0;
+  double RateBTCToUSD = 0;
+  // PPLNS fields
+  Timestamp RoundStartTime;
+  Timestamp RoundEndTime;
+  std::string BlockHash;
+  uint64_t BlockHeight = 0;
+  // PPS fields
+  Timestamp IntervalBegin;
+  Timestamp IntervalEnd;
+};
+
 struct CAccountingStateBatch {
   double LastSaturateCoeff = 1.0;
   UInt<384> LastBaseBlockReward;
@@ -373,7 +386,14 @@ public:
   void stop();
   void cleanupRounds();
   
-  bool requestPayout(const std::string &address, const UInt<384> &value, bool force = false);
+  bool applyReward(
+      const std::string &address,
+      const UInt<384> &value,
+      EMiningMode mode,
+      const CRewardParams &rewardParams,
+      kvdb<rocksdbBase>::Batch &balanceBatch,
+      kvdb<rocksdbBase>::Batch &payoutBatch);
+  bool requestManualPayout(const std::string &address);
 
   bool hasDeferredReward();
   void calculatePPLNSPayments(MiningRound *R);
