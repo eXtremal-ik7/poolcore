@@ -78,11 +78,10 @@ struct PoolBackendConfig {
 
   unsigned RequiredConfirmations;
   UInt<384> DefaultPayoutThreshold;
-  UInt<384> MinimalAllowedPayout;
+
   unsigned KeepRoundTime;
   unsigned KeepStatsTime;
   unsigned ConfirmationsCheckInterval;
-  unsigned PayoutInterval;
   unsigned BalanceCheckInterval;
   std::chrono::minutes StatisticKeepTime = std::chrono::minutes(30);
   std::chrono::minutes StatisticWorkersPowerCalculateInterval = std::chrono::minutes(10);
@@ -329,15 +328,28 @@ struct UserSessionRecord {
   }
 };
 
+struct CSettingsPayout {
+  std::string Address;
+  UInt<384> MinimalPayout;
+  bool AutoPayout = false;
+};
+
+struct CSettingsMining {
+  EMiningMode MiningMode = EMiningMode::PPLNS;
+};
+
+struct CSettingsAutoExchange {
+  std::string PayoutCoinName;
+};
+
 struct UserSettingsRecord {
   enum { CurrentRecordVersion = 1 };
 
   std::string Login;
   std::string Coin;
-  std::string Address;
-  UInt<384> MinimalPayout;
-  bool AutoPayout;
-  EMiningMode MiningMode = EMiningMode::PPLNS;
+  CSettingsPayout Payout;
+  CSettingsMining Mining;
+  CSettingsAutoExchange AutoExchange;
 
   UserSettingsRecord() {}
   std::string getPartitionId() const { return "default"; }

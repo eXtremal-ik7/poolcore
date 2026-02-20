@@ -1,12 +1,18 @@
 #pragma once
 
 #include "poolcore/poolCore.h"
+#include "poolcommon/utils.h"
 #include <string.h>
 
 class CCoinLibrary {
 public:
   static CCoinInfo get(const char *coinName) {
     CCoinInfo info;
+    auto payout = [&info](const char *value) {
+      UInt<384> result;
+      parseMoneyValue(value, info.FractionalPartSize, &result);
+      return result;
+    };
     // PoW algorithms
     if (strcmp(coinName, "ethash") == 0) {
       info.Name = "ethash";
@@ -90,6 +96,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("5");
+      info.DefaultRegularMinimalPayout = payout("0.25");
     } else if (strcmp(coinName, "ARRR.testnet") == 0) {
       info.Name = "ARRR.testnet";
       info.FullName = "Pirate Chain";
@@ -106,6 +114,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("5");
+      info.DefaultRegularMinimalPayout = payout("0.25");
     } else if (strcmp(coinName, "ARRR.regtest") == 0) {
       info.Name = "ARRR.regtest";
       info.FullName = "Pirate Chain";
@@ -122,6 +132,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("5");
+      info.DefaultRegularMinimalPayout = payout("0.25");
     } else if (strcmp(coinName, "BTC") == 0) {
       info.Name = "BTC";
       info.FullName = "Bitcoin";
@@ -139,6 +151,8 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("0.01");
+      info.DefaultRegularMinimalPayout = payout("0.0005");
     } else if (strcmp(coinName, "BTC.testnet") == 0) {
       info.Name = "BTC.testnet";
       info.FullName = "Bitcoin";
@@ -154,6 +168,8 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("0.01");
+      info.DefaultRegularMinimalPayout = payout("0.0005");
     } else if (strcmp(coinName, "BTC.regtest") == 0) {
       info.Name = "BTC.regtest";
       info.FullName = "Bitcoin";
@@ -169,6 +185,8 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("0.01");
+      info.DefaultRegularMinimalPayout = payout("0.0005");
     } else if (strcmp(coinName, "BCHN") == 0) {
       info.Name = "BCHN";
       info.FullName = "Bitcoin Cash Node";
@@ -184,6 +202,8 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("0.01");
+      info.DefaultRegularMinimalPayout = payout("0.0005");
     } else if (strcmp(coinName, "BELLS") == 0) {
       info.Name = "BELLS";
       info.FullName = "Bellscoin";
@@ -203,6 +223,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("50");
+      info.DefaultRegularMinimalPayout = payout("2.5");
     } else if (strcmp(coinName, "BELLS.testnet") == 0) {
       info.Name = "BELLS.testnet";
       info.FullName = "Bellscoin";
@@ -220,6 +242,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("50");
+      info.DefaultRegularMinimalPayout = payout("2.5");
     } else if (strcmp(coinName, "BELLS.regtest") == 0) {
       info.Name = "BELLS.regtest";
       info.FullName = "Bellscoin";
@@ -237,6 +261,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("50");
+      info.DefaultRegularMinimalPayout = payout("2.5");
     } else if (strcmp(coinName, "BSV") == 0) {
       info.Name = "BSV";
       info.FullName = "Bitcoin SV";
@@ -252,6 +278,8 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("0.1");
+      info.DefaultRegularMinimalPayout = payout("0.005");
     } else if (strcmp(coinName, "BSV.testnet") == 0) {
       info.Name = "BSV.testnet";
       info.FullName = "Bitcoin SV";
@@ -266,6 +294,8 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("0.1");
+      info.DefaultRegularMinimalPayout = payout("0.005");
     } else if (strcmp(coinName, "DASH") == 0) {
       info.Name = "DASH";
       info.FullName = "Dash";
@@ -283,6 +313,8 @@ public:
       info.Algorithm = "x11";
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("0.1");
+      info.DefaultRegularMinimalPayout = payout("0.005");
     } else if (strcmp(coinName, "DGB.sha256") == 0) {
       info.Name = "DGB.sha256";
       info.FullName = "Digibyte(sha256)";
@@ -302,6 +334,8 @@ public:
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "DGB.sha256.testnet") == 0) {
       info.Name = "DGB.sha256.testnet";
       info.FullName = "Digibyte";
@@ -319,6 +353,8 @@ public:
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "DGB.scrypt") == 0) {
       info.Name = "DGB.scrypt";
       info.FullName = "Digibyte";
@@ -338,6 +374,8 @@ public:
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "DGB.scrypt.testnet") == 0) {
       info.Name = "DGB.scrypt.testnet";
       info.FullName = "Digibyte";
@@ -355,6 +393,8 @@ public:
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "DGB.qubit") == 0) {
       info.Name = "DGB.qubit";
       info.FullName = "Digibyte";
@@ -374,6 +414,8 @@ public:
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "DGB.qubit.testnet") == 0) {
       info.Name = "DGB.qubit.testnet";
       info.FullName = "Digibyte";
@@ -391,6 +433,8 @@ public:
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "DGB.skein") == 0) {
       info.Name = "DGB.skein";
       info.FullName = "Digibyte";
@@ -410,6 +454,8 @@ public:
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "DGB.skein.testnet") == 0) {
       info.Name = "DGB.skein.testnet";
       info.FullName = "Digibyte";
@@ -427,6 +473,8 @@ public:
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "DGB.odo") == 0) {
       info.Name = "DGB.odo";
       info.FullName = "Digibyte";
@@ -446,6 +494,8 @@ public:
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "DGB.odo.testnet") == 0) {
       info.Name = "DGB.odo.testnet";
       info.FullName = "Digibyte";
@@ -463,6 +513,8 @@ public:
       info.PowLimit = ~UInt<256>::zero() >> 20;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "DINGO") == 0) {
       info.Name = "DINGO";
       info.FullName = "Dingocoin";
@@ -482,6 +534,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("100000");
+      info.DefaultRegularMinimalPayout = payout("5000");
     } else if (strcmp(coinName, "DINGO.testnet") == 0) {
       info.Name = "DINGO.testnet";
       info.FullName = "Dingocoin";
@@ -499,6 +553,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("100000");
+      info.DefaultRegularMinimalPayout = payout("5000");
     } else if (strcmp(coinName, "DOGE") == 0) {
       info.Name = "DOGE";
       info.FullName = "Dogecoin";
@@ -517,6 +573,8 @@ public:
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
       info.CanBeSecondaryCoin = true;
+      info.DefaultInstantMinimalPayout = payout("100");
+      info.DefaultRegularMinimalPayout = payout("5");
     } else if (strcmp(coinName, "DOGE.testnet") == 0) {
       info.Name = "DOGE.testnet";
       info.FullName = "Dogecoin";
@@ -533,6 +591,8 @@ public:
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.CanBeSecondaryCoin = true;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("100");
+      info.DefaultRegularMinimalPayout = payout("5");
     } else if (strcmp(coinName, "DOGE.regtest") == 0) {
       info.Name = "DOGE.regtest";
       info.FullName = "Dogecoin";
@@ -549,6 +609,8 @@ public:
       info.PowLimit = UInt<256>::fromHex("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.CanBeSecondaryCoin = true;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("100");
+      info.DefaultRegularMinimalPayout = payout("5");
     } else if (strcmp(coinName, "DTC") == 0) {
       info.Name = "DTC";
       info.FullName = "Datacoin";
@@ -565,6 +627,8 @@ public:
       info.Algorithm = "PrimePOW";
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("5000");
+      info.DefaultRegularMinimalPayout = payout("250");
     } else if (strcmp(coinName, "DTC.testnet") == 0) {
       info.Name = "DTC";
       info.FullName = "Datacoin";
@@ -581,6 +645,8 @@ public:
       info.Algorithm = "PrimePOW";
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("5000");
+      info.DefaultRegularMinimalPayout = payout("250");
     } else if (strcmp(coinName, "ETC") == 0) {
       info.Name = "ETC";
       info.FullName = "Ethereum Classic";
@@ -596,6 +662,8 @@ public:
       info.HasDagFile = true;
       info.BigEpoch = true;
       info.WorkType = EWorkEthereum;
+      info.DefaultInstantMinimalPayout = payout("0.5");
+      info.DefaultRegularMinimalPayout = payout("0.025");
     } else if (strcmp(coinName, "FCH") == 0) {
       info.Name = "FCH";
       info.FullName = "FreeCash";
@@ -612,6 +680,8 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "FB") == 0) {
       info.Name = "FB";
       info.FullName = "Fractal Bitcoin";
@@ -629,6 +699,8 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.CanBeSecondaryCoin = true;
+      info.DefaultInstantMinimalPayout = payout("5");
+      info.DefaultRegularMinimalPayout = payout("0.25");
     } else if (strcmp(coinName, "HOOT") == 0) {
       info.Name = "HOOT";
       info.FullName = "Hootchain";
@@ -646,6 +718,8 @@ public:
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
       info.CanBeSecondaryCoin = true;
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "JKC") == 0) {
       info.Name = "JKC";
       info.FullName = "Junkcoin";
@@ -665,6 +739,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "JKC.testnet") == 0) {
       info.Name = "JKC.testnet";
       info.FullName = "Junkcoin";
@@ -682,6 +758,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "KMD") == 0) {
       info.Name = "KMD";
       info.FullName = "Komodo";
@@ -699,6 +777,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("50");
+      info.DefaultRegularMinimalPayout = payout("2.5");
     } else if (strcmp(coinName, "KMD.testnet") == 0) {
       info.Name = "KMD.testnet";
       info.FullName = "Komodo";
@@ -715,6 +795,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("50");
+      info.DefaultRegularMinimalPayout = payout("2.5");
     } else if (strcmp(coinName, "KMD.regtest") == 0) {
       info.Name = "KMD.regtest";
       info.FullName = "Komodo";
@@ -731,6 +813,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("50");
+      info.DefaultRegularMinimalPayout = payout("2.5");
     } else if (strcmp(coinName, "LCC") == 0) {
       info.Name = "LCC";
       info.FullName = "LitecoinCash";
@@ -747,6 +831,8 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("500");
+      info.DefaultRegularMinimalPayout = payout("25");
     } else if (strcmp(coinName, "LKY") == 0) {
       info.Name = "LKY";
       info.FullName = "Luckycoin";
@@ -766,6 +852,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("10");
+      info.DefaultRegularMinimalPayout = payout("0.5");
     } else if (strcmp(coinName, "LKY.testnet") == 0) {
       info.Name = "LKY.testnet";
       info.FullName = "Luckycoin";
@@ -783,6 +871,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("10");
+      info.DefaultRegularMinimalPayout = payout("0.5");
     } else if (strcmp(coinName, "LTC") == 0) {
       info.Name = "LTC";
       info.FullName = "Litecoin";
@@ -802,6 +892,8 @@ public:
       info.Algorithm = "scrypt";
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("0.1");
+      info.DefaultRegularMinimalPayout = payout("0.005");
     } else if (strcmp(coinName, "LTC.testnet") == 0) {
       info.Name = "LTC.testnet";
       info.FullName = "Litecoin";
@@ -819,6 +911,8 @@ public:
       info.Algorithm = "scrypt";
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("0.1");
+      info.DefaultRegularMinimalPayout = payout("0.005");
     } else if (strcmp(coinName, "LTC.regtest") == 0) {
       info.Name = "LTC.regtest";
       info.FullName = "Litecoin";
@@ -836,6 +930,8 @@ public:
       info.Algorithm = "scrypt";
       info.PowLimit = UInt<256>::fromHex("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("0.1");
+      info.DefaultRegularMinimalPayout = payout("0.005");
     } else if (strcmp(coinName, "MAXI") == 0) {
       info.Name = "MAXI";
       info.FullName = "Maximus";
@@ -853,6 +949,8 @@ public:
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
       info.CanBeSecondaryCoin = true;
+      info.DefaultInstantMinimalPayout = payout("100");
+      info.DefaultRegularMinimalPayout = payout("5");
     } else if (strcmp(coinName, "OSMI") == 0) {
       info.Name = "OSMI";
       info.FullName = "Osmium";
@@ -870,6 +968,8 @@ public:
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
       info.CanBeSecondaryCoin = true;
+      info.DefaultInstantMinimalPayout = payout("10");
+      info.DefaultRegularMinimalPayout = payout("0.5");
     } else if (strcmp(coinName, "PEP") == 0) {
       info.Name = "PEP";
       info.FullName = "Pepecoin";
@@ -889,6 +989,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("10000");
+      info.DefaultRegularMinimalPayout = payout("500");
     } else if (strcmp(coinName, "PEP.testnet") == 0) {
       info.Name = "PEP.testnet";
       info.FullName = "Pepecoin";
@@ -906,6 +1008,8 @@ public:
       info.CanBeSecondaryCoin = true;
       info.ResetWorkOnBlockChange = false;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("10000");
+      info.DefaultRegularMinimalPayout = payout("500");
     } else if (strcmp(coinName, "SPACE") == 0) {
       info.Name = "SPACE";
       info.FullName = "MVC";
@@ -920,6 +1024,8 @@ public:
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("50");
+      info.DefaultRegularMinimalPayout = payout("2.5");
     } else if (strcmp(coinName, "XEC") == 0) {
       info.Name = "XEC";
       info.FullName = "eCash";
@@ -936,6 +1042,8 @@ public:
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.HasRtt = true;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("500000");
+      info.DefaultRegularMinimalPayout = payout("25000");
     } else if (strcmp(coinName, "XEC.testnet") == 0) {
       info.FullName = "eCash testnet";
       info.Name = "XEC.testnet";
@@ -951,6 +1059,8 @@ public:
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.HasRtt = true;
       info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("500000");
+      info.DefaultRegularMinimalPayout = payout("25000");
     } else if (strcmp(coinName, "XPM") == 0) {
       info.Name = "XPM";
       info.FullName = "Primecoin";
@@ -968,6 +1078,8 @@ public:
       info.PPSIncludeTransactionFees = false;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("50");
+      info.DefaultRegularMinimalPayout = payout("2.5");
     } else if (strcmp(coinName, "XPM.testnet") == 0) {
       info.Name = "XPM.testnet";
       info.FullName = "Primecoin";
@@ -983,6 +1095,8 @@ public:
       info.PPSIncludeTransactionFees = false;
       info.WorkType = EWorkBitcoin;
       info.WorkSummaryFlushInterval = std::chrono::seconds(3);
+      info.DefaultInstantMinimalPayout = payout("50");
+      info.DefaultRegularMinimalPayout = payout("2.5");
     } else if (strcmp(coinName, "ZEC") == 0) {
       info.Name = "ZEC";
       info.FullName = "ZCash";
@@ -1000,6 +1114,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("0.01");
+      info.DefaultRegularMinimalPayout = payout("0.0005");
     } else if (strcmp(coinName, "ZEC.testnet") == 0) {
       info.Name = "ZEC.testnet";
       info.FullName = "ZCash";
@@ -1016,6 +1132,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("0.01");
+      info.DefaultRegularMinimalPayout = payout("0.0005");
     } else if (strcmp(coinName, "ZEC.regtest") == 0) {
       info.Name = "ZEC.regtest";
       info.FullName = "ZCash";
@@ -1032,6 +1150,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("0.01");
+      info.DefaultRegularMinimalPayout = payout("0.0005");
     } else if (strcmp(coinName, "ZEN") == 0) {
       info.Name = "ZEN";
       info.FullName = "Horizen";
@@ -1049,6 +1169,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("0.5");
+      info.DefaultRegularMinimalPayout = payout("0.025");
     } else if (strcmp(coinName, "ZEN.testnet") == 0) {
       info.Name = "ZEN.testnet";
       info.FullName = "Horizen";
@@ -1065,6 +1187,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("0.5");
+      info.DefaultRegularMinimalPayout = payout("0.025");
     } else if (strcmp(coinName, "ZEN.regtest") == 0) {
       info.Name = "ZEN.regtest";
       info.FullName = "Horizen";
@@ -1081,6 +1205,8 @@ public:
       info.HasExtendedFundRawTransaction = false;
       info.PowLimit = UInt<256>::fromHex("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
       info.WorkType = EWorkZCash;
+      info.DefaultInstantMinimalPayout = payout("0.5");
+      info.DefaultRegularMinimalPayout = payout("0.025");
     } else {
       info.Name.clear();
     }

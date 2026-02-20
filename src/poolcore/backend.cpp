@@ -43,7 +43,6 @@ PoolBackend::PoolBackend(asyncBase *base,
   _base(base), _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher), TaskHandler_(this, base)
 {
   CheckConfirmationsEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  PayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   CheckBalanceEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   clientDispatcher.setBackend(this);
 
@@ -75,7 +74,6 @@ void PoolBackend::stop()
   ShutdownRequested_ = true;
   userEventActivate(CheckConfirmationsEvent_);
   userEventActivate(CheckBalanceEvent_);
-  userEventActivate(PayoutEvent_);
   TaskHandler_.stop(CoinInfo_.Name.c_str(), "PoolBackend task handler");
   _accounting->stop();
   _statistics->stop();
@@ -83,7 +81,6 @@ void PoolBackend::stop()
     FeeEstimationService_->stop();
   coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend check confirmations handler", &CheckConfirmationsHandlerFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend check balance handler", &CheckBalanceHandlerFinished_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend payout handler", &PayoutHandlerFinished_);
 
   postQuitOperation(_base);
   _thread.join();
@@ -101,7 +98,6 @@ void PoolBackend::backendMain()
     FeeEstimationService_->start();
   coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->checkConfirmationsHandler(); }, this, 0x100000, coroutineFinishCb, &CheckConfirmationsHandlerFinished_));
   coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->checkBalanceHandler(); }, this, 0x100000, coroutineFinishCb, &CheckBalanceHandlerFinished_));
-  coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->payoutHandler(); }, this, 0x100000, coroutineFinishCb, &PayoutHandlerFinished_));
 
   LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
   checkConsistency(_accounting.get(), CoinInfo_);
@@ -122,18 +118,6 @@ void PoolBackend::checkConfirmationsHandler()
   }
 }
 
-
-void PoolBackend::payoutHandler()
-{
-  for (;;) {
-    ioSleep(PayoutEvent_, _cfg.PayoutInterval);
-    if (ShutdownRequested_)
-      break;
-    _accounting->makePayout();
-    if (ShutdownRequested_)
-      break;
-  }
-}
 
 // Only for master
 void PoolBackend::checkBalanceHandler()

@@ -255,6 +255,19 @@ struct DbIo<Timestamp> {
   }
 };
 
+// std::chrono::duration serialization
+template<typename Rep, typename Period>
+struct DbIo<std::chrono::duration<Rep, Period>> {
+  static inline void serialize(xmstream &stream, const std::chrono::duration<Rep, Period> &data) {
+    DbIo<Rep>::serialize(stream, data.count());
+  }
+  static inline void unserialize(xmstream &stream, std::chrono::duration<Rep, Period> &data) {
+    Rep value;
+    DbIo<Rep>::unserialize(stream, value);
+    data = std::chrono::duration<Rep, Period>(value);
+  }
+};
+
 // TimeInterval serialization
 template<>
 struct DbIo<TimeInterval> {

@@ -69,7 +69,15 @@ def userUpdateCredentials(sessionId, newUserName, targetLogin=None, requiredStat
     return call("userUpdateCredentials", data, requiredStatus)
 
 def userUpdateSettings(sessionId, targetLogin=None, payoutThreshold="1", requiredStatus=None):
-    data = {"id": sessionId, "coin": "BTC.regtest", "address": "mymcA1ffRQX2f24k74WdpV4WPNPBWsmYFH", "payoutThreshold": payoutThreshold, "autoPayoutEnabled": True}
+    data = {
+        "id": sessionId,
+        "coin": "BTC.regtest",
+        "payout": {
+            "address": "mymcA1ffRQX2f24k74WdpV4WPNPBWsmYFH",
+            "payoutThreshold": payoutThreshold,
+            "autoPayoutEnabled": True
+        }
+    }
     if targetLogin is not None:
         data.update({"targetLogin": targetLogin})
     return call("userUpdateSettings", data, requiredStatus)

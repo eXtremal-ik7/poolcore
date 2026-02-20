@@ -94,6 +94,10 @@ struct CCoinInfo {
 
   std::chrono::seconds WorkSummaryFlushInterval = std::chrono::seconds(6);
 
+  // Default minimal payout thresholds
+  UInt<384> DefaultInstantMinimalPayout;
+  UInt<384> DefaultRegularMinimalPayout;
+
   bool checkAddress(const std::string &address, EAddressType type) const;
   const char *getPowerUnitName() const;
   uint64_t calculateAveragePower(const UInt<256> &work, uint64_t timeInterval, unsigned int primePOWTarget) const;

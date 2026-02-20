@@ -51,10 +51,10 @@ std::unordered_map<std::string, std::pair<int, PoolHttpConnection::FunctionTy>> 
   {"backendQueryPPSPayouts", {hmPost, fnBackendQueryPPSPayouts}},
   {"backendQueryPPSPayoutsAcc", {hmPost, fnBackendQueryPPSPayoutsAcc}},
   {"backendUpdateProfitSwitchCoeff", {hmPost, fnBackendUpdateProfitSwitchCoeff}},
-  {"backendGetPPSConfig", {hmPost, fnBackendGetPPSConfig}},
+  {"backendGetConfig", {hmPost, fnBackendGetConfig}},
   {"backendGetPPSState", {hmPost, fnBackendGetPPSState}},
   {"backendQueryPPSHistory", {hmPost, fnBackendQueryPPSHistory}},
-  {"backendUpdatePPSConfig", {hmPost, fnBackendUpdatePPSConfig}},
+  {"backendUpdateConfig", {hmPost, fnBackendUpdateConfig}},
   {"backendPoolLuck", {hmPost, fnBackendPoolLuck}},
   // Instance functions
   {"instanceEnumerateAll", {hmPost, fnInstanceEnumerateAll}},
@@ -292,10 +292,10 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
       case fnBackendQueryPPSPayouts : onBackendQueryPPSPayouts(document); break;
       case fnBackendQueryPPSPayoutsAcc : onBackendQueryPPSPayoutsAcc(document); break;
       case fnBackendUpdateProfitSwitchCoeff : onBackendUpdateProfitSwitchCoeff(document); break;
-      case fnBackendGetPPSConfig : onBackendGetPPSConfig(document); break;
+      case fnBackendGetConfig : onBackendGetConfig(document); break;
       case fnBackendGetPPSState : onBackendGetPPSState(document); break;
       case fnBackendQueryPPSHistory : onBackendQueryPPSHistory(document); break;
-      case fnBackendUpdatePPSConfig : onBackendUpdatePPSConfig(document); break;
+      case fnBackendUpdateConfig : onBackendUpdateConfig(document); break;
       case fnBackendPoolLuck : onBackendPoolLuck(document); break;
       case fnInstanceEnumerateAll : onInstanceEnumerateAll(document); break;
       case fnComplexMiningStatsGetInfo : onComplexMiningStatsGetInfo(document); break;
@@ -664,15 +664,43 @@ void PoolHttpConnection::onUserGetSettings(rapidjson::Document &document)
         UserSettingsRecord settings;
         coin.addString("name", coinInfo.Name.c_str());
         if (Server_.userManager().getUserCoinSettings(tokenInfo.Login, coinInfo.Name, settings)) {
-          coin.addString("address", settings.Address);
-          coin.addString("payoutThreshold", FormatMoney(settings.MinimalPayout, coinInfo.FractionalPartSize));
-          coin.addBoolean("autoPayoutEnabled", settings.AutoPayout);
-          coin.addString("miningMode", settings.MiningMode == EMiningMode::PPS ? "pps" : "pplns");
+          coin.addField("payout");
+          {
+            JSON::Object payout(stream);
+            payout.addString("address", settings.Payout.Address);
+            payout.addString(
+              "payoutThreshold",
+              FormatMoney(settings.Payout.MinimalPayout, coinInfo.FractionalPartSize));
+            payout.addBoolean("autoPayoutEnabled", settings.Payout.AutoPayout);
+          }
+          coin.addField("mining");
+          {
+            JSON::Object mining(stream);
+            mining.addString("mode", miningModeName(settings.Mining.MiningMode));
+          }
+          coin.addField("autoExchange");
+          {
+            JSON::Object autoExchange(stream);
+            autoExchange.addString("payoutCoinName", settings.AutoExchange.PayoutCoinName);
+          }
         } else {
-          coin.addNull("address");
-          coin.addNull("payoutThreshold");
-          coin.addBoolean("autoPayoutEnabled", false);
-          coin.addString("miningMode", "pplns");
+          coin.addField("payout");
+          {
+            JSON::Object payout(stream);
+            payout.addNull("address");
+            payout.addNull("payoutThreshold");
+            payout.addBoolean("autoPayoutEnabled", false);
+          }
+          coin.addField("mining");
+          {
+            JSON::Object mining(stream);
+            mining.addString("mode", "pplns");
+          }
+          coin.addField("autoExchange");
+          {
+            JSON::Object autoExchange(stream);
+            autoExchange.addString("payoutCoinName", "");
+          }
         }
       }
     } else {
@@ -712,62 +740,114 @@ void PoolHttpConnection::onUserUpdateSettings(rapidjson::Document &document)
   bool validAcc = true;
   std::string sessionId;
   std::string targetLogin;
-  UserManager::UserWithAccessRights tokenInfo;
-  UserSettingsRecord settings;
-  std::string payoutThreshold;
+  std::string coin;
   std::string totp;
+
   jsonParseString(document, "id", sessionId, &validAcc);
   jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  std::string miningMode;
-  jsonParseString(document, "coin", settings.Coin, &validAcc);
-  jsonParseString(document, "address", settings.Address, &validAcc);
-  jsonParseString(document, "payoutThreshold", payoutThreshold, &validAcc);
-  jsonParseBoolean(document, "autoPayoutEnabled", &settings.AutoPayout, &validAcc);
-  jsonParseString(document, "miningMode", miningMode, "pplns", &validAcc);
+  jsonParseString(document, "coin", coin, &validAcc);
   jsonParseString(document, "totp", totp, "", &validAcc);
+
+  bool hasPayout = document.HasMember("payout");
+  CSettingsPayout settingsPayout;
+  std::string payoutThreshold;
+  if (hasPayout) {
+    if (!document["payout"].IsObject()) {
+      validAcc = false;
+    } else {
+      rapidjson::Value &payoutValue = document["payout"];
+      jsonParseString(payoutValue, "address", settingsPayout.Address, &validAcc);
+      jsonParseString(payoutValue, "payoutThreshold", payoutThreshold, &validAcc);
+      jsonParseBoolean(payoutValue, "autoPayoutEnabled", &settingsPayout.AutoPayout, &validAcc);
+    }
+  }
+
+  bool hasMining = document.HasMember("mining");
+  std::string miningMode;
+  if (hasMining) {
+    if (!document["mining"].IsObject()) {
+      validAcc = false;
+    } else {
+      rapidjson::Value &miningValue = document["mining"];
+      jsonParseString(miningValue, "mode", miningMode, &validAcc);
+    }
+  }
+
+  bool hasAutoExchange = document.HasMember("autoExchange");
+  CSettingsAutoExchange settingsAutoExchange;
+  if (hasAutoExchange) {
+    if (!document["autoExchange"].IsObject()) {
+      validAcc = false;
+    } else {
+      rapidjson::Value &autoExchangeValue = document["autoExchange"];
+      jsonParseString(autoExchangeValue, "payoutCoinName", settingsAutoExchange.PayoutCoinName, &validAcc);
+    }
+  }
+
   if (!validAcc) {
     replyWithStatus("json_format_error");
     return;
   }
 
-  if (miningMode == "pplns") {
-    settings.MiningMode = EMiningMode::PPLNS;
-  } else if (miningMode == "pps") {
-    settings.MiningMode = EMiningMode::PPS;
-  } else {
-    replyWithStatus("invalid_mining_mode");
+  if (!hasPayout && !hasMining && !hasAutoExchange) {
+    replyWithStatus("json_format_error");
     return;
   }
 
-  auto It = Server_.userManager().coinIdxMap().find(settings.Coin);
-  if (It == Server_.userManager().coinIdxMap().end()) {
-    replyWithStatus("invalid_coin");
-    return;
+  std::optional<CSettingsPayout> payout;
+  std::optional<CSettingsMining> mining;
+  std::optional<CSettingsAutoExchange> autoExchange;
+
+  if (hasPayout) {
+    auto It = Server_.userManager().coinIdxMap().find(coin);
+    if (It == Server_.userManager().coinIdxMap().end()) {
+      replyWithStatus("invalid_coin");
+      return;
+    }
+
+    CCoinInfo &coinInfo = Server_.userManager().coinInfo()[It->second];
+    if (!parseMoneyValue(
+          payoutThreshold.c_str(), coinInfo.FractionalPartSize, &settingsPayout.MinimalPayout)) {
+      replyWithStatus("request_format_error");
+      return;
+    }
+
+    if (!coinInfo.checkAddress(settingsPayout.Address, coinInfo.PayoutAddressType)) {
+      replyWithStatus("invalid_address");
+      return;
+    }
+
+    payout = std::move(settingsPayout);
   }
 
-  CCoinInfo &coinInfo = Server_.userManager().coinInfo()[It->second];
-  if (!parseMoneyValue(payoutThreshold.c_str(), coinInfo.FractionalPartSize, &settings.MinimalPayout)) {
-    replyWithStatus("request_format_error");
-    return;
+  if (hasMining) {
+    CSettingsMining settingsMining;
+    if (!parseMiningMode(miningMode, settingsMining.MiningMode)) {
+      replyWithStatus("invalid_mining_mode");
+      return;
+    }
+
+    mining = std::move(settingsMining);
   }
 
-  if (!coinInfo.checkAddress(settings.Address, coinInfo.PayoutAddressType)) {
-    replyWithStatus("invalid_address");
-    return;
-  }
+  if (hasAutoExchange)
+    autoExchange = std::move(settingsAutoExchange);
 
+  UserManager::UserWithAccessRights tokenInfo;
   if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, true)) {
     replyWithStatus("unknown_id");
     return;
   }
 
-  settings.Login = tokenInfo.Login;
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().updateSettings(std::move(settings), totp, [this](const char *status) {
-    replyWithStatus(status);
-    objectDecrementReference(aioObjectHandle(Socket_), 1);
-  });
+  Server_.userManager().updateSettings(
+    tokenInfo.Login, coin,
+    std::move(payout), std::move(mining), std::move(autoExchange),
+    totp,
+    [this](const char *status) {
+      replyWithStatus(status);
+      objectDecrementReference(aioObjectHandle(Socket_), 1);
+    });
 }
 
 void PoolHttpConnection::onUserEnumerateAll(rapidjson::Document &document)
@@ -1523,8 +1603,9 @@ void PoolHttpConnection::onBackendQueryCoins(rapidjson::Document &document)
         object.addString("name", info.Name);
         object.addString("fullName", info.FullName);
         object.addString("algorithm", info.Algorithm);
-        object.addString("minimalPayout", FormatMoney(backend->getConfig().MinimalAllowedPayout, info.FractionalPartSize));
-        object.addBoolean("ppsAvailable", backend->accountingDb()->isPPSEnabled());
+        auto backendCfg = backend->accountingDb()->backendSettings();
+        object.addString("minimalPayout", FormatMoney(backendCfg.PayoutConfig.InstantMinimalPayout, info.FractionalPartSize));
+        object.addBoolean("ppsAvailable", backendCfg.PPSConfig.Enabled);
 
         // PPLNS fee: sum of user fee plan percentages
         double pplnsFee = 0.0;
@@ -1533,7 +1614,7 @@ void PoolHttpConnection::onBackendQueryCoins(rapidjson::Document &document)
         object.addDouble("pplnsFee", pplnsFee);
 
         // PPS fee: pool PPS fee + user fee plan
-        double ppsFee = backend->accountingDb()->ppsPoolFee();
+        double ppsFee = backendCfg.PPSConfig.PoolFee;
         for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::PPS, info.Name))
           ppsFee += fee.Percentage;
         object.addDouble("ppsFee", ppsFee);
@@ -2125,7 +2206,7 @@ void PoolHttpConnection::onBackendUpdateProfitSwitchCoeff(rapidjson::Document &d
   replyWithStatus("ok");
 }
 
-void PoolHttpConnection::onBackendGetPPSConfig(rapidjson::Document &document)
+void PoolHttpConnection::onBackendGetConfig(rapidjson::Document &document)
 {
   bool validAcc = true;
   std::string sessionId;
@@ -2150,67 +2231,89 @@ void PoolHttpConnection::onBackendGetPPSConfig(rapidjson::Document &document)
     return;
   }
 
-  objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->queryPPSConfig([this](const CPPSConfig &cfg) {
-    xmstream stream;
-    reply200(stream);
-    size_t offset = startChunk(stream);
+  CBackendSettings settings = backend->accountingDb()->backendSettings();
+  unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
+
+  xmstream stream;
+  reply200(stream);
+  size_t offset = startChunk(stream);
+  {
+    JSON::Object response(stream);
+    response.addString("status", "ok");
+    response.addField("pps");
     {
-      JSON::Object response(stream);
-      response.addString("status", "ok");
-      response.addBoolean("ppsModeEnabled", cfg.Enabled);
-      response.addDouble("ppsPoolFee", cfg.PoolFee);
-      response.addString("ppsSaturationFunction", CPPSConfig::saturationFunctionName(cfg.SaturationFunction));
-      response.addDouble("ppsSaturationB0", cfg.SaturationB0);
-      response.addDouble("ppsSaturationANegative", cfg.SaturationANegative);
-      response.addDouble("ppsSaturationAPositive", cfg.SaturationAPositive);
-      response.addField("saturationFunctions");
+      JSON::Object pps(stream);
+      pps.addBoolean("enabled", settings.PPSConfig.Enabled);
+      pps.addDouble("poolFee", settings.PPSConfig.PoolFee);
+      pps.addString(
+        "saturationFunction",
+        CBackendSettings::PPS::saturationFunctionName(settings.PPSConfig.SaturationFunction));
+      pps.addDouble("saturationB0", settings.PPSConfig.SaturationB0);
+      pps.addDouble("saturationANegative", settings.PPSConfig.SaturationANegative);
+      pps.addDouble("saturationAPositive", settings.PPSConfig.SaturationAPositive);
+      pps.addField("saturationFunctions");
       {
         JSON::Array arr(stream);
-        for (const char *name : CPPSConfig::saturationFunctionNames())
+        for (const char *name : CBackendSettings::PPS::saturationFunctionNames())
           arr.addString(name);
       }
     }
+    response.addField("payouts");
+    {
+      JSON::Object payouts(stream);
+      payouts.addBoolean("instantPayoutsEnabled", settings.PayoutConfig.InstantPayoutsEnabled);
+      payouts.addBoolean("regularPayoutsEnabled", settings.PayoutConfig.RegularPayoutsEnabled);
+      payouts.addString("instantMinimalPayout", FormatMoney(settings.PayoutConfig.InstantMinimalPayout, fractionalPartSize));
+      payouts.addInt("instantPayoutInterval", settings.PayoutConfig.InstantPayoutInterval.count());
+      payouts.addString("regularMinimalPayout", FormatMoney(settings.PayoutConfig.RegularMinimalPayout, fractionalPartSize));
+      payouts.addInt("regularPayoutInterval", settings.PayoutConfig.RegularPayoutInterval.count());
+      payouts.addInt("regularPayoutDayOffset", settings.PayoutConfig.RegularPayoutDayOffset.count());
+    }
+  }
 
-    finishChunk(stream, offset);
-    aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
-    objectDecrementReference(aioObjectHandle(Socket_), 1);
-  });
+  finishChunk(stream, offset);
+  aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-static void serializePPSState(
-  xmstream &stream,
-  const CPPSState &pps,
-  unsigned fractionalPartSize)
+static void serializePPSState(xmstream &stream, const CPPSState &pps, unsigned fractionalPartSize)
 {
   const auto &reward = pps.LastBaseBlockReward;
   JSON::Object obj(stream);
   obj.addInt("time", pps.Time.toUnixTime());
-  obj.addString("balance", FormatMoney(pps.Balance, fractionalPartSize));
-  obj.addString("referenceBalance", FormatMoney(pps.ReferenceBalance, fractionalPartSize));
-  obj.addDouble("referenceBalanceInBlocks", CPPSState::balanceInBlocks(pps.ReferenceBalance, reward));
-  obj.addDouble("sqLambda", CPPSState::sqLambda(pps.ReferenceBalance, reward, pps.TotalBlocksFound));
+  obj.addField("balance");
+  {
+    JSON::Object balanceObj(stream);
+    balanceObj.addString("value", FormatMoney(pps.Balance, fractionalPartSize));
+    balanceObj.addDouble("inBlocks", CPPSState::balanceInBlocks(pps.Balance, reward));
+  }
+  obj.addField("refBalance");
+  {
+    JSON::Object refObj(stream);
+    refObj.addString("value", FormatMoney(pps.ReferenceBalance, fractionalPartSize));
+    refObj.addDouble("inBlocks", CPPSState::balanceInBlocks(pps.ReferenceBalance, reward));
+    refObj.addDouble("sqLambda", CPPSState::sqLambda(pps.ReferenceBalance, reward, pps.TotalBlocksFound));
+  }
+  obj.addField("minRefBalance");
+  {
+    JSON::Object minObj(stream);
+    minObj.addInt("time", pps.Min.Time.toUnixTime());
+    minObj.addString("value", FormatMoney(pps.Min.Balance, fractionalPartSize));
+    minObj.addDouble("inBlocks", CPPSState::balanceInBlocks(pps.Min.Balance, reward));
+    minObj.addDouble("sqLambda", CPPSState::sqLambda(pps.Min.Balance, reward, pps.Min.TotalBlocksFound));
+  }
+  obj.addField("maxRefBalance");
+  {
+    JSON::Object maxObj(stream);
+    maxObj.addInt("time", pps.Max.Time.toUnixTime());
+    maxObj.addString("value", FormatMoney(pps.Max.Balance, fractionalPartSize));
+    maxObj.addDouble("inBlocks", CPPSState::balanceInBlocks(pps.Max.Balance, reward));
+    maxObj.addDouble("sqLambda", CPPSState::sqLambda(pps.Max.Balance, reward, pps.Max.TotalBlocksFound));
+  }
   obj.addDouble("totalBlocksFound", pps.TotalBlocksFound);
   obj.addDouble("orphanBlocks", pps.OrphanBlocks);
   obj.addDouble("lastSaturateCoeff", pps.LastSaturateCoeff);
   obj.addString("lastBaseBlockReward", FormatMoney(pps.LastBaseBlockReward, fractionalPartSize));
   obj.addString("lastAverageTxFee", FormatMoney(pps.LastAverageTxFee, fractionalPartSize));
-  obj.addField("min");
-  {
-    JSON::Object minObj(stream);
-    minObj.addInt("time", pps.Min.Time.toUnixTime());
-    minObj.addString("balance", FormatMoney(pps.Min.Balance, fractionalPartSize));
-    minObj.addDouble("balanceInBlocks", CPPSState::balanceInBlocks(pps.Min.Balance, reward));
-    minObj.addDouble("sqLambda", CPPSState::sqLambda(pps.Min.Balance, reward, pps.Min.TotalBlocksFound));
-  }
-  obj.addField("max");
-  {
-    JSON::Object maxObj(stream);
-    maxObj.addInt("time", pps.Max.Time.toUnixTime());
-    maxObj.addString("balance", FormatMoney(pps.Max.Balance, fractionalPartSize));
-    maxObj.addDouble("balanceInBlocks", CPPSState::balanceInBlocks(pps.Max.Balance, reward));
-    maxObj.addDouble("sqLambda", CPPSState::sqLambda(pps.Max.Balance, reward, pps.Max.TotalBlocksFound));
-  }
 }
 
 void PoolHttpConnection::onBackendGetPPSState(rapidjson::Document &document)
@@ -2307,27 +2410,62 @@ void PoolHttpConnection::onBackendQueryPPSHistory(rapidjson::Document &document)
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendUpdatePPSConfig(rapidjson::Document &document)
+void PoolHttpConnection::onBackendUpdateConfig(rapidjson::Document &document)
 {
   bool validAcc = true;
   std::string sessionId;
   std::string coin;
-  bool ppsModeEnabled = false;
-  double ppsPoolFee = 4.0;
-  std::string ppsSaturationFunction;
-  double ppsSaturationB0 = 0.0;
-  double ppsSaturationANegative = 0.0;
-  double ppsSaturationAPositive = 0.0;
   jsonParseString(document, "id", sessionId, &validAcc);
   jsonParseString(document, "coin", coin, &validAcc);
-  jsonParseBoolean(document, "ppsModeEnabled", &ppsModeEnabled, &validAcc);
-  jsonParseNumber(document, "ppsPoolFee", &ppsPoolFee, &validAcc);
-  jsonParseString(document, "ppsSaturationFunction", ppsSaturationFunction, "", &validAcc);
-  jsonParseNumber(document, "ppsSaturationB0", &ppsSaturationB0, 0.0, &validAcc);
-  jsonParseNumber(document, "ppsSaturationANegative", &ppsSaturationANegative, 0.0, &validAcc);
-  jsonParseNumber(document, "ppsSaturationAPositive", &ppsSaturationAPositive, 0.0, &validAcc);
+
+  bool hasPps = document.HasMember("pps");
+  CBackendSettings::PPS ppsCfg;
+  std::string saturationFunctionName;
+  if (hasPps) {
+    if (!document["pps"].IsObject()) {
+      validAcc = false;
+    } else {
+      rapidjson::Value &ppsValue = document["pps"];
+      jsonParseBoolean(ppsValue, "enabled", &ppsCfg.Enabled, &validAcc);
+      jsonParseNumber(ppsValue, "poolFee", &ppsCfg.PoolFee, &validAcc);
+      jsonParseString(ppsValue, "saturationFunction", saturationFunctionName, "", &validAcc);
+      jsonParseNumber(ppsValue, "saturationB0", &ppsCfg.SaturationB0, 0.0, &validAcc);
+      jsonParseNumber(ppsValue, "saturationANegative", &ppsCfg.SaturationANegative, 0.0, &validAcc);
+      jsonParseNumber(ppsValue, "saturationAPositive", &ppsCfg.SaturationAPositive, 0.0, &validAcc);
+    }
+  }
+
+  bool hasPayouts = document.HasMember("payouts");
+  CBackendSettings::Payouts payoutsCfg;
+  std::string instantMinimalPayout;
+  std::string regularMinimalPayout;
+  int64_t instantPayoutInterval = 0;
+  int64_t regularPayoutInterval = 0;
+  int64_t regularPayoutDayOffset = 0;
+  if (hasPayouts) {
+    if (!document["payouts"].IsObject()) {
+      validAcc = false;
+    } else {
+      rapidjson::Value &payoutsValue = document["payouts"];
+      jsonParseBoolean(payoutsValue, "instantPayoutsEnabled", &payoutsCfg.InstantPayoutsEnabled, &validAcc);
+      jsonParseBoolean(payoutsValue, "regularPayoutsEnabled", &payoutsCfg.RegularPayoutsEnabled, &validAcc);
+      jsonParseString(payoutsValue, "instantMinimalPayout", instantMinimalPayout, &validAcc);
+      jsonParseInt64(payoutsValue, "instantPayoutInterval", &instantPayoutInterval, &validAcc);
+      jsonParseString(payoutsValue, "regularMinimalPayout", regularMinimalPayout, &validAcc);
+      jsonParseInt64(payoutsValue, "regularPayoutInterval", &regularPayoutInterval, &validAcc);
+      jsonParseInt64(payoutsValue, "regularPayoutDayOffset", &regularPayoutDayOffset, 0, &validAcc);
+    }
+  }
+
+  bool adjustUserMinimalPayout = false;
+  jsonParseBoolean(document, "adjustUserInstantMinimalPayout", &adjustUserMinimalPayout, false, &validAcc);
 
   if (!validAcc) {
+    replyWithStatus("json_format_error");
+    return;
+  }
+
+  if (!hasPps && !hasPayouts) {
     replyWithStatus("json_format_error");
     return;
   }
@@ -2344,25 +2482,45 @@ void PoolHttpConnection::onBackendUpdatePPSConfig(rapidjson::Document &document)
     return;
   }
 
-  ESaturationFunction saturationFunction;
-  if (!CPPSConfig::parseSaturationFunction(ppsSaturationFunction, &saturationFunction)) {
-    replyWithStatus("invalid_saturation_function");
-    return;
+  std::optional<CBackendSettings::PPS> pps;
+  std::optional<CBackendSettings::Payouts> payouts;
+
+  if (hasPps) {
+    if (!CBackendSettings::PPS::parseSaturationFunction(saturationFunctionName, &ppsCfg.SaturationFunction)) {
+      replyWithStatus("invalid_saturation_function");
+      return;
+    }
+
+    pps = std::move(ppsCfg);
   }
 
-  CPPSConfig cfg;
-  cfg.Enabled = ppsModeEnabled;
-  cfg.PoolFee = ppsPoolFee;
-  cfg.SaturationFunction = saturationFunction;
-  cfg.SaturationB0 = ppsSaturationB0;
-  cfg.SaturationANegative = ppsSaturationANegative;
-  cfg.SaturationAPositive = ppsSaturationAPositive;
+  if (hasPayouts) {
+    unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
+    if (!parseMoneyValue(instantMinimalPayout.c_str(), fractionalPartSize, &payoutsCfg.InstantMinimalPayout) ||
+        !parseMoneyValue(regularMinimalPayout.c_str(), fractionalPartSize, &payoutsCfg.RegularMinimalPayout)) {
+      replyWithStatus("request_format_error");
+      return;
+    }
+
+    payoutsCfg.InstantPayoutInterval = std::chrono::minutes(instantPayoutInterval);
+    payoutsCfg.RegularPayoutInterval = std::chrono::hours(regularPayoutInterval);
+    payoutsCfg.RegularPayoutDayOffset = std::chrono::hours(regularPayoutDayOffset);
+    payouts = std::move(payoutsCfg);
+  }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->updatePPSConfig(cfg, [this](const char *status) {
-    replyWithStatus(status);
-    objectDecrementReference(aioObjectHandle(Socket_), 1);
-  });
+  backend->accountingDb()->updateBackendSettings(
+    std::move(pps),
+    std::move(payouts),
+    [this, adjustUserMinimalPayout, backend, coin](const char *status) {
+      if (adjustUserMinimalPayout && strcmp(status, "ok") == 0) {
+        auto instantMinimalPayout =
+            backend->accountingDb()->backendSettings().PayoutConfig.InstantMinimalPayout;
+        Server_.userManager().adjustInstantMinimalPayout(coin, instantMinimalPayout);
+      }
+      replyWithStatus(status);
+      objectDecrementReference(aioObjectHandle(Socket_), 1);
+    });
 }
 
 void PoolHttpConnection::onBackendPoolLuck(rapidjson::Document &document)

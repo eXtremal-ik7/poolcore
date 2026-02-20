@@ -16,25 +16,43 @@ const std::string defaultFeePlan = "default";
 const std::vector<::UserFeePair> emptyFeeRecord;
 } // namespace
 
-template<> struct DbIo<CPPSConfig> {
-  static inline void serialize(xmstream &dst, const CPPSConfig &data) {
-    DbIo<bool>::serialize(dst, data.Enabled);
-    DbIo<double>::serialize(dst, data.PoolFee);
-    DbIo<uint32_t>::serialize(dst, static_cast<uint32_t>(data.SaturationFunction));
-    DbIo<double>::serialize(dst, data.SaturationB0);
-    DbIo<double>::serialize(dst, data.SaturationANegative);
-    DbIo<double>::serialize(dst, data.SaturationAPositive);
+template<> struct DbIo<CBackendSettings> {
+  static inline void serialize(xmstream &dst, const CBackendSettings &data) {
+    // PPS
+    DbIo<bool>::serialize(dst, data.PPSConfig.Enabled);
+    DbIo<double>::serialize(dst, data.PPSConfig.PoolFee);
+    DbIo<uint32_t>::serialize(dst, static_cast<uint32_t>(data.PPSConfig.SaturationFunction));
+    DbIo<double>::serialize(dst, data.PPSConfig.SaturationB0);
+    DbIo<double>::serialize(dst, data.PPSConfig.SaturationANegative);
+    DbIo<double>::serialize(dst, data.PPSConfig.SaturationAPositive);
+    // Payouts
+    DbIo<bool>::serialize(dst, data.PayoutConfig.InstantPayoutsEnabled);
+    DbIo<bool>::serialize(dst, data.PayoutConfig.RegularPayoutsEnabled);
+    DbIo<UInt<384>>::serialize(dst, data.PayoutConfig.InstantMinimalPayout);
+    DbIo<std::chrono::minutes>::serialize(dst, data.PayoutConfig.InstantPayoutInterval);
+    DbIo<UInt<384>>::serialize(dst, data.PayoutConfig.RegularMinimalPayout);
+    DbIo<std::chrono::hours>::serialize(dst, data.PayoutConfig.RegularPayoutInterval);
+    DbIo<std::chrono::hours>::serialize(dst, data.PayoutConfig.RegularPayoutDayOffset);
   }
 
-  static inline void unserialize(xmstream &src, CPPSConfig &data) {
-    DbIo<bool>::unserialize(src, data.Enabled);
-    DbIo<double>::unserialize(src, data.PoolFee);
+  static inline void unserialize(xmstream &src, CBackendSettings &data) {
+    // PPS
+    DbIo<bool>::unserialize(src, data.PPSConfig.Enabled);
+    DbIo<double>::unserialize(src, data.PPSConfig.PoolFee);
     uint32_t saturationFunction = 0;
     DbIo<uint32_t>::unserialize(src, saturationFunction);
-    data.SaturationFunction = static_cast<ESaturationFunction>(saturationFunction);
-    DbIo<double>::unserialize(src, data.SaturationB0);
-    DbIo<double>::unserialize(src, data.SaturationANegative);
-    DbIo<double>::unserialize(src, data.SaturationAPositive);
+    data.PPSConfig.SaturationFunction = static_cast<ESaturationFunction>(saturationFunction);
+    DbIo<double>::unserialize(src, data.PPSConfig.SaturationB0);
+    DbIo<double>::unserialize(src, data.PPSConfig.SaturationANegative);
+    DbIo<double>::unserialize(src, data.PPSConfig.SaturationAPositive);
+    // Payouts
+    DbIo<bool>::unserialize(src, data.PayoutConfig.InstantPayoutsEnabled);
+    DbIo<bool>::unserialize(src, data.PayoutConfig.RegularPayoutsEnabled);
+    DbIo<UInt<384>>::unserialize(src, data.PayoutConfig.InstantMinimalPayout);
+    DbIo<std::chrono::minutes>::unserialize(src, data.PayoutConfig.InstantPayoutInterval);
+    DbIo<UInt<384>>::unserialize(src, data.PayoutConfig.RegularMinimalPayout);
+    DbIo<std::chrono::hours>::unserialize(src, data.PayoutConfig.RegularPayoutInterval);
+    DbIo<std::chrono::hours>::unserialize(src, data.PayoutConfig.RegularPayoutDayOffset);
   }
 };
 
@@ -159,7 +177,7 @@ void AccountingDb::CPPSPayoutAcc::mergeScaled(const CPPSPayout &record, double c
   TotalUSD += usdValue;
 }
 
-bool CPPSConfig::parseSaturationFunction(const std::string &name, ESaturationFunction *out)
+bool CBackendSettings::PPS::parseSaturationFunction(const std::string &name, ESaturationFunction *out)
 {
   struct { const char *name; ESaturationFunction value; } table[] = {
     {"none",     ESaturationFunction::None},
@@ -187,7 +205,7 @@ bool CPPSConfig::parseSaturationFunction(const std::string &name, ESaturationFun
   return false;
 }
 
-const char *CPPSConfig::saturationFunctionName(ESaturationFunction value)
+const char *CBackendSettings::PPS::saturationFunctionName(ESaturationFunction value)
 {
   switch (value) {
     case ESaturationFunction::None:     return "none";
@@ -202,7 +220,7 @@ const char *CPPSConfig::saturationFunctionName(ESaturationFunction value)
   }
 }
 
-const std::vector<const char*> &CPPSConfig::saturationFunctionNames()
+const std::vector<const char*> &CBackendSettings::PPS::saturationFunctionNames()
 {
   static const std::vector<const char*> names = {
     "none", "tanh", "clamp", "cubic", "softsign", "norm", "atan", "exp"
@@ -210,7 +228,7 @@ const std::vector<const char*> &CPPSConfig::saturationFunctionNames()
   return names;
 }
 
-double CPPSConfig::saturateCoeff(double balanceInBlocks) const
+double CBackendSettings::PPS::saturateCoeff(double balanceInBlocks) const
 {
   if (SaturationFunction == ESaturationFunction::None)
     return 1.0;
@@ -326,11 +344,12 @@ AccountingDb::CPersistentState::CPersistentState(const std::filesystem::path &db
 {
 }
 
-bool AccountingDb::CPersistentState::load()
+bool AccountingDb::CPersistentState::load(const CCoinInfo &coinInfo)
 {
   RecentStats.clear();
   CurrentScores.clear();
 
+  bool settingsLoaded = false;
   std::unique_ptr<rocksdbBase::IteratorType> It(Db.iterator());
   It->seekFirst();
 
@@ -352,10 +371,11 @@ bool AccountingDb::CPersistentState::load()
       DbIo<decltype(PPSPendingBalance)>::unserialize(stream, PPSPendingBalance);
     } else if (keyStr == "currentroundstart") {
       DbIo<Timestamp>::unserialize(stream, CurrentRoundStartTime);
-    } else if (keyStr == "ppsconfig") {
-      CPPSConfig cfg;
-      DbIo<CPPSConfig>::unserialize(stream, cfg);
-      PPSConfig.store(cfg, std::memory_order_relaxed);
+    } else if (keyStr == "settings") {
+      CBackendSettings settings;
+      DbIo<CBackendSettings>::unserialize(stream, settings);
+      BackendSettings.store(settings, std::memory_order_relaxed);
+      settingsLoaded = true;
     } else if (keyStr == "ppsstate") {
       DbIo<CPPSState>::unserialize(stream, PPSState);
     } else if (keyStr == "payoutqueue") {
@@ -374,6 +394,14 @@ bool AccountingDb::CPersistentState::load()
   // Fresh DB has no currentroundstart key; use current time as round start
   if (CurrentRoundStartTime == Timestamp())
     CurrentRoundStartTime = Timestamp::now();
+
+  // Fresh DB has no settings key; initialize payout thresholds from coin library defaults
+  if (!settingsLoaded) {
+    CBackendSettings settings;
+    settings.PayoutConfig.InstantMinimalPayout = coinInfo.DefaultInstantMinimalPayout;
+    settings.PayoutConfig.RegularMinimalPayout = coinInfo.DefaultRegularMinimalPayout;
+    BackendSettings.store(settings, std::memory_order_relaxed);
+  }
 
   LastAcceptedMsgId_ = SavedShareId;
 
@@ -448,11 +476,11 @@ void AccountingDb::CPersistentState::flushState()
   Db.writeBatch(batch);
 }
 
-void AccountingDb::CPersistentState::flushPPSConfig()
+void AccountingDb::CPersistentState::flushBackendSettings()
 {
   xmstream stream;
-  DbIo<CPPSConfig>::serialize(stream, PPSConfig.load(std::memory_order_relaxed));
-  Db.put("default", "ppsconfig", 9, stream.data(), stream.sizeOf());
+  DbIo<CBackendSettings>::serialize(stream, BackendSettings.load(std::memory_order_relaxed));
+  Db.put("default", "settings", 8, stream.data(), stream.sizeOf());
 }
 
 void AccountingDb::CPersistentState::flushPayoutQueue()
@@ -512,6 +540,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   ShareLogFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   UserStatsFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   PPSPayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);
+  InstantPayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);
 
   // Start loading user data from UserManager in parallel with local DB loading
   std::thread settingsThread([this]() {
@@ -535,7 +564,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   });
 
   UserStatsAcc_.load(config.dbPath, coinInfo.Name);
-  State_.load();
+  State_.load(coinInfo);
   LOG_F(INFO, "loaded %u payouts from db", static_cast<unsigned>(State_.PayoutQueue.size()));
 
   {
@@ -670,6 +699,27 @@ void AccountingDb::userStatsFlushHandler()
   }
 }
 
+void AccountingDb::instantPayoutHandler()
+{
+  for (;;) {
+    auto payoutConfig = backendSettings().PayoutConfig;
+    if (payoutConfig.InstantPayoutsEnabled) {
+      ioSleep(
+        InstantPayoutEvent_,
+        std::chrono::duration_cast<std::chrono::microseconds>(
+          payoutConfig.InstantPayoutInterval).count());
+    } else {
+      ioWaitUserEvent(InstantPayoutEvent_);
+    }
+    if (ShutdownRequested_)
+      break;
+    if (backendSettings().PayoutConfig.InstantPayoutsEnabled)
+      makePayout();
+    if (ShutdownRequested_)
+      break;
+  }
+}
+
 void AccountingDb::ppsPayoutHandler()
 {
   for (;;) {
@@ -702,6 +752,10 @@ void AccountingDb::start()
   coroutineCall(coroutineNewWithCb([](void *arg) {
     static_cast<AccountingDb*>(arg)->ppsPayoutHandler();
   }, this, 0x100000, coroutineFinishCb, &PPSPayoutFinished_));
+
+  coroutineCall(coroutineNewWithCb([](void *arg) {
+    static_cast<AccountingDb*>(arg)->instantPayoutHandler();
+  }, this, 0x100000, coroutineFinishCb, &InstantPayoutFinished_));
 }
 
 void AccountingDb::stop()
@@ -712,10 +766,12 @@ void AccountingDb::stop()
   userEventActivate(ShareLogFlushEvent_);
   userEventActivate(UserStatsFlushEvent_);
   userEventActivate(PPSPayoutEvent_);
+  userEventActivate(InstantPayoutEvent_);
   coroutineJoin(CoinInfo_.Name.c_str(), "accounting: flush thread", &FlushFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "accounting: share log flush", &ShareLogFlushFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "accounting: user stats flush", &UserStatsFlushFinished_);
   coroutineJoin(CoinInfo_.Name.c_str(), "accounting: pps payout", &PPSPayoutFinished_);
+  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: instant payout", &InstantPayoutFinished_);
   ShareLog_.flush();
 }
 
@@ -905,8 +961,8 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
   CUserWorkSummary ppsMeta;
   ppsMeta.UserId = ppsMetaUserId();
 
-  CPPSConfig ppsConfig = State_.PPSConfig.load(std::memory_order_relaxed);
-  bool ppsEnabled = ppsConfig.Enabled;
+  auto settings = State_.BackendSettings.load(std::memory_order_relaxed);
+  bool ppsEnabled = settings.PPSConfig.Enabled;
 
   // Determine LastBaseBlockReward from batch (all entries share the same value)
   UInt<384> lastBaseBlockReward = State_.PPSState.LastBaseBlockReward;
@@ -920,12 +976,12 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
 
   // Compute saturation coefficient once per batch
   double saturateCoeff = 1.0;
-  double ppsPoolFee = ppsConfig.PoolFee;
+  double ppsPoolFee = settings.PPSConfig.PoolFee;
   UInt<384> averageTxFee = State_.PPSState.LastAverageTxFee;
   if (ppsEnabled) {
     double currentBalanceInBlocks =
       CPPSState::balanceInBlocks(State_.PPSState.ReferenceBalance, lastBaseBlockReward);
-    saturateCoeff = ppsConfig.saturateCoeff(currentBalanceInBlocks);
+    saturateCoeff = settings.PPSConfig.saturateCoeff(currentBalanceInBlocks);
     if (FeeEstimationService_)
       averageTxFee = FeeEstimationService_->averageFee();
   }
@@ -937,7 +993,7 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
     if (ppsEnabled) {
       auto settingsIt = UserSettings_.find(entry.UserId);
       if (settingsIt != UserSettings_.end())
-        mode = settingsIt->second.MiningMode;
+        mode = settingsIt->second.Mining.MiningMode;
     }
 
     if (mode == EMiningMode::PPLNS) {
@@ -1277,29 +1333,30 @@ void AccountingDb::checkBlockExtraInfo()
 void AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout)
 {
   *needSkipPayout = false;
-  if (payout.Value < _cfg.MinimalAllowedPayout) {
+  auto minimalPayout = State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout;
+  if (payout.Value < minimalPayout) {
     LOG_F(INFO,
           "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
           index,
           payout.UserId.c_str(),
           FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(),
-          FormatMoney(_cfg.MinimalAllowedPayout, CoinInfo_.FractionalPartSize).c_str());
+          FormatMoney(minimalPayout, CoinInfo_.FractionalPartSize).c_str());
     *needSkipPayout = true;
     return;
   }
 
   // Get address for payment
   auto settingsIt = UserSettings_.find(payout.UserId);
-  if (settingsIt == UserSettings_.end() || settingsIt->second.Address.empty()) {
+  if (settingsIt == UserSettings_.end() || settingsIt->second.Payout.Address.empty()) {
     LOG_F(WARNING, "user %s did not setup payout address, ignoring", payout.UserId.c_str());
     *needSkipPayout = true;
     return;
   }
 
   const UserSettingsRecord &settings = settingsIt->second;
-  recipient = settings.Address;
-  if (!CoinInfo_.checkAddress(settings.Address, CoinInfo_.PayoutAddressType)) {
-    LOG_F(ERROR, "Invalid payment address %s for %s", settings.Address.c_str(), payout.UserId.c_str());
+  recipient = settings.Payout.Address;
+  if (!CoinInfo_.checkAddress(settings.Payout.Address, CoinInfo_.PayoutAddressType)) {
+    LOG_F(ERROR, "Invalid payment address %s for %s", settings.Payout.Address.c_str(), payout.UserId.c_str());
     *needSkipPayout = true;
     return;
   }
@@ -1308,14 +1365,14 @@ void AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
   // For bitcoin-based API it's sequential call of createrawtransaction, fundrawtransaction and signrawtransaction
   CNetworkClient::BuildTransactionResult transaction;
   CNetworkClient::EOperationStatus status =
-    ClientDispatcher_.ioBuildTransaction(Base_, settings.Address.c_str(), _cfg.MiningAddresses.get().MiningAddress, payout.Value, transaction);
+    ClientDispatcher_.ioBuildTransaction(Base_, settings.Payout.Address.c_str(), _cfg.MiningAddresses.get().MiningAddress, payout.Value, transaction);
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusInsufficientFunds) {
     LOG_F(INFO, "No money left to pay");
     return;
   } else {
-    LOG_F(ERROR, "Payment %s to %s failed with error \"%s\"", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), settings.Address.c_str(), transaction.Error.c_str());
+    LOG_F(ERROR, "Payment %s to %s failed with error \"%s\"", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), settings.Payout.Address.c_str(), transaction.Error.c_str());
     return;
   }
 
@@ -1339,7 +1396,7 @@ void AccountingDb::buildTransaction(PayoutDbRecord &payout, unsigned index, std:
     balance.Requested -= delta;
     _balanceDb.put(balance);
   } else if (payout.Value < transactionTotalValue) {
-    LOG_F(ERROR, "Payment %s to %s failed: too big transaction amount", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), settings.Address.c_str());
+    LOG_F(ERROR, "Payment %s to %s failed: too big transaction amount", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), settings.Payout.Address.c_str());
     return;
   }
 
@@ -1455,7 +1512,7 @@ void AccountingDb::makePayout()
           continue;
         }
 
-        if (I->Value < _cfg.MinimalAllowedPayout) {
+        if (I->Value < State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout) {
           payoutAccMap[I->UserId] += I->Value;
           LOG_F(INFO,
                 "Accounting: merge payout %s for %s (total already %s)",
@@ -1667,7 +1724,7 @@ void AccountingDb::checkBalance()
         FormatMoney(confirmationWait, CoinInfo_.FractionalPartSize).c_str(),
         FormatMoney(net, CoinInfo_.FractionalPartSize).c_str());
 
-  if (State_.PPSConfig.load(std::memory_order_relaxed).Enabled) {
+  if (State_.BackendSettings.load(std::memory_order_relaxed).PPSConfig.Enabled) {
     const auto &pps = State_.PPSState;
     const auto &reward = pps.LastBaseBlockReward;
     double refBalanceInBlocks = CPPSState::balanceInBlocks(pps.ReferenceBalance, reward);
@@ -1740,11 +1797,22 @@ bool AccountingDb::applyReward(const std::string &address,
   UInt<384> nonQueuedBalance = balance.Balance - balance.Requested;
   if (!nonQueuedBalance.isNegative() &&
       settingsIt != UserSettings_.end() &&
-      settingsIt->second.AutoPayout &&
-      nonQueuedBalance >= settingsIt->second.MinimalPayout) {
-    State_.PayoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
-    balance.Requested += nonQueuedBalance;
-    result = true;
+      settingsIt->second.Payout.AutoPayout) {
+    auto instantMinimalPayout = State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout;
+    auto userMinimalPayout = settingsIt->second.Payout.MinimalPayout;
+    if (userMinimalPayout < instantMinimalPayout) {
+      LOG_F(WARNING,
+            "[%s] User %s has MinimalPayout below pool's InstantMinimalPayout, using pool minimum",
+            CoinInfo_.Name.c_str(),
+            balance.Login.c_str());
+      userMinimalPayout = instantMinimalPayout;
+    }
+
+    if (nonQueuedBalance >= userMinimalPayout) {
+      State_.PayoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
+      balance.Requested += nonQueuedBalance;
+      result = true;
+    }
   }
 
   balanceBatch.put(balance);
@@ -1779,7 +1847,8 @@ void AccountingDb::manualPayoutImpl(const std::string &user, DefaultCb callback)
     auto &B = It->second;
     UInt<384> nonQueuedBalance = B.Balance - B.Requested;
     // Check global minimum (dust protection); per-user MinimalPayout is bypassed for manual payouts
-    if (!nonQueuedBalance.isNegative() && nonQueuedBalance >= _cfg.MinimalAllowedPayout) {
+    if (!nonQueuedBalance.isNegative() &&
+        nonQueuedBalance >= State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout) {
       bool result = requestManualPayout(user);
       const char *status = result ? "ok" : "payout_error";
       if (result) {
@@ -2143,14 +2212,12 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
   callback(result);
 }
 
-void AccountingDb::queryPPSConfigImpl(QueryPPSConfigCallback callback)
-{
-  callback(State_.PPSConfig.load(std::memory_order_relaxed));
-}
-
 void AccountingDb::queryPPSStateImpl(QueryPPSStateCallback callback)
 {
-  callback(State_.PPSState);
+  CPPSState state = State_.PPSState;
+  for (const auto &[userId, value] : State_.PPSPendingBalance)
+    state.Balance -= value;
+  callback(state);
 }
 
 std::vector<CPPSState> AccountingDb::queryPPSHistory(int64_t timeFrom, int64_t timeTo)
@@ -2177,33 +2244,67 @@ std::vector<CPPSState> AccountingDb::queryPPSHistory(int64_t timeFrom, int64_t t
   return result;
 }
 
-void AccountingDb::updatePPSConfigImpl(const CPPSConfig &cfg, DefaultCb callback)
+void AccountingDb::updateBackendSettingsImpl(
+    const std::optional<CBackendSettings::PPS> &pps,
+    const std::optional<CBackendSettings::Payouts> &payouts,
+    DefaultCb callback)
 {
-  if (cfg.PoolFee < 0.0 || cfg.PoolFee > 100.0) {
-    callback("invalid_pool_fee");
-    return;
-  }
+  CBackendSettings settings = State_.BackendSettings.load(std::memory_order_relaxed);
 
-  if (cfg.SaturationFunction != ESaturationFunction::None) {
-    if (cfg.SaturationB0 <= 0.0 ||
-        cfg.SaturationANegative < 0.0 || cfg.SaturationANegative > 1.0 ||
-        cfg.SaturationAPositive < 0.0 || cfg.SaturationAPositive > 1.0) {
-      callback("invalid_saturation_params");
+  if (pps.has_value()) {
+    if (pps->PoolFee < 0.0 || pps->PoolFee > 100.0) {
+      callback("invalid_pool_fee");
       return;
     }
+
+    if (pps->SaturationFunction != ESaturationFunction::None) {
+      if (pps->SaturationB0 <= 0.0 ||
+          pps->SaturationANegative < 0.0 || pps->SaturationANegative > 1.0 ||
+          pps->SaturationAPositive < 0.0 || pps->SaturationAPositive > 1.0) {
+        callback("invalid_saturation_params");
+        return;
+      }
+    }
+
+    settings.PPSConfig = *pps;
+    LOG_F(INFO,
+      "[%s] PPS config updated: enabled=%d, poolFee=%.2f, saturation=%s, B0=%.4f, aNeg=%.4f, aPos=%.4f",
+      CoinInfo_.Name.c_str(),
+      static_cast<int>(pps->Enabled),
+      pps->PoolFee,
+      CBackendSettings::PPS::saturationFunctionName(pps->SaturationFunction),
+      pps->SaturationB0,
+      pps->SaturationANegative,
+      pps->SaturationAPositive);
   }
 
-  State_.PPSConfig.store(cfg, std::memory_order_relaxed);
-  State_.flushPPSConfig();
-  LOG_F(INFO,
-    "[%s] PPS config updated: enabled=%d, poolFee=%.2f, saturation=%s, B0=%.4f, aNeg=%.4f, aPos=%.4f",
-    CoinInfo_.Name.c_str(),
-    static_cast<int>(cfg.Enabled),
-    cfg.PoolFee,
-    CPPSConfig::saturationFunctionName(cfg.SaturationFunction),
-    cfg.SaturationB0,
-    cfg.SaturationANegative,
-    cfg.SaturationAPositive);
+  if (payouts.has_value()) {
+    if (payouts->InstantPayoutInterval <= std::chrono::minutes(0) ||
+        payouts->RegularPayoutInterval <= std::chrono::hours(0) ||
+        payouts->RegularPayoutDayOffset < std::chrono::hours(0)) {
+      callback("invalid_payout_interval");
+      return;
+    }
+
+    {
+      int64_t hours = payouts->RegularPayoutInterval.count();
+      if (hours < 24 ? (24 % hours != 0) : (hours % 24 != 0)) {
+        callback("invalid_regular_payout_interval");
+        return;
+      }
+      if (payouts->RegularPayoutDayOffset >= std::chrono::hours(24)) {
+        callback("invalid_regular_payout_day_offset");
+        return;
+      }
+    }
+
+    settings.PayoutConfig = *payouts;
+    LOG_F(INFO, "[%s] Payouts config updated", CoinInfo_.Name.c_str());
+  }
+
+  State_.BackendSettings.store(settings, std::memory_order_relaxed);
+  State_.flushBackendSettings();
+  userEventActivate(InstantPayoutEvent_);
   callback("ok");
 }
 

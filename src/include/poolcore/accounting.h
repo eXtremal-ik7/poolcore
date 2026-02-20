@@ -9,6 +9,7 @@
 #include "poolcommon/taskHandler.h"
 #include "poolcore/clientDispatcher.h"
 #include <atomic>
+#include <optional>
 
 class CPriceFetcher;
 
@@ -25,20 +26,41 @@ enum class ESaturationFunction : uint32_t {
   Exp,
 };
 
-struct CPPSConfig {
+struct CBackendSettings {
 
 public:
-  static bool parseSaturationFunction(const std::string &name, ESaturationFunction *out);
-  static const char *saturationFunctionName(ESaturationFunction value);
-  static const std::vector<const char*> &saturationFunctionNames();
-  double saturateCoeff(double balanceInBlocks) const;
+  struct PPS {
 
-  bool Enabled = false;
-  double PoolFee = 4.0;
-  ESaturationFunction SaturationFunction = ESaturationFunction::None;
-  double SaturationB0 = 0.0;
-  double SaturationANegative = 0.0;
-  double SaturationAPositive = 0.0;
+  public:
+    static bool parseSaturationFunction(const std::string &name, ESaturationFunction *out);
+    static const char *saturationFunctionName(ESaturationFunction value);
+    static const std::vector<const char*> &saturationFunctionNames();
+    double saturateCoeff(double balanceInBlocks) const;
+
+    bool Enabled = false;
+    double PoolFee = 4.0;
+    ESaturationFunction SaturationFunction = ESaturationFunction::None;
+    double SaturationB0 = 0.0;
+    double SaturationANegative = 0.0;
+    double SaturationAPositive = 0.0;
+  };
+
+  struct Payouts {
+
+  public:
+    bool InstantPayoutsEnabled = true;
+    bool RegularPayoutsEnabled = true;
+    // Instant payouts: transaction fee is deducted from user's balance
+    UInt<384> InstantMinimalPayout;
+    std::chrono::minutes InstantPayoutInterval = std::chrono::minutes(1);
+    // Regular payouts: transaction fee is deducted from pool's balance
+    UInt<384> RegularMinimalPayout;
+    std::chrono::hours RegularPayoutInterval = std::chrono::hours(24);
+    std::chrono::hours RegularPayoutDayOffset = std::chrono::hours(0);
+  };
+
+  PPS PPSConfig;
+  Payouts PayoutConfig;
 };
 
 struct CPPSBalanceSnapshot {
@@ -172,7 +194,6 @@ private:
   using QueryPPLNSPayoutsCallback = std::function<void(const std::vector<CPPLNSPayoutInfo>&)>;
   using QueryPPLNSAccCallback = std::function<void(const std::vector<CPPLNSPayoutAcc>&)>;
   using PoolLuckCallback = std::function<void(const std::vector<double>&)>;
-  using QueryPPSConfigCallback = std::function<void(const CPPSConfig&)>;
   using QueryPPSStateCallback = std::function<void(const CPPSState&)>;
 
   struct FeePlanCacheKey {
@@ -279,16 +300,16 @@ private:
     std::list<PayoutDbRecord> PayoutQueue;
     std::unordered_set<std::string> KnownTransactions;
 
-    std::atomic<CPPSConfig> PPSConfig{CPPSConfig{}};
+    std::atomic<CBackendSettings> BackendSettings;
     CPPSState PPSState;
 
     CPersistentState(const std::filesystem::path &dbPath);
-    bool load();
+    bool load(const CCoinInfo &coinInfo);
     uint64_t lastAcceptedMsgId() const { return LastAcceptedMsgId_; }
 
     void applyBatch(uint64_t msgId, const CAccountingStateBatch &batch);
     void flushState();
-    void flushPPSConfig();
+    void flushBackendSettings();
     void flushPayoutQueue();
 
   private:
@@ -298,16 +319,6 @@ private:
   };
 
   CPersistentState State_;
-
-  class TaskQueryPPSConfig : public Task<AccountingDb> {
-
-  public:
-    TaskQueryPPSConfig(QueryPPSConfigCallback callback) : Callback_(std::move(callback)) {}
-    void run(AccountingDb *accounting) final { accounting->queryPPSConfigImpl(Callback_); }
-
-  private:
-    QueryPPSConfigCallback Callback_;
-  };
 
   class TaskQueryPPSState : public Task<AccountingDb> {
 
@@ -319,17 +330,23 @@ private:
     QueryPPSStateCallback Callback_;
   };
 
-  class TaskUpdatePPSConfig : public Task<AccountingDb> {
+  class TaskUpdateBackendSettings : public Task<AccountingDb> {
 
   public:
-    TaskUpdatePPSConfig(CPPSConfig cfg, DefaultCb callback) :
-      Config_(std::move(cfg)), Callback_(std::move(callback)) {}
+    TaskUpdateBackendSettings(
+      std::optional<CBackendSettings::PPS> pps,
+      std::optional<CBackendSettings::Payouts> payouts,
+      DefaultCb callback)
+        : PPS_(std::move(pps)),
+          Payouts_(std::move(payouts)),
+          Callback_(std::move(callback)) {}
     void run(AccountingDb *accounting) final {
-      accounting->updatePPSConfigImpl(Config_, Callback_);
+      accounting->updateBackendSettingsImpl(PPS_, Payouts_, Callback_);
     }
 
   private:
-    CPPSConfig Config_;
+    std::optional<CBackendSettings::PPS> PPS_;
+    std::optional<CBackendSettings::Payouts> Payouts_;
     DefaultCb Callback_;
   };
 
@@ -357,6 +374,9 @@ private:
   aioUserEvent *PPSPayoutEvent_ = nullptr;
   bool PPSPayoutFinished_ = false;
 
+  aioUserEvent *InstantPayoutEvent_ = nullptr;
+  bool InstantPayoutFinished_ = false;
+
   TaskHandlerCoroutine<AccountingDb> TaskHandler_;
   aioUserEvent *FlushTimerEvent_;
   bool ShutdownRequested_ = false;
@@ -366,6 +386,7 @@ private:
   void shareLogFlushHandler();
   void userStatsFlushHandler();
   void ppsPayoutHandler();
+  void instantPayoutHandler();
   void ppsPayout();
   void applyPPSCorrection(MiningRound *R);
 
@@ -440,14 +461,17 @@ public:
   }
   void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { TaskHandler_.push(new TaskQueryBalance(user, callback)); }
   void poolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) { TaskHandler_.push(new TaskPoolLuck(std::move(intervals), callback)); }
-  void queryPPSConfig(QueryPPSConfigCallback callback) { TaskHandler_.push(new TaskQueryPPSConfig(std::move(callback))); }
   void queryPPSState(QueryPPSStateCallback callback) { TaskHandler_.push(new TaskQueryPPSState(std::move(callback))); }
-  void updatePPSConfig(CPPSConfig cfg, DefaultCb cb) {
-    TaskHandler_.push(new TaskUpdatePPSConfig(std::move(cfg), cb));
+  void updateBackendSettings(
+      std::optional<CBackendSettings::PPS> pps,
+      std::optional<CBackendSettings::Payouts> payouts,
+      DefaultCb cb) {
+    TaskHandler_.push(new TaskUpdateBackendSettings(std::move(pps), std::move(payouts), std::move(cb)));
   }
 
-  bool isPPSEnabled() const { return State_.PPSConfig.load(std::memory_order_relaxed).Enabled; }
-  double ppsPoolFee() const { return State_.PPSConfig.load(std::memory_order_relaxed).PoolFee; }
+  CBackendSettings backendSettings() const {
+    return State_.BackendSettings.load(std::memory_order_relaxed);
+  }
   void setFeeEstimationService(CFeeEstimationService *service) { FeeEstimationService_ = service; }
 
   // Asynchronous multi calls
@@ -464,9 +488,11 @@ private:
   void queryPPLNSPayoutsImpl(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback);
   void queryPPLNSPayoutsAccImpl(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, QueryPPLNSAccCallback callback);
   void poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback);
-  void queryPPSConfigImpl(QueryPPSConfigCallback callback);
   void queryPPSStateImpl(QueryPPSStateCallback callback);
-  void updatePPSConfigImpl(const CPPSConfig &cfg, DefaultCb callback);
+  void updateBackendSettingsImpl(
+      const std::optional<CBackendSettings::PPS> &pps,
+      const std::optional<CBackendSettings::Payouts> &payouts,
+      DefaultCb callback);
 };
 
 #endif //__ACCOUNTING_H_

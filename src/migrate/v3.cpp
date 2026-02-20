@@ -1276,9 +1276,9 @@ static bool migrateUserSettings(const std::filesystem::path &srcPath, const std:
     UserSettingsRecord newRecord;
     newRecord.Login = oldRecord.Login;
     newRecord.Coin = oldRecord.Coin;
-    newRecord.Address = oldRecord.Address;
-    newRecord.AutoPayout = oldRecord.AutoPayout;
-    newRecord.MinimalPayout = fromRational(static_cast<uint64_t>(oldRecord.MinimalPayout));
+    newRecord.Payout.Address = oldRecord.Address;
+    newRecord.Payout.AutoPayout = oldRecord.AutoPayout;
+    newRecord.Payout.MinimalPayout = fromRational(static_cast<uint64_t>(oldRecord.MinimalPayout));
 
     auto coinIt = coinMap.find(oldRecord.Coin);
     if (coinIt == coinMap.end()) {
@@ -1290,7 +1290,7 @@ static bool migrateUserSettings(const std::filesystem::path &srcPath, const std:
 
     LOG_F(INFO, "  %s/%s address=%s minimalPayout=%s autoPayout=%u",
           oldRecord.Login.c_str(), oldRecord.Coin.c_str(), oldRecord.Address.c_str(),
-          FormatMoney(newRecord.MinimalPayout, coinInfo.FractionalPartSize).c_str(), static_cast<unsigned>(oldRecord.AutoPayout));
+          FormatMoney(newRecord.Payout.MinimalPayout, coinInfo.FractionalPartSize).c_str(), static_cast<unsigned>(oldRecord.AutoPayout));
 
     xmstream stream;
     newRecord.serializeValue(stream);

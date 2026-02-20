@@ -119,10 +119,8 @@ private:
   TaskHandlerCoroutine<PoolBackend> TaskHandler_;
   bool ShutdownRequested_ = false;
   bool CheckConfirmationsHandlerFinished_ = false;
-  bool PayoutHandlerFinished_ = false;
   bool CheckBalanceHandlerFinished_ = false;
   aioUserEvent *CheckConfirmationsEvent_ = nullptr;
-  aioUserEvent *PayoutEvent_ = nullptr;
   aioUserEvent *CheckBalanceEvent_ = nullptr;
 
   double ProfitSwitchCoeff_ = 0.0;
@@ -131,7 +129,6 @@ private:
 
   void backendMain();
   void checkConfirmationsHandler();
-  void payoutHandler();
   void checkBalanceHandler();
   
   void onUpdateDag(unsigned epochNumber, bool bigEpoch);

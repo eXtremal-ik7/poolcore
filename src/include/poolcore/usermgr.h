@@ -9,6 +9,7 @@
 #include <tbb/concurrent_queue.h>
 #include <tbb/concurrent_hash_map.h>
 #include <thread>
+#include <optional>
 #include <unordered_set>
 
 class PoolBackend;
@@ -199,10 +200,35 @@ public:
 
   class UpdateSettingsTask: public Task {
   public:
-    UpdateSettingsTask(UserManager *userMgr, UserSettingsRecord &&settings, const std::string &totp, DefaultCb callback) : Task(userMgr), Settings_(settings), Totp_(totp), Callback_(callback) {}
-    void run() final { UserMgr_->updateSettingsImpl(Settings_, Totp_, Callback_); }
+    UpdateSettingsTask(
+      UserManager *userMgr,
+      const std::string &login,
+      const std::string &coin,
+      std::optional<CSettingsPayout> payout,
+      std::optional<CSettingsMining> mining,
+      std::optional<CSettingsAutoExchange> autoExchange,
+      const std::string &totp,
+      DefaultCb callback)
+        : Task(userMgr),
+          Login_(login),
+          Coin_(coin),
+          Payout_(std::move(payout)),
+          Mining_(std::move(mining)),
+          AutoExchange_(std::move(autoExchange)),
+          Totp_(totp),
+          Callback_(callback) {}
+
+    void run() final {
+      UserMgr_->updateSettingsImpl(
+        Login_, Coin_, Payout_, Mining_, AutoExchange_, Totp_, Callback_);
+    }
+
   private:
-    UserSettingsRecord Settings_;
+    std::string Login_;
+    std::string Coin_;
+    std::optional<CSettingsPayout> Payout_;
+    std::optional<CSettingsMining> Mining_;
+    std::optional<CSettingsAutoExchange> AutoExchange_;
     std::string Totp_;
     DefaultCb Callback_;
   };
@@ -422,7 +448,20 @@ public:
   void userLogout(const std::string &id, Task::DefaultCb callback) { startAsyncTask(new UserLogoutTask(this, BaseBlob<512>::fromHexLE(id.c_str()), callback)); }
   void userQueryMonitoringSession(const std::string &sessionId, const std::string &targetLogin, UserQueryMonitoringSessionTask::Cb callback) { startAsyncTask(new UserQueryMonitoringSessionTask(this, sessionId, targetLogin, callback)); }
   void updateCredentials(const std::string &id, const std::string &targetLogin, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UpdateCredentialsTask(this, id, targetLogin, std::move(credentials), callback)); }
-  void updateSettings(UserSettingsRecord &&settings, const std::string &totp, Task::DefaultCb callback) { startAsyncTask(new UpdateSettingsTask(this, std::move(settings), totp, callback)); }
+  void updateSettings(
+    const std::string &login,
+    const std::string &coin,
+    std::optional<CSettingsPayout> payout,
+    std::optional<CSettingsMining> mining,
+    std::optional<CSettingsAutoExchange> autoExchange,
+    const std::string &totp,
+    Task::DefaultCb callback)
+  {
+    startAsyncTask(new UpdateSettingsTask(
+      this, login, coin,
+      std::move(payout), std::move(mining), std::move(autoExchange),
+      totp, callback));
+  }
   void enumerateUsers(const std::string &sessionId, EnumerateUsersTask::Cb callback) { startAsyncTask(new EnumerateUsersTask(this, sessionId, callback)); }
   void createFeePlan(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback) { startAsyncTask(new CreateFeePlanTask(this, sessionId, feePlanId, callback)); }
   void updateFeePlan(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, CModeFeeConfig &&config, Task::DefaultCb callback) { startAsyncTask(new UpdateFeePlanTask(this, sessionId, feePlanId, mode, std::move(config), callback)); }
@@ -440,6 +479,7 @@ public:
   bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);
   std::vector<UserSettingsRecord> getAllCoinSettings(const std::string &coin);
   void fillUserCoinSettings(const std::string &coin, std::unordered_map<std::string, UserSettingsRecord> &out);
+  void adjustInstantMinimalPayout(const std::string &coin, const UInt<384> &minimalPayout);
   std::string getFeePlanId(const std::string &login);
   bool queryFeePlan(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, std::string &status, BaseBlob<256> &referralIdOut, CModeFeeConfig &result);
   bool enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<std::string> &result);
@@ -459,7 +499,14 @@ private:
   void logoutImpl(const BaseBlob<512> &sessionId, Task::DefaultCb callback);
   void queryMonitoringSessionImpl(const std::string &sessionId, const std::string &targetLogin, UserQueryMonitoringSessionTask::Cb callback);
   void updateCredentialsImpl(const std::string &sessionId, const std::string &targetLogin, const Credentials &credentials, Task::DefaultCb callback);
-  void updateSettingsImpl(const UserSettingsRecord &settings, const std::string &totp, Task::DefaultCb callback);
+  void updateSettingsImpl(
+    const std::string &login,
+    const std::string &coin,
+    const std::optional<CSettingsPayout> &payout,
+    const std::optional<CSettingsMining> &mining,
+    const std::optional<CSettingsAutoExchange> &autoExchange,
+    const std::string &totp,
+    Task::DefaultCb callback);
   void enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback);
   void createFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback);
   void updateFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, const CModeFeeConfig &config, Task::DefaultCb callback);

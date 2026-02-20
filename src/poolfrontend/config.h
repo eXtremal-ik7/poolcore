@@ -38,11 +38,10 @@ struct CCoinConfig {
   std::vector<CNodeConfig> RPCNodes;
   unsigned RequiredConfirmations;
   std::string DefaultPayoutThreshold;
-  std::string MinimalAllowedPayout;
+
   unsigned KeepRoundTime;
   unsigned KeepStatsTime;
   unsigned ConfirmationsCheckInterval;
-  unsigned PayoutInterval;
   unsigned BalanceCheckInterval;
   unsigned StatisticCheckInterval;
   unsigned ShareTarget;

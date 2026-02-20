@@ -321,7 +321,8 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
       double maxUncoveredPpsFee = 0.0;
       for (const auto &[coinName, backend] : Backends_) {
         if (!coveredCoins.count(coinName))
-          maxUncoveredPpsFee = std::max(maxUncoveredPpsFee, backend->accountingDb()->ppsPoolFee());
+          maxUncoveredPpsFee = std::max(
+            maxUncoveredPpsFee, backend->accountingDb()->backendSettings().PPSConfig.PoolFee);
       }
 
       // Validate default with worst-case PPS pool fee
@@ -333,7 +334,7 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
         double extraFee = 0.0;
         auto backendIt = Backends_.find(coinCfg.CoinName);
         if (backendIt != Backends_.end())
-          extraFee = backendIt->second->accountingDb()->ppsPoolFee();
+          extraFee = backendIt->second->accountingDb()->backendSettings().PPSConfig.PoolFee;
         if (!acceptProc(coinCfg.Config, record.FeePlanId, extraFee, error))
           return false;
       }
@@ -1093,25 +1094,43 @@ void UserManager::updateCredentialsImpl(const std::string &sessionId, const std:
   callback("ok");
 }
 
-void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, const std::string &totp, Task::DefaultCb callback)
+void UserManager::updateSettingsImpl(
+  const std::string &login,
+  const std::string &coin,
+  const std::optional<CSettingsPayout> &payout,
+  const std::optional<CSettingsMining> &mining,
+  const std::optional<CSettingsAutoExchange> &autoExchange,
+  const std::string &totp,
+  Task::DefaultCb callback)
 {
   // Validate coin
-  auto backendIt = Backends_.find(settings.Coin);
+  auto backendIt = Backends_.find(coin);
   if (backendIt == Backends_.end()) {
     callback("unknown_coin");
     return;
   }
 
   // PPS mode requires global PPS to be enabled for this coin
-  if (settings.MiningMode == EMiningMode::PPS && !backendIt->second->accountingDb()->isPPSEnabled()) {
+  if (mining.has_value() &&
+      mining->MiningMode == EMiningMode::PPS &&
+      !backendIt->second->accountingDb()->backendSettings().PPSConfig.Enabled) {
     callback("pps_not_available");
     return;
+  }
+
+  // Minimal payout must not be less than the pool's instant minimal payout
+  if (payout.has_value() && !payout->MinimalPayout.isZero()) {
+    auto payoutConfig = backendIt->second->accountingDb()->backendSettings().PayoutConfig;
+    if (payout->MinimalPayout < payoutConfig.InstantMinimalPayout) {
+      callback("minimal_payout_too_low");
+      return;
+    }
   }
 
   // check 2fa
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, settings.Login)) {
+    if (!UsersCache_.find(accessor, login)) {
       callback("unknown_login");
       return;
     }
@@ -1122,25 +1141,40 @@ void UserManager::updateSettingsImpl(const UserSettingsRecord &settings, const s
     }
   }
 
-  UserSettingsRecord oldSettings;
-  std::string key = settings.Login;
+  std::string key = login;
   key.push_back('\0');
-  key.append(settings.Coin);
+  key.append(coin);
+
+  UserSettingsRecord settings;
   {
     decltype (SettingsCache_)::accessor accessor;
     if (SettingsCache_.find(accessor, key)) {
-      oldSettings = accessor->second;
-      accessor->second = settings;
+      settings = accessor->second;
     } else {
-      SettingsCache_.insert(std::make_pair(key, settings));
+      settings.Login = login;
+      settings.Coin = coin;
     }
+
+    // Merge provided parts
+    if (payout.has_value())
+      settings.Payout = *payout;
+    if (mining.has_value())
+      settings.Mining = *mining;
+    if (autoExchange.has_value())
+      settings.AutoExchange = *autoExchange;
+
+    if (SettingsCache_.find(accessor, key))
+      accessor->second = settings;
+    else
+      SettingsCache_.insert(std::make_pair(key, settings));
   }
 
   UserSettingsDb_.put(settings);
-  if (oldSettings.Address.empty())
-    LOG_F(INFO, "setup %s/%s address: %s", settings.Login.c_str(), settings.Coin.c_str(), settings.Address.c_str());
-  else
-    LOG_F(INFO, "change %s/%s %s -> %s", settings.Login.c_str(), settings.Coin.c_str(), oldSettings.Address.c_str(), settings.Address.c_str());
+  LOG_F(INFO,
+        "update %s/%s settings: address=%s",
+        settings.Login.c_str(),
+        settings.Coin.c_str(),
+        settings.Payout.Address.c_str());
 
   // Notify backend about settings update
   backendIt->second->sendUserSettingsUpdate(settings);
@@ -1596,6 +1630,26 @@ void UserManager::fillUserCoinSettings(const std::string &coin, std::unordered_m
   for (auto it = SettingsCache_.begin(); it != SettingsCache_.end(); ++it) {
     if (it->second.Coin == coin)
       out.emplace(it->second.Login, it->second);
+  }
+}
+
+void UserManager::adjustInstantMinimalPayout(const std::string &coin, const UInt<384> &minimalPayout)
+{
+  for (auto it = SettingsCache_.begin(); it != SettingsCache_.end(); ++it) {
+    if (it->second.Coin != coin)
+      continue;
+    if (it->second.Payout.MinimalPayout.isZero() || it->second.Payout.MinimalPayout >= minimalPayout)
+      continue;
+
+    decltype(SettingsCache_)::accessor accessor;
+    if (SettingsCache_.find(accessor, it->first) && accessor->second.Payout.MinimalPayout < minimalPayout) {
+      LOG_F(INFO,
+            "User %s/%s MinimalPayout adjusted to pool minimum",
+            accessor->second.Login.c_str(),
+            coin.c_str());
+      accessor->second.Payout.MinimalPayout = minimalPayout;
+      UserSettingsDb_.put(accessor->second);
+    }
   }
 }
 

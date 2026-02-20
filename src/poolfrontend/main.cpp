@@ -264,10 +264,6 @@ int main(int argc, char *argv[])
         return 1;
       }
 
-      if (!parseMoneyValue(coinConfig.MinimalAllowedPayout.c_str(), coinInfo.FractionalPartSize, &backendConfig.MinimalAllowedPayout)) {
-        LOG_F(ERROR, "Can't load 'minimalPayout' from %s coin config", coinName);
-        return 1;
-      }
 
       if (coinConfig.RequiredConfirmations < coinInfo.MinimalConfirmationsNumber) {
         LOG_F(ERROR, "Minimal required confirmations for %s is %u", coinInfo.Name.c_str(), coinInfo.MinimalConfirmationsNumber);
@@ -278,7 +274,6 @@ int main(int argc, char *argv[])
       backendConfig.KeepRoundTime = coinConfig.KeepRoundTime * 24*3600;
       backendConfig.KeepStatsTime = coinConfig.KeepStatsTime * 60;
       backendConfig.ConfirmationsCheckInterval = coinConfig.ConfirmationsCheckInterval * 60 * 1000000;
-      backendConfig.PayoutInterval = coinConfig.PayoutInterval * 60 * 1000000;
       backendConfig.BalanceCheckInterval = coinConfig.BalanceCheckInterval * 60 * 1000000;
 
       for (const auto &addr: coinConfig.MiningAddresses) {

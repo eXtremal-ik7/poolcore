@@ -75,10 +75,14 @@ class Poolfrontend:
             data.update({"targetLogin": targetLogin})
         return self.__call__("userGetSettings", data, requiredStatus, debug)
 
-    def userUpdateSettings(self, sessionId, coin, address, payoutThreshold, autoPayoutEnabled, miningMode=None, targetLogin=None, totp=None, requiredStatus=None, debug=None):
-        data = {"id": sessionId, "coin": coin, "address": address, "payoutThreshold": payoutThreshold, "autoPayoutEnabled": autoPayoutEnabled}
-        if miningMode is not None:
-            data.update({"miningMode": miningMode})
+    def userUpdateSettings(self, sessionId, coin, payout=None, mining=None, autoExchange=None, targetLogin=None, totp=None, requiredStatus=None, debug=None):
+        data = {"id": sessionId, "coin": coin}
+        if payout is not None:
+            data.update({"payout": payout})
+        if mining is not None:
+            data.update({"mining": mining})
+        if autoExchange is not None:
+            data.update({"autoExchange": autoExchange})
         if targetLogin is not None:
             data.update({"targetLogin": targetLogin})
         if totp is not None:
@@ -269,8 +273,8 @@ class Poolfrontend:
     def backendUpdateProfitSwitchCoeff(self, adminSessionId, coin, profitSwitchCoeff, requiredStatus=None, debug=None):
         return self.__call__("backendUpdateProfitSwitchCoeff", {"id": adminSessionId, "coin": coin, "profitSwitchCoeff": profitSwitchCoeff}, requiredStatus, debug)
 
-    def backendGetPPSConfig(self, sessionId, coin, requiredStatus=None, debug=None):
-        return self.__call__("backendGetPPSConfig", {"id": sessionId, "coin": coin}, requiredStatus, debug)
+    def backendGetConfig(self, sessionId, coin, requiredStatus=None, debug=None):
+        return self.__call__("backendGetConfig", {"id": sessionId, "coin": coin}, requiredStatus, debug)
 
     def backendGetPPSState(self, sessionId, coin, requiredStatus=None, debug=None):
         return self.__call__("backendGetPPSState", {"id": sessionId, "coin": coin}, requiredStatus, debug)
@@ -278,17 +282,15 @@ class Poolfrontend:
     def backendQueryPPSHistory(self, sessionId, coin, timeFrom, timeTo, requiredStatus=None, debug=None):
         return self.__call__("backendQueryPPSHistory", {"id": sessionId, "coin": coin, "timeFrom": timeFrom, "timeTo": timeTo}, requiredStatus, debug)
 
-    def backendUpdatePPSConfig(self, sessionId, coin, ppsModeEnabled, ppsPoolFee, ppsSaturationFunction=None, ppsSaturationB0=None, ppsSaturationANegative=None, ppsSaturationAPositive=None, requiredStatus=None, debug=None):
-        data = {"id": sessionId, "coin": coin, "ppsModeEnabled": ppsModeEnabled, "ppsPoolFee": ppsPoolFee}
-        if ppsSaturationFunction is not None:
-            data.update({"ppsSaturationFunction": ppsSaturationFunction})
-        if ppsSaturationB0 is not None:
-            data.update({"ppsSaturationB0": ppsSaturationB0})
-        if ppsSaturationANegative is not None:
-            data.update({"ppsSaturationANegative": ppsSaturationANegative})
-        if ppsSaturationAPositive is not None:
-            data.update({"ppsSaturationAPositive": ppsSaturationAPositive})
-        return self.__call__("backendUpdatePPSConfig", data, requiredStatus, debug)
+    def backendUpdateConfig(self, sessionId, coin, pps=None, payouts=None, adjustUserInstantMinimalPayout=None, requiredStatus=None, debug=None):
+        data = {"id": sessionId, "coin": coin}
+        if pps is not None:
+            data.update({"pps": pps})
+        if payouts is not None:
+            data.update({"payouts": payouts})
+        if adjustUserInstantMinimalPayout is not None:
+            data.update({"adjustUserInstantMinimalPayout": adjustUserInstantMinimalPayout})
+        return self.__call__("backendUpdateConfig", data, requiredStatus, debug)
 
     def backendPoolLuck(self, coin, intervals, requiredStatus=None, debug=None):
         return self.__call__("backendPoolLuck", {"coin": coin, "intervals": intervals}, requiredStatus, debug)
