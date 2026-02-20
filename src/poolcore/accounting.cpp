@@ -503,8 +503,10 @@ void AccountingDb::CPersistentState::applyBatch(uint64_t msgId, const CAccountin
   PPSState.LastAverageTxFee = batch.LastAverageTxFee;
   for (const auto &[user, work] : batch.PPLNSScores)
     CurrentScores[user] += work;
-  for (const auto &[user, amount] : batch.PPSBalances)
+  for (const auto &[user, amount] : batch.PPSBalances) {
     PPSPendingBalance[user] += amount;
+    PPSState.Balance -= amount;
+  }
   if (batch.PPSReferenceCost.nonZero()) {
     PPSState.ReferenceBalance -= batch.PPSReferenceCost;
     PPSState.updateMinMax(Timestamp::now());
@@ -659,10 +661,10 @@ void AccountingDb::ppsPayout()
   rewardParams.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
   rewardParams.RateBTCToUSD = PriceFetcher_.getBtcUsd();
 
-  UInt<384> totalPaid = UInt<384>::zero();
   kvdb<rocksdbBase>::Batch balanceBatch;
   kvdb<rocksdbBase>::Batch payoutBatch;
   bool payoutQueued = false;
+  UInt<384> totalPaid = UInt<384>::zero();
   for (auto &[userId, value] : State_.PPSPendingBalance) {
     totalPaid += value;
     if (applyReward(userId, value, EMiningMode::PPS, rewardParams, balanceBatch, payoutBatch))
@@ -670,7 +672,6 @@ void AccountingDb::ppsPayout()
     LOG_F(INFO, " * %s: +%s", userId.c_str(), FormatMoneyFull(value, CoinInfo_.FractionalPartSize).c_str());
   }
 
-  State_.PPSState.Balance -= totalPaid;
   LOG_F(INFO,
         "[%s] PPS payout total: %s",
         CoinInfo_.Name.c_str(),
@@ -2214,10 +2215,7 @@ void AccountingDb::poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckC
 
 void AccountingDb::queryPPSStateImpl(QueryPPSStateCallback callback)
 {
-  CPPSState state = State_.PPSState;
-  for (const auto &[userId, value] : State_.PPSPendingBalance)
-    state.Balance -= value;
-  callback(state);
+  callback(State_.PPSState);
 }
 
 std::vector<CPPSState> AccountingDb::queryPPSHistory(int64_t timeFrom, int64_t timeTo)
