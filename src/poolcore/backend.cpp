@@ -115,7 +115,7 @@ void PoolBackend::checkConfirmationsHandler()
     if (ShutdownRequested_)
       break;
     _accounting->cleanupRounds();
-    if (_accounting->hasUnknownReward())
+    if (_accounting->hasDeferredReward())
       _accounting->checkBlockExtraInfo();
     else
       _accounting->checkBlockConfirmations();

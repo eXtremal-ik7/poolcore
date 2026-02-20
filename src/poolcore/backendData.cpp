@@ -122,6 +122,9 @@ void MiningRound::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, AccumulatedWork);
   dbIoSerialize(stream, TxFee);
   dbIoSerialize(stream, PrimePOWTarget);
+  dbIoSerialize(stream, PendingConfirmation);
+  dbIoSerialize(stream, PPSValue);
+  dbIoSerialize(stream, PPSBlockPart);
 }
 
 bool MiningRound::deserializeValue(const void *data, size_t size)
@@ -143,6 +146,9 @@ bool MiningRound::deserializeValue(const void *data, size_t size)
   dbIoUnserialize(stream, AccumulatedWork);
   dbIoUnserialize(stream, TxFee);
   dbIoUnserialize(stream, PrimePOWTarget);
+  dbIoUnserialize(stream, PendingConfirmation);
+  dbIoUnserialize(stream, PPSValue);
+  dbIoUnserialize(stream, PPSBlockPart);
   return !stream.eof();
 }
 

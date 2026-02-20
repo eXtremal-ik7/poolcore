@@ -354,6 +354,12 @@ static bool migrateRounds(const std::filesystem::path &srcCoinPath, const std::f
     newRecord.TxFee = fromRational(static_cast<uint64_t>(oldRecord.TxFee));
     newRecord.PrimePOWTarget = oldRecord.PrimePOWTarget;
 
+    // PendingConfirmation: in old code, unpayed rounds were detected by non-empty Payouts.
+    // For deferred-reward coins (ETH) payouts are empty until confirmation, so those rounds
+    // cannot be distinguished from already-processed ones. This is a known limitation.
+    newRecord.PendingConfirmation = !oldRecord.Payouts.empty();
+    // PPSValue / PPSBlockPart stay zero — PPS mode didn't exist before migration.
+
     for (const auto &s : oldRecord.UserShares) {
       UInt<256> shareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
       shareValue.mulfp(s.ShareValue);

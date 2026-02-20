@@ -167,7 +167,7 @@ struct MiningRound {
   std::string BlockHash;
   Timestamp EndTime;
   Timestamp StartTime;
-    
+
   // Sum of PPLNS-adjusted work of all users
   UInt<256> TotalShareValue;
   // Full block reward
@@ -188,6 +188,15 @@ struct MiningRound {
 
   std::vector<UserShareValue> UserShares;
   std::vector<CUserPayout> Payouts;
+
+  // True from block discovery until confirmation or orphan detection.
+  // Persisted so that rounds awaiting confirmation survive restarts.
+  bool PendingConfirmation = false;
+
+  // PPS correction applied at block discovery (non-deferred coins).
+  // Stored so the deduction can be reversed if the block is orphaned.
+  UInt<384> PPSValue;
+  double PPSBlockPart = 0.0;
     
   MiningRound() {}
   MiningRound(unsigned heightArg) : Height(heightArg) {}

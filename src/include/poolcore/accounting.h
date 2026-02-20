@@ -52,14 +52,20 @@ public:
 struct CPPSState {
 
 public:
-  // Pool-side PPS balance: increases when block found (PPS deduction from PPLNS),
+  // Pool-side PPS balance: increases when block found (PPS correction from PPLNS),
   // decreases when PPS rewards are accrued to users.
   // Can go negative — that's the pool's risk.
   UInt<384> Balance;
+  // Reference PPS balance: tracks pure PPS risk without pool fee profit.
+  // Increases by full block reward on block found, decreases by full share cost
+  // (before pool fee deduction). Used for saturation coefficient and min/max tracking.
+  UInt<384> ReferenceBalance;
   // Base reward of the last known block (subsidy without tx fees, fixed-point 128.256)
   UInt<384> LastBaseBlockReward;
   // Fractional count of blocks found (only PPS portion of each block)
   double TotalBlocksFound = 0.0;
+  // Fractional count of orphan blocks (PPS portion)
+  double OrphanBlocks = 0.0;
 
   CPPSBalanceSnapshot Min;
   CPPSBalanceSnapshot Max;
@@ -89,6 +95,8 @@ struct CAccountingStateBatch {
   double LastSaturateCoeff = 1.0;
   UInt<384> LastBaseBlockReward;
   UInt<384> LastAverageTxFee;
+  // Full cost of PPS shares before any fee deduction (for ReferenceBalance tracking)
+  UInt<384> PPSReferenceCost;
   std::vector<std::pair<std::string, UInt<256>>> PPLNSScores;
   std::vector<std::pair<std::string, UInt<384>>> PPSBalances;
 };
@@ -346,6 +354,7 @@ private:
   void userStatsFlushHandler();
   void ppsPayoutHandler();
   void ppsPayout();
+  void applyPPSCorrection(MiningRound *R);
 
 public:
   AccountingDb(asyncBase *base,
@@ -366,8 +375,8 @@ public:
   
   bool requestPayout(const std::string &address, const UInt<384> &value, bool force = false);
 
-  bool hasUnknownReward();
-  void calculatePPLNSPayments(MiningRound *R, const UInt<384> &generatedCoins);
+  bool hasDeferredReward();
+  void calculatePPLNSPayments(MiningRound *R);
   CProcessedWorkSummary processWorkSummaryBatch(const CUserWorkSummaryBatch &batch);
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
   void onBlockFound(const CBlockFoundData &block);
@@ -375,7 +384,7 @@ public:
   void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::UserFeePair> &feeRecord);
   void onFeePlanDelete(const std::string &feePlanId);
   void onUserFeePlanChange(const std::string &login, const std::string &feePlanId);
-  void processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash, bool *roundUpdated);
+  bool processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();
   void buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout);

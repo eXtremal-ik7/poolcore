@@ -2187,9 +2187,11 @@ static void serializePPSState(
   JSON::Object obj(stream);
   obj.addInt("time", pps.Time.toUnixTime());
   obj.addString("balance", FormatMoney(pps.Balance, fractionalPartSize));
-  obj.addDouble("balanceInBlocks", CPPSState::balanceInBlocks(pps.Balance, reward));
-  obj.addDouble("sqLambda", CPPSState::sqLambda(pps.Balance, reward, pps.TotalBlocksFound));
+  obj.addString("referenceBalance", FormatMoney(pps.ReferenceBalance, fractionalPartSize));
+  obj.addDouble("referenceBalanceInBlocks", CPPSState::balanceInBlocks(pps.ReferenceBalance, reward));
+  obj.addDouble("sqLambda", CPPSState::sqLambda(pps.ReferenceBalance, reward, pps.TotalBlocksFound));
   obj.addDouble("totalBlocksFound", pps.TotalBlocksFound);
+  obj.addDouble("orphanBlocks", pps.OrphanBlocks);
   obj.addDouble("lastSaturateCoeff", pps.LastSaturateCoeff);
   obj.addString("lastBaseBlockReward", FormatMoney(pps.LastBaseBlockReward, fractionalPartSize));
   obj.addString("lastAverageTxFee", FormatMoney(pps.LastAverageTxFee, fractionalPartSize));
