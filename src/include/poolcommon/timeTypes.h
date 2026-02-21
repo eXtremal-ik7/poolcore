@@ -21,6 +21,10 @@ public:
     return Timestamp(seconds * 1000);
   }
 
+  static Timestamp max() {
+    return Timestamp(std::numeric_limits<int64_t>::max());
+  }
+
   // Conversion
   int64_t toUnixTime() const { return Value_.count() / 1000; }
   int64_t count() const { return Value_.count(); }

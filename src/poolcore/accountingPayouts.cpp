@@ -10,7 +10,6 @@ CPayoutProcessor::CPayoutProcessor(asyncBase *base,
                                    const CCoinInfo &coinInfo,
                                    CNetworkClientDispatcher &clientDispatcher,
                                    CAccountingState &state,
-                                   const std::set<MiningRound*> &UnpayedRounds_,
                                    kvdb<rocksdbBase> &payoutDb,
                                    kvdb<rocksdbBase> &balanceDb,
                                    kvdb<rocksdbBase> &poolBalanceDb,
@@ -21,7 +20,6 @@ CPayoutProcessor::CPayoutProcessor(asyncBase *base,
   CoinInfo_(coinInfo),
   ClientDispatcher_(clientDispatcher),
   State_(state),
-  UnpayedRounds_(UnpayedRounds_),
   PayoutDb_(payoutDb),
   BalanceDb_(balanceDb),
   PoolBalanceDb_(poolBalanceDb),
@@ -108,7 +106,7 @@ void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, 
 
   payout.TransactionData = transaction.TxData;
   payout.TransactionId = transaction.TxId;
-  payout.Time = time(nullptr);
+  payout.Time = Timestamp::now();
   payout.Status = PayoutDbRecord::ETxCreated;
   PayoutDb_.put(payout);
 }
@@ -273,7 +271,9 @@ void CPayoutProcessor::makePayout()
       }
     }
 
-    State_.flushPayoutQueue();
+    auto batch = CAccountingState::batch();
+    State_.addPayoutQueue(batch);
+    State_.flushState(batch);
   }
 
   if (!Cfg_.poolZAddr.empty() && !Cfg_.poolTAddr.empty()) {
@@ -396,8 +396,8 @@ void CPayoutProcessor::checkBalance()
       confirmationWait += p.Value + p.TxFee;
   }
 
-  for (auto &roundIt: UnpayedRounds_) {
-    for (auto &pIt: roundIt->Payouts)
+  for (auto &round: State_.ActiveRounds) {
+    for (auto &pIt: round.Payouts)
       queued += pIt.Value;
   }
   net = balance + immature - userBalance - queued + confirmationWait + ppsPaid;

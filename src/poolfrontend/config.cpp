@@ -224,7 +224,6 @@ void CCoinConfig::load(const rapidjson::Value &value, std::string &errorDescript
   jsonParseUInt(value, "requiredConfirmations", &RequiredConfirmations, error, localPath, errorDescription);
   jsonParseString(value, "defaultPayoutThreshold", DefaultPayoutThreshold, error, localPath, errorDescription);
 
-  jsonParseUInt(value, "keepRoundTime", &KeepRoundTime, error, localPath, errorDescription);
   jsonParseUInt(value, "keepStatsTime", &KeepStatsTime, error, localPath, errorDescription);
   jsonParseUInt(value, "confirmationsCheckInterval", &ConfirmationsCheckInterval, error, localPath, errorDescription);
   jsonParseUInt(value, "balanceCheckInterval", &BalanceCheckInterval, error, localPath, errorDescription);

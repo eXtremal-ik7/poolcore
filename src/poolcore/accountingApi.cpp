@@ -79,8 +79,7 @@ CAccountingApi::CAccountingApi(asyncBase *base,
                                kvdb<rocksdbBase> &pplnsPayoutsDb,
                                kvdb<rocksdbBase> &ppsPayoutsDb,
                                kvdb<rocksdbBase> &ppsHistoryDb,
-                               std::map<std::string, UserBalanceRecord> &balanceMap,
-                               const std::set<MiningRound*> &unpayedRounds) :
+                               std::map<std::string, UserBalanceRecord> &balanceMap) :
   Base_(base),
   Cfg_(cfg),
   CoinInfo_(coinInfo),
@@ -92,7 +91,6 @@ CAccountingApi::CAccountingApi(asyncBase *base,
   PPSPayoutsDb_(ppsPayoutsDb),
   PPSHistoryDb_(ppsHistoryDb),
   BalanceMap_(balanceMap),
-  UnpayedRounds_(unpayedRounds),
   State_(state),
   InstantPayoutTimer_(instantPayoutTimer)
 {
@@ -109,7 +107,9 @@ const char *CAccountingApi::manualPayout(const std::string &user)
         nonQueuedBalance >= State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout) {
       bool result = PayoutProcessor_.requestManualPayout(user);
       if (result) {
-        State_.flushPayoutQueue();
+        auto batch = CAccountingState::batch();
+        State_.addPayoutQueue(batch);
+        State_.flushState(batch);
         LOG_F(INFO, "Manual payout success for %s", user.c_str());
         return "ok";
       } else {
@@ -549,9 +549,9 @@ UserBalanceInfo CAccountingApi::queryBalance(const std::string &user)
 
   // Calculate queued balance
   info.Queued = UInt<384>::zero();
-  for (const auto &It: UnpayedRounds_) {
-    auto payout = std::lower_bound(It->Payouts.begin(), It->Payouts.end(), user, [](const CUserPayout &record, const std::string &user) -> bool { return record.UserId < user; });
-    if (payout != It->Payouts.end() && payout->UserId == user)
+  for (const auto &round: State_.ActiveRounds) {
+    auto payout = std::lower_bound(round.Payouts.begin(), round.Payouts.end(), user, [](const CUserPayout &record, const std::string &user) -> bool { return record.UserId < user; });
+    if (payout != round.Payouts.end() && payout->UserId == user)
       info.Queued += payout->Value;
   }
   auto It = BalanceMap_.find(user);

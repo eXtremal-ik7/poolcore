@@ -69,8 +69,7 @@ public:
                  kvdb<rocksdbBase> &pplnsPayoutsDb,
                  kvdb<rocksdbBase> &ppsPayoutsDb,
                  kvdb<rocksdbBase> &ppsHistoryDb,
-                 std::map<std::string, UserBalanceRecord> &balanceMap,
-                 const std::set<MiningRound*> &unpayedRounds);
+                 std::map<std::string, UserBalanceRecord> &balanceMap);
 
   const char *manualPayout(const std::string &user);
   void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
@@ -97,7 +96,6 @@ private:
   kvdb<rocksdbBase> &PPSPayoutsDb_;
   kvdb<rocksdbBase> &PPSHistoryDb_;
   std::map<std::string, UserBalanceRecord> &BalanceMap_;
-  const std::set<MiningRound*> &UnpayedRounds_;
   CAccountingState &State_;
   CPeriodicTimer &InstantPayoutTimer_;
 };

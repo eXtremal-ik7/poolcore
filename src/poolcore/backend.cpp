@@ -96,7 +96,6 @@ void PoolBackend::backendMain()
   if (FeeEstimationService_)
     FeeEstimationService_->start();
   CheckConfirmationsTimer_.start([this]() {
-    _accounting->cleanupRounds();
     if (_accounting->hasDeferredReward())
       _accounting->checkBlockExtraInfo();
     else
@@ -172,7 +171,7 @@ void PoolBackend::onUpdateDag(unsigned epochNumber, bool bigEpoch)
   }
 }
 
-void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts)
+void PoolBackend::queryPayouts(const std::string &user, Timestamp timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts)
 {
   auto &db = accountingDb()->getPayoutDb();
   std::unique_ptr<rocksdbBase::IteratorType> It(db.iterator());
@@ -186,14 +185,14 @@ void PoolBackend::queryPayouts(const std::string &user, uint64_t timeFrom, unsig
   {
     PayoutDbRecord record;
     record.UserId = user;
-    record.Time = std::numeric_limits<int64_t>::max();
+    record.Time = Timestamp::max();
     record.serializeKey(resumeKey);
   }
 
   {
     PayoutDbRecord keyRecord;
     keyRecord.UserId = user;
-    keyRecord.Time = timeFrom == 0 ? std::numeric_limits<int64_t>::max() : timeFrom;
+    keyRecord.Time = timeFrom == Timestamp() ? Timestamp::max() : timeFrom;
     It->seekForPrev<PayoutDbRecord>(keyRecord, resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 

@@ -46,12 +46,10 @@ private:
   CFeeEstimationService *FeeEstimationService_ = nullptr;
 
   std::map<std::string, UserBalanceRecord> _balanceMap;
-  std::deque<std::unique_ptr<MiningRound>> _allRounds;
-  std::set<MiningRound*> UnpayedRounds_;
 
   CAccountingState State_;
 
-  kvdb<rocksdbBase> _roundsDb;
+  kvdb<rocksdbBase> RoundsDb_;
   kvdb<rocksdbBase> _balanceDb;
   kvdb<rocksdbBase> _foundBlocksDb;
   kvdb<rocksdbBase> _poolBalanceDb;
@@ -77,9 +75,15 @@ private:
   CPayoutProcessor PayoutProcessor_;
   CAccountingApi Api_;
 
+  enum class ERoundConfirmationResult {
+    ENotConfirmed,
+    EOrphan,
+    EConfirmed
+  };
+
   void printRecentStatistic();
   void ppsPayout();
-  void applyPPSCorrection(MiningRound *R);
+  void applyPPSCorrection(MiningRound &R);
 
 public:
   AccountingDb(asyncBase *base,
@@ -96,7 +100,6 @@ public:
 
   void start();
   void stop();
-  void cleanupRounds();
 
   bool applyReward(const std::string &address,
                    const UInt<384> &value,
@@ -105,8 +108,8 @@ public:
                    kvdb<rocksdbBase>::Batch &balanceBatch,
                    kvdb<rocksdbBase>::Batch &payoutBatch);
 
-  bool hasDeferredReward();
-  void calculatePPLNSPayments(MiningRound *R);
+  bool hasDeferredReward() { return CoinInfo_.HasDagFile; }
+  void calculatePPLNSPayments(MiningRound &R);
   CProcessedWorkSummary processWorkSummaryBatch(const CUserWorkSummaryBatch &batch);
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
   void onBlockFound(const CBlockFoundData &block);
@@ -114,7 +117,7 @@ public:
   void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::UserFeePair> &feeRecord);
   void onFeePlanDelete(const std::string &feePlanId);
   void onUserFeePlanChange(const std::string &login, const std::string &feePlanId);
-  bool processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash);
+  ERoundConfirmationResult processRoundConfirmation(MiningRound &R, int64_t confirmations, const std::string &hash, rocksdbBase::CBatch &stateBatch);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();
 

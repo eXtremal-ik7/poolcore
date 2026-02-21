@@ -271,7 +271,6 @@ int main(int argc, char *argv[])
       }
 
       backendConfig.RequiredConfirmations = coinConfig.RequiredConfirmations;
-      backendConfig.KeepRoundTime = coinConfig.KeepRoundTime * 24*3600;
       backendConfig.KeepStatsTime = coinConfig.KeepStatsTime * 60;
       backendConfig.ConfirmationsCheckInterval = coinConfig.ConfirmationsCheckInterval * 60 * 1000000;
       backendConfig.BalanceCheckInterval = coinConfig.BalanceCheckInterval * 60 * 1000000;

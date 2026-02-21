@@ -51,7 +51,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   ClientDispatcher_(clientDispatcher),
   PriceFetcher_(priceFetcher),
   State_(config.dbPath),
-  _roundsDb(config.dbPath / "rounds.3"),
+  RoundsDb_(config.dbPath / "accounting.rounds"),
   _balanceDb(config.dbPath / "balance.2"),
   _foundBlocksDb(config.dbPath / "foundBlocks.2"),
   _poolBalanceDb(config.dbPath / "poolBalance.2"),
@@ -72,7 +72,6 @@ AccountingDb::AccountingDb(asyncBase *base,
                    coinInfo,
                    clientDispatcher,
                    State_,
-                   UnpayedRounds_,
                    _payoutDb,
                    _balanceDb,
                    _poolBalanceDb,
@@ -90,8 +89,7 @@ AccountingDb::AccountingDb(asyncBase *base,
        PPLNSPayoutsDb,
        PPSPayoutsDb,
        PPSHistoryDb_,
-       _balanceMap,
-       UnpayedRounds_)
+       _balanceMap)
 {
 
   // Start loading user data from UserManager in parallel with local DB loading
@@ -119,24 +117,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   State_.load(coinInfo);
   LOG_F(INFO, "loaded %u payouts from db", static_cast<unsigned>(State_.PayoutQueue.size()));
 
-  {
-    std::unique_ptr<rocksdbBase::IteratorType> It(_roundsDb.iterator());
-    It->seekFirst();
-    for (; It->valid(); It->next()) {
-      MiningRound *R = new MiningRound;
-      RawData data = It->value();
-      if (R->deserializeValue(data.data, data.size)) {
-        _allRounds.emplace_back(R);
-        if (R->PendingConfirmation)
-          UnpayedRounds_.insert(R);
-      } else {
-        LOG_F(ERROR, "rounds db contains invalid record");
-        delete R;
-      }
-    }
-
-    LOG_F(INFO, "loaded %u rounds from db", (unsigned)_allRounds.size());
-  }
+  LOG_F(INFO, "loaded %zu active rounds from state", State_.ActiveRounds.size());
 
   {
     std::unique_ptr<rocksdbBase::IteratorType> It(_balanceDb.iterator());
@@ -185,6 +166,53 @@ AccountingDb::AccountingDb(asyncBase *base,
 }
 
 
+void AccountingDb::start()
+{
+  TaskHandler_.start();
+
+  ShareLogFlushTimer_.start([this]() {
+    ShareLog_.flush();
+    ShareLog_.cleanupOldFiles(lastAggregatedShareId());
+  }, _cfg.ShareLogFlushInterval, false, true);
+
+  StateFlushTimer_.start([this]() {
+    auto batch = CAccountingState::batch();
+    State_.addMutableState(batch);
+    State_.flushState(batch);
+  }, std::chrono::minutes(1), false, true);
+
+  UserStatsFlushTimer_.start([this]() {
+    UserStatsAcc_.flush(Timestamp::now(), _cfg.dbPath, nullptr);
+  }, _cfg.StatisticUserFlushInterval, false, true);
+
+  PPSPayoutTimer_.start([this]() {
+    ppsPayout();
+  }, _cfg.PPSPayoutInterval);
+
+  auto payoutConfig = backendSettings().PayoutConfig;
+  InstantPayoutTimer_.start([this]() {
+    PayoutProcessor_.makePayout();
+  }, std::chrono::duration_cast<std::chrono::microseconds>(payoutConfig.InstantPayoutInterval));
+  if (!payoutConfig.InstantPayoutsEnabled)
+    InstantPayoutTimer_.pause();
+}
+
+void AccountingDb::stop()
+{
+  const char *coin = CoinInfo_.Name.c_str();
+  TaskHandler_.stop(coin, "accounting: task handler");
+  ShareLogFlushTimer_.stop();
+  StateFlushTimer_.stop();
+  UserStatsFlushTimer_.stop();
+  PPSPayoutTimer_.stop();
+  InstantPayoutTimer_.stop();
+  ShareLogFlushTimer_.wait(coin, "accounting: share log flush");
+  StateFlushTimer_.wait(coin, "accounting: state flush");
+  UserStatsFlushTimer_.wait(coin, "accounting: user stats flush");
+  PPSPayoutTimer_.wait(coin, "accounting: pps payout");
+  InstantPayoutTimer_.wait(coin, "accounting: instant payout");
+}
+
 void AccountingDb::ppsPayout()
 {
   if (State_.PPSPendingBalance.empty())
@@ -224,102 +252,34 @@ void AccountingDb::ppsPayout()
 
   State_.PPSPendingBalance.clear();
   State_.PPSState.Time = now;
-  State_.flushState();
+  auto batch = CAccountingState::batch();
   if (payoutQueued)
-    State_.flushPayoutQueue();
+    State_.addPayoutQueue(batch);
+  State_.addMutableState(batch);
+  State_.flushState(batch);
   PPSHistoryDb_.put(State_.PPSState);
 }
 
-
-void AccountingDb::start()
+void AccountingDb::applyPPSCorrection(MiningRound &R)
 {
-  TaskHandler_.start();
-
-  ShareLogFlushTimer_.start([this]() {
-    ShareLog_.flush();
-    ShareLog_.cleanupOldFiles(lastAggregatedShareId());
-  }, _cfg.ShareLogFlushInterval, false, true);
-
-  StateFlushTimer_.start([this]() {
-    State_.flushState();
-  }, std::chrono::minutes(1), false, true);
-
-  UserStatsFlushTimer_.start([this]() {
-    UserStatsAcc_.flush(Timestamp::now(), _cfg.dbPath, nullptr);
-  }, _cfg.StatisticUserFlushInterval, false, true);
-
-  PPSPayoutTimer_.start([this]() {
-    ppsPayout();
-  }, _cfg.PPSPayoutInterval);
-
-  auto payoutConfig = backendSettings().PayoutConfig;
-  InstantPayoutTimer_.start([this]() {
-    PayoutProcessor_.makePayout();
-  }, std::chrono::duration_cast<std::chrono::microseconds>(payoutConfig.InstantPayoutInterval));
-  if (!payoutConfig.InstantPayoutsEnabled)
-    InstantPayoutTimer_.pause();
-}
-
-void AccountingDb::stop()
-{
-  const char *coin = CoinInfo_.Name.c_str();
-  TaskHandler_.stop(coin, "accounting: task handler");
-  ShareLogFlushTimer_.stop();
-  StateFlushTimer_.stop();
-  UserStatsFlushTimer_.stop();
-  PPSPayoutTimer_.stop();
-  InstantPayoutTimer_.stop();
-  ShareLogFlushTimer_.wait(coin, "accounting: share log flush");
-  StateFlushTimer_.wait(coin, "accounting: state flush");
-  UserStatsFlushTimer_.wait(coin, "accounting: user stats flush");
-  PPSPayoutTimer_.wait(coin, "accounting: pps payout");
-  InstantPayoutTimer_.wait(coin, "accounting: instant payout");
-}
-
-
-void AccountingDb::cleanupRounds()
-{
-  Timestamp timeLabel = Timestamp::now() - std::chrono::seconds(_cfg.KeepRoundTime);
-  auto I = _allRounds.begin();
-  while (I != _allRounds.end()) {
-    MiningRound *round = I->get();
-    if (round->EndTime >= timeLabel || UnpayedRounds_.count(round))
-      break;
-    _roundsDb.deleteRow(*round);
-    ++I;
-  }
-
-  if (I != _allRounds.begin()) {
-    LOG_F(INFO, "delete %u old rounds", (unsigned)std::distance(_allRounds.begin(), I));
-    _allRounds.erase(_allRounds.begin(), I);
-  }
-}
-
-bool AccountingDb::hasDeferredReward()
-{
-  return CoinInfo_.HasDagFile;
-}
-
-void AccountingDb::applyPPSCorrection(MiningRound *R)
-{
-  auto ppsMetaIt = std::find_if(R->UserShares.begin(), R->UserShares.end(),
+  auto ppsMetaIt = std::find_if(R.UserShares.begin(), R.UserShares.end(),
     [](const UserShareValue &s) { return s.UserId == ppsMetaUserId(); });
-  if (ppsMetaIt == R->UserShares.end())
+  if (ppsMetaIt == R.UserShares.end())
     return;
 
-  if (R->TotalShareValue.isZero() || R->AvailableCoins.isZero())
+  if (R.TotalShareValue.isZero() || R.AvailableCoins.isZero())
     return;
 
-  double ppsFraction = UInt<256>::fpdiv(ppsMetaIt->ShareValue, R->TotalShareValue);
-  UInt<384> ppsShare = R->AvailableCoins / R->TotalShareValue;
+  double ppsFraction = UInt<256>::fpdiv(ppsMetaIt->ShareValue, R.TotalShareValue);
+  UInt<384> ppsShare = R.AvailableCoins / R.TotalShareValue;
   ppsShare *= ppsMetaIt->ShareValue;
 
-  R->AvailableCoins -= ppsShare;
-  R->TotalShareValue -= ppsMetaIt->ShareValue;
-  R->UserShares.erase(ppsMetaIt);
+  R.AvailableCoins -= ppsShare;
+  R.TotalShareValue -= ppsMetaIt->ShareValue;
+  R.UserShares.erase(ppsMetaIt);
 
-  R->PPSValue = ppsShare;
-  R->PPSBlockPart = ppsFraction;
+  R.PPSValue = ppsShare;
+  R.PPSBlockPart = ppsFraction;
 
   State_.PPSState.Balance += ppsShare;
   State_.PPSState.ReferenceBalance += ppsShare;
@@ -329,14 +289,14 @@ void AccountingDb::applyPPSCorrection(MiningRound *R)
         " * PPS correction: %s (%.3f of block, remaining for PPLNS: %s)",
         FormatMoney(ppsShare, CoinInfo_.FractionalPartSize).c_str(),
         ppsFraction,
-        FormatMoney(R->AvailableCoins, CoinInfo_.FractionalPartSize).c_str());
+        FormatMoney(R.AvailableCoins, CoinInfo_.FractionalPartSize).c_str());
 }
 
-void AccountingDb::calculatePPLNSPayments(MiningRound *R)
+void AccountingDb::calculatePPLNSPayments(MiningRound &R)
 {
-  R->Payouts.clear();
+  R.Payouts.clear();
 
-  if (R->TotalShareValue.isZero()) {
+  if (R.TotalShareValue.isZero()) {
     LOG_F(WARNING, "Block found but no PPLNS shares, skipping payouts");
     return;
   }
@@ -344,8 +304,8 @@ void AccountingDb::calculatePPLNSPayments(MiningRound *R)
   UInt<384> totalPayout = UInt<384>::zero();
   std::vector<CUserPayout> payouts;
   std::map<std::string, UInt<384>> feePayouts;
-  UInt<384> minShareCost = R->AvailableCoins / R->TotalShareValue;
-  for (const auto &record: R->UserShares) {
+  UInt<384> minShareCost = R.AvailableCoins / R.TotalShareValue;
+  for (const auto &record: R.UserShares) {
     // Calculate payout
     UInt<384> payoutValue = minShareCost * record.ShareValue;
     totalPayout += payoutValue;
@@ -391,33 +351,33 @@ void AccountingDb::calculatePPLNSPayments(MiningRound *R)
   mergeSorted(payouts.begin(), payouts.end(), feePayouts.begin(), feePayouts.end(),
     [](const CUserPayout &l, const std::pair<std::string, UInt<384>> &r) { return l.UserId < r.first; },
     [](const std::pair<std::string, UInt<384>> &l, const CUserPayout &r) { return l.first < r.UserId; },
-    [R](const CUserPayout &record) {
+    [&R](const CUserPayout &record) {
       if (!record.Value.isZero())
-        R->Payouts.emplace_back(record);
-    }, [R](const std::pair<std::string, UInt<384>> &fee) {
+        R.Payouts.emplace_back(record);
+    }, [&R](const std::pair<std::string, UInt<384>> &fee) {
       if (!fee.second.isZero())
-        R->Payouts.emplace_back(fee.first, fee.second, UInt<384>::zero(), UInt<256>::zero());
-    }, [R](const CUserPayout &record, const std::pair<std::string, UInt<384>> &fee) {
+        R.Payouts.emplace_back(fee.first, fee.second, UInt<384>::zero(), UInt<256>::zero());
+    }, [&R](const CUserPayout &record, const std::pair<std::string, UInt<384>> &fee) {
     if (!(record.Value + fee.second).isZero())
-        R->Payouts.emplace_back(record.UserId, record.Value + fee.second, record.Value, record.AcceptedWork);
+        R.Payouts.emplace_back(record.UserId, record.Value + fee.second, record.Value, record.AcceptedWork);
     });
 
   // Correct payouts for use all available coins
-  if (!R->Payouts.empty()) {
+  if (!R.Payouts.empty()) {
     UInt<384> diff;
     UInt<384> div;
-    bool needSubtract = totalPayout > R->AvailableCoins;
+    bool needSubtract = totalPayout > R.AvailableCoins;
 
     if (needSubtract) {
-      diff = totalPayout - R->AvailableCoins;
+      diff = totalPayout - R.AvailableCoins;
     } else {
-      diff = R->AvailableCoins - totalPayout;
+      diff = R.AvailableCoins - totalPayout;
     }
-    uint64_t mod = diff.divmod64(R->Payouts.size(), &div);
+    uint64_t mod = diff.divmod64(R.Payouts.size(), &div);
 
     totalPayout = UInt<384>();
     uint64_t i = 0;
-    for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I, ++i) {
+    for (auto I = R.Payouts.begin(), IE = R.Payouts.end(); I != IE; ++I, ++i) {
       if (needSubtract) {
         I->Value -= div;
         if (i < mod)
@@ -611,21 +571,22 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block)
     _foundBlocksDb.put(blk);
   }
 
-  MiningRound *R = new MiningRound;
+  State_.ActiveRounds.emplace_back();
+  MiningRound &R = State_.ActiveRounds.back();
 
   LOG_F(INFO, " * block height: %u, hash: %s, value: %s", (unsigned)block.Height, block.Hash.c_str(), FormatMoney(block.GeneratedCoins, CoinInfo_.FractionalPartSize).c_str());
 
-  R->Height = block.Height;
-  R->BlockHash = block.Hash;
-  R->EndTime = block.Time;
-  R->FoundBy = block.UserId;
-  R->ExpectedWork = block.ExpectedWork;
-  R->AccumulatedWork = accumulatedWork;
-  R->TotalShareValue = UInt<256>::zero();
-  R->PrimePOWTarget = block.PrimePOWTarget;
-  R->PendingConfirmation = true;
+  R.Height = block.Height;
+  R.BlockHash = block.Hash;
+  R.EndTime = block.Time;
+  R.FoundBy = block.UserId;
+  R.ExpectedWork = block.ExpectedWork;
+  R.AccumulatedWork = accumulatedWork;
+  R.TotalShareValue = UInt<256>::zero();
+  R.PrimePOWTarget = block.PrimePOWTarget;
 
-  R->StartTime = State_.CurrentRoundStartTime;
+
+  R.StartTime = State_.CurrentRoundStartTime;
 
   // Merge shares for current block with older shares (PPLNS)
   // RecentStats is a snapshot from the previous block-found event; CurrentScores covers
@@ -640,36 +601,26 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block)
         // User disconnected recently, no new shares
         UInt<256> shareValue = stats.recentShareValue(acceptSharesTime);
         if (shareValue.nonZero()) {
-          R->UserShares.emplace_back(stats.UserId, shareValue, UInt<256>::zero());
+          R.UserShares.emplace_back(stats.UserId, shareValue, UInt<256>::zero());
         }
       }, [&](const std::pair<std::string, UInt<256>> &scores) {
         // User joined recently, no extra shares in statistic
-        R->UserShares.emplace_back(scores.first, scores.second, scores.second);
+        R.UserShares.emplace_back(scores.first, scores.second, scores.second);
       }, [&](const CStatsExportData &stats, const std::pair<std::string, UInt<256>> &scores) {
         // Need merge new shares and recent share statistics
-        R->UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime), scores.second);
+        R.UserShares.emplace_back(stats.UserId, scores.second + stats.recentShareValue(acceptSharesTime), scores.second);
       });
   }
 
   // Calculate total share value
-  for (const auto &element: R->UserShares)
-    R->TotalShareValue += element.ShareValue;
+  for (const auto &element: R.UserShares)
+    R.TotalShareValue += element.ShareValue;
 
-  R->AvailableCoins = block.GeneratedCoins;
+  R.AvailableCoins = block.GeneratedCoins;
   if (!hasDeferredReward()) {
     applyPPSCorrection(R);
     calculatePPLNSPayments(R);
   }
-
-  // NOTE: crash between _roundsDb.put and flushState will leave
-  // data inconsistent — round is persisted but State_ (CurrentScores,
-  // RecentStats, CurrentRoundStartTime) is not updated. On restart the
-  // old CurrentScores will be re-accumulated into the next round.
-
-  // store round to DB and clear shares map
-  _allRounds.emplace_back(R);
-  _roundsDb.put(*R);
-  UnpayedRounds_.insert(R);
 
   // Query statistics
   UserStatsAcc_.exportRecentStats(_cfg.AccountingPPLNSWindow, State_.RecentStats);
@@ -677,158 +628,175 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block)
 
   // Reset aggregated data
   State_.CurrentScores.clear();
-  State_.CurrentRoundStartTime = R->EndTime;
+  State_.CurrentRoundStartTime = R.EndTime;
 
   // Save state to db
   State_.PPSState.Time = Timestamp::now();
-  State_.flushState();
+  auto batch = CAccountingState::batch();
+  batch.put(R);
+  State_.addMutableState(batch);
+  State_.addRoundState(batch);
+  State_.flushState(batch);
   PPSHistoryDb_.put(State_.PPSState);
 }
 
-bool AccountingDb::processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash)
+AccountingDb::ERoundConfirmationResult AccountingDb::processRoundConfirmation(MiningRound &R,
+                                                                              int64_t confirmations,
+                                                                              const std::string &hash,
+                                                                              rocksdbBase::CBatch &stateBatch)
 {
   if (confirmations == -1) {
-    LOG_F(INFO, "block %" PRIu64 "/%s marked as orphan, can't do any payout", R->Height, hash.c_str());
-    if (R->PPSValue.nonZero()) {
-      State_.PPSState.Balance -= R->PPSValue;
-      State_.PPSState.ReferenceBalance -= R->PPSValue;
-      State_.PPSState.TotalBlocksFound -= R->PPSBlockPart;
-      State_.PPSState.OrphanBlocks += R->PPSBlockPart;
+    LOG_F(INFO, "block %" PRIu64 "/%s marked as orphan, can't do any payout", R.Height, hash.c_str());
+    if (R.PPSValue.nonZero()) {
+      State_.PPSState.Balance -= R.PPSValue;
+      State_.PPSState.ReferenceBalance -= R.PPSValue;
+      State_.PPSState.TotalBlocksFound -= R.PPSBlockPart;
+      State_.PPSState.OrphanBlocks += R.PPSBlockPart;
       State_.PPSState.updateMinMax(Timestamp::now());
       LOG_F(INFO,
             " * PPS correction reversed: %s (%.3f of block)",
-            FormatMoney(R->PPSValue, CoinInfo_.FractionalPartSize).c_str(),
-            R->PPSBlockPart);
+            FormatMoney(R.PPSValue, CoinInfo_.FractionalPartSize).c_str(),
+            R.PPSBlockPart);
     }
-    R->PendingConfirmation = false;
-    R->Payouts.clear();
-    UnpayedRounds_.erase(R);
-    return true;
+
+    RoundsDb_.put(R);
+    stateBatch.deleteRow(R);
+    return ERoundConfirmationResult::EOrphan;
   } else if (confirmations >= _cfg.RequiredConfirmations) {
-    LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R->Height, R->BlockHash.c_str());
+    LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R.Height, R.BlockHash.c_str());
     if (hasDeferredReward()) {
       applyPPSCorrection(R);
       calculatePPLNSPayments(R);
     }
 
     CRewardParams rewardParams;
-    rewardParams.RoundStartTime = R->StartTime;
-    rewardParams.RoundEndTime = R->EndTime;
-    rewardParams.BlockHash = R->BlockHash;
-    rewardParams.BlockHeight = R->Height;
+    rewardParams.RoundStartTime = R.StartTime;
+    rewardParams.RoundEndTime = R.EndTime;
+    rewardParams.BlockHash = R.BlockHash;
+    rewardParams.BlockHeight = R.Height;
     rewardParams.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
     rewardParams.RateBTCToUSD = PriceFetcher_.getBtcUsd();
 
     kvdb<rocksdbBase>::Batch balanceBatch;
     kvdb<rocksdbBase>::Batch payoutBatch;
-    bool payoutQueued = false;
-    for (auto I = R->Payouts.begin(), IE = R->Payouts.end(); I != IE; ++I) {
-      if (applyReward(I->UserId, I->Value, EMiningMode::PPLNS, rewardParams, balanceBatch, payoutBatch))
-        payoutQueued = true;
-    }
+    for (auto I = R.Payouts.begin(), IE = R.Payouts.end(); I != IE; ++I)
+      applyReward(I->UserId, I->Value, EMiningMode::PPLNS, rewardParams, balanceBatch, payoutBatch);
     if (!balanceBatch.empty())
       _balanceDb.writeBatch(balanceBatch);
     if (!payoutBatch.empty())
       PPLNSPayoutsDb.writeBatch(payoutBatch);
-    if (payoutQueued)
-      State_.flushPayoutQueue();
 
-    R->PendingConfirmation = false;
-    R->Payouts.clear();
-    UnpayedRounds_.erase(R);
-    return true;
+
+    RoundsDb_.put(R);
+    stateBatch.deleteRow(R);
+    return ERoundConfirmationResult::EConfirmed;
   }
 
-  return false;
+  return ERoundConfirmationResult::ENotConfirmed;
 }
 
 void AccountingDb::checkBlockConfirmations()
 {
-  if (UnpayedRounds_.empty())
+  auto &activeRounds = State_.ActiveRounds;
+  if (activeRounds.empty())
     return;
 
-  LOG_F(INFO, "Checking %zu blocks for confirmations...", UnpayedRounds_.size());
-  std::vector<MiningRound*> rounds(UnpayedRounds_.begin(), UnpayedRounds_.end());
+  LOG_F(INFO, "Checking %zu blocks for confirmations...", activeRounds.size());
 
-  std::vector<CNetworkClient::GetBlockConfirmationsQuery> confirmationsQuery(rounds.size());
-  for (size_t i = 0, ie = rounds.size(); i != ie; ++i) {
-    confirmationsQuery[i].Hash = rounds[i]->BlockHash;
-    confirmationsQuery[i].Height = rounds[i]->Height;
-  }
+  std::vector<CNetworkClient::GetBlockConfirmationsQuery> confirmationsQuery;
+  for (auto &round : activeRounds)
+    confirmationsQuery.push_back({round.BlockHash, round.Height});
 
   if (!ClientDispatcher_.ioGetBlockConfirmations(Base_, _cfg.RequiredConfirmations, confirmationsQuery)) {
     LOG_F(ERROR, "ioGetBlockConfirmations api call failed");
     return;
   }
 
-  bool hasUpdatedRounds = false;
-  for (size_t i = 0; i < confirmationsQuery.size(); i++) {
-    if (processRoundConfirmation(rounds[i], confirmationsQuery[i].Confirmations, confirmationsQuery[i].Hash)) {
-      _roundsDb.put(*rounds[i]);
-      hasUpdatedRounds = true;
-    }
+  auto batch = CAccountingState::batch();
+  bool hasOrphans = false;
+  bool hasPayouts = false;
+  size_t i = 0;
+  for (auto it = activeRounds.begin(); it != activeRounds.end(); i++) {
+    auto result = processRoundConfirmation(*it, confirmationsQuery[i].Confirmations, confirmationsQuery[i].Hash, batch);
+    hasOrphans |= result == ERoundConfirmationResult::EOrphan;
+    hasPayouts |= result == ERoundConfirmationResult::EConfirmed;
+    if (result != ERoundConfirmationResult::ENotConfirmed)
+      it = activeRounds.erase(it);
+    else
+      ++it;
   }
 
-  if (hasUpdatedRounds) {
+  if (hasOrphans || hasPayouts) {
     State_.PPSState.Time = Timestamp::now();
-    State_.flushState();
+    State_.addMutableState(batch);
     PPSHistoryDb_.put(State_.PPSState);
-    State_.flushPayoutQueue();
   }
+  if (hasPayouts)
+    State_.addPayoutQueue(batch);
+  State_.flushState(batch);
 }
 
 void AccountingDb::checkBlockExtraInfo()
 {
-  if (UnpayedRounds_.empty())
+  auto &activeRounds = State_.ActiveRounds;
+  if (activeRounds.empty())
     return;
 
-  LOG_F(INFO, "Checking %zu blocks for extra info...", UnpayedRounds_.size());
-  std::vector<MiningRound*> unpayedRounds(UnpayedRounds_.begin(), UnpayedRounds_.end());
+  LOG_F(INFO, "Checking %zu blocks for extra info...", activeRounds.size());
 
   std::vector<CNetworkClient::GetBlockExtraInfoQuery> confirmationsQuery;
-  for (const auto &round: unpayedRounds)
-    confirmationsQuery.emplace_back(round->BlockHash, round->Height, round->TxFee, round->AvailableCoins);
+  for (auto &round : activeRounds)
+    confirmationsQuery.emplace_back(round.BlockHash, round.Height, round.TxFee, round.AvailableCoins);
 
   if (!ClientDispatcher_.ioGetBlockExtraInfo(Base_, _cfg.RequiredConfirmations, confirmationsQuery)) {
     LOG_F(ERROR, "ioGetBlockExtraInfo api call failed");
     return;
   }
 
-  bool hasUpdatedRounds = false;
-  for (size_t i = 0; i < confirmationsQuery.size(); i++) {
-    MiningRound *R = unpayedRounds[i];
+  auto batch = CAccountingState::batch();
+  bool hasOrphans = false;
+  bool hasPayouts = false;
+  size_t i = 0;
+  for (auto it = activeRounds.begin(); it != activeRounds.end(); i++) {
+    MiningRound &R = *it;
 
-    bool rewardChanged = R->AvailableCoins != confirmationsQuery[i].BlockReward;
+    bool rewardChanged = R.AvailableCoins != confirmationsQuery[i].BlockReward;
     if (rewardChanged) {
       // Update found block database
       FoundBlockRecord blk;
-      blk.Height = R->Height;
-      blk.Hash = R->BlockHash;
-      blk.Time = R->EndTime;
+      blk.Height = R.Height;
+      blk.Hash = R.BlockHash;
+      blk.Time = R.EndTime;
       blk.AvailableCoins = confirmationsQuery[i].BlockReward;
-      blk.FoundBy = R->FoundBy;
-      blk.ExpectedWork = R->ExpectedWork;
-      blk.AccumulatedWork = R->AccumulatedWork;
+      blk.FoundBy = R.FoundBy;
+      blk.ExpectedWork = R.ExpectedWork;
+      blk.AccumulatedWork = R.AccumulatedWork;
       blk.PublicHash = confirmationsQuery[i].PublicHash;
       _foundBlocksDb.put(blk);
 
       // Update round with final reward (payments deferred to confirmation)
-      R->AvailableCoins = confirmationsQuery[i].BlockReward;
-      R->TxFee = confirmationsQuery[i].TxFee;
+      R.AvailableCoins = confirmationsQuery[i].BlockReward;
+      R.TxFee = confirmationsQuery[i].TxFee;
+      batch.put(R);
     }
 
-    bool roundUpdated = processRoundConfirmation(R, confirmationsQuery[i].Confirmations, confirmationsQuery[i].Hash);
-    if (rewardChanged || roundUpdated)
-      _roundsDb.put(*R);
-    hasUpdatedRounds |= roundUpdated;
+    auto result = processRoundConfirmation(R, confirmationsQuery[i].Confirmations, confirmationsQuery[i].Hash, batch);
+    hasOrphans |= result == ERoundConfirmationResult::EOrphan;
+    hasPayouts |= result == ERoundConfirmationResult::EConfirmed;
+    if (result != ERoundConfirmationResult::ENotConfirmed)
+      it = activeRounds.erase(it);
+    else
+      ++it;
   }
 
-  if (hasUpdatedRounds) {
+  if (hasOrphans || hasPayouts) {
     State_.PPSState.Time = Timestamp::now();
-    State_.flushState();
+    State_.addMutableState(batch);
     PPSHistoryDb_.put(State_.PPSState);
-    State_.flushPayoutQueue();
   }
+  if (hasPayouts)
+    State_.addPayoutQueue(batch);
+  State_.flushState(batch);
 }
 
 bool AccountingDb::applyReward(const std::string &address,

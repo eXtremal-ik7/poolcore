@@ -209,9 +209,9 @@ static bool migrateStats(const std::filesystem::path &srcCoinPath, const std::fi
   });
 }
 
-static bool migratePPLNSPayouts(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const CCoinInfoOld2 &old2, unsigned threads)
+static bool migratePPLNSPayouts(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, unsigned threads)
 {
-  return migrateDatabaseMt(srcCoinPath, dstCoinPath, "pplns.payouts", "pplns.payouts.2", [&old2](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+  return migrateDatabaseMt(srcCoinPath, dstCoinPath, "pplns.payouts", "pplns.payouts.2", [](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
     CPPLNSPayout2 oldRecord;
     if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
       LOG_F(ERROR, "Can't deserialize pplns.payouts record, database corrupted");
@@ -249,7 +249,7 @@ static bool migratePayouts(const std::filesystem::path &srcCoinPath, const std::
 
     PayoutDbRecord newRecord;
     newRecord.UserId = oldRecord.UserId;
-    newRecord.Time = oldRecord.Time;
+    newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
     newRecord.Value = fromRational(static_cast<uint64_t>(oldRecord.Value));
     newRecord.TransactionId = oldRecord.TransactionId;
     newRecord.TransactionData = oldRecord.TransactionData;
@@ -328,147 +328,186 @@ static bool migrateFoundBlocks(const std::filesystem::path &srcCoinPath, const s
   }, threads);
 }
 
-static bool migrateRounds(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const CCoinInfo &coinInfo, const CCoinInfoOld2 &old2)
+static bool migrateRounds(const std::filesystem::path &srcCoinPath,
+                          const std::filesystem::path &dstCoinPath,
+                          const CCoinInfo &coinInfo,
+                          const CCoinInfoOld2 &old2,
+                          std::vector<MiningRound> &activeRounds)
 {
-  return migrateDatabase(srcCoinPath, dstCoinPath, "rounds.v2", "rounds.3", [&coinInfo, &old2](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
-    MiningRound2 oldRecord;
-    if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
-      LOG_F(ERROR, "Can't deserialize rounds record, database corrupted");
+  std::filesystem::path oldDbPath = srcCoinPath / "rounds.v2";
+  if (!std::filesystem::exists(oldDbPath) || !std::filesystem::is_directory(oldDbPath)) {
+    LOG_F(INFO, "No previous rounds.v2 database found, skipping");
+    return true;
+  }
+
+  LOG_F(INFO, "Migrating rounds.v2 -> accounting.rounds ...");
+
+  kvdb<rocksdbBase> roundsDb(dstCoinPath / "accounting.rounds");
+  unsigned completedCount = 0;
+
+  for (std::filesystem::directory_iterator I(oldDbPath), IE; I != IE; ++I) {
+    if (!is_directory(I->status()))
+      continue;
+
+    rocksdb::Options options;
+    options.create_if_missing = false;
+    rocksdb::DB *rawDb = nullptr;
+    rocksdb::Status status = rocksdb::DB::Open(options, path_to_utf8(I->path()), &rawDb);
+    if (!status.ok()) {
+      LOG_F(ERROR, "Can't open partition %s: %s", I->path().filename().string().c_str(), status.ToString().c_str());
       return false;
     }
+    std::unique_ptr<rocksdb::DB> srcDb(rawDb);
 
-    MiningRound newRecord;
-    newRecord.Height = oldRecord.Height;
-    newRecord.BlockHash = oldRecord.BlockHash;
-    newRecord.EndTime = Timestamp::fromUnixTime(oldRecord.EndTime);
-    newRecord.StartTime = Timestamp::fromUnixTime(oldRecord.StartTime);
-    newRecord.TotalShareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
-    newRecord.TotalShareValue.mulfp(oldRecord.TotalShareValue);
-    newRecord.AvailableCoins = fromRational(static_cast<uint64_t>(oldRecord.AvailableCoins));
-    newRecord.AvailableCoins /= static_cast<uint64_t>(old2.ExtraMultiplier);
-    newRecord.FoundBy = oldRecord.FoundBy;
-    newRecord.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-    newRecord.ExpectedWork.mulfp(oldRecord.ExpectedWork);
-    newRecord.AccumulatedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-    newRecord.AccumulatedWork.mulfp(oldRecord.AccumulatedWork);
-    newRecord.TxFee = fromRational(static_cast<uint64_t>(oldRecord.TxFee));
-    newRecord.PrimePOWTarget = oldRecord.PrimePOWTarget;
+    rocksdb::ReadOptions readOptions;
+    std::unique_ptr<rocksdb::Iterator> it(srcDb->NewIterator(readOptions));
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      MiningRound2 oldRecord;
+      if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
+        LOG_F(ERROR, "Can't deserialize rounds record, database corrupted");
+        return false;
+      }
 
-    // PendingConfirmation: in old code, unpayed rounds were detected by non-empty Payouts.
-    // For deferred-reward coins (ETH) payouts are empty until confirmation, so those rounds
-    // cannot be distinguished from already-processed ones. This is a known limitation.
-    newRecord.PendingConfirmation = !oldRecord.Payouts.empty();
-    // PPSValue / PPSBlockPart stay zero — PPS mode didn't exist before migration.
+      MiningRound newRecord;
+      newRecord.Height = oldRecord.Height;
+      newRecord.BlockHash = oldRecord.BlockHash;
+      newRecord.EndTime = Timestamp::fromUnixTime(oldRecord.EndTime);
+      newRecord.StartTime = Timestamp::fromUnixTime(oldRecord.StartTime);
+      newRecord.TotalShareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
+      newRecord.TotalShareValue.mulfp(oldRecord.TotalShareValue);
+      newRecord.AvailableCoins = fromRational(static_cast<uint64_t>(oldRecord.AvailableCoins));
+      newRecord.AvailableCoins /= static_cast<uint64_t>(old2.ExtraMultiplier);
+      newRecord.FoundBy = oldRecord.FoundBy;
+      newRecord.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+      newRecord.ExpectedWork.mulfp(oldRecord.ExpectedWork);
+      newRecord.AccumulatedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+      newRecord.AccumulatedWork.mulfp(oldRecord.AccumulatedWork);
+      newRecord.TxFee = fromRational(static_cast<uint64_t>(oldRecord.TxFee));
+      newRecord.PrimePOWTarget = oldRecord.PrimePOWTarget;
 
-    for (const auto &s : oldRecord.UserShares) {
-      UInt<256> shareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
-      shareValue.mulfp(s.ShareValue);
-      UInt<256> incomingWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-      incomingWork.mulfp(s.IncomingWork);
-      newRecord.UserShares.emplace_back(s.UserId, shareValue, incomingWork);
-    }
+      // In old code, unpayed rounds were detected by non-empty Payouts.
+      // For deferred-reward coins (ETH) payouts are empty until confirmation, so those rounds
+      // cannot be distinguished from already-processed ones. This is a known limitation.
+      bool isActive = !oldRecord.Payouts.empty();
+      // PPSValue / PPSBlockPart stay zero — PPS mode didn't exist before migration.
 
-    for (const auto &p : oldRecord.Payouts) {
-      UInt<384> value = fromRational(static_cast<uint64_t>(p.Value));
-      value /= static_cast<uint64_t>(old2.ExtraMultiplier);
-      UInt<384> valueWithoutFee = fromRational(static_cast<uint64_t>(p.ValueWithoutFee));
-      valueWithoutFee /= static_cast<uint64_t>(old2.ExtraMultiplier);
-      UInt<256> acceptedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-      acceptedWork.mulfp(p.AcceptedWork);
-      newRecord.Payouts.emplace_back(p.UserId, value, valueWithoutFee, acceptedWork);
-    }
-
-    LOG_F(INFO, "  height=%llu hash=%s endTime=%lld startTime=%lld totalShareValue=%s availableCoins=%s",
-          static_cast<unsigned long long>(newRecord.Height),
-          newRecord.BlockHash.c_str(),
-          static_cast<long long>(newRecord.EndTime.toUnixTime()),
-          static_cast<long long>(newRecord.StartTime.toUnixTime()),
-          formatSI(newRecord.TotalShareValue.getDecimal()).c_str(),
-          FormatMoney(newRecord.AvailableCoins, coinInfo.FractionalPartSize).c_str());
-    LOG_F(INFO, "    foundBy=%s expectedWork=%s accumulatedWork=%s txFee=%s primePOWTarget=%u shares=%zu payouts=%zu",
-          newRecord.FoundBy.c_str(),
-          formatSI(newRecord.ExpectedWork.getDecimal()).c_str(),
-          formatSI(newRecord.AccumulatedWork.getDecimal()).c_str(),
-          FormatMoney(newRecord.TxFee, coinInfo.FractionalPartSize).c_str(),
-          newRecord.PrimePOWTarget,
-          newRecord.UserShares.size(),
-          newRecord.Payouts.size());
-
-    for (const auto &s : newRecord.UserShares) {
-      LOG_F(INFO, "    * share %s shareValue=%s incomingWork=%s",
-            s.UserId.c_str(),
-            formatSI(s.ShareValue.getDecimal()).c_str(),
-            formatSI(s.IncomingWork.getDecimal()).c_str());
-    }
-
-    for (const auto &p : newRecord.Payouts) {
-      LOG_F(INFO, "    * payout %s value=%s valueWithoutFee=%s acceptedWork=%s",
-            p.UserId.c_str(),
-            FormatMoney(p.Value, coinInfo.FractionalPartSize).c_str(),
-            FormatMoney(p.ValueWithoutFee, coinInfo.FractionalPartSize).c_str(),
-            formatSI(p.AcceptedWork.getDecimal()).c_str());
-    }
-
-    // Strict checks on old data (before conversion)
-    bool hasPerUserIncomingWork = false;
-    if (!oldRecord.UserShares.empty()) {
-      double oldShareSum = 0;
-      double oldWorkSum = 0;
       for (const auto &s : oldRecord.UserShares) {
-        oldShareSum += s.ShareValue;
-        oldWorkSum += s.IncomingWork;
-      }
-      if (oldShareSum != oldRecord.TotalShareValue) {
-        LOG_F(ERROR, "Round height=%llu: old data: sum of ShareValue (%.*g) != TotalShareValue (%.*g)",
-              static_cast<unsigned long long>(oldRecord.Height), 17, oldShareSum, 17, oldRecord.TotalShareValue);
-        return false;
+        UInt<256> shareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
+        shareValue.mulfp(s.ShareValue);
+        UInt<256> incomingWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+        incomingWork.mulfp(s.IncomingWork);
+        newRecord.UserShares.emplace_back(s.UserId, shareValue, incomingWork);
       }
 
-      hasPerUserIncomingWork = oldWorkSum != 0;
-      // v1 rounds don't have per-user IncomingWork (all zeros), skip check
-      if (hasPerUserIncomingWork && oldWorkSum != oldRecord.AccumulatedWork) {
-        LOG_F(ERROR, "Round height=%llu: old data: sum of IncomingWork (%.*g) != AccumulatedWork (%.*g)",
-              static_cast<unsigned long long>(oldRecord.Height), 17, oldWorkSum, 17, oldRecord.AccumulatedWork);
-        return false;
+      for (const auto &p : oldRecord.Payouts) {
+        UInt<384> value = fromRational(static_cast<uint64_t>(p.Value));
+        value /= static_cast<uint64_t>(old2.ExtraMultiplier);
+        UInt<384> valueWithoutFee = fromRational(static_cast<uint64_t>(p.ValueWithoutFee));
+        valueWithoutFee /= static_cast<uint64_t>(old2.ExtraMultiplier);
+        UInt<256> acceptedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+        acceptedWork.mulfp(p.AcceptedWork);
+        newRecord.Payouts.emplace_back(p.UserId, value, valueWithoutFee, acceptedWork);
       }
-    }
 
-    if (!oldRecord.Payouts.empty()) {
-      int64_t oldPayoutSum = 0;
-      for (const auto &p : oldRecord.Payouts)
-        oldPayoutSum += p.Value;
-      if (oldPayoutSum != oldRecord.AvailableCoins) {
-        LOG_F(ERROR, "Round height=%llu: old data: sum of payout Value (%lld) != AvailableCoins (%lld)",
-              static_cast<unsigned long long>(oldRecord.Height),
-              static_cast<long long>(oldPayoutSum), static_cast<long long>(oldRecord.AvailableCoins));
-        return false;
+      LOG_F(INFO, "  height=%llu hash=%s endTime=%lld startTime=%lld totalShareValue=%s availableCoins=%s",
+            static_cast<unsigned long long>(newRecord.Height),
+            newRecord.BlockHash.c_str(),
+            static_cast<long long>(newRecord.EndTime.toUnixTime()),
+            static_cast<long long>(newRecord.StartTime.toUnixTime()),
+            formatSI(newRecord.TotalShareValue.getDecimal()).c_str(),
+            FormatMoney(newRecord.AvailableCoins, coinInfo.FractionalPartSize).c_str());
+      LOG_F(INFO, "    foundBy=%s expectedWork=%s accumulatedWork=%s txFee=%s primePOWTarget=%u shares=%zu payouts=%zu pending=%d",
+            newRecord.FoundBy.c_str(),
+            formatSI(newRecord.ExpectedWork.getDecimal()).c_str(),
+            formatSI(newRecord.AccumulatedWork.getDecimal()).c_str(),
+            FormatMoney(newRecord.TxFee, coinInfo.FractionalPartSize).c_str(),
+            newRecord.PrimePOWTarget,
+            newRecord.UserShares.size(),
+            newRecord.Payouts.size(),
+            isActive);
+
+      for (const auto &s : newRecord.UserShares) {
+        LOG_F(INFO, "    * share %s shareValue=%s incomingWork=%s",
+              s.UserId.c_str(),
+              formatSI(s.ShareValue.getDecimal()).c_str(),
+              formatSI(s.IncomingWork.getDecimal()).c_str());
       }
-    }
 
-    // Correct rounding errors after conversion
-    if (!newRecord.UserShares.empty()) {
-      if (!correctSum(newRecord.UserShares, newRecord.TotalShareValue, newRecord.Height, "ShareValue",
-            [](auto &s) -> UInt<256>& { return s.ShareValue; }))
-        return false;
-      // v1 rounds don't have per-user IncomingWork (all zeros), skip correction
-      if (hasPerUserIncomingWork) {
-        if (!correctSum(newRecord.UserShares, newRecord.AccumulatedWork, newRecord.Height, "IncomingWork",
-              [](auto &s) -> UInt<256>& { return s.IncomingWork; }))
+      for (const auto &p : newRecord.Payouts) {
+        LOG_F(INFO, "    * payout %s value=%s valueWithoutFee=%s acceptedWork=%s",
+              p.UserId.c_str(),
+              FormatMoney(p.Value, coinInfo.FractionalPartSize).c_str(),
+              FormatMoney(p.ValueWithoutFee, coinInfo.FractionalPartSize).c_str(),
+              formatSI(p.AcceptedWork.getDecimal()).c_str());
+      }
+
+      // Strict checks on old data (before conversion)
+      bool hasPerUserIncomingWork = false;
+      if (!oldRecord.UserShares.empty()) {
+        double oldShareSum = 0;
+        double oldWorkSum = 0;
+        for (const auto &s : oldRecord.UserShares) {
+          oldShareSum += s.ShareValue;
+          oldWorkSum += s.IncomingWork;
+        }
+        if (oldShareSum != oldRecord.TotalShareValue) {
+          LOG_F(ERROR, "Round height=%llu: old data: sum of ShareValue (%.*g) != TotalShareValue (%.*g)",
+                static_cast<unsigned long long>(oldRecord.Height), 17, oldShareSum, 17, oldRecord.TotalShareValue);
+          return false;
+        }
+
+        hasPerUserIncomingWork = oldWorkSum != 0;
+        // v1 rounds don't have per-user IncomingWork (all zeros), skip check
+        if (hasPerUserIncomingWork && oldWorkSum != oldRecord.AccumulatedWork) {
+          LOG_F(ERROR, "Round height=%llu: old data: sum of IncomingWork (%.*g) != AccumulatedWork (%.*g)",
+                static_cast<unsigned long long>(oldRecord.Height), 17, oldWorkSum, 17, oldRecord.AccumulatedWork);
+          return false;
+        }
+      }
+
+      if (!oldRecord.Payouts.empty()) {
+        int64_t oldPayoutSum = 0;
+        for (const auto &p : oldRecord.Payouts)
+          oldPayoutSum += p.Value;
+        if (oldPayoutSum != oldRecord.AvailableCoins) {
+          LOG_F(ERROR, "Round height=%llu: old data: sum of payout Value (%lld) != AvailableCoins (%lld)",
+                static_cast<unsigned long long>(oldRecord.Height),
+                static_cast<long long>(oldPayoutSum), static_cast<long long>(oldRecord.AvailableCoins));
+          return false;
+        }
+      }
+
+      // Correct rounding errors after conversion
+      if (!newRecord.UserShares.empty()) {
+        if (!correctSum(newRecord.UserShares, newRecord.TotalShareValue, newRecord.Height, "ShareValue",
+              [](auto &s) -> UInt<256>& { return s.ShareValue; }))
+          return false;
+        // v1 rounds don't have per-user IncomingWork (all zeros), skip correction
+        if (hasPerUserIncomingWork) {
+          if (!correctSum(newRecord.UserShares, newRecord.AccumulatedWork, newRecord.Height, "IncomingWork",
+                [](auto &s) -> UInt<256>& { return s.IncomingWork; }))
+            return false;
+        }
+      }
+
+      if (!newRecord.Payouts.empty()) {
+        if (!correctSum(newRecord.Payouts, newRecord.AvailableCoins, newRecord.Height, "PayoutValue",
+              [](auto &p) -> UInt<384>& { return p.Value; }))
           return false;
       }
-    }
 
-    if (!newRecord.Payouts.empty()) {
-      if (!correctSum(newRecord.Payouts, newRecord.AvailableCoins, newRecord.Height, "PayoutValue",
-            [](auto &p) -> UInt<384>& { return p.Value; }))
-        return false;
+      if (isActive) {
+        activeRounds.push_back(std::move(newRecord));
+      } else {
+        roundsDb.put(newRecord);
+        completedCount++;
+      }
     }
+  }
 
-    xmstream stream;
-    newRecord.serializeValue(stream);
-    batch.Put(it->key(), rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
-    return true;
-  });
+  LOG_F(INFO, "  Migrated %u completed rounds to accounting.rounds, %zu active rounds to state",
+        completedCount, activeRounds.size());
+  return true;
 }
 
 // Helper: try to parse .dat file into CAccountingFileData
@@ -563,7 +602,7 @@ static bool tryParseAccountingDatFile(const std::filesystem::path &filePath, CAc
 }
 
 // Helper: write CAccountingFileData to RocksDB
-static bool writeAccountingStateToDb(rocksdbBase &stateDb, const CAccountingFileData &fileData, Timestamp currentRoundStartTime)
+static bool writeAccountingStateToDb(rocksdbBase &stateDb, const CAccountingFileData &fileData, Timestamp currentRoundStartTime, const std::vector<MiningRound> &activeRounds)
 {
   rocksdbBase::CBatch batch = stateDb.batch("default");
 
@@ -599,11 +638,19 @@ static bool writeAccountingStateToDb(rocksdbBase &stateDb, const CAccountingFile
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
 
+  // Save active rounds
+  for (const auto &round : activeRounds)
+    batch.put(round);
+
   return stateDb.writeBatch(batch);
 }
 
 // Migrate accounting storage from .dat files to RocksDB (accounting.state)
-static bool migrateAccountingToState(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const CCoinInfo &coinInfo, const CCoinInfoOld2 &old2)
+static bool migrateAccountingToState(const std::filesystem::path &srcCoinPath,
+                                     const std::filesystem::path &dstCoinPath,
+                                     const CCoinInfo &coinInfo,
+                                     const CCoinInfoOld2 &old2,
+                                     const std::vector<MiningRound> &activeRounds)
 {
   std::filesystem::path dstDbPath = dstCoinPath / "accounting.state";
   if (std::filesystem::exists(dstDbPath)) {
@@ -636,7 +683,7 @@ static bool migrateAccountingToState(const std::filesystem::path &srcCoinPath, c
 
           PayoutDbRecord newRecord;
           newRecord.UserId = oldRecord.UserId;
-          newRecord.Time = oldRecord.Time;
+          newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
           newRecord.Value = fromRational(static_cast<uint64_t>(oldRecord.Value));
           newRecord.TransactionId = oldRecord.TransactionId;
           newRecord.TransactionData = oldRecord.TransactionData;
@@ -664,7 +711,7 @@ static bool migrateAccountingToState(const std::filesystem::path &srcCoinPath, c
   // Find EndTime of the last round (= start time of current round)
   Timestamp lastRoundEndTime;
   {
-    std::filesystem::path roundsPath = dstCoinPath / "rounds.3";
+    std::filesystem::path roundsPath = dstCoinPath / "accounting.rounds";
     if (std::filesystem::exists(roundsPath)) {
       kvdb<rocksdbBase> roundsDb(roundsPath);
       std::unique_ptr<rocksdbBase::IteratorType> It(roundsDb.iterator());
@@ -676,6 +723,11 @@ static bool migrateAccountingToState(const std::filesystem::path &srcCoinPath, c
           lastRoundEndTime = R.EndTime;
       }
     }
+  }
+  // Active rounds may have later EndTime than completed ones
+  for (const auto &round : activeRounds) {
+    if (round.EndTime > lastRoundEndTime)
+      lastRoundEndTime = round.EndTime;
   }
 
   // Load files from both directories
@@ -706,7 +758,7 @@ static bool migrateAccountingToState(const std::filesystem::path &srcCoinPath, c
             static_cast<unsigned long long>(fileData.LastShareId),
             fileData.Recent.size(), fileData.CurrentScores.size());
 
-      if (writeAccountingStateToDb(stateDb, fileData, lastRoundEndTime)) {
+      if (writeAccountingStateToDb(stateDb, fileData, lastRoundEndTime, activeRounds)) {
         LOG_F(INFO, "    Successfully migrated to accounting.state");
         return true;
       } else {
@@ -1231,7 +1283,7 @@ static bool migrateCoin(const std::filesystem::path &srcPath, const std::filesys
 
   if (!migratePoolBalance(srcCoinPath, dstCoinPath, old2, threads))
     return false;
-  if (!migratePPLNSPayouts(srcCoinPath, dstCoinPath, old2, threads))
+  if (!migratePPLNSPayouts(srcCoinPath, dstCoinPath, threads))
     return false;
   if (!migratePayouts(srcCoinPath, dstCoinPath, threads))
     return false;
@@ -1241,7 +1293,8 @@ static bool migrateCoin(const std::filesystem::path &srcPath, const std::filesys
     return false;
   if (!migrateStats(srcCoinPath, dstCoinPath, old2, "poolstats", "statistic", threads, statisticCutoff))
     return false;
-  if (!migrateRounds(srcCoinPath, dstCoinPath, coinInfo, old2))
+  std::vector<MiningRound> activeRounds;
+  if (!migrateRounds(srcCoinPath, dstCoinPath, coinInfo, old2, activeRounds))
     return false;
 
   // Migrate old ShareLog to new worklog format (must run before cache migration)
@@ -1250,7 +1303,7 @@ static bool migrateCoin(const std::filesystem::path &srcPath, const std::filesys
   if (!migrateShareLogToWorklog(srcCoinPath, dstCoinPath, old2, &poolCacheLastShareId, &workersCacheLastShareId))
     return false;
 
-  if (!migrateAccountingToState(srcCoinPath, dstCoinPath, coinInfo, old2))
+  if (!migrateAccountingToState(srcCoinPath, dstCoinPath, coinInfo, old2, activeRounds))
     return false;
   if (!migrateStatsCache(srcCoinPath, dstCoinPath, "stats.pool.cache", "stats.pool.cache.3", old2, threads, poolCacheLastShareId))
     return false;
@@ -1260,6 +1313,16 @@ static bool migrateCoin(const std::filesystem::path &srcPath, const std::filesys
     return false;
   if (!migrateStatsCacheV2(srcCoinPath, dstCoinPath, "stats.workers.cache.2", "stats.workers.cache.3", old2, threads, workersCacheLastShareId))
     return false;
+
+  // Copy user stats cache for accounting UserStatsAcc_
+  {
+    std::filesystem::path srcDir = dstCoinPath / "stats.users.cache.3";
+    std::filesystem::path dstDir = dstCoinPath / "accounting.userstats";
+    if (std::filesystem::exists(srcDir)) {
+      std::filesystem::copy(srcDir, dstDir, std::filesystem::copy_options::recursive);
+      LOG_F(INFO, "  Copied stats.users.cache.3 -> accounting.userstats");
+    }
+  }
 
   return true;
 }

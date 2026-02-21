@@ -1,6 +1,7 @@
 #pragma once
 
 #include "accountingData.h"
+#include "backendData.h"
 #include "poolcore/rocksdbBase.h"
 #include "statsData.h"
 #include <atomic>
@@ -22,6 +23,7 @@ public:
   std::list<PayoutDbRecord> PayoutQueue;                      // key: "payoutqueue"
   std::atomic<CBackendSettings> BackendSettings;              // key: "settings"
   CPPSState PPSState;                                         // key: "ppsstate"
+  std::list<MiningRound> ActiveRounds;                        // keys: 'r' + Height + BlockHash
 
 public:
   // In-memory state (not serialized; rebuilt from PayoutQueue on load)
@@ -33,10 +35,12 @@ public:
   uint64_t lastAcceptedMsgId() const { return LastAcceptedMsgId_; }
 
   void applyBatch(uint64_t msgId, const CAccountingStateBatch &batch);
-  void flushState();
+  static rocksdbBase::CBatch batch() { return rocksdbBase::CBatch{"default", rocksdb::WriteBatch()}; }
+  void addMutableState(rocksdbBase::CBatch &batch);
+  void addRoundState(rocksdbBase::CBatch &batch);
+  void addPayoutQueue(rocksdbBase::CBatch &batch);
+  void flushState(rocksdbBase::CBatch &batch);
   void flushBackendSettings();
-  void flushPayoutQueue();
-
 private:
   uint64_t LastAcceptedMsgId_ = 0;
   std::filesystem::path DbPath_;

@@ -79,7 +79,6 @@ struct PoolBackendConfig {
   unsigned RequiredConfirmations;
   UInt<384> DefaultPayoutThreshold;
 
-  unsigned KeepRoundTime;
   unsigned KeepStatsTime;
   unsigned ConfirmationsCheckInterval;
   unsigned BalanceCheckInterval;
@@ -126,7 +125,7 @@ struct PayoutDbRecord {
   };
 
   std::string UserId;
-  int64_t Time;
+  Timestamp Time;
   UInt<384> Value;
   std::string TransactionId;
   std::string TransactionData;
@@ -134,14 +133,14 @@ struct PayoutDbRecord {
   // Version 2
   UInt<384> TxFee = UInt<384>::zero();
 
-  std::string getPartitionId() const { return partByTime(Time); }
+  std::string getPartitionId() const { return partByTime(Time.toUnixTime()); }
   bool deserializeValue(const void *data, size_t size);
   bool deserializeValue(xmstream &stream);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;
 
   PayoutDbRecord() {}
-  PayoutDbRecord(const std::string &userId, const UInt<384> &value) : UserId(userId), Value(value) {}
+  PayoutDbRecord(const std::string &userId, const UInt<384> &value) : UserId(userId), Time(Timestamp::now()), Value(value) {}
 };
 
 struct shareInfo {
@@ -188,10 +187,6 @@ struct MiningRound {
   std::vector<UserShareValue> UserShares;
   std::vector<CUserPayout> Payouts;
 
-  // True from block discovery until confirmation or orphan detection.
-  // Persisted so that rounds awaiting confirmation survive restarts.
-  bool PendingConfirmation = false;
-
   // PPS correction applied at block discovery (non-deferred coins).
   // Stored so the deduction can be reversed if the block is orphaned.
   UInt<384> PPSValue;
@@ -199,11 +194,12 @@ struct MiningRound {
     
   MiningRound() {}
   MiningRound(unsigned heightArg) : Height(heightArg) {}
-    
+
   friend bool operator<(const MiningRound &L, const MiningRound &R) { return L.Height < R.Height; }
 
-  std::string getPartitionId() const { return "default"; }
+  std::string getPartitionId() const { return partByTime(EndTime.toUnixTime()); }
   bool deserializeValue(const void *data, size_t size);
+  bool deserializeValue(xmstream &stream);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;
   void dump(unsigned fractionalPart);

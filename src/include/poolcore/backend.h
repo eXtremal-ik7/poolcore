@@ -86,7 +86,7 @@ public:
   intrusive_ptr<EthashDagWrapper> dagFile(unsigned epochNumber) { return epochNumber < MaxEpochNum ? EthDagFiles_[epochNumber] : intrusive_ptr<EthashDagWrapper>(); }
 
   // Synchronous api
-  void queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts);
+  void queryPayouts(const std::string &user, Timestamp timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts);
 
   // Asynchronous api
   void updateDag(unsigned epochNumber, bool bigEpoch) {

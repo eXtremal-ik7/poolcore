@@ -39,7 +39,6 @@ struct CCoinConfig {
   unsigned RequiredConfirmations;
   std::string DefaultPayoutThreshold;
 
-  unsigned KeepRoundTime;
   unsigned KeepStatsTime;
   unsigned ConfirmationsCheckInterval;
   unsigned BalanceCheckInterval;

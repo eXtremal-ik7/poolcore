@@ -27,6 +27,23 @@ public:
     bool put(const void *key, size_t keySize, const void *data, size_t dataSize);
     bool merge(const void *key, size_t keySize, const void *data, size_t dataSize);
     bool deleteRow(const void *key, size_t keySize);
+
+    template<typename D>
+    void put(const D &data) {
+      xmstream stream;
+      data.serializeKey(stream);
+      size_t keySize = stream.offsetOf();
+      data.serializeValue(stream);
+      const uint8_t *keyData = (const uint8_t*)stream.data();
+      put(keyData, keySize, keyData + keySize, stream.sizeOf() - keySize);
+    }
+
+    template<typename D>
+    void deleteRow(const D &data) {
+      xmstream stream;
+      data.serializeKey(stream);
+      deleteRow(stream.data(), stream.sizeOf());
+    }
   };
 
   struct IteratorType {

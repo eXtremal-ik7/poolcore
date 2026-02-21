@@ -1688,12 +1688,12 @@ void PoolHttpConnection::onBackendQueryPayouts(rapidjson::Document &document)
   std::string sessionId;
   std::string targetLogin;
   std::string coin;
-  uint64_t timeFrom = 0;
+  int64_t timeFrom = 0;
   unsigned count;
   jsonParseString(document, "id", sessionId, &validAcc);
   jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
   jsonParseString(document, "coin", coin, "", &validAcc);
-  jsonParseUInt64(document, "timeFrom", &timeFrom, 0, &validAcc);
+  jsonParseInt64(document, "timeFrom", &timeFrom, 0, &validAcc);
   jsonParseUInt(document, "count", &count, 20, &validAcc);
   if (!validAcc) {
     replyWithStatus("json_format_error");
@@ -1714,7 +1714,7 @@ void PoolHttpConnection::onBackendQueryPayouts(rapidjson::Document &document)
   }
 
   std::vector<PayoutDbRecord> records;
-  backend->queryPayouts(tokenInfo.Login, timeFrom, count, records);
+  backend->queryPayouts(tokenInfo.Login, Timestamp(timeFrom), count, records);
   xmstream stream;
   reply200(stream);
   size_t offset = startChunk(stream);
@@ -1729,7 +1729,7 @@ void PoolHttpConnection::onBackendQueryPayouts(rapidjson::Document &document)
         payoutsArray.addField();
         {
           JSON::Object payout(stream);
-          payout.addInt("time", records[i].Time);
+          payout.addInt("time", records[i].Time.count());
           payout.addString("txid", records[i].TransactionId);
           payout.addString("value", FormatMoney(records[i].Value, backend->getCoinInfo().FractionalPartSize));
           payout.addInt("status", records[i].Status);

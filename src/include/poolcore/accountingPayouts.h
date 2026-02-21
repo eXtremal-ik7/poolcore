@@ -4,7 +4,6 @@
 #include "clientDispatcher.h"
 #include "usermgr.h"
 #include <list>
-#include <set>
 
 class CAccountingState;
 
@@ -15,7 +14,6 @@ public:
                    const CCoinInfo &coinInfo,
                    CNetworkClientDispatcher &clientDispatcher,
                    CAccountingState &state,
-                   const std::set<MiningRound*> &unpayedRounds,
                    kvdb<rocksdbBase> &payoutDb,
                    kvdb<rocksdbBase> &balanceDb,
                    kvdb<rocksdbBase> &poolBalanceDb,
@@ -37,7 +35,6 @@ private:
   const CCoinInfo &CoinInfo_;
   CNetworkClientDispatcher &ClientDispatcher_;
   CAccountingState &State_;
-  const std::set<MiningRound*> &UnpayedRounds_;
   kvdb<rocksdbBase> &PayoutDb_;
   kvdb<rocksdbBase> &BalanceDb_;
   kvdb<rocksdbBase> &PoolBalanceDb_;
