@@ -28,81 +28,6 @@ public:
   using QueryStatsHistoryCallback = std::function<void(const std::vector<CStats>&)>;
 
 private:
-  class TaskUpdateDag : public Task<PoolBackend> {
-  public:
-    TaskUpdateDag(unsigned epochNumber, bool bigEpoch) : EpochNumber_(epochNumber), BigEpoch_(bigEpoch) {}
-    void run(PoolBackend *backend) final { backend->onUpdateDag(EpochNumber_, BigEpoch_); }
-  private:
-    unsigned EpochNumber_;
-    bool BigEpoch_;
-  };
-
-  class TaskUserWorkSummary : public Task<PoolBackend> {
-  public:
-    TaskUserWorkSummary(CUserWorkSummaryBatch &&batch) : Batch_(std::move(batch)) {}
-    void run(PoolBackend *backend) final { backend->onUserWorkSummary(Batch_); }
-  private:
-    CUserWorkSummaryBatch Batch_;
-  };
-
-  class TaskWorkSummary : public Task<PoolBackend> {
-  public:
-    TaskWorkSummary(CWorkSummaryBatch &&batch) : Batch_(std::move(batch)) {}
-    void run(PoolBackend *backend) final { backend->onWorkSummary(Batch_); }
-  private:
-    CWorkSummaryBatch Batch_;
-  };
-
-  class TaskBlockFound : public Task<PoolBackend> {
-  public:
-    TaskBlockFound(CBlockFoundData *block) : Block_(block) {}
-    void run(PoolBackend *backend) final { backend->onBlockFound(*Block_); }
-  private:
-    std::unique_ptr<CBlockFoundData> Block_;
-  };
-
-  class TaskUserSettingsUpdate : public Task<PoolBackend> {
-  public:
-    TaskUserSettingsUpdate(UserSettingsRecord settings) : Settings_(std::move(settings)) {}
-    void run(PoolBackend *backend) final { backend->onUserSettingsUpdate(Settings_); }
-
-  private:
-    UserSettingsRecord Settings_;
-  };
-
-  class TaskFeePlanUpdate : public Task<PoolBackend> {
-  public:
-    TaskFeePlanUpdate(std::string feePlanId, EMiningMode mode, std::vector<UserFeePair> feeRecord) :
-      FeePlanId_(std::move(feePlanId)), Mode_(mode), FeeRecord_(std::move(feeRecord)) {}
-    void run(PoolBackend *backend) final { backend->onFeePlanUpdate(FeePlanId_, Mode_, FeeRecord_); }
-
-  private:
-    std::string FeePlanId_;
-    EMiningMode Mode_;
-    std::vector<UserFeePair> FeeRecord_;
-  };
-
-  class TaskFeePlanDelete : public Task<PoolBackend> {
-  public:
-    TaskFeePlanDelete(std::string feePlanId) : FeePlanId_(std::move(feePlanId)) {}
-    void run(PoolBackend *backend) final { backend->onFeePlanDelete(FeePlanId_); }
-
-  private:
-    std::string FeePlanId_;
-  };
-
-  class TaskUserFeePlanChange : public Task<PoolBackend> {
-  public:
-    TaskUserFeePlanChange(std::string login, std::string feePlanId) :
-      Login_(std::move(login)), FeePlanId_(std::move(feePlanId)) {}
-    void run(PoolBackend *backend) final { backend->onUserFeePlanChange(Login_, FeePlanId_); }
-
-  private:
-    std::string Login_;
-    std::string FeePlanId_;
-  };
-
-private:
   asyncBase *_base;
   uint64_t _timeout;
   std::thread _thread;
@@ -169,17 +94,29 @@ public:
   void queryPayouts(const std::string &user, uint64_t timeFrom, unsigned count, std::vector<PayoutDbRecord> &payouts);
 
   // Asynchronous api
-  void updateDag(unsigned epochNumber, bool bigEpoch) { TaskHandler_.push(new TaskUpdateDag(epochNumber, bigEpoch)); }
-  void sendUserWorkSummary(CUserWorkSummaryBatch &&batch) { TaskHandler_.push(new TaskUserWorkSummary(std::move(batch))); }
-  void sendWorkSummary(CWorkSummaryBatch &&batch) { TaskHandler_.push(new TaskWorkSummary(std::move(batch))); }
-  void sendBlockFound(CBlockFoundData *block) { TaskHandler_.push(new TaskBlockFound(block)); }
-  void sendUserSettingsUpdate(UserSettingsRecord settings) { TaskHandler_.push(new TaskUserSettingsUpdate(std::move(settings))); }
-  void sendFeePlanUpdate(std::string feePlanId, EMiningMode mode, std::vector<UserFeePair> feeRecord) {
-    TaskHandler_.push(new TaskFeePlanUpdate(std::move(feePlanId), mode, std::move(feeRecord)));
+  void updateDag(unsigned epochNumber, bool bigEpoch) {
+    TaskHandler_.push([epochNumber, bigEpoch](PoolBackend *b) { b->onUpdateDag(epochNumber, bigEpoch); });
   }
-  void sendFeePlanDelete(std::string feePlanId) { TaskHandler_.push(new TaskFeePlanDelete(std::move(feePlanId))); }
+  void sendUserWorkSummary(CUserWorkSummaryBatch &&batch) {
+    TaskHandler_.push([batch = std::move(batch)](PoolBackend *b) { b->onUserWorkSummary(batch); });
+  }
+  void sendWorkSummary(CWorkSummaryBatch &&batch) {
+    TaskHandler_.push([batch = std::move(batch)](PoolBackend *b) { b->onWorkSummary(batch); });
+  }
+  void sendBlockFound(CBlockFoundData *block) {
+    TaskHandler_.push([block = std::unique_ptr<CBlockFoundData>(block)](PoolBackend *b) { b->onBlockFound(*block); });
+  }
+  void sendUserSettingsUpdate(UserSettingsRecord settings) {
+    TaskHandler_.push([settings = std::move(settings)](PoolBackend *b) { b->onUserSettingsUpdate(settings); });
+  }
+  void sendFeePlanUpdate(std::string feePlanId, EMiningMode mode, std::vector<UserFeePair> feeRecord) {
+    TaskHandler_.push([feePlanId = std::move(feePlanId), mode, feeRecord = std::move(feeRecord)](PoolBackend *b) { b->onFeePlanUpdate(feePlanId, mode, feeRecord); });
+  }
+  void sendFeePlanDelete(std::string feePlanId) {
+    TaskHandler_.push([feePlanId = std::move(feePlanId)](PoolBackend *b) { b->onFeePlanDelete(feePlanId); });
+  }
   void sendUserFeePlanChange(std::string login, std::string feePlanId) {
-    TaskHandler_.push(new TaskUserFeePlanChange(std::move(login), std::move(feePlanId)));
+    TaskHandler_.push([login = std::move(login), feePlanId = std::move(feePlanId)](PoolBackend *b) { b->onUserFeePlanChange(login, feePlanId); });
   }
 
   AccountingDb *accountingDb() { return _accounting.get(); }

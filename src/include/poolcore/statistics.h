@@ -46,42 +46,6 @@ private:
   using QueryUserStatsCallback = std::function<void(const CStats&, const std::vector<CStats>&)>;
   using QueryAllUsersStatisticCallback = std::function<void(const std::vector<CredentialsWithStatistic>&)>;
 
-  class TaskQueryPoolStats : public Task<StatisticDb> {
-  public:
-    TaskQueryPoolStats(QueryPoolStatsCallback callback) : Callback_(callback) {}
-    void run(StatisticDb *statistic) final { statistic->queryPoolStatsImpl(Callback_); }
-  private:
-    QueryPoolStatsCallback Callback_;
-  };
-
-  class TaskQueryUserStats : public Task<StatisticDb> {
-  public:
-    TaskQueryUserStats(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending) :
-      User_(user), Callback_(callback), Offset_(offset), Size_(size), SortBy_(sortBy), SortDescending_(sortDescending) {}
-    void run(StatisticDb *statistic) final { statistic->queryUserStatsImpl(User_, Callback_, Offset_, Size_, SortBy_, SortDescending_); }
-  private:
-    std::string User_;
-    QueryUserStatsCallback Callback_;
-    size_t Offset_;
-    size_t Size_;
-    StatisticDb::EStatsColumn SortBy_;
-    bool SortDescending_;
-  };
-
-  class TaskQueryAllUsersStats : public Task<StatisticDb> {
-  public:
-    TaskQueryAllUsersStats(std::vector<UserManager::Credentials> &&users, QueryAllUsersStatisticCallback callback, size_t offset, size_t size, CredentialsWithStatistic::EColumns sortBy, bool sortDescending) :
-      Users_(std::move(users)), Callback_(callback), Offset_(offset), Size_(size), SortBy_(sortBy), SortDescending_(sortDescending) {}
-    void run(StatisticDb *statistic) final { statistic->queryAllUserStatsImpl(Users_, Callback_, Offset_, Size_, SortBy_, SortDescending_); }
-  private:
-    std::vector<UserManager::Credentials> Users_;
-    QueryAllUsersStatisticCallback Callback_;
-    size_t Offset_;
-    size_t Size_;
-    CredentialsWithStatistic::EColumns SortBy_;
-    bool SortDescending_;
-  };
-
 private:
   const PoolBackendConfig _cfg;
   CCoinInfo CoinInfo_;
@@ -146,18 +110,19 @@ public:
   void getHistory(const std::string &login, const std::string &workerId, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, std::vector<CStats> &history);
 
   // Asynchronous api
-  void queryPoolStats(QueryPoolStatsCallback callback) { TaskHandler_.push(new TaskQueryPoolStats(callback)); }
-  void queryUserStats(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending) {
-    TaskHandler_.push(new TaskQueryUserStats(user, callback, offset, size, sortBy, sortDescending));
+  void queryPoolStats(QueryPoolStatsCallback callback) {
+    TaskHandler_.push([callback](StatisticDb *s) { s->queryPoolStatsImpl(callback); });
   }
-
+  void queryUserStats(const std::string &user, QueryUserStatsCallback callback, size_t offset, size_t size, StatisticDb::EStatsColumn sortBy, bool sortDescending) {
+    TaskHandler_.push([user, callback, offset, size, sortBy, sortDescending](StatisticDb *s) { s->queryUserStatsImpl(user, callback, offset, size, sortBy, sortDescending); });
+  }
   void queryAllusersStats(std::vector<UserManager::Credentials> &&users,
                           QueryAllUsersStatisticCallback callback,
                           size_t offset,
                           size_t size,
                           CredentialsWithStatistic::EColumns sortBy,
                           bool sortDescending) {
-    TaskHandler_.push(new TaskQueryAllUsersStats(std::move(users), callback, offset, size, sortBy, sortDescending));
+    TaskHandler_.push([users = std::move(users), callback, offset, size, sortBy, sortDescending](StatisticDb *s) { s->queryAllUserStatsImpl(users, callback, offset, size, sortBy, sortDescending); });
   }
 
   static void queryPoolStatsMulti(StatisticDb **backends, size_t backendsNum, std::function<void(const CStats*, size_t)> callback) {
@@ -187,16 +152,9 @@ public:
   CCoinInfo &coinInfo() { return CoinInfo_; }
 
   // Asynchronous api
-  void sendWorkSummary(CWorkSummaryBatch &&batch) { TaskHandler_.push(new TaskWorkSummary(std::move(batch))); }
-
-private:
-  class TaskWorkSummary : public Task<StatisticServer> {
-  public:
-    TaskWorkSummary(CWorkSummaryBatch &&batch) : Batch_(std::move(batch)) {}
-    void run(StatisticServer *backend) final { backend->onWorkSummary(Batch_); }
-  private:
-    CWorkSummaryBatch Batch_;
-  };
+  void sendWorkSummary(CWorkSummaryBatch &&batch) {
+    TaskHandler_.push([batch = std::move(batch)](StatisticServer *s) { s->onWorkSummary(batch); });
+  }
 
 private:
   void onWorkSummary(const CWorkSummaryBatch &batch);

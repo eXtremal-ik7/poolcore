@@ -93,6 +93,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   UserStatsFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   PPSPayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   InstantPayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);
+  Api_.setInstantPayoutEvent(InstantPayoutEvent_);
 
   // Start loading user data from UserManager in parallel with local DB loading
   std::thread settingsThread([this]() {

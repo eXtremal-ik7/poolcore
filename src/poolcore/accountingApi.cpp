@@ -532,6 +532,8 @@ const char *CAccountingApi::updateBackendSettings(const std::optional<CBackendSe
 
   State_.BackendSettings.store(settings, std::memory_order_relaxed);
   State_.flushBackendSettings();
+  if (InstantPayoutEvent_)
+    userEventActivate(InstantPayoutEvent_);
   return "ok";
 }
 

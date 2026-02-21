@@ -35,73 +35,6 @@ private:
     }
   };
 
-  class TaskManualPayout : public Task<AccountingDb> {
-  public:
-    TaskManualPayout(const std::string &user, DefaultCb callback) : User_(user), Callback_(callback) {}
-    void run(AccountingDb *accounting) final {
-      const char *status = accounting->api().manualPayout(User_);
-      Callback_(status);
-    }
-  private:
-    std::string User_;
-    DefaultCb Callback_;
-  };
-
-  class TaskQueryFoundBlocks : public Task<AccountingDb> {
-  public:
-    TaskQueryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) : HeightFrom_(heightFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { accounting->api().queryFoundBlocks(HeightFrom_, HashFrom_, Count_, Callback_); }
-  private:
-    int64_t HeightFrom_;
-    std::string HashFrom_;
-    uint32_t Count_;
-    QueryFoundBlocksCallback Callback_;
-  };
-
-  class TaskQueryBalance : public Task<AccountingDb> {
-  public:
-    TaskQueryBalance(const std::string &user, QueryBalanceCallback callback) : User_(user), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { Callback_(accounting->api().queryBalance(User_)); }
-  private:
-    std::string User_;
-    QueryBalanceCallback Callback_;
-  };
-
-  class TaskQueryPPLNSPayouts : public Task<AccountingDb> {
-  public:
-    TaskQueryPPLNSPayouts(const std::string &user, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback) :
-      User_(user), TimeFrom_(timeFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { Callback_(accounting->api().queryPPLNSPayouts(User_, TimeFrom_, HashFrom_, Count_)); }
-  private:
-    std::string User_;
-    int64_t TimeFrom_;
-    std::string HashFrom_;
-    uint32_t Count_;
-    QueryPPLNSPayoutsCallback Callback_;
-  };
-
-  class TaskQueryPPLNSAcc: public Task<AccountingDb> {
-  public:
-    TaskQueryPPLNSAcc(const std::string &user, int64_t timeFrom, int64_t timeTo, int64_t groupInterval, QueryPPLNSAccCallback callback) :
-        User_(user), TimeFrom_(timeFrom), TimeTo_(timeTo), GroupInterval_(groupInterval), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { Callback_(accounting->api().queryPPLNSPayoutsAcc(User_, TimeFrom_, TimeTo_, GroupInterval_)); }
-  private:
-    std::string User_;
-    int64_t TimeFrom_;
-    int64_t TimeTo_;
-    int64_t GroupInterval_;
-    QueryPPLNSAccCallback Callback_;
-  };
-
-  class TaskPoolLuck : public Task<AccountingDb> {
-  public:
-    TaskPoolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) : Intervals_(intervals), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { Callback_(accounting->api().poolLuck(Intervals_)); }
-  private:
-    std::vector<int64_t> Intervals_;
-    PoolLuckCallback Callback_;
-  };
-
 private:
   asyncBase *Base_;
   const PoolBackendConfig &_cfg;
@@ -116,39 +49,6 @@ private:
   std::set<MiningRound*> UnpayedRounds_;
 
   CAccountingState State_;
-
-  class TaskQueryPPSState : public Task<AccountingDb> {
-
-  public:
-    TaskQueryPPSState(QueryPPSStateCallback callback) : Callback_(std::move(callback)) {}
-    void run(AccountingDb *accounting) final { Callback_(accounting->api().queryPPSState()); }
-
-  private:
-    QueryPPSStateCallback Callback_;
-  };
-
-  class TaskUpdateBackendSettings : public Task<AccountingDb> {
-
-  public:
-    TaskUpdateBackendSettings(
-      std::optional<CBackendSettings::PPS> pps,
-      std::optional<CBackendSettings::Payouts> payouts,
-      DefaultCb callback)
-        : PPS_(std::move(pps)),
-          Payouts_(std::move(payouts)),
-          Callback_(std::move(callback)) {}
-    void run(AccountingDb *accounting) final {
-      const char *status = accounting->api().updateBackendSettings(PPS_, Payouts_);
-      if (strcmp(status, "ok") == 0)
-        accounting->notifyInstantPayoutSettingsChanged();
-      Callback_(status);
-    }
-
-  private:
-    std::optional<CBackendSettings::PPS> PPS_;
-    std::optional<CBackendSettings::Payouts> Payouts_;
-    DefaultCb Callback_;
-  };
 
   kvdb<rocksdbBase> _roundsDb;
   kvdb<rocksdbBase> _balanceDb;
@@ -244,31 +144,35 @@ public:
   const std::map<std::string, UserBalanceRecord> &getUserBalanceMap() { return _balanceMap; }
 
   // Asynchronous api
-  void manualPayout(const std::string &user, DefaultCb callback) { TaskHandler_.push(new TaskManualPayout(user, callback)); }
+  void manualPayout(const std::string &user, DefaultCb callback) {
+    TaskHandler_.push([user, callback](AccountingDb *a) { callback(a->api().manualPayout(user)); });
+  }
   void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) {
-    TaskHandler_.push(new TaskQueryFoundBlocks(heightFrom, hashFrom, count, callback));
+    TaskHandler_.push([heightFrom, hashFrom, count, callback](AccountingDb *a) { a->api().queryFoundBlocks(heightFrom, hashFrom, count, callback); });
   }
   void queryPPLNSPayouts(const std::string &user, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback) {
-    TaskHandler_.push(new TaskQueryPPLNSPayouts(user, timeFrom, hashFrom, count, callback));
+    TaskHandler_.push([user, timeFrom, hashFrom, count, callback](AccountingDb *a) { callback(a->api().queryPPLNSPayouts(user, timeFrom, hashFrom, count)); });
   }
   void queryPPLNSAcc(const std::string &user, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, QueryPPLNSAccCallback callback) {
-    TaskHandler_.push(new TaskQueryPPLNSAcc(user, timeFrom, timeTo, groupByInterval, callback));
+    TaskHandler_.push([user, timeFrom, timeTo, groupByInterval, callback](AccountingDb *a) { callback(a->api().queryPPLNSPayoutsAcc(user, timeFrom, timeTo, groupByInterval)); });
   }
-  void queryUserBalance(const std::string &user, QueryBalanceCallback callback) { TaskHandler_.push(new TaskQueryBalance(user, callback)); }
-  void poolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) { TaskHandler_.push(new TaskPoolLuck(std::move(intervals), callback)); }
-  void queryPPSState(QueryPPSStateCallback callback) { TaskHandler_.push(new TaskQueryPPSState(std::move(callback))); }
-  void updateBackendSettings(
-      std::optional<CBackendSettings::PPS> pps,
-      std::optional<CBackendSettings::Payouts> payouts,
-      DefaultCb cb) {
-    TaskHandler_.push(new TaskUpdateBackendSettings(std::move(pps), std::move(payouts), std::move(cb)));
+  void queryUserBalance(const std::string &user, QueryBalanceCallback callback) {
+    TaskHandler_.push([user, callback](AccountingDb *a) { callback(a->api().queryBalance(user)); });
+  }
+  void poolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) {
+    TaskHandler_.push([intervals = std::move(intervals), callback](AccountingDb *a) { callback(a->api().poolLuck(intervals)); });
+  }
+  void queryPPSState(QueryPPSStateCallback callback) {
+    TaskHandler_.push([callback = std::move(callback)](AccountingDb *a) { callback(a->api().queryPPSState()); });
+  }
+  void updateBackendSettings(std::optional<CBackendSettings::PPS> pps, std::optional<CBackendSettings::Payouts> payouts, DefaultCb cb) {
+    TaskHandler_.push([pps = std::move(pps), payouts = std::move(payouts), cb = std::move(cb)](AccountingDb *a) { cb(a->api().updateBackendSettings(pps, payouts)); });
   }
 
   CBackendSettings backendSettings() const {
     return State_.BackendSettings.load(std::memory_order_relaxed);
   }
   void setFeeEstimationService(CFeeEstimationService *service) { FeeEstimationService_ = service; }
-  void notifyInstantPayoutSettingsChanged() { userEventActivate(InstantPayoutEvent_); }
 
   // Asynchronous multi calls
   static void queryUserBalanceMulti(AccountingDb **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceInfo*, size_t)> callback) {
