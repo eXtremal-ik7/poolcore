@@ -9,6 +9,7 @@
 #include "poolcore/statsData.h"
 #include "poolcore/usermgr.h"
 #include "poolcommon/multiCall.h"
+#include "poolcommon/periodicTimer.h"
 #include "poolcommon/taskHandler.h"
 #include "poolcommon/timeTypes.h"
 #include "asyncio/asyncio.h"
@@ -60,15 +61,10 @@ private:
   ShareLog<CWorkSummaryBatch> ShareLog_;
 
   TaskHandlerCoroutine<StatisticDb> TaskHandler_;
-  aioUserEvent *PoolFlushEvent_;
-  aioUserEvent *UserFlushEvent_;
-  aioUserEvent *WorkerFlushEvent_;
-  aioUserEvent *ShareLogFlushEvent_ = nullptr;
-  bool ShutdownRequested_ = false;
-  bool PoolFlushFinished_ = false;
-  bool UserFlushFinished_ = false;
-  bool WorkerFlushFinished_ = false;
-  bool ShareLogFlushFinished_ = false;
+  CPeriodicTimer PoolFlushTimer_;
+  CPeriodicTimer UserFlushTimer_;
+  CPeriodicTimer WorkerFlushTimer_;
+  CPeriodicTimer ShareLogFlushTimer_;
 
   // Debugging only
   struct {
@@ -81,7 +77,6 @@ private:
   void flushUsers(Timestamp currentTime);
   void flushWorkers(Timestamp currentTime);
   void updatePoolStatsCached(Timestamp currentTime);
-  void shareLogFlushHandler();
 
 public:
   // Initialization

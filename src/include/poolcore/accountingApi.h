@@ -4,6 +4,7 @@
 #include "accountingPayouts.h"
 #include "clientDispatcher.h"
 #include "usermgr.h"
+#include "poolcommon/periodicTimer.h"
 #include <set>
 #include <optional>
 
@@ -63,6 +64,7 @@ public:
                  CNetworkClientDispatcher &clientDispatcher,
                  CPayoutProcessor &payoutProcessor,
                  CAccountingState &state,
+                 CPeriodicTimer &instantPayoutTimer,
                  kvdb<rocksdbBase> &foundBlocksDb,
                  kvdb<rocksdbBase> &pplnsPayoutsDb,
                  kvdb<rocksdbBase> &ppsPayoutsDb,
@@ -83,8 +85,6 @@ public:
   const char *updateBackendSettings(const std::optional<CBackendSettings::PPS> &pps,
                                     const std::optional<CBackendSettings::Payouts> &payouts);
 
-  void setInstantPayoutEvent(aioUserEvent *event) { InstantPayoutEvent_ = event; }
-
 private:
   asyncBase *Base_;
   const PoolBackendConfig &Cfg_;
@@ -99,5 +99,5 @@ private:
   std::map<std::string, UserBalanceRecord> &BalanceMap_;
   const std::set<MiningRound*> &UnpayedRounds_;
   CAccountingState &State_;
-  aioUserEvent *InstantPayoutEvent_ = nullptr;
+  CPeriodicTimer &InstantPayoutTimer_;
 };

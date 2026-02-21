@@ -42,19 +42,14 @@ private:
   StatisticServer *AlgoMetaStatistic_ = nullptr;
 
   TaskHandlerCoroutine<PoolBackend> TaskHandler_;
-  bool ShutdownRequested_ = false;
-  bool CheckConfirmationsHandlerFinished_ = false;
-  bool CheckBalanceHandlerFinished_ = false;
-  aioUserEvent *CheckConfirmationsEvent_ = nullptr;
-  aioUserEvent *CheckBalanceEvent_ = nullptr;
+  CPeriodicTimer CheckConfirmationsTimer_;
+  CPeriodicTimer CheckBalanceTimer_;
 
   double ProfitSwitchCoeff_ = 0.0;
 
   atomic_intrusive_ptr<EthashDagWrapper> *EthDagFiles_ = nullptr;
 
   void backendMain();
-  void checkConfirmationsHandler();
-  void checkBalanceHandler();
   
   void onUpdateDag(unsigned epochNumber, bool bigEpoch);
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);

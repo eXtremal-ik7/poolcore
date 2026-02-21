@@ -1,8 +1,10 @@
 #pragma once
 
-#include "coroutineJoin.h"
 #include "tbb/concurrent_queue.h"
 #include "asyncio/asyncio.h"
+#include "asyncio/coroutine.h"
+#include "loguru.hpp"
+#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -33,12 +35,16 @@ public:
   }
 
   void start() {
-    coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<TaskHandlerCoroutine*>(arg)->taskHandler(); }, this, 0x100000, coroutineFinishCb, &TaskHandlerFinished));
+    coroutineCall(coroutineNewWithCb([](void *arg) {
+      static_cast<TaskHandlerCoroutine*>(arg)->taskHandler();
+    }, this, 0x100000, finishCb, &TaskHandlerFinished_));
   }
 
   void stop(const char *threadName, const char *taskHandlerName) {
     push(nullptr);
-    coroutineJoin(threadName, taskHandlerName, &TaskHandlerFinished);
+    LOG_F(INFO, "%s: %s finishing", threadName, taskHandlerName);
+    while (!TaskHandlerFinished_)
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
   void push(Task<ObjectTy> *task) {
@@ -52,6 +58,10 @@ public:
   }
 
 private:
+  static void finishCb(void *arg) {
+    *static_cast<bool*>(arg) = true;
+  }
+
   void taskHandler() {
     Task<ObjectTy> *task;
     bool shutdownRequested = false;
@@ -75,7 +85,5 @@ private:
   ObjectTy *Object_;
   tbb::concurrent_queue<Task<ObjectTy>*> TaskQueue_;
   aioUserEvent *TaskQueueEvent_;
-
-public:
-  bool TaskHandlerFinished = false;
+  bool TaskHandlerFinished_ = false;
 };

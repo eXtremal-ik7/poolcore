@@ -1,9 +1,7 @@
 #include "poolcore/feeEstimator.h"
 #include "poolcore/clientDispatcher.h"
 
-#include "poolcommon/coroutineJoin.h"
 #include "poolcommon/utils.h"
-#include "asyncio/coroutine.h"
 #include "loguru.hpp"
 
 void CFeeEstimator::addBlock(int64_t time, int64_t totalFee)
@@ -48,48 +46,17 @@ int64_t CFeeEstimator::computeNormalizedAvgFee() const
 // CFeeEstimationService
 
 CFeeEstimationService::CFeeEstimationService(asyncBase *base, CNetworkClientDispatcher &dispatcher, const CCoinInfo &coinInfo)
-    : Base_(base), Dispatcher_(dispatcher), CoinInfo_(coinInfo)
+    : Base_(base), Dispatcher_(dispatcher), CoinInfo_(coinInfo), UpdateTimer_(base)
 {
 }
 
 void CFeeEstimationService::start()
 {
-  UpdateEvent_ = newUserEvent(Base_, 0, nullptr, nullptr);
-  coroutineCall(coroutineNewWithCb(
-    [](void *arg) { static_cast<CFeeEstimationService*>(arg)->updateCoroutine(); },
-    this,
-    0x100000,
-    coroutineFinishCb,
-    &Finished_));
-}
-
-void CFeeEstimationService::stop()
-{
-  if (!UpdateEvent_)
-    return;
-  ShutdownRequested_ = true;
-  userEventActivate(UpdateEvent_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "fee estimation", &Finished_);
-}
-
-void CFeeEstimationService::onNewBlock(int64_t height)
-{
-  if (height <= PendingHeight_)
-    return;
-  PendingHeight_ = height;
-  userEventActivate(UpdateEvent_);
-}
-
-void CFeeEstimationService::updateCoroutine()
-{
-  for (;;) {
-    ioWaitUserEvent(UpdateEvent_);
-    if (ShutdownRequested_)
-      break;
-
+  Started_ = true;
+  UpdateTimer_.start([this]() {
     int64_t height = PendingHeight_;
     if (height == 0 || !Supported_)
-      continue;
+      return;
 
     // Last confirmed block
     int64_t toHeight = height - 1;
@@ -102,7 +69,7 @@ void CFeeEstimationService::updateCoroutine()
     }
 
     if (fromHeight > toHeight)
-      continue;
+      return;
 
     std::vector<CNetworkClient::BlockTxFeeInfo> fees;
     bool ok = Dispatcher_.ioGetBlockTxFees(Base_, fromHeight, toHeight, fees);
@@ -111,7 +78,7 @@ void CFeeEstimationService::updateCoroutine()
             "%s: fee estimation disabled (getblockstats not supported or RPC error)",
             CoinInfo_.Name.c_str());
       Supported_ = false;
-      continue;
+      return;
     }
 
     for (auto &entry : fees)
@@ -128,5 +95,21 @@ void CFeeEstimationService::updateCoroutine()
           CoinInfo_.Name.c_str(),
           avgFeeFormatted.c_str(),
           Estimator_.size());
-  }
+  });
+}
+
+void CFeeEstimationService::stop()
+{
+  if (!Started_)
+    return;
+  UpdateTimer_.stop();
+  UpdateTimer_.wait(CoinInfo_.Name.c_str(), "fee estimation");
+}
+
+void CFeeEstimationService::onNewBlock(int64_t height)
+{
+  if (height <= PendingHeight_)
+    return;
+  PendingHeight_ = height;
+  UpdateTimer_.activate();
 }

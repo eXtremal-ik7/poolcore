@@ -6,6 +6,7 @@
 #include "shareLog.h"
 #include "statsData.h"
 #include "poolcommon/multiCall.h"
+#include "poolcommon/periodicTimer.h"
 #include "poolcommon/taskHandler.h"
 #include <optional>
 
@@ -65,31 +66,18 @@ private:
   std::unordered_map<std::string, std::string> UserFeePlanIds_;
   std::unordered_map<FeePlanCacheKey, std::vector<::UserFeePair>, FeePlanCacheKeyHash> FeePlanCache_;
 
-  aioUserEvent *ShareLogFlushEvent_ = nullptr;
-  bool ShareLogFlushFinished_ = false;
-
-  aioUserEvent *UserStatsFlushEvent_ = nullptr;
-  bool UserStatsFlushFinished_ = false;
-
-  aioUserEvent *PPSPayoutEvent_ = nullptr;
-  bool PPSPayoutFinished_ = false;
-
-  aioUserEvent *InstantPayoutEvent_ = nullptr;
-  bool InstantPayoutFinished_ = false;
+  CPeriodicTimer ShareLogFlushTimer_;
+  CPeriodicTimer UserStatsFlushTimer_;
+  CPeriodicTimer PPSPayoutTimer_;
+  CPeriodicTimer InstantPayoutTimer_;
+  CPeriodicTimer StateFlushTimer_;
 
   TaskHandlerCoroutine<AccountingDb> TaskHandler_;
-  aioUserEvent *FlushTimerEvent_;
-  bool ShutdownRequested_ = false;
-  bool FlushFinished_ = false;
 
   CPayoutProcessor PayoutProcessor_;
   CAccountingApi Api_;
 
   void printRecentStatistic();
-  void shareLogFlushHandler();
-  void userStatsFlushHandler();
-  void ppsPayoutHandler();
-  void instantPayoutHandler();
   void ppsPayout();
   void applyPPSCorrection(MiningRound *R);
 

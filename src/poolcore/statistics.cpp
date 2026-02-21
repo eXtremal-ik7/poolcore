@@ -1,6 +1,5 @@
 #include "poolcore/statistics.h"
 #include "poolcore/statsMergeOperator.h"
-#include "poolcommon/coroutineJoin.h"
 #include "poolcommon/debug.h"
 #include "loguru.hpp"
 #include <algorithm>
@@ -11,12 +10,12 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   WorkerStats_("stats.workers.cache.3", config.StatisticWorkerGridInterval, config.StatisticKeepTime),
   StatsDb_(_cfg.dbPath / "statistic", std::make_shared<CWorkSummaryMergeOperator>()),
   ShareLog_(_cfg.dbPath / "statistic.worklog", coinInfo.Name, _cfg.ShareLogFileSizeLimit),
-  TaskHandler_(this, base)
+  TaskHandler_(this, base),
+  PoolFlushTimer_(base),
+  UserFlushTimer_(base),
+  WorkerFlushTimer_(base),
+  ShareLogFlushTimer_(base)
 {
-  PoolFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  UserFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  WorkerFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  ShareLogFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
 
   WorkerStats_.load(_cfg.dbPath, coinInfo.Name);
   UserStats_.load(_cfg.dbPath, coinInfo.Name);
@@ -118,66 +117,40 @@ void StatisticDb::onWorkSummary(const CWorkSummaryBatch &batch)
 }
 
 
-void StatisticDb::shareLogFlushHandler()
-{
-  for (;;) {
-    ioSleep(ShareLogFlushEvent_, std::chrono::microseconds(_cfg.ShareLogFlushInterval).count());
-    ShareLog_.flush();
-    if (ShutdownRequested_)
-      break;
-    ShareLog_.cleanupOldFiles(lastAggregatedShareId());
-  }
-}
-
 void StatisticDb::start()
 {
   TaskHandler_.start();
-  coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<StatisticDb*>(arg)->shareLogFlushHandler(); }, this, 0x100000, coroutineFinishCb, &ShareLogFlushFinished_));
 
-  coroutineCall(coroutineNewWithCb([](void *arg) {
-    StatisticDb *db = static_cast<StatisticDb*>(arg);
-    for (;;) {
-      ioSleep(db->PoolFlushEvent_, std::chrono::microseconds(db->_cfg.StatisticPoolFlushInterval).count());
-      db->flushPool(Timestamp::now());
-      if (db->ShutdownRequested_)
-        break;
-    }
-  }, this, 0x20000, coroutineFinishCb, &PoolFlushFinished_));
+  ShareLogFlushTimer_.start([this]() {
+    ShareLog_.flush();
+    ShareLog_.cleanupOldFiles(lastAggregatedShareId());
+  }, _cfg.ShareLogFlushInterval, false, true);
 
-  coroutineCall(coroutineNewWithCb([](void *arg) {
-    StatisticDb *db = static_cast<StatisticDb*>(arg);
-    for (;;) {
-      ioSleep(db->UserFlushEvent_, std::chrono::microseconds(db->_cfg.StatisticUserFlushInterval).count());
-      db->flushUsers(Timestamp::now());
-      if (db->ShutdownRequested_)
-        break;
-    }
-  }, this, 0x20000, coroutineFinishCb, &UserFlushFinished_));
+  PoolFlushTimer_.start([this]() {
+    flushPool(Timestamp::now());
+  }, _cfg.StatisticPoolFlushInterval, false, true);
 
-  coroutineCall(coroutineNewWithCb([](void *arg) {
-    StatisticDb *db = static_cast<StatisticDb*>(arg);
-    for (;;) {
-      ioSleep(db->WorkerFlushEvent_, std::chrono::microseconds(db->_cfg.StatisticWorkerFlushInterval).count());
-      db->flushWorkers(Timestamp::now());
-      if (db->ShutdownRequested_)
-        break;
-    }
-  }, this, 0x20000, coroutineFinishCb, &WorkerFlushFinished_));
+  UserFlushTimer_.start([this]() {
+    flushUsers(Timestamp::now());
+  }, _cfg.StatisticUserFlushInterval, false, true);
+
+  WorkerFlushTimer_.start([this]() {
+    flushWorkers(Timestamp::now());
+  }, _cfg.StatisticWorkerFlushInterval, false, true);
 }
 
 void StatisticDb::stop()
 {
-  TaskHandler_.stop(CoinInfo_.Name.c_str(), "statisticDb task handler");
-  ShutdownRequested_ = true;
-  userEventActivate(PoolFlushEvent_);
-  userEventActivate(UserFlushEvent_);
-  userEventActivate(WorkerFlushEvent_);
-  userEventActivate(ShareLogFlushEvent_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "statisticDb pool flush", &PoolFlushFinished_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "statisticDb user flush", &UserFlushFinished_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "statisticDb worker flush", &WorkerFlushFinished_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "statisticDb share log flush", &ShareLogFlushFinished_);
-  ShareLog_.flush();
+  const char *coin = CoinInfo_.Name.c_str();
+  TaskHandler_.stop(coin, "statisticDb task handler");
+  PoolFlushTimer_.stop();
+  UserFlushTimer_.stop();
+  WorkerFlushTimer_.stop();
+  ShareLogFlushTimer_.stop();
+  PoolFlushTimer_.wait(coin, "statisticDb pool flush");
+  UserFlushTimer_.wait(coin, "statisticDb user flush");
+  WorkerFlushTimer_.wait(coin, "statisticDb worker flush");
+  ShareLogFlushTimer_.wait(coin, "statisticDb share log flush");
 }
 
 

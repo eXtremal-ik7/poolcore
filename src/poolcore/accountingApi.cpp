@@ -74,6 +74,7 @@ CAccountingApi::CAccountingApi(asyncBase *base,
                                CNetworkClientDispatcher &clientDispatcher,
                                CPayoutProcessor &payoutProcessor,
                                CAccountingState &state,
+                               CPeriodicTimer &instantPayoutTimer,
                                kvdb<rocksdbBase> &foundBlocksDb,
                                kvdb<rocksdbBase> &pplnsPayoutsDb,
                                kvdb<rocksdbBase> &ppsPayoutsDb,
@@ -92,7 +93,8 @@ CAccountingApi::CAccountingApi(asyncBase *base,
   PPSHistoryDb_(ppsHistoryDb),
   BalanceMap_(balanceMap),
   UnpayedRounds_(unpayedRounds),
-  State_(state)
+  State_(state),
+  InstantPayoutTimer_(instantPayoutTimer)
 {
 }
 
@@ -532,8 +534,12 @@ const char *CAccountingApi::updateBackendSettings(const std::optional<CBackendSe
 
   State_.BackendSettings.store(settings, std::memory_order_relaxed);
   State_.flushBackendSettings();
-  if (InstantPayoutEvent_)
-    userEventActivate(InstantPayoutEvent_);
+  if (settings.PayoutConfig.InstantPayoutsEnabled) {
+    InstantPayoutTimer_.setInterval(std::chrono::duration_cast<std::chrono::microseconds>(settings.PayoutConfig.InstantPayoutInterval));
+    InstantPayoutTimer_.resume();
+  } else {
+    InstantPayoutTimer_.pause();
+  }
   return "ok";
 }
 

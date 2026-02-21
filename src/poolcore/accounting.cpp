@@ -1,7 +1,6 @@
 #include "poolcore/accounting.h"
 #include "poolcore/accountingState.h"
 #include "poolcore/feeEstimator.h"
-#include "poolcommon/coroutineJoin.h"
 #include "poolcommon/debug.h"
 #include "poolcommon/mergeSorted.h"
 #include "poolcommon/utils.h"
@@ -62,6 +61,11 @@ AccountingDb::AccountingDb(asyncBase *base,
   PPSHistoryDb_(config.dbPath / "pps.history"),
   ShareLog_(config.dbPath / "accounting.worklog", coinInfo.Name, config.ShareLogFileSizeLimit),
   UserStatsAcc_("accounting.userstats", config.StatisticUserGridInterval, config.AccountingPPLNSWindow * 2),
+  ShareLogFlushTimer_(base),
+  UserStatsFlushTimer_(base),
+  PPSPayoutTimer_(base),
+  InstantPayoutTimer_(base),
+  StateFlushTimer_(base),
   TaskHandler_(this, base),
   PayoutProcessor_(base,
                    config,
@@ -81,6 +85,7 @@ AccountingDb::AccountingDb(asyncBase *base,
        clientDispatcher,
        PayoutProcessor_,
        State_,
+       InstantPayoutTimer_,
        _foundBlocksDb,
        PPLNSPayoutsDb,
        PPSPayoutsDb,
@@ -88,12 +93,6 @@ AccountingDb::AccountingDb(asyncBase *base,
        _balanceMap,
        UnpayedRounds_)
 {
-  FlushTimerEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  ShareLogFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  UserStatsFlushEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  PPSPayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  InstantPayoutEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  Api_.setInstantPayoutEvent(InstantPayoutEvent_);
 
   // Start loading user data from UserManager in parallel with local DB loading
   std::thread settingsThread([this]() {
@@ -185,16 +184,6 @@ AccountingDb::AccountingDb(asyncBase *base,
   ShareLog_.startLogging(lastKnownShareId() + 1);
 }
 
-void AccountingDb::shareLogFlushHandler()
-{
-  for (;;) {
-    ioSleep(ShareLogFlushEvent_, std::chrono::microseconds(_cfg.ShareLogFlushInterval).count());
-    ShareLog_.flush();
-    if (ShutdownRequested_)
-      break;
-    ShareLog_.cleanupOldFiles(lastAggregatedShareId());
-  }
-}
 
 void AccountingDb::ppsPayout()
 {
@@ -241,90 +230,50 @@ void AccountingDb::ppsPayout()
   PPSHistoryDb_.put(State_.PPSState);
 }
 
-void AccountingDb::userStatsFlushHandler()
-{
-  for (;;) {
-    ioSleep(UserStatsFlushEvent_, std::chrono::microseconds(_cfg.StatisticUserFlushInterval).count());
-    UserStatsAcc_.flush(Timestamp::now(), _cfg.dbPath, nullptr);
-    if (ShutdownRequested_)
-      break;
-  }
-}
-
-void AccountingDb::instantPayoutHandler()
-{
-  for (;;) {
-    auto payoutConfig = backendSettings().PayoutConfig;
-    if (payoutConfig.InstantPayoutsEnabled) {
-      ioSleep(
-        InstantPayoutEvent_,
-        std::chrono::duration_cast<std::chrono::microseconds>(
-          payoutConfig.InstantPayoutInterval).count());
-    } else {
-      ioWaitUserEvent(InstantPayoutEvent_);
-    }
-    if (ShutdownRequested_)
-      break;
-    if (backendSettings().PayoutConfig.InstantPayoutsEnabled)
-      PayoutProcessor_.makePayout();
-    if (ShutdownRequested_)
-      break;
-  }
-}
-
-void AccountingDb::ppsPayoutHandler()
-{
-  for (;;) {
-    ioSleep(PPSPayoutEvent_, std::chrono::microseconds(_cfg.PPSPayoutInterval).count());
-    if (ShutdownRequested_)
-      break;
-    ppsPayout();
-  }
-}
 
 void AccountingDb::start()
 {
   TaskHandler_.start();
-  coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<AccountingDb*>(arg)->shareLogFlushHandler(); }, this, 0x100000, coroutineFinishCb, &ShareLogFlushFinished_));
 
-  coroutineCall(coroutineNewWithCb([](void *arg) {
-    AccountingDb *db = static_cast<AccountingDb*>(arg);
-    for (;;) {
-      ioSleep(db->FlushTimerEvent_, std::chrono::microseconds(std::chrono::minutes(1)).count());
-      db->State_.flushState();
-      if (db->ShutdownRequested_)
-        break;
-    }
-  }, this, 0x20000, coroutineFinishCb, &FlushFinished_));
+  ShareLogFlushTimer_.start([this]() {
+    ShareLog_.flush();
+    ShareLog_.cleanupOldFiles(lastAggregatedShareId());
+  }, _cfg.ShareLogFlushInterval, false, true);
 
-  coroutineCall(coroutineNewWithCb([](void *arg) {
-    static_cast<AccountingDb*>(arg)->userStatsFlushHandler();
-  }, this, 0x20000, coroutineFinishCb, &UserStatsFlushFinished_));
+  StateFlushTimer_.start([this]() {
+    State_.flushState();
+  }, std::chrono::minutes(1), false, true);
 
-  coroutineCall(coroutineNewWithCb([](void *arg) {
-    static_cast<AccountingDb*>(arg)->ppsPayoutHandler();
-  }, this, 0x100000, coroutineFinishCb, &PPSPayoutFinished_));
+  UserStatsFlushTimer_.start([this]() {
+    UserStatsAcc_.flush(Timestamp::now(), _cfg.dbPath, nullptr);
+  }, _cfg.StatisticUserFlushInterval, false, true);
 
-  coroutineCall(coroutineNewWithCb([](void *arg) {
-    static_cast<AccountingDb*>(arg)->instantPayoutHandler();
-  }, this, 0x100000, coroutineFinishCb, &InstantPayoutFinished_));
+  PPSPayoutTimer_.start([this]() {
+    ppsPayout();
+  }, _cfg.PPSPayoutInterval);
+
+  auto payoutConfig = backendSettings().PayoutConfig;
+  InstantPayoutTimer_.start([this]() {
+    PayoutProcessor_.makePayout();
+  }, std::chrono::duration_cast<std::chrono::microseconds>(payoutConfig.InstantPayoutInterval));
+  if (!payoutConfig.InstantPayoutsEnabled)
+    InstantPayoutTimer_.pause();
 }
 
 void AccountingDb::stop()
 {
-  TaskHandler_.stop(CoinInfo_.Name.c_str(), "accounting: task handler");
-  ShutdownRequested_ = true;
-  userEventActivate(FlushTimerEvent_);
-  userEventActivate(ShareLogFlushEvent_);
-  userEventActivate(UserStatsFlushEvent_);
-  userEventActivate(PPSPayoutEvent_);
-  userEventActivate(InstantPayoutEvent_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: flush thread", &FlushFinished_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: share log flush", &ShareLogFlushFinished_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: user stats flush", &UserStatsFlushFinished_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: pps payout", &PPSPayoutFinished_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "accounting: instant payout", &InstantPayoutFinished_);
-  ShareLog_.flush();
+  const char *coin = CoinInfo_.Name.c_str();
+  TaskHandler_.stop(coin, "accounting: task handler");
+  ShareLogFlushTimer_.stop();
+  StateFlushTimer_.stop();
+  UserStatsFlushTimer_.stop();
+  PPSPayoutTimer_.stop();
+  InstantPayoutTimer_.stop();
+  ShareLogFlushTimer_.wait(coin, "accounting: share log flush");
+  StateFlushTimer_.wait(coin, "accounting: state flush");
+  UserStatsFlushTimer_.wait(coin, "accounting: user stats flush");
+  PPSPayoutTimer_.wait(coin, "accounting: pps payout");
+  InstantPayoutTimer_.wait(coin, "accounting: instant payout");
 }
 
 

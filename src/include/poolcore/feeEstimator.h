@@ -1,6 +1,7 @@
 #pragma once
 
 #include "poolCore.h"
+#include "poolcommon/periodicTimer.h"
 #include "poolcommon/uint.h"
 #include "asyncio/asyncio.h"
 #include <algorithm>
@@ -42,18 +43,14 @@ public:
   const UInt<384> &averageFee() const { return AverageFee_; }
 
 private:
-  void updateCoroutine();
-
-private:
   asyncBase *Base_;
   CNetworkClientDispatcher &Dispatcher_;
   CCoinInfo CoinInfo_;
   CFeeEstimator Estimator_;
   int64_t LastBlockHeight_ = 0;
   int64_t PendingHeight_ = 0;
-  aioUserEvent *UpdateEvent_ = nullptr;
+  CPeriodicTimer UpdateTimer_;
   UInt<384> AverageFee_;
-  bool ShutdownRequested_ = false;
+  bool Started_ = false;
   bool Supported_ = true;
-  bool Finished_ = false;
 };

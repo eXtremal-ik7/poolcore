@@ -40,10 +40,9 @@ PoolBackend::PoolBackend(asyncBase *base,
                          UserManager &userMgr,
                          CNetworkClientDispatcher &clientDispatcher,
                          CPriceFetcher &priceFetcher) :
-  _base(base), _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher), TaskHandler_(this, base)
+  _base(base), _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher),
+  TaskHandler_(this, base), CheckConfirmationsTimer_(base), CheckBalanceTimer_(base)
 {
-  CheckConfirmationsEvent_ = newUserEvent(base, 1, nullptr, nullptr);
-  CheckBalanceEvent_ = newUserEvent(base, 1, nullptr, nullptr);
   clientDispatcher.setBackend(this);
 
   if (CoinInfo_.PPSIncludeTransactionFees) {
@@ -71,16 +70,16 @@ void PoolBackend::start()
 
 void PoolBackend::stop()
 {
-  ShutdownRequested_ = true;
-  userEventActivate(CheckConfirmationsEvent_);
-  userEventActivate(CheckBalanceEvent_);
-  TaskHandler_.stop(CoinInfo_.Name.c_str(), "PoolBackend task handler");
+  const char *coin = CoinInfo_.Name.c_str();
+  CheckConfirmationsTimer_.stop();
+  CheckBalanceTimer_.stop();
+  TaskHandler_.stop(coin, "PoolBackend task handler");
   _accounting->stop();
   _statistics->stop();
   if (FeeEstimationService_)
     FeeEstimationService_->stop();
-  coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend check confirmations handler", &CheckConfirmationsHandlerFinished_);
-  coroutineJoin(CoinInfo_.Name.c_str(), "PoolBackend check balance handler", &CheckBalanceHandlerFinished_);
+  CheckConfirmationsTimer_.wait(coin, "PoolBackend check confirmations");
+  CheckBalanceTimer_.wait(coin, "PoolBackend check balance");
 
   postQuitOperation(_base);
   _thread.join();
@@ -96,39 +95,23 @@ void PoolBackend::backendMain()
   _statistics->start();
   if (FeeEstimationService_)
     FeeEstimationService_->start();
-  coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->checkConfirmationsHandler(); }, this, 0x100000, coroutineFinishCb, &CheckConfirmationsHandlerFinished_));
-  coroutineCall(coroutineNewWithCb([](void *arg) { static_cast<PoolBackend*>(arg)->checkBalanceHandler(); }, this, 0x100000, coroutineFinishCb, &CheckBalanceHandlerFinished_));
+  CheckConfirmationsTimer_.start([this]() {
+    _accounting->cleanupRounds();
+    if (_accounting->hasDeferredReward())
+      _accounting->checkBlockExtraInfo();
+    else
+      _accounting->checkBlockConfirmations();
+  }, std::chrono::microseconds(_cfg.ConfirmationsCheckInterval));
+
+  CheckBalanceTimer_.start([this]() {
+    _accounting->payoutProcessor().checkBalance();
+  }, std::chrono::microseconds(_cfg.BalanceCheckInterval), true);
 
   LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
   checkConsistency(_accounting.get(), CoinInfo_);
   asyncLoop(_base);
 }
 
-void PoolBackend::checkConfirmationsHandler()
-{
-  for (;;) {
-    ioSleep(CheckConfirmationsEvent_, _cfg.ConfirmationsCheckInterval);
-    if (ShutdownRequested_)
-      break;
-    _accounting->cleanupRounds();
-    if (_accounting->hasDeferredReward())
-      _accounting->checkBlockExtraInfo();
-    else
-      _accounting->checkBlockConfirmations();
-  }
-}
-
-
-// Only for master
-void PoolBackend::checkBalanceHandler()
-{
-  for (;;) {
-    _accounting->payoutProcessor().checkBalance();
-    ioSleep(CheckBalanceEvent_, _cfg.BalanceCheckInterval);
-    if (ShutdownRequested_)
-      break;
-  }
-}
 
 void PoolBackend::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
 {
