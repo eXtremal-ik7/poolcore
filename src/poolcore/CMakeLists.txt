@@ -4,6 +4,8 @@ add_library(poolcore STATIC
   ethereumRpcClient.cpp
 
   accounting.cpp
+  accountingData.cpp
+  accountingPayouts.cpp
   backend.cpp
   backendData.cpp
   dbFormat.cpp

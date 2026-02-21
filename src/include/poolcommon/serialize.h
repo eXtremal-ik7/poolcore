@@ -8,18 +8,11 @@
 #include <map>
 #include <string>
 #include <unordered_map>
+#include <concepts>
 #include <vector>
 
-template<class T, typename Enable=void>
-struct is_simple_numeric : std::integral_constant<bool,
-        std::is_same<T, int8_t>::value ||
-        std::is_same<T, uint8_t>::value ||
-        std::is_same<T, int16_t>::value ||
-        std::is_same<T, uint16_t>::value ||
-        std::is_same<T, int32_t>::value ||
-        std::is_same<T, uint32_t>::value ||
-        std::is_same<T, int64_t>::value ||
-        std::is_same<T, uint64_t>::value> {};
+template<class T>
+concept is_simple_numeric = std::integral<T> && (sizeof(T) <= 8) && !std::same_as<T, bool>;
 
 struct VarSize {
   uint64_t Size;
@@ -46,13 +39,13 @@ template<typename T>
 inline void dbIoUnserialize(xmstream &src, T &data) { DbIo<T>::unserialize(src, data); }
 
 // Serialization for simple integer types
-template<typename T>
-struct DbKeyIo<T, typename std::enable_if<is_simple_numeric<T>::value, void>::type> {
+template<is_simple_numeric T>
+struct DbKeyIo<T> {
   static inline void serialize(xmstream &stream, const T &data) { stream.writebe<T>(data); }
 };
 
-template<typename T>
-struct DbIo<T, typename std::enable_if<is_simple_numeric<T>::value, void>::type> {
+template<is_simple_numeric T>
+struct DbIo<T> {
   static inline void serialize(xmstream &stream, const T &data) { stream.writele<T>(data); }
   static inline void unserialize(xmstream &stream, T &data) { data = stream.readle<T>(); }
 };
@@ -255,16 +248,16 @@ struct DbIo<Timestamp> {
   }
 };
 
-// std::chrono::duration serialization
+// std::chrono::duration serialization (always use int64_t for portable binary format)
 template<typename Rep, typename Period>
 struct DbIo<std::chrono::duration<Rep, Period>> {
   static inline void serialize(xmstream &stream, const std::chrono::duration<Rep, Period> &data) {
-    DbIo<Rep>::serialize(stream, data.count());
+    DbIo<int64_t>::serialize(stream, static_cast<int64_t>(data.count()));
   }
   static inline void unserialize(xmstream &stream, std::chrono::duration<Rep, Period> &data) {
-    Rep value;
-    DbIo<Rep>::unserialize(stream, value);
-    data = std::chrono::duration<Rep, Period>(value);
+    int64_t value;
+    DbIo<int64_t>::unserialize(stream, value);
+    data = std::chrono::duration<Rep, Period>(static_cast<Rep>(value));
   }
 };
 
