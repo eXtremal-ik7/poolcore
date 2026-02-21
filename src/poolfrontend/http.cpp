@@ -1297,7 +1297,7 @@ void PoolHttpConnection::onBackendQueryUserBalance(rapidjson::Document &document
     }
 
     objectIncrementReference(aioObjectHandle(Socket_), 1);
-    backend->accountingDb()->queryUserBalance(tokenInfo.Login, [this, backend](const AccountingDb::UserBalanceInfo &record) {
+    backend->accountingDb()->queryUserBalance(tokenInfo.Login, [this, backend](const UserBalanceInfo &record) {
       xmstream stream;
       reply200(stream);
       size_t offset = startChunk(stream);
@@ -1332,7 +1332,7 @@ void PoolHttpConnection::onBackendQueryUserBalance(rapidjson::Document &document
     for (size_t i = 0, ie = Server_.backends().size(); i != ie; ++i)
       accountingDbs[i] = Server_.backend(i)->accountingDb();
 
-    AccountingDb::queryUserBalanceMulti(&accountingDbs[0], accountingDbs.size(), tokenInfo.Login, [this](const AccountingDb::UserBalanceInfo *balanceData, size_t backendsNum) {
+    AccountingDb::queryUserBalanceMulti(&accountingDbs[0], accountingDbs.size(), tokenInfo.Login, [this](const UserBalanceInfo *balanceData, size_t backendsNum) {
       xmstream stream;
       reply200(stream);
       size_t offset = startChunk(stream);
@@ -1949,7 +1949,7 @@ void PoolHttpConnection::onBackendQueryPPLNSPayouts(rapidjson::Document &documen
   }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->queryPPLNSPayouts(tokenInfo.Login, timeFrom, hashFrom, count, [this, backend](const std::vector<AccountingDb::CPPLNSPayoutInfo>& result) {
+  backend->accountingDb()->queryPPLNSPayouts(tokenInfo.Login, timeFrom, hashFrom, count, [this, backend](const std::vector<CPPLNSPayoutInfo>& result) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -2022,7 +2022,7 @@ void PoolHttpConnection::onBackendQueryPPLNSAcc(rapidjson::Document &document)
   }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->queryPPLNSAcc(tokenInfo.Login, timeFrom, timeTo, groupByInterval, [this, backend](const std::vector<AccountingDb::CPPLNSPayoutAcc>& result) {
+  backend->accountingDb()->queryPPLNSAcc(tokenInfo.Login, timeFrom, timeTo, groupByInterval, [this, backend](const std::vector<CPPLNSPayoutAcc>& result) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -2080,7 +2080,7 @@ void PoolHttpConnection::onBackendQueryPPSPayouts(rapidjson::Document &document)
     return;
   }
 
-  auto result = backend->accountingDb()->queryPPSPayouts(tokenInfo.Login, timeFrom, count);
+  auto result = backend->accountingDb()->api().queryPPSPayouts(tokenInfo.Login, timeFrom, count);
 
   xmstream stream;
   reply200(stream);
@@ -2148,7 +2148,7 @@ void PoolHttpConnection::onBackendQueryPPSPayoutsAcc(rapidjson::Document &docume
     return;
   }
 
-  auto result = backend->accountingDb()->queryPPSPayoutsAcc(tokenInfo.Login, timeFrom, timeTo, groupByInterval);
+  auto result = backend->accountingDb()->api().queryPPSPayoutsAcc(tokenInfo.Login, timeFrom, timeTo, groupByInterval);
 
   xmstream stream;
   reply200(stream);
@@ -2389,7 +2389,7 @@ void PoolHttpConnection::onBackendQueryPPSHistory(rapidjson::Document &document)
   }
 
   unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
-  auto result = backend->accountingDb()->queryPPSHistory(timeFrom, timeTo);
+  auto result = backend->accountingDb()->api().queryPPSHistory(timeFrom, timeTo);
 
   xmstream stream;
   reply200(stream);

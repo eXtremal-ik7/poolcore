@@ -123,7 +123,7 @@ void PoolBackend::checkConfirmationsHandler()
 void PoolBackend::checkBalanceHandler()
 {
   for (;;) {
-    _accounting->checkBalance();
+    _accounting->payoutProcessor().checkBalance();
     ioSleep(CheckBalanceEvent_, _cfg.BalanceCheckInterval);
     if (ShutdownRequested_)
       break;

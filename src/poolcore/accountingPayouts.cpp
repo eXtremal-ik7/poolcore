@@ -1,4 +1,5 @@
 #include "poolcore/accountingPayouts.h"
+#include "poolcore/accountingState.h"
 #include "poolcommon/utils.h"
 #include "loguru.hpp"
 
@@ -8,33 +9,31 @@ CPayoutProcessor::CPayoutProcessor(asyncBase *base,
                                    const PoolBackendConfig &cfg,
                                    const CCoinInfo &coinInfo,
                                    CNetworkClientDispatcher &clientDispatcher,
+                                   CAccountingState &state,
+                                   const std::set<MiningRound*> &UnpayedRounds_,
                                    kvdb<rocksdbBase> &payoutDb,
                                    kvdb<rocksdbBase> &balanceDb,
                                    kvdb<rocksdbBase> &poolBalanceDb,
-                                   std::list<PayoutDbRecord> &payoutQueue,
-                                   std::unordered_set<std::string> &knownTransactions,
                                    std::map<std::string, UserBalanceRecord> &balanceMap,
-                                   const std::unordered_map<std::string, UserSettingsRecord> &userSettings,
-                                   const std::atomic<CBackendSettings> &backendSettings) :
+                                   const std::unordered_map<std::string, UserSettingsRecord> &userSettings) :
   Base_(base),
   Cfg_(cfg),
   CoinInfo_(coinInfo),
   ClientDispatcher_(clientDispatcher),
+  State_(state),
+  UnpayedRounds_(UnpayedRounds_),
   PayoutDb_(payoutDb),
   BalanceDb_(balanceDb),
   PoolBalanceDb_(poolBalanceDb),
-  PayoutQueue_(payoutQueue),
-  KnownTransactions_(knownTransactions),
   BalanceMap_(balanceMap),
-  UserSettings_(userSettings),
-  BackendSettings_(backendSettings)
+  UserSettings_(userSettings)
 {
 }
 
 void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout)
 {
   *needSkipPayout = false;
-  auto minimalPayout = BackendSettings_.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout;
+  auto minimalPayout = State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout;
   if (payout.Value < minimalPayout) {
     LOG_F(INFO,
           "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
@@ -102,7 +101,7 @@ void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, 
   }
 
   // Save transaction to database
-  if (!KnownTransactions_.insert(transaction.TxId).second) {
+  if (!State_.KnownTransactions.insert(transaction.TxId).second) {
     LOG_F(ERROR, "Node generated duplicate for transaction %s !!!", transaction.TxId.c_str());
     return;
   }
@@ -200,38 +199,38 @@ bool CPayoutProcessor::checkTxConfirmations(PayoutDbRecord &payout)
 
 void CPayoutProcessor::makePayout()
 {
-  if (!PayoutQueue_.empty()) {
-    LOG_F(INFO, "Accounting: checking %u payout requests...", (unsigned)PayoutQueue_.size());
+  if (!State_.PayoutQueue.empty()) {
+    LOG_F(INFO, "Accounting: checking %u payout requests...", (unsigned)State_.PayoutQueue.size());
 
     // Merge small payouts and payouts to invalid address
     // TODO: merge small payouts with normal also
     {
       std::map<std::string, UInt<384>> payoutAccMap;
-      for (auto I = PayoutQueue_.begin(), IE = PayoutQueue_.end(); I != IE;) {
+      for (auto I = State_.PayoutQueue.begin(), IE = State_.PayoutQueue.end(); I != IE;) {
         if (I->Status != PayoutDbRecord::EInitialized) {
           ++I;
           continue;
         }
 
-        if (I->Value < BackendSettings_.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout) {
+        if (I->Value < State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout) {
           payoutAccMap[I->UserId] += I->Value;
           LOG_F(INFO,
                 "Accounting: merge payout %s for %s (total already %s)",
                 FormatMoney(I->Value, CoinInfo_.FractionalPartSize).c_str(),
                 I->UserId.c_str(),
                 FormatMoney(payoutAccMap[I->UserId], CoinInfo_.FractionalPartSize).c_str());
-          PayoutQueue_.erase(I++);
+          State_.PayoutQueue.erase(I++);
         } else {
           ++I;
         }
       }
 
       for (const auto &I: payoutAccMap)
-        PayoutQueue_.push_back(PayoutDbRecord(I.first, I.second));
+        State_.PayoutQueue.push_back(PayoutDbRecord(I.first, I.second));
     }
 
     unsigned index = 0;
-    for (auto &payout: PayoutQueue_) {
+    for (auto &payout: State_.PayoutQueue) {
       if (payout.Status == PayoutDbRecord::EInitialized) {
         // Build transaction
         // For bitcoin-based API it's sequential call of createrawtransaction, fundrawtransaction and signrawtransaction
@@ -265,14 +264,16 @@ void CPayoutProcessor::makePayout()
     }
 
     // Cleanup confirmed payouts
-    for (auto I = PayoutQueue_.begin(), IE = PayoutQueue_.end(); I != IE;) {
+    for (auto I = State_.PayoutQueue.begin(), IE = State_.PayoutQueue.end(); I != IE;) {
       if (I->Status == PayoutDbRecord::ETxConfirmed) {
-        KnownTransactions_.erase(I->TransactionId);
-        PayoutQueue_.erase(I++);
+        State_.KnownTransactions.erase(I->TransactionId);
+        State_.PayoutQueue.erase(I++);
       } else {
         ++I;
       }
     }
+
+    State_.flushPayoutQueue();
   }
 
   if (!Cfg_.poolZAddr.empty() && !Cfg_.poolTAddr.empty()) {
@@ -327,7 +328,7 @@ void CPayoutProcessor::makePayout()
 
   // Check consistency
   std::unordered_map<std::string, UInt<384>> enqueued;
-  for (const auto &payout: PayoutQueue_)
+  for (const auto &payout: State_.PayoutQueue)
     enqueued[payout.UserId] += payout.Value;
 
   bool inconsistent = false;
@@ -352,9 +353,10 @@ void CPayoutProcessor::makePayout()
     if (ClientDispatcher_.ioWalletService(Base_, serviceError) != CNetworkClient::EStatusOk)
       LOG_F(ERROR, "Wallet service ERROR: %s", serviceError.c_str());
   }
+
 }
 
-void CPayoutProcessor::checkBalance(const std::set<MiningRound*> &unpayedRounds, const CPPSState &ppsState)
+void CPayoutProcessor::checkBalance()
 {
   UInt<384> balance = UInt<384>::zero();
   UInt<384> requestedInBalance = UInt<384>::zero();
@@ -388,13 +390,13 @@ void CPayoutProcessor::checkBalance(const std::set<MiningRound*> &unpayedRounds,
     requestedInBalance += userIt.second.Requested;
     ppsPaid += userIt.second.PPSPaid;
   }
-  for (auto &p: PayoutQueue_) {
+  for (auto &p: State_.PayoutQueue) {
     requestedInQueue += p.Value;
     if (p.Status == PayoutDbRecord::ETxSent)
       confirmationWait += p.Value + p.TxFee;
   }
 
-  for (auto &roundIt: unpayedRounds) {
+  for (auto &roundIt: UnpayedRounds_) {
     for (auto &pIt: roundIt->Payouts)
       queued += pIt.Value;
   }
@@ -423,32 +425,32 @@ void CPayoutProcessor::checkBalance(const std::set<MiningRound*> &unpayedRounds,
         FormatMoney(confirmationWait, CoinInfo_.FractionalPartSize).c_str(),
         FormatMoney(net, CoinInfo_.FractionalPartSize).c_str());
 
-  if (BackendSettings_.load(std::memory_order_relaxed).PPSConfig.Enabled) {
-    const auto &reward = ppsState.LastBaseBlockReward;
-    double refBalanceInBlocks = CPPSState::balanceInBlocks(ppsState.ReferenceBalance, reward);
-    double refSqLambda = CPPSState::sqLambda(ppsState.ReferenceBalance, reward, ppsState.TotalBlocksFound);
-    double minBalanceInBlocks = CPPSState::balanceInBlocks(ppsState.Min.Balance, reward);
-    double minSqLambda = CPPSState::sqLambda(ppsState.Min.Balance, reward, ppsState.Min.TotalBlocksFound);
-    double maxBalanceInBlocks = CPPSState::balanceInBlocks(ppsState.Max.Balance, reward);
-    double maxSqLambda = CPPSState::sqLambda(ppsState.Max.Balance, reward, ppsState.Max.TotalBlocksFound);
+  if (State_.BackendSettings.load(std::memory_order_relaxed).PPSConfig.Enabled) {
+    const auto &reward = State_.PPSState.LastBaseBlockReward;
+    double refBalanceInBlocks = CPPSState::balanceInBlocks(State_.PPSState.ReferenceBalance, reward);
+    double refSqLambda = CPPSState::sqLambda(State_.PPSState.ReferenceBalance, reward, State_.PPSState.TotalBlocksFound);
+    double minBalanceInBlocks = CPPSState::balanceInBlocks(State_.PPSState.Min.Balance, reward);
+    double minSqLambda = CPPSState::sqLambda(State_.PPSState.Min.Balance, reward, State_.PPSState.Min.TotalBlocksFound);
+    double maxBalanceInBlocks = CPPSState::balanceInBlocks(State_.PPSState.Max.Balance, reward);
+    double maxSqLambda = CPPSState::sqLambda(State_.PPSState.Max.Balance, reward, State_.PPSState.Max.TotalBlocksFound);
     LOG_F(INFO,
           "PPS state: balance=%s, refBalance=%s (%.3f blocks, sqLambda=%.4f),"
           " min=%s (%.3f blocks, sqLambda=%.4f),"
           " max=%s (%.3f blocks, sqLambda=%.4f),"
           " blocks=%.3f, saturateCoeff=%.4f, avgTxFee=%s",
-          FormatMoney(ppsState.Balance, CoinInfo_.FractionalPartSize).c_str(),
-          FormatMoney(ppsState.ReferenceBalance, CoinInfo_.FractionalPartSize).c_str(),
+          FormatMoney(State_.PPSState.Balance, CoinInfo_.FractionalPartSize).c_str(),
+          FormatMoney(State_.PPSState.ReferenceBalance, CoinInfo_.FractionalPartSize).c_str(),
           refBalanceInBlocks,
           refSqLambda,
-          FormatMoney(ppsState.Min.Balance, CoinInfo_.FractionalPartSize).c_str(),
+          FormatMoney(State_.PPSState.Min.Balance, CoinInfo_.FractionalPartSize).c_str(),
           minBalanceInBlocks,
           minSqLambda,
-          FormatMoney(ppsState.Max.Balance, CoinInfo_.FractionalPartSize).c_str(),
+          FormatMoney(State_.PPSState.Max.Balance, CoinInfo_.FractionalPartSize).c_str(),
           maxBalanceInBlocks,
           maxSqLambda,
-          ppsState.TotalBlocksFound,
-          ppsState.LastSaturateCoeff,
-          FormatMoney(ppsState.LastAverageTxFee, CoinInfo_.FractionalPartSize).c_str());
+          State_.PPSState.TotalBlocksFound,
+          State_.PPSState.LastSaturateCoeff,
+          FormatMoney(State_.PPSState.LastAverageTxFee, CoinInfo_.FractionalPartSize).c_str());
   }
 }
 
@@ -467,7 +469,7 @@ bool CPayoutProcessor::requestManualPayout(const std::string &address)
   if (nonQueuedBalance.isNegative())
     return false;
 
-  PayoutQueue_.push_back(PayoutDbRecord(address, nonQueuedBalance));
+  State_.PayoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
   balance.Requested += nonQueuedBalance;
   BalanceDb_.put(balance);
   return true;

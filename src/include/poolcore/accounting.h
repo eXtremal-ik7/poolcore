@@ -1,68 +1,20 @@
 #ifndef __ACCOUNTING_H_
 #define __ACCOUNTING_H_
 
-#include "accountingData.h"
-#include "accountingPayouts.h"
+#include "accountingState.h"
+#include "accountingApi.h"
 #include "shareLog.h"
 #include "statsData.h"
-#include "usermgr.h"
 #include "poolcommon/multiCall.h"
 #include "poolcommon/taskHandler.h"
-#include "poolcore/clientDispatcher.h"
-#include <atomic>
 #include <optional>
 
 class CPriceFetcher;
 
 class AccountingDb {
-public:
-  struct UserBalanceInfo {
-    UserBalanceRecord Data;
-    UInt<384> Queued;
-  };
-
-  struct CPPLNSPayoutInfo {
-    Timestamp RoundStartTime;
-    Timestamp RoundEndTime;
-    std::string BlockHash;
-    uint64_t BlockHeight;
-    UInt<384> Value;
-    UInt<384> ValueBTC;
-    UInt<384> ValueUSD;
-  };
-
-  struct CPPSPayoutInfo {
-    Timestamp IntervalBegin;
-    Timestamp IntervalEnd;
-    UInt<384> Value;
-    UInt<384> ValueBTC;
-    UInt<384> ValueUSD;
-  };
-
-  struct CPPLNSPayoutAcc {
-    int64_t IntervalEnd = 0;
-    UInt<384> TotalCoin = UInt<384>::zero();
-    UInt<384> TotalBTC = UInt<384>::zero();
-    UInt<384> TotalUSD = UInt<384>::zero();
-
-    void merge(const CPPLNSPayout &record, unsigned fractionalPartSize);
-    void mergeScaled(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize);
-  };
-
-  struct CPPSPayoutAcc {
-    int64_t IntervalEnd = 0;
-    UInt<384> TotalCoin = UInt<384>::zero();
-    UInt<384> TotalBTC = UInt<384>::zero();
-    UInt<384> TotalUSD = UInt<384>::zero();
-
-    void merge(const CPPSPayout &record, unsigned fractionalPartSize);
-    void mergeScaled(const CPPSPayout &record, double coeff, unsigned fractionalPartSize);
-  };
-
 private:
   using DefaultCb = std::function<void(const char*)>;
   using ManualPayoutCallback = std::function<void(bool)>;
-  using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
   using QueryBalanceCallback = std::function<void(const UserBalanceInfo&)>;
   using QueryPPLNSPayoutsCallback = std::function<void(const std::vector<CPPLNSPayoutInfo>&)>;
   using QueryPPLNSAccCallback = std::function<void(const std::vector<CPPLNSPayoutAcc>&)>;
@@ -86,7 +38,10 @@ private:
   class TaskManualPayout : public Task<AccountingDb> {
   public:
     TaskManualPayout(const std::string &user, DefaultCb callback) : User_(user), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { accounting->manualPayoutImpl(User_, Callback_); }
+    void run(AccountingDb *accounting) final {
+      const char *status = accounting->api().manualPayout(User_);
+      Callback_(status);
+    }
   private:
     std::string User_;
     DefaultCb Callback_;
@@ -95,7 +50,7 @@ private:
   class TaskQueryFoundBlocks : public Task<AccountingDb> {
   public:
     TaskQueryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback) : HeightFrom_(heightFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { accounting->queryFoundBlocksImpl(HeightFrom_, HashFrom_, Count_, Callback_); }
+    void run(AccountingDb *accounting) final { accounting->api().queryFoundBlocks(HeightFrom_, HashFrom_, Count_, Callback_); }
   private:
     int64_t HeightFrom_;
     std::string HashFrom_;
@@ -106,7 +61,7 @@ private:
   class TaskQueryBalance : public Task<AccountingDb> {
   public:
     TaskQueryBalance(const std::string &user, QueryBalanceCallback callback) : User_(user), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { accounting->queryBalanceImpl(User_, Callback_); }
+    void run(AccountingDb *accounting) final { Callback_(accounting->api().queryBalance(User_)); }
   private:
     std::string User_;
     QueryBalanceCallback Callback_;
@@ -116,7 +71,7 @@ private:
   public:
     TaskQueryPPLNSPayouts(const std::string &user, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback) :
       User_(user), TimeFrom_(timeFrom), HashFrom_(hashFrom), Count_(count), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { accounting->queryPPLNSPayoutsImpl(User_, TimeFrom_, HashFrom_, Count_, Callback_); }
+    void run(AccountingDb *accounting) final { Callback_(accounting->api().queryPPLNSPayouts(User_, TimeFrom_, HashFrom_, Count_)); }
   private:
     std::string User_;
     int64_t TimeFrom_;
@@ -129,7 +84,7 @@ private:
   public:
     TaskQueryPPLNSAcc(const std::string &user, int64_t timeFrom, int64_t timeTo, int64_t groupInterval, QueryPPLNSAccCallback callback) :
         User_(user), TimeFrom_(timeFrom), TimeTo_(timeTo), GroupInterval_(groupInterval), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { accounting->queryPPLNSPayoutsAccImpl(User_, TimeFrom_, TimeTo_, GroupInterval_, Callback_); }
+    void run(AccountingDb *accounting) final { Callback_(accounting->api().queryPPLNSPayoutsAcc(User_, TimeFrom_, TimeTo_, GroupInterval_)); }
   private:
     std::string User_;
     int64_t TimeFrom_;
@@ -141,7 +96,7 @@ private:
   class TaskPoolLuck : public Task<AccountingDb> {
   public:
     TaskPoolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) : Intervals_(intervals), Callback_(callback) {}
-    void run(AccountingDb *accounting) final { accounting->poolLuckImpl(Intervals_, Callback_); }
+    void run(AccountingDb *accounting) final { Callback_(accounting->api().poolLuck(Intervals_)); }
   private:
     std::vector<int64_t> Intervals_;
     PoolLuckCallback Callback_;
@@ -159,45 +114,14 @@ private:
   std::map<std::string, UserBalanceRecord> _balanceMap;
   std::deque<std::unique_ptr<MiningRound>> _allRounds;
   std::set<MiningRound*> UnpayedRounds_;
-  // Persistent state stored in accounting.state RocksDB
-  struct CPersistentState {
 
-  public:
-    // Accumulated share work per user for the current block search session; cleared on block found
-    std::map<std::string, UInt<256>> CurrentScores;
-    // Accumulated PPS value per user (fixed-point 128.256 format); cleared on PPS payout
-    std::unordered_map<std::string, UInt<384>> PPSPendingBalance;
-    std::vector<CStatsExportData> RecentStats;
-    uint64_t SavedShareId = 0;
-    Timestamp CurrentRoundStartTime;
-    std::list<PayoutDbRecord> PayoutQueue;
-    std::unordered_set<std::string> KnownTransactions;
-
-    std::atomic<CBackendSettings> BackendSettings;
-    CPPSState PPSState;
-
-    CPersistentState(const std::filesystem::path &dbPath);
-    bool load(const CCoinInfo &coinInfo);
-    uint64_t lastAcceptedMsgId() const { return LastAcceptedMsgId_; }
-
-    void applyBatch(uint64_t msgId, const CAccountingStateBatch &batch);
-    void flushState();
-    void flushBackendSettings();
-    void flushPayoutQueue();
-
-  private:
-    uint64_t LastAcceptedMsgId_ = 0;
-    std::filesystem::path DbPath_;
-    rocksdbBase Db;
-  };
-
-  CPersistentState State_;
+  CAccountingState State_;
 
   class TaskQueryPPSState : public Task<AccountingDb> {
 
   public:
     TaskQueryPPSState(QueryPPSStateCallback callback) : Callback_(std::move(callback)) {}
-    void run(AccountingDb *accounting) final { accounting->queryPPSStateImpl(Callback_); }
+    void run(AccountingDb *accounting) final { Callback_(accounting->api().queryPPSState()); }
 
   private:
     QueryPPSStateCallback Callback_;
@@ -214,7 +138,10 @@ private:
           Payouts_(std::move(payouts)),
           Callback_(std::move(callback)) {}
     void run(AccountingDb *accounting) final {
-      accounting->updateBackendSettingsImpl(PPS_, Payouts_, Callback_);
+      const char *status = accounting->api().updateBackendSettings(PPS_, Payouts_);
+      if (strcmp(status, "ok") == 0)
+        accounting->notifyInstantPayoutSettingsChanged();
+      Callback_(status);
     }
 
   private:
@@ -256,6 +183,7 @@ private:
   bool FlushFinished_ = false;
 
   CPayoutProcessor PayoutProcessor_;
+  CAccountingApi Api_;
 
   void printRecentStatistic();
   void shareLogFlushHandler();
@@ -301,8 +229,9 @@ public:
   bool processRoundConfirmation(MiningRound *R, int64_t confirmations, const std::string &hash);
   void checkBlockConfirmations();
   void checkBlockExtraInfo();
-  void makePayout();
-  void checkBalance();
+
+  CAccountingApi &api() { return Api_; }
+  CPayoutProcessor &payoutProcessor() { return PayoutProcessor_; }
 
   std::list<PayoutDbRecord> &getPayoutsQueue() { return State_.PayoutQueue; }
   kvdb<rocksdbBase> &getFoundBlocksDb() { return _foundBlocksDb; }
@@ -311,10 +240,6 @@ public:
   kvdb<rocksdbBase> &getBalanceDb() { return _balanceDb; }
   kvdb<rocksdbBase> &getPPLNSPayoutsDb() { return PPLNSPayoutsDb; }
   kvdb<rocksdbBase> &getPPSPayoutsDb() { return PPSPayoutsDb; }
-
-  std::vector<CPPSPayoutInfo> queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count);
-  std::vector<CPPSPayoutAcc> queryPPSPayoutsAcc(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval);
-  std::vector<CPPSState> queryPPSHistory(int64_t timeFrom, int64_t timeTo);
 
   const std::map<std::string, UserBalanceRecord> &getUserBalanceMap() { return _balanceMap; }
 
@@ -343,6 +268,7 @@ public:
     return State_.BackendSettings.load(std::memory_order_relaxed);
   }
   void setFeeEstimationService(CFeeEstimationService *service) { FeeEstimationService_ = service; }
+  void notifyInstantPayoutSettingsChanged() { userEventActivate(InstantPayoutEvent_); }
 
   // Asynchronous multi calls
   static void queryUserBalanceMulti(AccountingDb **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceInfo*, size_t)> callback) {
@@ -350,19 +276,6 @@ public:
     for (size_t i = 0; i < backendsNum; i++)
       backends[i]->queryUserBalance(user, context->generateCallback(i));
   }
-
-private:
-  void manualPayoutImpl(const std::string &user, DefaultCb callback);
-  void queryBalanceImpl(const std::string &user, QueryBalanceCallback callback);
-  void queryFoundBlocksImpl(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
-  void queryPPLNSPayoutsImpl(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count, QueryPPLNSPayoutsCallback callback);
-  void queryPPLNSPayoutsAccImpl(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, QueryPPLNSAccCallback callback);
-  void poolLuckImpl(const std::vector<int64_t> &intervals, PoolLuckCallback callback);
-  void queryPPSStateImpl(QueryPPSStateCallback callback);
-  void updateBackendSettingsImpl(
-      const std::optional<CBackendSettings::PPS> &pps,
-      const std::optional<CBackendSettings::Payouts> &payouts,
-      DefaultCb callback);
 };
 
 #endif //__ACCOUNTING_H_
