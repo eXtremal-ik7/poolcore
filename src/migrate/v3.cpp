@@ -153,31 +153,60 @@ static bool loadCoinMap(const std::filesystem::path &srcPath,
 
 static bool migrateBalance(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const CCoinInfo &coinInfo, const CCoinInfoOld2 &old2)
 {
-  return migrateDatabase(srcCoinPath, dstCoinPath, "balance", "balance.2", [&coinInfo, &old2](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
-    UserBalanceRecord2 oldRecord;
-    if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
-      LOG_F(ERROR, "Can't deserialize balance record, database corrupted");
+  std::filesystem::path oldDbPath = srcCoinPath / "balance";
+  if (!std::filesystem::exists(oldDbPath) || !std::filesystem::is_directory(oldDbPath)) {
+    LOG_F(INFO, "No previous balance database found, skipping");
+    return true;
+  }
+
+  LOG_F(INFO, "Migrating balance -> accounting.state (b-prefix) ...");
+
+  rocksdbBase stateDb(dstCoinPath / "accounting.state");
+  rocksdbBase::CBatch batch = stateDb.batch("default");
+  unsigned count = 0;
+
+  for (std::filesystem::directory_iterator I(oldDbPath), IE; I != IE; ++I) {
+    if (!is_directory(I->status()))
+      continue;
+
+    rocksdbBase partDb(I->path());
+    std::unique_ptr<rocksdbBase::IteratorType> it(partDb.iterator());
+    it->seekFirst();
+    for (; it->valid(); it->next()) {
+      RawData data = it->value();
+      UserBalanceRecord2 oldRecord;
+      if (!oldRecord.deserializeValue(data.data, data.size)) {
+        LOG_F(ERROR, "Can't deserialize balance record, database corrupted");
+        return false;
+      }
+
+      UserBalanceRecord newRecord;
+      newRecord.Login = oldRecord.Login;
+      newRecord.Balance = fromRational(static_cast<uint64_t>(oldRecord.BalanceWithFractional));
+      newRecord.Balance /= static_cast<uint64_t>(old2.ExtraMultiplier);
+      newRecord.Requested = fromRational(static_cast<uint64_t>(oldRecord.Requested));
+      newRecord.Paid = fromRational(static_cast<uint64_t>(oldRecord.Paid));
+
+      LOG_F(INFO, "  %s balance=%s requested=%s paid=%s",
+            oldRecord.Login.c_str(),
+            FormatMoney(newRecord.Balance, coinInfo.FractionalPartSize).c_str(),
+            FormatMoney(newRecord.Requested, coinInfo.FractionalPartSize).c_str(),
+            FormatMoney(newRecord.Paid, coinInfo.FractionalPartSize).c_str());
+
+      batch.put(newRecord);
+      count++;
+    }
+  }
+
+  if (count > 0) {
+    if (!stateDb.writeBatch(batch)) {
+      LOG_F(ERROR, "Failed to write balance records to accounting.state");
       return false;
     }
+    LOG_F(INFO, "  Migrated %u balance records", count);
+  }
 
-    UserBalanceRecord newRecord;
-    newRecord.Login = oldRecord.Login;
-    newRecord.Balance = fromRational(static_cast<uint64_t>(oldRecord.BalanceWithFractional));
-    newRecord.Balance /= static_cast<uint64_t>(old2.ExtraMultiplier);
-    newRecord.Requested = fromRational(static_cast<uint64_t>(oldRecord.Requested));
-    newRecord.Paid = fromRational(static_cast<uint64_t>(oldRecord.Paid));
-
-    LOG_F(INFO, "  %s balance=%s requested=%s paid=%s",
-          oldRecord.Login.c_str(),
-          FormatMoney(newRecord.Balance, coinInfo.FractionalPartSize).c_str(),
-          FormatMoney(newRecord.Requested, coinInfo.FractionalPartSize).c_str(),
-          FormatMoney(newRecord.Paid, coinInfo.FractionalPartSize).c_str());
-
-    xmstream stream;
-    newRecord.serializeValue(stream);
-    batch.Put(it->key(), rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
-    return true;
-  });
+  return true;
 }
 
 static bool migrateStats(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const CCoinInfoOld2 &old2, const char *baseName, const char *newName, unsigned threads, const std::string &cutoff)
@@ -610,7 +639,7 @@ static bool writeAccountingStateToDb(rocksdbBase &stateDb, const CAccountingFile
   {
     xmstream stream;
     DbIo<uint64_t>::serialize(stream, uint64_t{0});
-    std::string key = "lastmsgid";
+    std::string key = ".lastmsgid";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
 
@@ -618,7 +647,7 @@ static bool writeAccountingStateToDb(rocksdbBase &stateDb, const CAccountingFile
   {
     xmstream stream;
     DbIo<decltype(fileData.Recent)>::serialize(stream, fileData.Recent);
-    std::string key = "recentstats";
+    std::string key = ".recentstats";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
 
@@ -626,7 +655,7 @@ static bool writeAccountingStateToDb(rocksdbBase &stateDb, const CAccountingFile
   {
     xmstream stream;
     DbIo<decltype(fileData.CurrentScores)>::serialize(stream, fileData.CurrentScores);
-    std::string key = "currentscores";
+    std::string key = ".currentscores";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
 
@@ -634,7 +663,7 @@ static bool writeAccountingStateToDb(rocksdbBase &stateDb, const CAccountingFile
   if (currentRoundStartTime != Timestamp()) {
     xmstream stream;
     DbIo<Timestamp>::serialize(stream, currentRoundStartTime);
-    std::string key = "currentroundstart";
+    std::string key = ".currentroundstart";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
 
@@ -700,7 +729,7 @@ static bool migrateAccountingToState(const std::filesystem::path &srcCoinPath,
         }
 
         if (output.sizeOf() > 0) {
-          std::string key = "payoutqueue";
+          std::string key = ".payoutqueue";
           stateDb.put("default", key.data(), key.size(), output.data(), output.sizeOf());
           LOG_F(INFO, "  Migrated %u payouts from payouts.raw", count);
         }
@@ -1276,11 +1305,6 @@ static bool migrateCoin(const std::filesystem::path &srcPath, const std::filesys
 
   LOG_F(INFO, "Migrating %s: %s", coinInfo.IsAlgorithm ? "algorithm" : "coin", coinInfo.Name.c_str());
 
-  if (!coinInfo.IsAlgorithm) {
-    if (!migrateBalance(srcCoinPath, dstCoinPath, coinInfo, old2))
-      return false;
-  }
-
   if (!migratePoolBalance(srcCoinPath, dstCoinPath, old2, threads))
     return false;
   if (!migratePPLNSPayouts(srcCoinPath, dstCoinPath, threads))
@@ -1305,6 +1329,10 @@ static bool migrateCoin(const std::filesystem::path &srcPath, const std::filesys
 
   if (!migrateAccountingToState(srcCoinPath, dstCoinPath, coinInfo, old2, activeRounds))
     return false;
+  if (!coinInfo.IsAlgorithm) {
+    if (!migrateBalance(srcCoinPath, dstCoinPath, coinInfo, old2))
+      return false;
+  }
   if (!migrateStatsCache(srcCoinPath, dstCoinPath, "stats.pool.cache", "stats.pool.cache.3", old2, threads, poolCacheLastShareId))
     return false;
   if (!migrateStatsCacheV2(srcCoinPath, dstCoinPath, "stats.pool.cache.2", "stats.pool.cache.3", old2, threads, poolCacheLastShareId))

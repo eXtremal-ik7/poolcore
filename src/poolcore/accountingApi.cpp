@@ -78,8 +78,7 @@ CAccountingApi::CAccountingApi(asyncBase *base,
                                kvdb<rocksdbBase> &foundBlocksDb,
                                kvdb<rocksdbBase> &pplnsPayoutsDb,
                                kvdb<rocksdbBase> &ppsPayoutsDb,
-                               kvdb<rocksdbBase> &ppsHistoryDb,
-                               std::map<std::string, UserBalanceRecord> &balanceMap) :
+                               kvdb<rocksdbBase> &ppsHistoryDb) :
   Base_(base),
   Cfg_(cfg),
   CoinInfo_(coinInfo),
@@ -90,7 +89,6 @@ CAccountingApi::CAccountingApi(asyncBase *base,
   PPLNSPayoutsDb_(pplnsPayoutsDb),
   PPSPayoutsDb_(ppsPayoutsDb),
   PPSHistoryDb_(ppsHistoryDb),
-  BalanceMap_(balanceMap),
   State_(state),
   InstantPayoutTimer_(instantPayoutTimer)
 {
@@ -98,16 +96,16 @@ CAccountingApi::CAccountingApi(asyncBase *base,
 
 const char *CAccountingApi::manualPayout(const std::string &user)
 {
-  auto It = BalanceMap_.find(user);
-  if (It != BalanceMap_.end()) {
+  auto It = State_.BalanceMap.find(user);
+  if (It != State_.BalanceMap.end()) {
     auto &B = It->second;
     UInt<384> nonQueuedBalance = B.Balance - B.Requested;
     // Check global minimum (dust protection); per-user MinimalPayout is bypassed for manual payouts
     if (!nonQueuedBalance.isNegative() &&
         nonQueuedBalance >= State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout) {
-      bool result = PayoutProcessor_.requestManualPayout(user);
+      auto batch = CAccountingState::batch();
+      bool result = PayoutProcessor_.requestManualPayout(user, batch);
       if (result) {
-        auto batch = CAccountingState::batch();
         State_.addPayoutQueue(batch);
         State_.flushState(batch);
         LOG_F(INFO, "Manual payout success for %s", user.c_str());
@@ -554,8 +552,8 @@ UserBalanceInfo CAccountingApi::queryBalance(const std::string &user)
     if (payout != round.Payouts.end() && payout->UserId == user)
       info.Queued += payout->Value;
   }
-  auto It = BalanceMap_.find(user);
-  if (It != BalanceMap_.end()) {
+  auto It = State_.BalanceMap.find(user);
+  if (It != State_.BalanceMap.end()) {
     info.Data = It->second;
   } else {
     info.Data.Login = user;

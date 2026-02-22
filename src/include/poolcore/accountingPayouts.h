@@ -15,19 +15,17 @@ public:
                    CNetworkClientDispatcher &clientDispatcher,
                    CAccountingState &state,
                    kvdb<rocksdbBase> &payoutDb,
-                   kvdb<rocksdbBase> &balanceDb,
                    kvdb<rocksdbBase> &poolBalanceDb,
-                   std::map<std::string, UserBalanceRecord> &balanceMap,
                    const std::unordered_map<std::string, UserSettingsRecord> &userSettings);
 
   void makePayout();
-  bool requestManualPayout(const std::string &address);
+  bool requestManualPayout(const std::string &address, rocksdbBase::CBatch &batch);
   void checkBalance();
 
 private:
-  void buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout);
+  void buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout, rocksdbBase::CBatch &batch);
   bool sendTransaction(PayoutDbRecord &payout);
-  bool checkTxConfirmations(PayoutDbRecord &payout);
+  bool checkTxConfirmations(PayoutDbRecord &payout, rocksdbBase::CBatch &batch);
 
 private:
   asyncBase *Base_;
@@ -36,8 +34,6 @@ private:
   CNetworkClientDispatcher &ClientDispatcher_;
   CAccountingState &State_;
   kvdb<rocksdbBase> &PayoutDb_;
-  kvdb<rocksdbBase> &BalanceDb_;
   kvdb<rocksdbBase> &PoolBalanceDb_;
-  std::map<std::string, UserBalanceRecord> &BalanceMap_;
   const std::unordered_map<std::string, UserSettingsRecord> &UserSettings_;
 };

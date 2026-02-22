@@ -45,12 +45,9 @@ private:
   CPriceFetcher &PriceFetcher_;
   CFeeEstimationService *FeeEstimationService_ = nullptr;
 
-  std::map<std::string, UserBalanceRecord> _balanceMap;
-
   CAccountingState State_;
 
   kvdb<rocksdbBase> RoundsDb_;
-  kvdb<rocksdbBase> _balanceDb;
   kvdb<rocksdbBase> _foundBlocksDb;
   kvdb<rocksdbBase> _poolBalanceDb;
   kvdb<rocksdbBase> _payoutDb;
@@ -105,8 +102,8 @@ public:
                    const UInt<384> &value,
                    EMiningMode mode,
                    const CRewardParams &rewardParams,
-                   kvdb<rocksdbBase>::Batch &balanceBatch,
-                   kvdb<rocksdbBase>::Batch &payoutBatch);
+                   rocksdbBase::CBatch &stateBatch,
+                   kvdb<rocksdbBase>::Batch &payoutHistoryBatch);
 
   bool hasDeferredReward() { return CoinInfo_.HasDagFile; }
   void calculatePPLNSPayments(MiningRound &R);
@@ -128,11 +125,10 @@ public:
   kvdb<rocksdbBase> &getFoundBlocksDb() { return _foundBlocksDb; }
   kvdb<rocksdbBase> &getPoolBalanceDb() { return _poolBalanceDb; }
   kvdb<rocksdbBase> &getPayoutDb() { return _payoutDb; }
-  kvdb<rocksdbBase> &getBalanceDb() { return _balanceDb; }
   kvdb<rocksdbBase> &getPPLNSPayoutsDb() { return PPLNSPayoutsDb; }
   kvdb<rocksdbBase> &getPPSPayoutsDb() { return PPSPayoutsDb; }
 
-  const std::map<std::string, UserBalanceRecord> &getUserBalanceMap() { return _balanceMap; }
+  const std::map<std::string, UserBalanceRecord> &getUserBalanceMap() { return State_.BalanceMap; }
 
   // Asynchronous api
   void manualPayout(const std::string &user, DefaultCb callback) {

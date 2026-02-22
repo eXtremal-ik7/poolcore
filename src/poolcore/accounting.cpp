@@ -52,7 +52,6 @@ AccountingDb::AccountingDb(asyncBase *base,
   PriceFetcher_(priceFetcher),
   State_(config.dbPath),
   RoundsDb_(config.dbPath / "accounting.rounds"),
-  _balanceDb(config.dbPath / "balance.2"),
   _foundBlocksDb(config.dbPath / "foundBlocks.2"),
   _poolBalanceDb(config.dbPath / "poolBalance.2"),
   _payoutDb(config.dbPath / "payouts.2"),
@@ -73,9 +72,7 @@ AccountingDb::AccountingDb(asyncBase *base,
                    clientDispatcher,
                    State_,
                    _payoutDb,
-                   _balanceDb,
                    _poolBalanceDb,
-                   _balanceMap,
                    UserSettings_),
   Api_(base,
        config,
@@ -88,8 +85,7 @@ AccountingDb::AccountingDb(asyncBase *base,
        _foundBlocksDb,
        PPLNSPayoutsDb,
        PPSPayoutsDb,
-       PPSHistoryDb_,
-       _balanceMap)
+       PPSHistoryDb_)
 {
 
   // Start loading user data from UserManager in parallel with local DB loading
@@ -118,19 +114,6 @@ AccountingDb::AccountingDb(asyncBase *base,
   LOG_F(INFO, "loaded %u payouts from db", static_cast<unsigned>(State_.PayoutQueue.size()));
 
   LOG_F(INFO, "loaded %zu active rounds from state", State_.ActiveRounds.size());
-
-  {
-    std::unique_ptr<rocksdbBase::IteratorType> It(_balanceDb.iterator());
-    It->seekFirst();
-    for (; It->valid(); It->next()) {
-      UserBalanceRecord ub;
-      RawData data = It->value();
-      if (ub.deserializeValue(data.data, data.size))
-        _balanceMap[ub.Login] = ub;
-    }
-
-    LOG_F(INFO, "loaded %u user balance data from db", (unsigned)_balanceMap.size());
-  }
 
   // Wait for user data loading threads before replay
   // (replay needs UserSettings_, UserFeePlanIds_, FeePlanCache_ for PPS mode handling)
@@ -229,13 +212,13 @@ void AccountingDb::ppsPayout()
   rewardParams.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
   rewardParams.RateBTCToUSD = PriceFetcher_.getBtcUsd();
 
-  kvdb<rocksdbBase>::Batch balanceBatch;
-  kvdb<rocksdbBase>::Batch payoutBatch;
+  auto batch = CAccountingState::batch();
+  kvdb<rocksdbBase>::Batch payoutHistoryBatch;
   bool payoutQueued = false;
   UInt<384> totalPaid = UInt<384>::zero();
   for (auto &[userId, value] : State_.PPSPendingBalance) {
     totalPaid += value;
-    if (applyReward(userId, value, EMiningMode::PPS, rewardParams, balanceBatch, payoutBatch))
+    if (applyReward(userId, value, EMiningMode::PPS, rewardParams, batch, payoutHistoryBatch))
       payoutQueued = true;
     LOG_F(INFO, " * %s: +%s", userId.c_str(), FormatMoneyFull(value, CoinInfo_.FractionalPartSize).c_str());
   }
@@ -245,14 +228,11 @@ void AccountingDb::ppsPayout()
         CoinInfo_.Name.c_str(),
         FormatMoney(totalPaid, CoinInfo_.FractionalPartSize).c_str());
 
-  if (!balanceBatch.empty())
-    _balanceDb.writeBatch(balanceBatch);
-  if (!payoutBatch.empty())
-    PPSPayoutsDb.writeBatch(payoutBatch);
+  if (!payoutHistoryBatch.empty())
+    PPSPayoutsDb.writeBatch(payoutHistoryBatch);
 
   State_.PPSPendingBalance.clear();
   State_.PPSState.Time = now;
-  auto batch = CAccountingState::batch();
   if (payoutQueued)
     State_.addPayoutQueue(batch);
   State_.addMutableState(batch);
@@ -633,7 +613,7 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block)
   // Save state to db
   State_.PPSState.Time = Timestamp::now();
   auto batch = CAccountingState::batch();
-  batch.put(R);
+  State_.putRound(batch, R);
   State_.addMutableState(batch);
   State_.addRoundState(batch);
   State_.flushState(batch);
@@ -660,7 +640,7 @@ AccountingDb::ERoundConfirmationResult AccountingDb::processRoundConfirmation(Mi
     }
 
     RoundsDb_.put(R);
-    stateBatch.deleteRow(R);
+    State_.deleteRound(stateBatch, R);
     return ERoundConfirmationResult::EOrphan;
   } else if (confirmations >= _cfg.RequiredConfirmations) {
     LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R.Height, R.BlockHash.c_str());
@@ -677,18 +657,15 @@ AccountingDb::ERoundConfirmationResult AccountingDb::processRoundConfirmation(Mi
     rewardParams.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
     rewardParams.RateBTCToUSD = PriceFetcher_.getBtcUsd();
 
-    kvdb<rocksdbBase>::Batch balanceBatch;
-    kvdb<rocksdbBase>::Batch payoutBatch;
+    kvdb<rocksdbBase>::Batch payoutHistoryBatch;
     for (auto I = R.Payouts.begin(), IE = R.Payouts.end(); I != IE; ++I)
-      applyReward(I->UserId, I->Value, EMiningMode::PPLNS, rewardParams, balanceBatch, payoutBatch);
-    if (!balanceBatch.empty())
-      _balanceDb.writeBatch(balanceBatch);
-    if (!payoutBatch.empty())
-      PPLNSPayoutsDb.writeBatch(payoutBatch);
+      applyReward(I->UserId, I->Value, EMiningMode::PPLNS, rewardParams, stateBatch, payoutHistoryBatch);
+    if (!payoutHistoryBatch.empty())
+      PPLNSPayoutsDb.writeBatch(payoutHistoryBatch);
 
 
     RoundsDb_.put(R);
-    stateBatch.deleteRow(R);
+    State_.deleteRound(stateBatch, R);
     return ERoundConfirmationResult::EConfirmed;
   }
 
@@ -777,7 +754,7 @@ void AccountingDb::checkBlockExtraInfo()
       // Update round with final reward (payments deferred to confirmation)
       R.AvailableCoins = confirmationsQuery[i].BlockReward;
       R.TxFee = confirmationsQuery[i].TxFee;
-      batch.put(R);
+      State_.putRound(batch, R);
     }
 
     auto result = processRoundConfirmation(R, confirmationsQuery[i].Confirmations, confirmationsQuery[i].Hash, batch);
@@ -803,13 +780,13 @@ bool AccountingDb::applyReward(const std::string &address,
                                const UInt<384> &value,
                                EMiningMode mode,
                                const CRewardParams &rewardParams,
-                               kvdb<rocksdbBase>::Batch &balanceBatch,
-                               kvdb<rocksdbBase>::Batch &payoutBatch)
+                               rocksdbBase::CBatch &stateBatch,
+                               kvdb<rocksdbBase>::Batch &payoutHistoryBatch)
 {
   bool result = false;
-  auto It = _balanceMap.find(address);
-  if (It == _balanceMap.end())
-    It = _balanceMap.insert(It, std::make_pair(address, UserBalanceRecord(address, _cfg.DefaultPayoutThreshold)));
+  auto It = State_.BalanceMap.find(address);
+  if (It == State_.BalanceMap.end())
+    It = State_.BalanceMap.insert(It, std::make_pair(address, UserBalanceRecord(address, _cfg.DefaultPayoutThreshold)));
 
   UserBalanceRecord &balance = It->second;
   balance.Balance += value;
@@ -824,7 +801,7 @@ bool AccountingDb::applyReward(const std::string &address,
     record.PayoutValue = value;
     record.RateToBTC = rewardParams.RateToBTC;
     record.RateBTCToUSD = rewardParams.RateBTCToUSD;
-    payoutBatch.put(record);
+    payoutHistoryBatch.put(record);
   } else {
     CPPLNSPayout record;
     record.Login = address;
@@ -835,7 +812,7 @@ bool AccountingDb::applyReward(const std::string &address,
     record.PayoutValue = value;
     record.RateToBTC = rewardParams.RateToBTC;
     record.RateBTCToUSD = rewardParams.RateBTCToUSD;
-    payoutBatch.put(record);
+    payoutHistoryBatch.put(record);
   }
 
   auto settingsIt = UserSettings_.find(balance.Login);
@@ -860,7 +837,7 @@ bool AccountingDb::applyReward(const std::string &address,
     }
   }
 
-  balanceBatch.put(balance);
+  State_.putBalance(stateBatch, balance);
   return result;
 }
 

@@ -25,24 +25,26 @@ bool CAccountingState::load(const CCoinInfo &coinInfo)
     xmstream stream(value.data, value.size);
     stream.seekSet(0);
 
-    if (keyStr == "lastmsgid") {
+    if (keyStr == ".stateid") {
+      DbIo<uint64_t>::unserialize(stream, StateId_);
+    } else if (keyStr == ".lastmsgid") {
       DbIo<uint64_t>::unserialize(stream, SavedShareId);
-    } else if (keyStr == "recentstats") {
+    } else if (keyStr == ".recentstats") {
       DbIo<decltype(RecentStats)>::unserialize(stream, RecentStats);
-    } else if (keyStr == "currentscores") {
+    } else if (keyStr == ".currentscores") {
       DbIo<decltype(CurrentScores)>::unserialize(stream, CurrentScores);
-    } else if (keyStr == "ppspending") {
+    } else if (keyStr == ".ppspending") {
       DbIo<decltype(PPSPendingBalance)>::unserialize(stream, PPSPendingBalance);
-    } else if (keyStr == "currentroundstart") {
+    } else if (keyStr == ".currentroundstart") {
       DbIo<Timestamp>::unserialize(stream, CurrentRoundStartTime);
-    } else if (keyStr == "settings") {
+    } else if (keyStr == ".settings") {
       CBackendSettings settings;
       DbIo<CBackendSettings>::unserialize(stream, settings);
       BackendSettings.store(settings, std::memory_order_relaxed);
       settingsLoaded = true;
-    } else if (keyStr == "ppsstate") {
+    } else if (keyStr == ".ppsstate") {
       DbIo<CPPSState>::unserialize(stream, PPSState);
-    } else if (keyStr == "payoutqueue") {
+    } else if (keyStr == ".payoutqueue") {
       while (stream.remaining()) {
         PayoutDbRecord element;
         if (!element.deserializeValue(stream))
@@ -56,6 +58,12 @@ bool CAccountingState::load(const CCoinInfo &coinInfo)
         ActiveRounds.push_back(std::move(round));
       else
         LOG_F(ERROR, "Failed to deserialize active round");
+    } else if (!keyStr.empty() && keyStr[0] == 'b') {
+      UserBalanceRecord balance;
+      if (balance.deserializeValue(value.data, value.size))
+        BalanceMap[balance.Login] = balance;
+      else
+        LOG_F(ERROR, "Failed to deserialize balance record");
     }
 
     It->next();
@@ -75,6 +83,8 @@ bool CAccountingState::load(const CCoinInfo &coinInfo)
 
   LastAcceptedMsgId_ = SavedShareId;
 
+  LOG_F(INFO, "AccountingDb: loaded %zu balance records from state", BalanceMap.size());
+
   if (SavedShareId != 0) {
     LOG_F(INFO, "AccountingDb: loaded state from db, SavedShareId=%" PRIu64 "", SavedShareId);
     return true;
@@ -89,12 +99,12 @@ void CAccountingState::addMutableState(rocksdbBase::CBatch &batch)
   {
     xmstream stream;
     DbIo<uint64_t>::serialize(stream, LastAcceptedMsgId_);
-    std::string key = "lastmsgid";
+    std::string key = ".lastmsgid";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
 
   {
-    std::string key = "currentscores";
+    std::string key = ".currentscores";
     if (CurrentScores.empty()) {
       batch.deleteRow(key.data(), key.size());
     } else {
@@ -105,7 +115,7 @@ void CAccountingState::addMutableState(rocksdbBase::CBatch &batch)
   }
 
   {
-    std::string key = "ppspending";
+    std::string key = ".ppspending";
     if (PPSPendingBalance.empty()) {
       batch.deleteRow(key.data(), key.size());
     } else {
@@ -118,7 +128,7 @@ void CAccountingState::addMutableState(rocksdbBase::CBatch &batch)
   {
     xmstream stream;
     DbIo<CPPSState>::serialize(stream, PPSState);
-    std::string key = "ppsstate";
+    std::string key = ".ppsstate";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
 }
@@ -128,20 +138,25 @@ void CAccountingState::addRoundState(rocksdbBase::CBatch &batch)
   {
     xmstream stream;
     DbIo<decltype(RecentStats)>::serialize(stream, RecentStats);
-    std::string key = "recentstats";
+    std::string key = ".recentstats";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
 
   {
     xmstream stream;
     DbIo<Timestamp>::serialize(stream, CurrentRoundStartTime);
-    std::string key = "currentroundstart";
+    std::string key = ".currentroundstart";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
 }
 
 void CAccountingState::flushState(rocksdbBase::CBatch &batch)
 {
+  ++StateId_;
+  xmstream stream;
+  DbIo<uint64_t>::serialize(stream, StateId_);
+  std::string key = ".stateid";
+  batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   Db.writeBatch(batch);
 }
 
@@ -149,7 +164,7 @@ void CAccountingState::flushBackendSettings()
 {
   xmstream stream;
   DbIo<CBackendSettings>::serialize(stream, BackendSettings.load(std::memory_order_relaxed));
-  Db.put("default", "settings", 8, stream.data(), stream.sizeOf());
+  Db.put("default", ".settings", 9, stream.data(), stream.sizeOf());
 }
 
 void CAccountingState::addPayoutQueue(rocksdbBase::CBatch &batch)
@@ -158,8 +173,23 @@ void CAccountingState::addPayoutQueue(rocksdbBase::CBatch &batch)
   for (auto &p: PayoutQueue)
     p.serializeValue(stream);
 
-  std::string key = "payoutqueue";
+  std::string key = ".payoutqueue";
   batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
+}
+
+void CAccountingState::putBalance(rocksdbBase::CBatch &batch, const UserBalanceRecord &balance)
+{
+  batch.put(balance);
+}
+
+void CAccountingState::putRound(rocksdbBase::CBatch &batch, const MiningRound &round)
+{
+  batch.put(round);
+}
+
+void CAccountingState::deleteRound(rocksdbBase::CBatch &batch, const MiningRound &round)
+{
+  batch.deleteRow(round);
 }
 
 void CAccountingState::applyBatch(uint64_t msgId, const CAccountingStateBatch &batch)

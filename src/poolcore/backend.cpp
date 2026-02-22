@@ -15,19 +15,8 @@ static void checkConsistency(AccountingDb *accounting, const CCoinInfo &coinInfo
     totalQueued += p.Value;
 
   UInt<384> totalInBalance = UInt<384>::zero();
-  auto &balanceDb = accounting->getBalanceDb();
-  {
-    std::unique_ptr<rocksdbBase::IteratorType> It(balanceDb.iterator());
-    It->seekFirst();
-    for (; It->valid(); It->next()) {
-      UserBalanceRecord balance;
-      RawData data = It->value();
-      if (!balance.deserializeValue(data.data, data.size))
-        break;
-
-      totalInBalance += balance.Requested;
-    }
-  }
+  for (const auto &[login, balance] : accounting->getUserBalanceMap())
+    totalInBalance += balance.Requested;
 
   LOG_F(INFO, "totalQueued: %s", FormatMoney(totalQueued, coinInfo.FractionalPartSize).c_str());
   LOG_F(INFO, "totalRequested: %s", FormatMoney(totalInBalance, coinInfo.FractionalPartSize).c_str());

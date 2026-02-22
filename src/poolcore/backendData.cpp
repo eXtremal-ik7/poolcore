@@ -394,13 +394,12 @@ bool UserBalanceRecord::deserializeValue(const void *data, size_t size)
   return !stream.eof();
 }
 
-// TODO: remove obsolete table
 void UserBalanceRecord::serializeKey(xmstream &stream) const
 {
+  stream.write<char>('b');
   dbKeyIoSerialize(stream, Login);
 }
 
-// TODO: remove obsolete table
 void UserBalanceRecord::serializeValue(xmstream &stream) const
 {
   dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));

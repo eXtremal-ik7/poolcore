@@ -11,9 +11,7 @@ CPayoutProcessor::CPayoutProcessor(asyncBase *base,
                                    CNetworkClientDispatcher &clientDispatcher,
                                    CAccountingState &state,
                                    kvdb<rocksdbBase> &payoutDb,
-                                   kvdb<rocksdbBase> &balanceDb,
                                    kvdb<rocksdbBase> &poolBalanceDb,
-                                   std::map<std::string, UserBalanceRecord> &balanceMap,
                                    const std::unordered_map<std::string, UserSettingsRecord> &userSettings) :
   Base_(base),
   Cfg_(cfg),
@@ -21,14 +19,12 @@ CPayoutProcessor::CPayoutProcessor(asyncBase *base,
   ClientDispatcher_(clientDispatcher),
   State_(state),
   PayoutDb_(payoutDb),
-  BalanceDb_(balanceDb),
   PoolBalanceDb_(poolBalanceDb),
-  BalanceMap_(balanceMap),
   UserSettings_(userSettings)
 {
 }
 
-void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout)
+void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, std::string &recipient, bool *needSkipPayout, rocksdbBase::CBatch &batch)
 {
   *needSkipPayout = false;
   auto minimalPayout = State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout;
@@ -83,8 +79,8 @@ void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, 
     payout.Value -= delta;
 
     // Update user balance
-    auto It = BalanceMap_.find(payout.UserId);
-    if (It == BalanceMap_.end()) {
+    auto It = State_.BalanceMap.find(payout.UserId);
+    if (It == State_.BalanceMap.end()) {
       LOG_F(ERROR, "payout to unknown address %s", payout.UserId.c_str());
       return;
     }
@@ -92,7 +88,7 @@ void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, 
     LOG_F(INFO, "   * correct requested balance for %s by %s", payout.UserId.c_str(), FormatMoney(delta, CoinInfo_.FractionalPartSize).c_str());
     UserBalanceRecord &balance = It->second;
     balance.Requested -= delta;
-    BalanceDb_.put(balance);
+    State_.putBalance(batch, balance);
   } else if (payout.Value < transactionTotalValue) {
     LOG_F(ERROR, "Payment %s to %s failed: too big transaction amount", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), settings.Payout.Address.c_str());
     return;
@@ -142,7 +138,7 @@ bool CPayoutProcessor::sendTransaction(PayoutDbRecord &payout)
   return true;
 }
 
-bool CPayoutProcessor::checkTxConfirmations(PayoutDbRecord &payout)
+bool CPayoutProcessor::checkTxConfirmations(PayoutDbRecord &payout, rocksdbBase::CBatch &batch)
 {
   int64_t confirmations = 0;
   std::string error;
@@ -176,8 +172,8 @@ bool CPayoutProcessor::checkTxConfirmations(PayoutDbRecord &payout)
     PayoutDb_.put(payout);
 
     // Update user balance
-    auto It = BalanceMap_.find(payout.UserId);
-    if (It == BalanceMap_.end()) {
+    auto It = State_.BalanceMap.find(payout.UserId);
+    if (It == State_.BalanceMap.end()) {
       LOG_F(ERROR, "payout to unknown address %s", payout.UserId.c_str());
       return false;
     }
@@ -188,7 +184,7 @@ bool CPayoutProcessor::checkTxConfirmations(PayoutDbRecord &payout)
     balance.Balance -= (payout.Value + payout.TxFee);
     balance.Requested -= payout.Value;
     balance.Paid += payout.Value;
-    BalanceDb_.put(balance);
+    State_.putBalance(batch, balance);
     return true;
   }
 
@@ -199,6 +195,8 @@ void CPayoutProcessor::makePayout()
 {
   if (!State_.PayoutQueue.empty()) {
     LOG_F(INFO, "Accounting: checking %u payout requests...", (unsigned)State_.PayoutQueue.size());
+
+    auto batch = CAccountingState::batch();
 
     // Merge small payouts and payouts to invalid address
     // TODO: merge small payouts with normal also
@@ -234,11 +232,16 @@ void CPayoutProcessor::makePayout()
         // For bitcoin-based API it's sequential call of createrawtransaction, fundrawtransaction and signrawtransaction
         bool needSkipPayout;
         std::string recipientAddress;
-        buildTransaction(payout, index, recipientAddress, &needSkipPayout);
+        buildTransaction(payout, index, recipientAddress, &needSkipPayout, batch);
         if (needSkipPayout)
           continue;
 
         if (payout.Status == PayoutDbRecord::ETxCreated) {
+          // Persist TransactionId before sending to prevent duplicate transactions on crash
+          State_.addPayoutQueue(batch);
+          State_.flushState(batch);
+          batch = CAccountingState::batch();
+
           // Send transaction and change it status to 'Sent'
           // For bitcoin-based API it's 'sendrawtransaction'
           if (sendTransaction(payout))
@@ -254,7 +257,7 @@ void CPayoutProcessor::makePayout()
           LOG_F(INFO, " * retry send txid %s to %s", payout.TransactionId.c_str(), payout.UserId.c_str());
       } else if (payout.Status == PayoutDbRecord::ETxSent) {
         // Check confirmations
-        if (checkTxConfirmations(payout))
+        if (checkTxConfirmations(payout, batch))
           LOG_F(INFO, " * transaction txid %s to %s confirmed", payout.TransactionId.c_str(), payout.UserId.c_str());
       } else {
         // Invalid status
@@ -271,7 +274,6 @@ void CPayoutProcessor::makePayout()
       }
     }
 
-    auto batch = CAccountingState::batch();
     State_.addPayoutQueue(batch);
     State_.flushState(batch);
   }
@@ -332,7 +334,7 @@ void CPayoutProcessor::makePayout()
     enqueued[payout.UserId] += payout.Value;
 
   bool inconsistent = false;
-  for (auto &userIt: BalanceMap_) {
+  for (auto &userIt: State_.BalanceMap) {
     UInt<384> enqueuedBalance = enqueued[userIt.first];
     if (userIt.second.Requested != enqueuedBalance) {
       LOG_F(ERROR,
@@ -385,7 +387,7 @@ void CPayoutProcessor::checkBalance()
   balance = getBalanceResult.Balance + zbalance;
   immature = getBalanceResult.Immatured;
 
-  for (auto &userIt: BalanceMap_) {
+  for (auto &userIt: State_.BalanceMap) {
     userBalance += userIt.second.Balance;
     requestedInBalance += userIt.second.Requested;
     ppsPaid += userIt.second.PPSPaid;
@@ -454,10 +456,10 @@ void CPayoutProcessor::checkBalance()
   }
 }
 
-bool CPayoutProcessor::requestManualPayout(const std::string &address)
+bool CPayoutProcessor::requestManualPayout(const std::string &address, rocksdbBase::CBatch &batch)
 {
-  auto It = BalanceMap_.find(address);
-  if (It == BalanceMap_.end())
+  auto It = State_.BalanceMap.find(address);
+  if (It == State_.BalanceMap.end())
     return false;
 
   UserBalanceRecord &balance = It->second;
@@ -471,6 +473,6 @@ bool CPayoutProcessor::requestManualPayout(const std::string &address)
 
   State_.PayoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
   balance.Requested += nonQueuedBalance;
-  BalanceDb_.put(balance);
+  State_.putBalance(batch, balance);
   return true;
 }
