@@ -886,6 +886,10 @@ With default arguments function returns last 20 blocks found by pool
   * confirmations:integer - block confirmations number. -1: means orphan; -2: no data
   * generatedCoins:string - usually first coinbase output value
   * foundBy:string - name (or login) of block founder
+  * mergedBlocks:array (optional, present when block was found via merged mining) - other blocks found by the same share:
+    * coin:string - coin name
+    * height:integer
+    * hash:string
 
 ### curl example:
 ```

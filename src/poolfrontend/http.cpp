@@ -1669,8 +1669,19 @@ void PoolHttpConnection::onBackendQueryFoundBlocks(rapidjson::Document &document
             block.addString("hash", !blocks[i].PublicHash.empty() ? blocks[i].PublicHash : blocks[i].Hash);
             block.addInt("time", blocks[i].Time.toUnixTime());
             block.addInt("confirmations", confirmations[i].Confirmations);
-            block.addString("generatedCoins", FormatMoney(blocks[i].AvailableCoins, coinInfo.FractionalPartSize));
+            block.addString("generatedCoins", FormatMoney(blocks[i].GeneratedCoins, coinInfo.FractionalPartSize));
             block.addString("foundBy", blocks[i].FoundBy);
+            if (!blocks[i].MergedBlocks.empty()) {
+              block.addField("mergedBlocks");
+              JSON::Array mergedArray(stream);
+              for (const auto &merged : blocks[i].MergedBlocks) {
+                mergedArray.addField();
+                JSON::Object mergedObj(stream);
+                mergedObj.addString("coin", merged.CoinName);
+                mergedObj.addInt("height", merged.Height);
+                mergedObj.addString("hash", merged.Hash);
+              }
+            }
           }
         }
       }

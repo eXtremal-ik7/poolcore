@@ -54,7 +54,7 @@ private:
   void onUpdateDag(unsigned epochNumber, bool bigEpoch);
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
   void onWorkSummary(const CWorkSummaryBatch &batch);
-  void onBlockFound(const CBlockFoundData &block);
+  void onBlockFound(const CBlockFoundData &block, const BaseBlob<256> &shareHash, const std::vector<PoolBackend*> &shareBackends);
   void onUserSettingsUpdate(const UserSettingsRecord &settings);
   void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<UserFeePair> &feeRecord);
   void onFeePlanDelete(const std::string &feePlanId);
@@ -98,8 +98,16 @@ public:
   void sendWorkSummary(CWorkSummaryBatch &&batch) {
     TaskHandler_.push([batch = std::move(batch)](PoolBackend *b) { b->onWorkSummary(batch); });
   }
-  void sendBlockFound(CBlockFoundData *block) {
-    TaskHandler_.push([block = std::unique_ptr<CBlockFoundData>(block)](PoolBackend *b) { b->onBlockFound(*block); });
+  void sendBlockFound(CBlockFoundData *block, BaseBlob<256> shareHash, std::vector<PoolBackend*> shareBackends) {
+    TaskHandler_.push([block = std::unique_ptr<CBlockFoundData>(block), shareHash,
+                       shareBackends = std::move(shareBackends)](PoolBackend *b) {
+      b->onBlockFound(*block, shareHash, shareBackends);
+    });
+  }
+  void sendMergedBlockNotification(std::string coinName, uint64_t height, std::string hash, BaseBlob<256> shareHash) {
+    TaskHandler_.push([coinName = std::move(coinName), height, hash = std::move(hash), shareHash](PoolBackend *b) {
+      b->_accounting->onMergedBlockNotification(coinName, height, hash, shareHash);
+    });
   }
   void sendUserSettingsUpdate(UserSettingsRecord settings) {
     TaskHandler_.push([settings = std::move(settings)](PoolBackend *b) { b->onUserSettingsUpdate(settings); });

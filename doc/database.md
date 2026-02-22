@@ -24,15 +24,20 @@ Owner: `AccountingDb` (`src/poolcore/accounting.cpp`)
 Mining rounds (one per found block).
 
 - **Partition**: "default"
-- **Key**: Height (uint64), BlockHash (string)
+- **Key**: Height (uint64), Hash (string)
 - **Value**:
   - Version: uint32 = 1
-  - Height: uint64
-  - BlockHash: string
-  - EndTime: Timestamp
+  - Block: `CBlockFoundData`
+    - UserId: string
+    - Height: uint64
+    - Hash: string
+    - Time: Timestamp
+    - GeneratedCoins: `UInt<384>`
+    - ExpectedWork: `UInt<256>`
+    - PrimePOWTarget: uint32
   - StartTime: Timestamp
   - TotalShareValue: `UInt<256>`
-  - AvailableCoins: `UInt<384>`
+  - AvailableForPPLNS: `UInt<384>`
   - UserShares: `vector<UserShareValue>`
     - UserId: string
     - ShareValue: `UInt<256>`
@@ -42,11 +47,10 @@ Mining rounds (one per found block).
     - Value: `UInt<384>`
     - ValueWithoutFee: `UInt<384>`
     - AcceptedWork: `UInt<256>`
-  - FoundBy: string
-  - ExpectedWork: `UInt<256>`
   - AccumulatedWork: `UInt<256>`
   - TxFee: `UInt<384>`
-  - PrimePOWTarget: uint32
+  - PPSValue: `UInt<384>`
+  - PPSBlockPart: double
 
 ### 2. foundBlocks.2
 
@@ -59,11 +63,15 @@ Blocks found by the pool.
   - Height: uint64
   - Hash: string
   - Time: Timestamp
-  - AvailableCoins: `UInt<384>`
+  - GeneratedCoins: `UInt<384>`
   - FoundBy: string
   - ExpectedWork: `UInt<256>`
   - AccumulatedWork: `UInt<256>`
   - PublicHash: string
+  - MergedBlocks: `vector<CMergedBlockInfo>`
+    - CoinName: string
+    - Height: uint64
+    - Hash: string
 
 ### 3. poolBalance.2
 

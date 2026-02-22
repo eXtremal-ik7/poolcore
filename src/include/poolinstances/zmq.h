@@ -372,7 +372,7 @@ private:
             block->GeneratedCoins = generatedCoins;
             block->ExpectedWork = expectedWork;
             block->PrimePOWTarget = primePOWTarget;
-            backend->sendBlockFound(block);
+            backend->sendBlockFound(block, BaseBlob<256>::zero(), {});
           }
         } else {
           LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.getHexLE().c_str(), height, hostName.c_str(), error.c_str());

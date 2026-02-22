@@ -332,7 +332,7 @@ static bool migrateFoundBlocks(const std::filesystem::path &srcCoinPath, const s
     newRecord.Height = oldRecord.Height;
     newRecord.Hash = oldRecord.Hash;
     newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
-    newRecord.AvailableCoins = fromRational(static_cast<uint64_t>(oldRecord.AvailableCoins));
+    newRecord.GeneratedCoins = fromRational(static_cast<uint64_t>(oldRecord.AvailableCoins));
     newRecord.FoundBy = oldRecord.FoundBy;
     newRecord.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
     newRecord.ExpectedWork.mulfp(oldRecord.ExpectedWork);
@@ -344,7 +344,7 @@ static bool migrateFoundBlocks(const std::filesystem::path &srcCoinPath, const s
     if (n < 10) {
       LOG_F(INFO, "  height=%llu availableCoins=%s foundBy=%s",
             static_cast<unsigned long long>(newRecord.Height),
-            FormatMoney(newRecord.AvailableCoins, coinInfo.FractionalPartSize).c_str(),
+            FormatMoney(newRecord.GeneratedCoins, coinInfo.FractionalPartSize).c_str(),
             newRecord.FoundBy.c_str());
     } else if (n == 10) {
       LOG_F(INFO, "  ... and more");
@@ -398,21 +398,22 @@ static bool migrateRounds(const std::filesystem::path &srcCoinPath,
       }
 
       MiningRound newRecord;
-      newRecord.Height = oldRecord.Height;
-      newRecord.BlockHash = oldRecord.BlockHash;
-      newRecord.EndTime = Timestamp::fromUnixTime(oldRecord.EndTime);
+      newRecord.Block.Height = oldRecord.Height;
+      newRecord.Block.Hash = oldRecord.BlockHash;
+      newRecord.Block.Time = Timestamp::fromUnixTime(oldRecord.EndTime);
       newRecord.StartTime = Timestamp::fromUnixTime(oldRecord.StartTime);
       newRecord.TotalShareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
       newRecord.TotalShareValue.mulfp(oldRecord.TotalShareValue);
-      newRecord.AvailableCoins = fromRational(static_cast<uint64_t>(oldRecord.AvailableCoins));
-      newRecord.AvailableCoins /= static_cast<uint64_t>(old2.ExtraMultiplier);
-      newRecord.FoundBy = oldRecord.FoundBy;
-      newRecord.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-      newRecord.ExpectedWork.mulfp(oldRecord.ExpectedWork);
+      newRecord.Block.GeneratedCoins = fromRational(static_cast<uint64_t>(oldRecord.AvailableCoins));
+      newRecord.Block.GeneratedCoins /= static_cast<uint64_t>(old2.ExtraMultiplier);
+      newRecord.AvailableForPPLNS = newRecord.Block.GeneratedCoins;
+      newRecord.Block.UserId = oldRecord.FoundBy;
+      newRecord.Block.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+      newRecord.Block.ExpectedWork.mulfp(oldRecord.ExpectedWork);
       newRecord.AccumulatedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
       newRecord.AccumulatedWork.mulfp(oldRecord.AccumulatedWork);
       newRecord.TxFee = fromRational(static_cast<uint64_t>(oldRecord.TxFee));
-      newRecord.PrimePOWTarget = oldRecord.PrimePOWTarget;
+      newRecord.Block.PrimePOWTarget = oldRecord.PrimePOWTarget;
 
       // In old code, unpayed rounds were detected by non-empty Payouts.
       // For deferred-reward coins (ETH) payouts are empty until confirmation, so those rounds
@@ -439,18 +440,18 @@ static bool migrateRounds(const std::filesystem::path &srcCoinPath,
       }
 
       LOG_F(INFO, "  height=%llu hash=%s endTime=%lld startTime=%lld totalShareValue=%s availableCoins=%s",
-            static_cast<unsigned long long>(newRecord.Height),
-            newRecord.BlockHash.c_str(),
-            static_cast<long long>(newRecord.EndTime.toUnixTime()),
+            static_cast<unsigned long long>(newRecord.Block.Height),
+            newRecord.Block.Hash.c_str(),
+            static_cast<long long>(newRecord.Block.Time.toUnixTime()),
             static_cast<long long>(newRecord.StartTime.toUnixTime()),
             formatSI(newRecord.TotalShareValue.getDecimal()).c_str(),
-            FormatMoney(newRecord.AvailableCoins, coinInfo.FractionalPartSize).c_str());
+            FormatMoney(newRecord.AvailableForPPLNS, coinInfo.FractionalPartSize).c_str());
       LOG_F(INFO, "    foundBy=%s expectedWork=%s accumulatedWork=%s txFee=%s primePOWTarget=%u shares=%zu payouts=%zu pending=%d",
-            newRecord.FoundBy.c_str(),
-            formatSI(newRecord.ExpectedWork.getDecimal()).c_str(),
+            newRecord.Block.UserId.c_str(),
+            formatSI(newRecord.Block.ExpectedWork.getDecimal()).c_str(),
             formatSI(newRecord.AccumulatedWork.getDecimal()).c_str(),
             FormatMoney(newRecord.TxFee, coinInfo.FractionalPartSize).c_str(),
-            newRecord.PrimePOWTarget,
+            newRecord.Block.PrimePOWTarget,
             newRecord.UserShares.size(),
             newRecord.Payouts.size(),
             isActive);
@@ -508,19 +509,19 @@ static bool migrateRounds(const std::filesystem::path &srcCoinPath,
 
       // Correct rounding errors after conversion
       if (!newRecord.UserShares.empty()) {
-        if (!correctSum(newRecord.UserShares, newRecord.TotalShareValue, newRecord.Height, "ShareValue",
+        if (!correctSum(newRecord.UserShares, newRecord.TotalShareValue, newRecord.Block.Height, "ShareValue",
               [](auto &s) -> UInt<256>& { return s.ShareValue; }))
           return false;
         // v1 rounds don't have per-user IncomingWork (all zeros), skip correction
         if (hasPerUserIncomingWork) {
-          if (!correctSum(newRecord.UserShares, newRecord.AccumulatedWork, newRecord.Height, "IncomingWork",
+          if (!correctSum(newRecord.UserShares, newRecord.AccumulatedWork, newRecord.Block.Height, "IncomingWork",
                 [](auto &s) -> UInt<256>& { return s.IncomingWork; }))
             return false;
         }
       }
 
       if (!newRecord.Payouts.empty()) {
-        if (!correctSum(newRecord.Payouts, newRecord.AvailableCoins, newRecord.Height, "PayoutValue",
+        if (!correctSum(newRecord.Payouts, newRecord.AvailableForPPLNS, newRecord.Block.Height, "PayoutValue",
               [](auto &p) -> UInt<384>& { return p.Value; }))
           return false;
       }
@@ -749,14 +750,14 @@ static bool migrateAccountingToState(const std::filesystem::path &srcCoinPath,
         MiningRound R;
         RawData data = It->value();
         if (R.deserializeValue(data.data, data.size))
-          lastRoundEndTime = R.EndTime;
+          lastRoundEndTime = R.Block.Time;
       }
     }
   }
   // Active rounds may have later EndTime than completed ones
   for (const auto &round : activeRounds) {
-    if (round.EndTime > lastRoundEndTime)
-      lastRoundEndTime = round.EndTime;
+    if (round.Block.Time > lastRoundEndTime)
+      lastRoundEndTime = round.Block.Time;
   }
 
   // Load files from both directories

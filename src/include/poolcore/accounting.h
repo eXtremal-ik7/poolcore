@@ -8,6 +8,8 @@
 #include "poolcommon/multiCall.h"
 #include "poolcommon/periodicTimer.h"
 #include "poolcommon/taskHandler.h"
+#include "poolcommon/baseBlob.h"
+#include <deque>
 #include <optional>
 
 class CPriceFetcher;
@@ -67,6 +69,16 @@ private:
   CPeriodicTimer InstantPayoutTimer_;
   CPeriodicTimer StateFlushTimer_;
 
+  struct CMergedBlockPending {
+    uint64_t Height = 0;
+    std::string Hash;
+    bool HasBlock = false;
+    std::vector<CMergedBlockInfo> Pending;
+  };
+
+  std::unordered_map<BaseBlob<256>, CMergedBlockPending> PendingMergedNotifications_;
+  std::deque<std::pair<BaseBlob<256>, Timestamp>> PendingMergedTimestamps_;
+
   TaskHandlerCoroutine<AccountingDb> TaskHandler_;
 
   CPayoutProcessor PayoutProcessor_;
@@ -80,7 +92,8 @@ private:
 
   void printRecentStatistic();
   void ppsPayout();
-  void applyPPSCorrection(MiningRound &R);
+  void flushPendingMergedBlocks(CMergedBlockPending &entry);
+  void cleanupPendingMergedNotifications();
 
 public:
   AccountingDb(asyncBase *base,
@@ -106,10 +119,11 @@ public:
                    kvdb<rocksdbBase>::Batch &payoutHistoryBatch);
 
   bool hasDeferredReward() { return CoinInfo_.HasDagFile; }
-  void calculatePPLNSPayments(MiningRound &R);
+  void distributeBlockReward(MiningRound &R);
   CProcessedWorkSummary processWorkSummaryBatch(const CUserWorkSummaryBatch &batch);
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
-  void onBlockFound(const CBlockFoundData &block);
+  void onBlockFound(const CBlockFoundData &block, const BaseBlob<256> &shareHash);
+  void onMergedBlockNotification(const std::string &coinName, uint64_t height, const std::string &hash, const BaseBlob<256> &shareHash);
   void onUserSettingsUpdate(const UserSettingsRecord &settings);
   void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::UserFeePair> &feeRecord);
   void onFeePlanDelete(const std::string &feePlanId);

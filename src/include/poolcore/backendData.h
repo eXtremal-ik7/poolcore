@@ -17,9 +17,15 @@ std::string partByTime(time_t time);
 
 typedef bool CheckAddressProcTy(const char*);
 
+struct CMergedBlockInfo {
+  std::string CoinName;
+  uint64_t Height;
+  std::string Hash;
+};
+
 struct CBlockFoundData {
   std::string UserId;
-  int64_t Height;
+  uint64_t Height;
   std::string Hash;
   Timestamp Time;
   UInt<384> GeneratedCoins;
@@ -161,28 +167,16 @@ struct CUserPayout {
 struct MiningRound {
   static constexpr uint32_t CurrentRecordVersion = 1;
 
-  uint64_t Height;
-  std::string BlockHash;
-  Timestamp EndTime;
+  CBlockFoundData Block;
   Timestamp StartTime;
 
   // Sum of PPLNS-adjusted work of all users
   UInt<256> TotalShareValue;
-  // Full block reward
-  UInt<384> AvailableCoins;
-
-  // ETH specific
-  // ===
-  std::string FoundBy;
-  // Expected work to find a block, calculated from block difficulty (e.g. nBits header field)
-  UInt<256> ExpectedWork;
+  // Block reward available for PPLNS distribution (reduced by PPS correction)
+  UInt<384> AvailableForPPLNS;
   // Total work accumulated during the block search session
   UInt<256> AccumulatedWork;
   UInt<384> TxFee = UInt<384>::zero();
-
-  // XPM specific
-  // ===
-  uint32_t PrimePOWTarget;
 
   std::vector<UserShareValue> UserShares;
   std::vector<CUserPayout> Payouts;
@@ -191,18 +185,17 @@ struct MiningRound {
   // Stored so the deduction can be reversed if the block is orphaned.
   UInt<384> PPSValue;
   double PPSBlockPart = 0.0;
-    
+
   MiningRound() {}
-  MiningRound(unsigned heightArg) : Height(heightArg) {}
+  MiningRound(unsigned heightArg) { Block.Height = heightArg; }
 
-  friend bool operator<(const MiningRound &L, const MiningRound &R) { return L.Height < R.Height; }
+  friend bool operator<(const MiningRound &L, const MiningRound &R) { return L.Block.Height < R.Block.Height; }
 
-  std::string getPartitionId() const { return partByTime(EndTime.toUnixTime()); }
+  std::string getPartitionId() const { return partByTime(Block.Time.toUnixTime()); }
   bool deserializeValue(const void *data, size_t size);
   bool deserializeValue(xmstream &stream);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;
-  void dump(unsigned fractionalPart);
 };
 
 struct UsersRecord {
@@ -398,18 +391,22 @@ struct UserBalanceRecord {
 
 struct FoundBlockRecord {
   enum { CurrentRecordVersion = 1 };
-  
+
   uint64_t Height;
   std::string Hash;
   Timestamp Time;
-  UInt<384> AvailableCoins;
+  UInt<384> GeneratedCoins;
   std::string FoundBy;
   // Expected work to find a block, calculated from block difficulty (e.g. nBits header field)
   UInt<256> ExpectedWork = UInt<256>::zero();
   // Total work accumulated during the block search session
   UInt<256> AccumulatedWork = UInt<256>::zero();
   std::string PublicHash;
-  
+  // Other blocks found by the same share in merged mining
+  std::vector<CMergedBlockInfo> MergedBlocks;
+  // Hash of the previous found block (forms a chain for efficient confirmation queries)
+  std::string PrevFoundHash;
+
   std::string getPartitionId() const { return partByHeight(Height); }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
@@ -467,6 +464,44 @@ struct CPPSPayout {
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;
+};
+
+template<>
+struct DbIo<CMergedBlockInfo> {
+  static inline void serialize(xmstream &stream, const CMergedBlockInfo &data) {
+    DbIo<std::string>::serialize(stream, data.CoinName);
+    DbIo<uint64_t>::serialize(stream, data.Height);
+    DbIo<std::string>::serialize(stream, data.Hash);
+  }
+
+  static inline void unserialize(xmstream &stream, CMergedBlockInfo &data) {
+    DbIo<std::string>::unserialize(stream, data.CoinName);
+    DbIo<uint64_t>::unserialize(stream, data.Height);
+    DbIo<std::string>::unserialize(stream, data.Hash);
+  }
+};
+
+template<>
+struct DbIo<CBlockFoundData> {
+  static inline void serialize(xmstream &stream, const CBlockFoundData &data) {
+    DbIo<std::string>::serialize(stream, data.UserId);
+    DbIo<uint64_t>::serialize(stream, data.Height);
+    DbIo<std::string>::serialize(stream, data.Hash);
+    DbIo<Timestamp>::serialize(stream, data.Time);
+    DbIo<UInt<384>>::serialize(stream, data.GeneratedCoins);
+    DbIo<UInt<256>>::serialize(stream, data.ExpectedWork);
+    DbIo<uint32_t>::serialize(stream, data.PrimePOWTarget);
+  }
+
+  static inline void unserialize(xmstream &stream, CBlockFoundData &data) {
+    DbIo<std::string>::unserialize(stream, data.UserId);
+    DbIo<uint64_t>::unserialize(stream, data.Height);
+    DbIo<std::string>::unserialize(stream, data.Hash);
+    DbIo<Timestamp>::unserialize(stream, data.Time);
+    DbIo<UInt<384>>::unserialize(stream, data.GeneratedCoins);
+    DbIo<UInt<256>>::unserialize(stream, data.ExpectedWork);
+    DbIo<uint32_t>::unserialize(stream, data.PrimePOWTarget);
+  }
 };
 
 template<>

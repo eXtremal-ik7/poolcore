@@ -103,26 +103,21 @@ struct DbIo<CModeFeeConfig> {
 void MiningRound::serializeKey(xmstream &stream) const
 {
   stream.write<char>('r');
-  dbKeyIoSerialize(stream, Height);
-  dbKeyIoSerialize(stream, BlockHash);
+  dbKeyIoSerialize(stream, Block.Height);
+  dbKeyIoSerialize(stream, Block.Hash);
 }
 
 void MiningRound::serializeValue(xmstream &stream) const
 {
   dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
-  dbIoSerialize(stream, Height);
-  dbIoSerialize(stream, BlockHash);
-  dbIoSerialize(stream, EndTime);
+  dbIoSerialize(stream, Block);
   dbIoSerialize(stream, StartTime);
   dbIoSerialize(stream, TotalShareValue);
-  dbIoSerialize(stream, AvailableCoins);
+  dbIoSerialize(stream, AvailableForPPLNS);
   dbIoSerialize(stream, UserShares);
   dbIoSerialize(stream, Payouts);
-  dbIoSerialize(stream, FoundBy);
-  dbIoSerialize(stream, ExpectedWork);
   dbIoSerialize(stream, AccumulatedWork);
   dbIoSerialize(stream, TxFee);
-  dbIoSerialize(stream, PrimePOWTarget);
   dbIoSerialize(stream, PPSValue);
   dbIoSerialize(stream, PPSBlockPart);
 }
@@ -137,44 +132,19 @@ bool MiningRound::deserializeValue(xmstream &stream)
 {
   uint32_t version;
   dbIoUnserialize(stream, version);
-  dbIoUnserialize(stream, Height);
-  dbIoUnserialize(stream, BlockHash);
-  dbIoUnserialize(stream, EndTime);
+  dbIoUnserialize(stream, Block);
   dbIoUnserialize(stream, StartTime);
   dbIoUnserialize(stream, TotalShareValue);
-  dbIoUnserialize(stream, AvailableCoins);
+  dbIoUnserialize(stream, AvailableForPPLNS);
   dbIoUnserialize(stream, UserShares);
   dbIoUnserialize(stream, Payouts);
-  dbIoUnserialize(stream, FoundBy);
-  dbIoUnserialize(stream, ExpectedWork);
   dbIoUnserialize(stream, AccumulatedWork);
   dbIoUnserialize(stream, TxFee);
-  dbIoUnserialize(stream, PrimePOWTarget);
   dbIoUnserialize(stream, PPSValue);
   dbIoUnserialize(stream, PPSBlockPart);
   return !stream.eof();
 }
 
-void MiningRound::dump(unsigned int fractionalPart)
-{
-  fprintf(stderr, "height=%u\n", (unsigned)Height);
-  fprintf(stderr, "blockhash=%s\n", BlockHash.c_str());
-  fprintf(stderr, "time=%u\n", (unsigned)EndTime.toUnixTime());
-  fprintf(stderr, "totalShareValue=%s\n", TotalShareValue.getDecimal().c_str());
-  fprintf(stderr, "availableCoins=%s\n", FormatMoney(AvailableCoins, fractionalPart).c_str());
-  for (auto r: UserShares) {
-    fprintf(stderr, " *** round element ***\n");
-    fprintf(stderr, " * userId: %s\n", r.UserId.c_str());
-    fprintf(stderr, " * shareValue: %s\n", r.ShareValue.getDecimal().c_str());
-    fprintf(stderr, " * incomingWork: %s\n", r.IncomingWork.getDecimal().c_str());
-  }
-  for (auto p: Payouts) {
-    fprintf(stderr, " *** payout element ***\n");
-    fprintf(stderr, " * userId: %s\n", p.UserId.c_str());
-    fprintf(stderr, " * payoutValue: %s\n", FormatMoney(p.Value, fractionalPart).c_str());
-    fprintf(stderr, " * valueWithoutFee: %s\n", FormatMoney(p.ValueWithoutFee, fractionalPart).c_str());
-  }  
-}
 
 bool UsersRecord::deserializeValue(const void *data, size_t size)
 {
@@ -421,13 +391,15 @@ bool FoundBlockRecord::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, Height);
     dbIoUnserialize(stream, Hash);
     dbIoUnserialize(stream, Time);
-    dbIoUnserialize(stream, AvailableCoins);
+    dbIoUnserialize(stream, GeneratedCoins);
     dbIoUnserialize(stream, FoundBy);
     dbIoUnserialize(stream, ExpectedWork);
     dbIoUnserialize(stream, AccumulatedWork);
     dbIoUnserialize(stream, PublicHash);
+    dbIoUnserialize(stream, MergedBlocks);
+    dbIoUnserialize(stream, PrevFoundHash);
   }
-  
+
   return !stream.eof();
 }
 
@@ -444,11 +416,13 @@ void FoundBlockRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, Height);
   dbIoSerialize(stream, Hash);
   dbIoSerialize(stream, Time);
-  dbIoSerialize(stream, AvailableCoins);
+  dbIoSerialize(stream, GeneratedCoins);
   dbIoSerialize(stream, FoundBy);
   dbIoSerialize(stream, ExpectedWork);
   dbIoSerialize(stream, AccumulatedWork);
   dbIoSerialize(stream, PublicHash);
+  dbIoSerialize(stream, MergedBlocks);
+  dbIoSerialize(stream, PrevFoundHash);
 }
 
 // ====================== PoolBalance ======================

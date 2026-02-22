@@ -681,6 +681,14 @@ private:
     // Check for block only, share target not need here
     CCheckStatus checkStatus = work->checkConsensus(workInternalBackendIdx, UInt<256>::zero());
     if (checkStatus.IsBlock) {
+      auto shareHash = work->shareHash();
+      std::vector<PoolBackend*> shareBackends;
+      for (size_t i = 0, ie = work->backendsNum(); i != ie; ++i) {
+        PoolBackend *b = work->backend(i);
+        if (b && work->backendId(i) != globalBackendIdx)
+          shareBackends.push_back(b);
+      }
+
       std::string blockHash = work->blockHash(workInternalBackendIdx);
       LOG_F(INFO, "%s: pending proof of work %s sending; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work->txNum(workInternalBackendIdx));
 
@@ -691,7 +699,9 @@ private:
       UInt<256> expectedWork = work->expectedWork(workInternalBackendIdx);
       UInt<384> generatedCoins = work->blockReward(workInternalBackendIdx);
       CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(), [height, blockHash, generatedCoins, expectedWork, globalBackendIdx, backend, this, userName](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+      dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(),
+        [height, blockHash, generatedCoins, expectedWork, globalBackendIdx, backend, this, userName, shareHash,
+         shareBackends = std::move(shareBackends)](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
           LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
           if (successNum == 1) {
@@ -704,7 +714,7 @@ private:
             block->GeneratedCoins = generatedCoins;
             block->ExpectedWork = expectedWork;
             block->PrimePOWTarget = 0;
-            backend->sendBlockFound(block);
+            backend->sendBlockFound(block, shareHash, std::move(shareBackends));
           }
         } else {
           LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
@@ -810,10 +820,19 @@ private:
         xmstream blockHexData;
         work->buildBlock(i, blockHexData);
 
+        std::vector<PoolBackend*> shareBackends;
+        for (size_t j = 0; j != ie; ++j) {
+          PoolBackend *b = work->backend(j);
+          if (b && work->backendId(j) != globalBackendIdx)
+            shareBackends.push_back(b);
+        }
+
         UInt<384> generatedCoins = work->blockReward(i);
         UInt<256> expectedWork = work->expectedWork(i);
         CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(), [height, blockHash, generatedCoins, expectedWork, globalBackendIdx, backend, this, user=worker.User](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
+        dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(),
+          [height, blockHash, generatedCoins, expectedWork, globalBackendIdx, backend, this, user=worker.User, shareHash,
+           shareBackends = std::move(shareBackends)](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
           if (success) {
             LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
             if (successNum == 1) {
@@ -826,7 +845,7 @@ private:
               block->GeneratedCoins = generatedCoins;
               block->ExpectedWork = expectedWork;
               block->PrimePOWTarget = 0;
-              backend->sendBlockFound(block);
+              backend->sendBlockFound(block, shareHash, std::move(shareBackends));
             }
           } else {
             LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
