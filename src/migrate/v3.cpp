@@ -12,8 +12,11 @@
 #include "poolcore/plugin.h"
 #include "loguru.hpp"
 #include <unordered_map>
+#include <unordered_set>
 
-// Legacy struct for migration from old .dat file format
+// Legacy struct for migration from old .dat file format.
+// Deserialization is handled manually in tryParseAccountingDatFile (version 1 and 2 paths),
+// not via DbIo, because old binary format uses double/int64_t types that differ from new UInt types.
 struct CAccountingFileData {
   enum { CurrentRecordVersion = 1 };
 
@@ -23,23 +26,16 @@ struct CAccountingFileData {
   std::map<std::string, UInt<256>> CurrentScores;
 };
 
-template<>
-struct DbIo<CAccountingFileData> {
-  static inline void unserialize(xmstream &in, CAccountingFileData &data) {
-    uint32_t version;
-    DbIo<uint32_t>::unserialize(in, version);
-    if (version == 1) {
-      DbIo<decltype(data.LastShareId)>::unserialize(in, data.LastShareId);
-      DbIo<decltype(data.LastBlockTime)>::unserialize(in, data.LastBlockTime);
-      DbIo<decltype(data.Recent)>::unserialize(in, data.Recent);
-      DbIo<decltype(data.CurrentScores)>::unserialize(in, data.CurrentScores);
-    } else {
-      in.seekEnd(0, true);
-    }
-  }
-};
-
 extern CPluginContext gPluginContext;
+
+// Conversion from old int64_t rational values to new UInt<384> fixed-point.
+// Negative values wrap around via UInt<384> overflow (two's complement).
+static UInt<384> safeFromRational(int64_t value, const char *)
+{
+  if (value >= 0)
+    return fromRational(static_cast<uint64_t>(value));
+  return UInt<384>::zero() - fromRational(static_cast<uint64_t>(-value));
+}
 
 // Unconditional correction for rounding errors after conversion.
 // Old data integrity is verified separately (strict checks on raw old values).
@@ -85,6 +81,42 @@ static bool correctSum(Container &items, const ValueType &expected, uint64_t hei
         static_cast<unsigned long long>(height), fieldName, diff.getDecimal().c_str(), items.size());
   return true;
 }
+
+class CPerThreadCollector {
+public:
+  explicit CPerThreadCollector(unsigned maxThreads)
+    : sets_(maxThreads), generation_(nextGeneration_.fetch_add(1)) {}
+
+  // Each thread inserts into its own set — no locking
+  void insert(const std::string &value) {
+    sets_[getSlot()].insert(value);
+  }
+
+  // After all threads complete — merge into target set
+  void mergeInto(std::unordered_set<std::string> &target) {
+    size_t count = nextSlot_.load();
+    for (size_t i = 0; i < count; i++)
+      target.insert(sets_[i].begin(), sets_[i].end());
+  }
+
+private:
+  size_t getSlot() {
+    thread_local size_t cachedGeneration = 0;
+    thread_local size_t cachedSlot = 0;
+    if (cachedGeneration != generation_) {
+      cachedGeneration = generation_;
+      cachedSlot = nextSlot_.fetch_add(1);
+    }
+    return cachedSlot;
+  }
+
+  std::vector<std::unordered_set<std::string>> sets_;
+  std::atomic<size_t> nextSlot_{0};
+  size_t generation_;
+  static std::atomic<size_t> nextGeneration_;
+};
+
+std::atomic<size_t> CPerThreadCollector::nextGeneration_{1};
 
 static bool isNonCoinDirectory(const std::string &name)
 {
@@ -151,64 +183,6 @@ static bool loadCoinMap(const std::filesystem::path &srcPath,
   return true;
 }
 
-static bool migrateBalance(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const CCoinInfo &coinInfo, const CCoinInfoOld2 &old2)
-{
-  std::filesystem::path oldDbPath = srcCoinPath / "balance";
-  if (!std::filesystem::exists(oldDbPath) || !std::filesystem::is_directory(oldDbPath)) {
-    LOG_F(INFO, "No previous balance database found, skipping");
-    return true;
-  }
-
-  LOG_F(INFO, "Migrating balance -> accounting.state (b-prefix) ...");
-
-  rocksdbBase stateDb(dstCoinPath / "accounting.state");
-  rocksdbBase::CBatch batch = stateDb.batch("default");
-  unsigned count = 0;
-
-  for (std::filesystem::directory_iterator I(oldDbPath), IE; I != IE; ++I) {
-    if (!is_directory(I->status()))
-      continue;
-
-    rocksdbBase partDb(I->path());
-    std::unique_ptr<rocksdbBase::IteratorType> it(partDb.iterator());
-    it->seekFirst();
-    for (; it->valid(); it->next()) {
-      RawData data = it->value();
-      UserBalanceRecord2 oldRecord;
-      if (!oldRecord.deserializeValue(data.data, data.size)) {
-        LOG_F(ERROR, "Can't deserialize balance record, database corrupted");
-        return false;
-      }
-
-      UserBalanceRecord newRecord;
-      newRecord.Login = oldRecord.Login;
-      newRecord.Balance = fromRational(static_cast<uint64_t>(oldRecord.BalanceWithFractional));
-      newRecord.Balance /= static_cast<uint64_t>(old2.ExtraMultiplier);
-      newRecord.Requested = fromRational(static_cast<uint64_t>(oldRecord.Requested));
-      newRecord.Paid = fromRational(static_cast<uint64_t>(oldRecord.Paid));
-
-      LOG_F(INFO, "  %s balance=%s requested=%s paid=%s",
-            oldRecord.Login.c_str(),
-            FormatMoney(newRecord.Balance, coinInfo.FractionalPartSize).c_str(),
-            FormatMoney(newRecord.Requested, coinInfo.FractionalPartSize).c_str(),
-            FormatMoney(newRecord.Paid, coinInfo.FractionalPartSize).c_str());
-
-      batch.put(newRecord);
-      count++;
-    }
-  }
-
-  if (count > 0) {
-    if (!stateDb.writeBatch(batch)) {
-      LOG_F(ERROR, "Failed to write balance records to accounting.state");
-      return false;
-    }
-    LOG_F(INFO, "  Migrated %u balance records", count);
-  }
-
-  return true;
-}
-
 static bool migrateStats(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const CCoinInfoOld2 &old2, const char *baseName, const char *newName, unsigned threads, const std::string &cutoff)
 {
   return migrateDatabaseMt(srcCoinPath, dstCoinPath, baseName, newName, [&old2](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
@@ -238,6 +212,19 @@ static bool migrateStats(const std::filesystem::path &srcCoinPath, const std::fi
   });
 }
 
+static bool migrateStatistic(const std::filesystem::path &srcCoinPath,
+                             const std::filesystem::path &dstCoinPath,
+                             const CCoinInfoOld2 &old2,
+                             unsigned threads,
+                             const std::string &cutoff)
+{
+  if (!migrateStats(srcCoinPath, dstCoinPath, old2, "workerStats", "statistic", threads, cutoff))
+    return false;
+  if (!migrateStats(srcCoinPath, dstCoinPath, old2, "poolstats", "statistic", threads, cutoff))
+    return false;
+  return true;
+}
+
 static bool migratePPLNSPayouts(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, unsigned threads)
 {
   return migrateDatabaseMt(srcCoinPath, dstCoinPath, "pplns.payouts", "pplns.payouts.2", [](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
@@ -253,7 +240,7 @@ static bool migratePPLNSPayouts(const std::filesystem::path &srcCoinPath, const 
     newRecord.BlockHash = oldRecord.BlockHash;
     newRecord.BlockHeight = oldRecord.BlockHeight;
     newRecord.RoundEndTime = Timestamp::fromUnixTime(oldRecord.RoundEndTime);
-    newRecord.PayoutValue = fromRational(static_cast<uint64_t>(oldRecord.PayoutValue));
+    newRecord.PayoutValue = safeFromRational(oldRecord.PayoutValue, "CPPLNSPayout.PayoutValue");
     newRecord.RateToBTC = oldRecord.RateToBTC;
     newRecord.RateBTCToUSD = oldRecord.RateBTCToUSD;
 
@@ -267,29 +254,39 @@ static bool migratePPLNSPayouts(const std::filesystem::path &srcCoinPath, const 
   }, threads);
 }
 
-static bool migratePayouts(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, unsigned threads)
+static bool migratePayouts(const std::filesystem::path &srcCoinPath,
+                           const std::filesystem::path &dstCoinPath,
+                           unsigned threads,
+                           std::unordered_set<std::string> &activeUsers)
 {
-  return migrateDatabaseMt(srcCoinPath, dstCoinPath, "payouts", "payouts.2", [](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+  CPerThreadCollector collector(threads);
+  bool result = migrateDatabaseMt(srcCoinPath, dstCoinPath, "payouts", "payouts.2", [&collector](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
     PayoutDbRecord2 oldRecord;
     if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
       LOG_F(ERROR, "Can't deserialize payouts record, database corrupted");
       return false;
     }
 
+    collector.insert(oldRecord.UserId);
+
     PayoutDbRecord newRecord;
     newRecord.UserId = oldRecord.UserId;
     newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
-    newRecord.Value = fromRational(static_cast<uint64_t>(oldRecord.Value));
+    newRecord.Value = safeFromRational(oldRecord.Value, "PayoutDbRecord.Value");
     newRecord.TransactionId = oldRecord.TransactionId;
     newRecord.TransactionData = oldRecord.TransactionData;
     newRecord.Status = oldRecord.Status;
-    newRecord.TxFee = fromRational(static_cast<uint64_t>(oldRecord.TxFee));
+    newRecord.TxFee = safeFromRational(oldRecord.TxFee, "PayoutDbRecord.TxFee");
 
     xmstream stream;
     newRecord.serializeValue(stream);
     batch.Put(it->key(), rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
     return true;
   }, threads);
+
+  if (result)
+    collector.mergeInto(activeUsers);
+  return result;
 }
 
 static bool migratePoolBalance(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const CCoinInfoOld2 &old2, unsigned threads)
@@ -303,13 +300,13 @@ static bool migratePoolBalance(const std::filesystem::path &srcCoinPath, const s
 
     PoolBalanceRecord newRecord;
     newRecord.Time = oldRecord.Time;
-    newRecord.Balance = fromRational(static_cast<uint64_t>(oldRecord.BalanceWithFractional));
+    newRecord.Balance = safeFromRational(oldRecord.BalanceWithFractional, "PoolBalanceRecord.Balance");
     newRecord.Balance /= static_cast<uint64_t>(old2.ExtraMultiplier);
-    newRecord.Immature = fromRational(static_cast<uint64_t>(oldRecord.Immature));
-    newRecord.Users = fromRational(static_cast<uint64_t>(oldRecord.Users));
-    newRecord.Queued = fromRational(static_cast<uint64_t>(oldRecord.Queued));
-    newRecord.ConfirmationWait = fromRational(static_cast<uint64_t>(oldRecord.ConfirmationWait));
-    newRecord.Net = fromRational(static_cast<uint64_t>(oldRecord.Net));
+    newRecord.Immature = safeFromRational(oldRecord.Immature, "PoolBalanceRecord.Immature");
+    newRecord.Users = safeFromRational(oldRecord.Users, "PoolBalanceRecord.Users");
+    newRecord.Queued = safeFromRational(oldRecord.Queued, "PoolBalanceRecord.Queued");
+    newRecord.ConfirmationWait = safeFromRational(oldRecord.ConfirmationWait, "PoolBalanceRecord.ConfirmationWait");
+    newRecord.Net = safeFromRational(oldRecord.Net, "PoolBalanceRecord.Net");
 
     xmstream stream;
     newRecord.serializeValue(stream);
@@ -318,21 +315,29 @@ static bool migratePoolBalance(const std::filesystem::path &srcCoinPath, const s
   }, threads);
 }
 
-static bool migrateFoundBlocks(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const CCoinInfo &coinInfo, const CCoinInfoOld2 &old2, unsigned threads)
+static bool migrateFoundBlocks(const std::filesystem::path &srcCoinPath,
+                               const std::filesystem::path &dstCoinPath,
+                               const CCoinInfo &coinInfo,
+                               const CCoinInfoOld2 &old2,
+                               unsigned threads,
+                               std::unordered_set<std::string> &activeUsers)
 {
+  CPerThreadCollector collector(threads);
   std::atomic<unsigned> debugCount{0};
-  return migrateDatabaseMt(srcCoinPath, dstCoinPath, "foundBlocks", "foundBlocks.2", [&coinInfo, &old2, &debugCount](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+  bool result = migrateDatabaseMt(srcCoinPath, dstCoinPath, "foundBlocks", "foundBlocks.2", [&coinInfo, &old2, &debugCount, &collector](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
     FoundBlockRecord2 oldRecord;
     if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
       LOG_F(ERROR, "Can't deserialize foundBlocks record, database corrupted");
       return false;
     }
 
+    collector.insert(oldRecord.FoundBy);
+
     FoundBlockRecord newRecord;
     newRecord.Height = oldRecord.Height;
     newRecord.Hash = oldRecord.Hash;
     newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
-    newRecord.GeneratedCoins = fromRational(static_cast<uint64_t>(oldRecord.AvailableCoins));
+    newRecord.GeneratedCoins = safeFromRational(oldRecord.AvailableCoins, "FoundBlockRecord.AvailableCoins");
     newRecord.FoundBy = oldRecord.FoundBy;
     newRecord.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
     newRecord.ExpectedWork.mulfp(oldRecord.ExpectedWork);
@@ -355,189 +360,10 @@ static bool migrateFoundBlocks(const std::filesystem::path &srcCoinPath, const s
     batch.Put(it->key(), rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
     return true;
   }, threads);
-}
 
-static bool migrateRounds(const std::filesystem::path &srcCoinPath,
-                          const std::filesystem::path &dstCoinPath,
-                          const CCoinInfo &coinInfo,
-                          const CCoinInfoOld2 &old2,
-                          std::vector<MiningRound> &activeRounds)
-{
-  std::filesystem::path oldDbPath = srcCoinPath / "rounds.v2";
-  if (!std::filesystem::exists(oldDbPath) || !std::filesystem::is_directory(oldDbPath)) {
-    LOG_F(INFO, "No previous rounds.v2 database found, skipping");
-    return true;
-  }
-
-  LOG_F(INFO, "Migrating rounds.v2 -> accounting.rounds ...");
-
-  kvdb<rocksdbBase> roundsDb(dstCoinPath / "accounting.rounds");
-  unsigned completedCount = 0;
-
-  for (std::filesystem::directory_iterator I(oldDbPath), IE; I != IE; ++I) {
-    if (!is_directory(I->status()))
-      continue;
-
-    rocksdb::Options options;
-    options.create_if_missing = false;
-    rocksdb::DB *rawDb = nullptr;
-    rocksdb::Status status = rocksdb::DB::Open(options, path_to_utf8(I->path()), &rawDb);
-    if (!status.ok()) {
-      LOG_F(ERROR, "Can't open partition %s: %s", I->path().filename().string().c_str(), status.ToString().c_str());
-      return false;
-    }
-    std::unique_ptr<rocksdb::DB> srcDb(rawDb);
-
-    rocksdb::ReadOptions readOptions;
-    std::unique_ptr<rocksdb::Iterator> it(srcDb->NewIterator(readOptions));
-    for (it->SeekToFirst(); it->Valid(); it->Next()) {
-      MiningRound2 oldRecord;
-      if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
-        LOG_F(ERROR, "Can't deserialize rounds record, database corrupted");
-        return false;
-      }
-
-      MiningRound newRecord;
-      newRecord.Block.Height = oldRecord.Height;
-      newRecord.Block.Hash = oldRecord.BlockHash;
-      newRecord.Block.Time = Timestamp::fromUnixTime(oldRecord.EndTime);
-      newRecord.StartTime = Timestamp::fromUnixTime(oldRecord.StartTime);
-      newRecord.TotalShareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
-      newRecord.TotalShareValue.mulfp(oldRecord.TotalShareValue);
-      newRecord.Block.GeneratedCoins = fromRational(static_cast<uint64_t>(oldRecord.AvailableCoins));
-      newRecord.Block.GeneratedCoins /= static_cast<uint64_t>(old2.ExtraMultiplier);
-      newRecord.AvailableForPPLNS = newRecord.Block.GeneratedCoins;
-      newRecord.Block.UserId = oldRecord.FoundBy;
-      newRecord.Block.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-      newRecord.Block.ExpectedWork.mulfp(oldRecord.ExpectedWork);
-      newRecord.AccumulatedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-      newRecord.AccumulatedWork.mulfp(oldRecord.AccumulatedWork);
-      newRecord.TxFee = fromRational(static_cast<uint64_t>(oldRecord.TxFee));
-      newRecord.Block.PrimePOWTarget = oldRecord.PrimePOWTarget;
-
-      // In old code, unpayed rounds were detected by non-empty Payouts.
-      // For deferred-reward coins (ETH) payouts are empty until confirmation, so those rounds
-      // cannot be distinguished from already-processed ones. This is a known limitation.
-      bool isActive = !oldRecord.Payouts.empty();
-      // PPSValue / PPSBlockPart stay zero — PPS mode didn't exist before migration.
-
-      for (const auto &s : oldRecord.UserShares) {
-        UInt<256> shareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
-        shareValue.mulfp(s.ShareValue);
-        UInt<256> incomingWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-        incomingWork.mulfp(s.IncomingWork);
-        newRecord.UserShares.emplace_back(s.UserId, shareValue, incomingWork);
-      }
-
-      for (const auto &p : oldRecord.Payouts) {
-        UInt<384> value = fromRational(static_cast<uint64_t>(p.Value));
-        value /= static_cast<uint64_t>(old2.ExtraMultiplier);
-        UInt<384> valueWithoutFee = fromRational(static_cast<uint64_t>(p.ValueWithoutFee));
-        valueWithoutFee /= static_cast<uint64_t>(old2.ExtraMultiplier);
-        UInt<256> acceptedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-        acceptedWork.mulfp(p.AcceptedWork);
-        newRecord.Payouts.emplace_back(p.UserId, value, valueWithoutFee, acceptedWork);
-      }
-
-      LOG_F(INFO, "  height=%llu hash=%s endTime=%lld startTime=%lld totalShareValue=%s availableCoins=%s",
-            static_cast<unsigned long long>(newRecord.Block.Height),
-            newRecord.Block.Hash.c_str(),
-            static_cast<long long>(newRecord.Block.Time.toUnixTime()),
-            static_cast<long long>(newRecord.StartTime.toUnixTime()),
-            formatSI(newRecord.TotalShareValue.getDecimal()).c_str(),
-            FormatMoney(newRecord.AvailableForPPLNS, coinInfo.FractionalPartSize).c_str());
-      LOG_F(INFO, "    foundBy=%s expectedWork=%s accumulatedWork=%s txFee=%s primePOWTarget=%u shares=%zu payouts=%zu pending=%d",
-            newRecord.Block.UserId.c_str(),
-            formatSI(newRecord.Block.ExpectedWork.getDecimal()).c_str(),
-            formatSI(newRecord.AccumulatedWork.getDecimal()).c_str(),
-            FormatMoney(newRecord.TxFee, coinInfo.FractionalPartSize).c_str(),
-            newRecord.Block.PrimePOWTarget,
-            newRecord.UserShares.size(),
-            newRecord.Payouts.size(),
-            isActive);
-
-      for (const auto &s : newRecord.UserShares) {
-        LOG_F(INFO, "    * share %s shareValue=%s incomingWork=%s",
-              s.UserId.c_str(),
-              formatSI(s.ShareValue.getDecimal()).c_str(),
-              formatSI(s.IncomingWork.getDecimal()).c_str());
-      }
-
-      for (const auto &p : newRecord.Payouts) {
-        LOG_F(INFO, "    * payout %s value=%s valueWithoutFee=%s acceptedWork=%s",
-              p.UserId.c_str(),
-              FormatMoney(p.Value, coinInfo.FractionalPartSize).c_str(),
-              FormatMoney(p.ValueWithoutFee, coinInfo.FractionalPartSize).c_str(),
-              formatSI(p.AcceptedWork.getDecimal()).c_str());
-      }
-
-      // Strict checks on old data (before conversion)
-      bool hasPerUserIncomingWork = false;
-      if (!oldRecord.UserShares.empty()) {
-        double oldShareSum = 0;
-        double oldWorkSum = 0;
-        for (const auto &s : oldRecord.UserShares) {
-          oldShareSum += s.ShareValue;
-          oldWorkSum += s.IncomingWork;
-        }
-        if (oldShareSum != oldRecord.TotalShareValue) {
-          LOG_F(ERROR, "Round height=%llu: old data: sum of ShareValue (%.*g) != TotalShareValue (%.*g)",
-                static_cast<unsigned long long>(oldRecord.Height), 17, oldShareSum, 17, oldRecord.TotalShareValue);
-          return false;
-        }
-
-        hasPerUserIncomingWork = oldWorkSum != 0;
-        // v1 rounds don't have per-user IncomingWork (all zeros), skip check
-        if (hasPerUserIncomingWork && oldWorkSum != oldRecord.AccumulatedWork) {
-          LOG_F(ERROR, "Round height=%llu: old data: sum of IncomingWork (%.*g) != AccumulatedWork (%.*g)",
-                static_cast<unsigned long long>(oldRecord.Height), 17, oldWorkSum, 17, oldRecord.AccumulatedWork);
-          return false;
-        }
-      }
-
-      if (!oldRecord.Payouts.empty()) {
-        int64_t oldPayoutSum = 0;
-        for (const auto &p : oldRecord.Payouts)
-          oldPayoutSum += p.Value;
-        if (oldPayoutSum != oldRecord.AvailableCoins) {
-          LOG_F(ERROR, "Round height=%llu: old data: sum of payout Value (%lld) != AvailableCoins (%lld)",
-                static_cast<unsigned long long>(oldRecord.Height),
-                static_cast<long long>(oldPayoutSum), static_cast<long long>(oldRecord.AvailableCoins));
-          return false;
-        }
-      }
-
-      // Correct rounding errors after conversion
-      if (!newRecord.UserShares.empty()) {
-        if (!correctSum(newRecord.UserShares, newRecord.TotalShareValue, newRecord.Block.Height, "ShareValue",
-              [](auto &s) -> UInt<256>& { return s.ShareValue; }))
-          return false;
-        // v1 rounds don't have per-user IncomingWork (all zeros), skip correction
-        if (hasPerUserIncomingWork) {
-          if (!correctSum(newRecord.UserShares, newRecord.AccumulatedWork, newRecord.Block.Height, "IncomingWork",
-                [](auto &s) -> UInt<256>& { return s.IncomingWork; }))
-            return false;
-        }
-      }
-
-      if (!newRecord.Payouts.empty()) {
-        if (!correctSum(newRecord.Payouts, newRecord.AvailableForPPLNS, newRecord.Block.Height, "PayoutValue",
-              [](auto &p) -> UInt<384>& { return p.Value; }))
-          return false;
-      }
-
-      if (isActive) {
-        activeRounds.push_back(std::move(newRecord));
-      } else {
-        roundsDb.put(newRecord);
-        completedCount++;
-      }
-    }
-  }
-
-  LOG_F(INFO, "  Migrated %u completed rounds to accounting.rounds, %zu active rounds to state",
-        completedCount, activeRounds.size());
-  return true;
+  if (result)
+    collector.mergeInto(activeUsers);
+  return result;
 }
 
 // Helper: try to parse .dat file into CAccountingFileData
@@ -631,174 +457,399 @@ static bool tryParseAccountingDatFile(const std::filesystem::path &filePath, CAc
   return true;
 }
 
-// Helper: write CAccountingFileData to RocksDB
-static bool writeAccountingStateToDb(rocksdbBase &stateDb, const CAccountingFileData &fileData, Timestamp currentRoundStartTime, const std::vector<MiningRound> &activeRounds)
+// Migrate all accounting data to accounting.state + accounting.rounds
+// Sources: rounds.v2, balance, accounting.storage*, payouts.raw
+static bool migrateAccountingState(const std::filesystem::path &srcCoinPath,
+                                   const std::filesystem::path &dstCoinPath,
+                                   const CCoinInfo &coinInfo,
+                                   const CCoinInfoOld2 &old2,
+                                   std::unordered_set<std::string> &activeUsers)
 {
-  rocksdbBase::CBatch batch = stateDb.batch("default");
+  std::filesystem::path dstStatePath = dstCoinPath / "accounting.state";
+  LOG_F(INFO, "Migrating accounting state ...");
 
-  // Save LastShareId (lastmsgid) as 0 — new worklog uses separate message ID space
+  // === 1. Read and convert rounds.v2 → completed + active ===
+  std::vector<MiningRound> activeRounds;
+  Timestamp lastRoundEndTime;
+  uint64_t maxCompletedHeight = 0;
   {
-    xmstream stream;
-    DbIo<uint64_t>::serialize(stream, uint64_t{0});
-    std::string key = ".lastmsgid";
-    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
-  }
+    std::filesystem::path oldRoundsPath = srcCoinPath / "rounds.v2";
+    if (std::filesystem::exists(oldRoundsPath) && std::filesystem::is_directory(oldRoundsPath)) {
+      LOG_F(INFO, "  Reading rounds.v2 ...");
 
-  // Save RecentStats
-  {
-    xmstream stream;
-    DbIo<decltype(fileData.Recent)>::serialize(stream, fileData.Recent);
-    std::string key = ".recentstats";
-    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
-  }
+      kvdb<rocksdbBase> roundsDb(dstCoinPath / "accounting.rounds");
+      unsigned completedCount = 0;
 
-  // Save CurrentScores
-  {
-    xmstream stream;
-    DbIo<decltype(fileData.CurrentScores)>::serialize(stream, fileData.CurrentScores);
-    std::string key = ".currentscores";
-    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
-  }
+      for (std::filesystem::directory_iterator I(oldRoundsPath), IE; I != IE; ++I) {
+        if (!is_directory(I->status()))
+          continue;
 
-  // Save CurrentRoundStartTime (if known)
-  if (currentRoundStartTime != Timestamp()) {
-    xmstream stream;
-    DbIo<Timestamp>::serialize(stream, currentRoundStartTime);
-    std::string key = ".currentroundstart";
-    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
-  }
+        rocksdb::Options options;
+        options.create_if_missing = false;
+        rocksdb::DB *rawDb = nullptr;
+        rocksdb::Status status = rocksdb::DB::Open(options, path_to_utf8(I->path()), &rawDb);
+        if (!status.ok()) {
+          LOG_F(ERROR, "Can't open partition %s: %s",
+                I->path().filename().string().c_str(), status.ToString().c_str());
+          return false;
+        }
+        std::unique_ptr<rocksdb::DB> srcDb(rawDb);
 
-  // Save active rounds
-  for (const auto &round : activeRounds)
-    batch.put(round);
-
-  return stateDb.writeBatch(batch);
-}
-
-// Migrate accounting storage from .dat files to RocksDB (accounting.state)
-static bool migrateAccountingToState(const std::filesystem::path &srcCoinPath,
-                                     const std::filesystem::path &dstCoinPath,
-                                     const CCoinInfo &coinInfo,
-                                     const CCoinInfoOld2 &old2,
-                                     const std::vector<MiningRound> &activeRounds)
-{
-  std::filesystem::path dstDbPath = dstCoinPath / "accounting.state";
-  if (std::filesystem::exists(dstDbPath)) {
-    LOG_F(INFO, "  accounting.state already exists, skipping migration");
-    return true;
-  }
-
-  rocksdbBase stateDb(dstDbPath);
-
-  // Migrate payouts.raw -> payoutqueue
-  std::filesystem::path payoutsRawPath = srcCoinPath / "payouts.raw";
-  if (std::filesystem::exists(payoutsRawPath)) {
-    FileDescriptor fd;
-    if (fd.open(payoutsRawPath.string().c_str())) {
-      size_t fileSize = fd.size();
-      if (fileSize > 0) {
-        xmstream input;
-        fd.read(input.reserve(fileSize), 0, fileSize);
-        fd.close();
-        input.seekSet(0);
-
-        xmstream output;
-        unsigned count = 0;
-        while (input.remaining()) {
-          PayoutDbRecord2 oldRecord;
-          if (!oldRecord.deserializeValue(input)) {
-            LOG_F(ERROR, "  Can't deserialize payouts.raw record, file corrupted");
-            break;
+        rocksdb::ReadOptions readOptions;
+        std::unique_ptr<rocksdb::Iterator> it(srcDb->NewIterator(readOptions));
+        for (it->SeekToFirst(); it->Valid(); it->Next()) {
+          MiningRound2 oldRecord;
+          if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
+            LOG_F(ERROR, "Can't deserialize rounds record, database corrupted");
+            return false;
           }
 
-          PayoutDbRecord newRecord;
-          newRecord.UserId = oldRecord.UserId;
-          newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
-          newRecord.Value = fromRational(static_cast<uint64_t>(oldRecord.Value));
-          newRecord.TransactionId = oldRecord.TransactionId;
-          newRecord.TransactionData = oldRecord.TransactionData;
-          newRecord.Status = oldRecord.Status;
-          newRecord.TxFee = fromRational(static_cast<uint64_t>(oldRecord.TxFee));
+          MiningRound newRecord;
+          newRecord.Block.Height = oldRecord.Height;
+          newRecord.Block.Hash = oldRecord.BlockHash;
+          newRecord.Block.Time = Timestamp::fromUnixTime(oldRecord.EndTime);
+          newRecord.StartTime = Timestamp::fromUnixTime(oldRecord.StartTime);
+          newRecord.TotalShareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
+          newRecord.TotalShareValue.mulfp(oldRecord.TotalShareValue);
+          newRecord.Block.GeneratedCoins = safeFromRational(oldRecord.AvailableCoins, "MiningRound.AvailableCoins");
+          newRecord.Block.GeneratedCoins /= static_cast<uint64_t>(old2.ExtraMultiplier);
+          newRecord.AvailableForPPLNS = newRecord.Block.GeneratedCoins;
+          newRecord.Block.UserId = oldRecord.FoundBy;
+          newRecord.Block.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+          newRecord.Block.ExpectedWork.mulfp(oldRecord.ExpectedWork);
+          newRecord.AccumulatedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+          newRecord.AccumulatedWork.mulfp(oldRecord.AccumulatedWork);
+          newRecord.TxFee = safeFromRational(oldRecord.TxFee, "MiningRound.TxFee");
+          newRecord.Block.PrimePOWTarget = oldRecord.PrimePOWTarget;
 
-          LOG_F(INFO, "    payout: %s value=%s txId=%s status=%u",
-                newRecord.UserId.c_str(),
-                FormatMoney(newRecord.Value, coinInfo.FractionalPartSize).c_str(),
-                newRecord.TransactionId.c_str(), newRecord.Status);
+          // In old code, unpayed rounds were detected by non-empty Payouts.
+          // For deferred-reward coins (ETH) payouts are empty until confirmation, so those rounds
+          // cannot be distinguished from already-processed ones. This is a known limitation.
+          bool isActive = !oldRecord.Payouts.empty();
+          // PPSValue / PPSBlockPart stay zero — PPS mode didn't exist before migration.
 
-          newRecord.serializeValue(output);
-          count++;
-        }
+          for (const auto &s : oldRecord.UserShares) {
+            UInt<256> shareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
+            shareValue.mulfp(s.ShareValue);
+            UInt<256> incomingWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+            incomingWork.mulfp(s.IncomingWork);
+            newRecord.UserShares.emplace_back(s.UserId, shareValue, incomingWork);
+          }
 
-        if (output.sizeOf() > 0) {
-          std::string key = ".payoutqueue";
-          stateDb.put("default", key.data(), key.size(), output.data(), output.sizeOf());
-          LOG_F(INFO, "  Migrated %u payouts from payouts.raw", count);
+          for (const auto &p : oldRecord.Payouts) {
+            UInt<384> value = safeFromRational(p.Value, "MiningRound.Payouts.Value");
+            value /= static_cast<uint64_t>(old2.ExtraMultiplier);
+            UInt<384> valueWithoutFee = safeFromRational(p.ValueWithoutFee, "MiningRound.Payouts.ValueWithoutFee");
+            valueWithoutFee /= static_cast<uint64_t>(old2.ExtraMultiplier);
+            UInt<256> acceptedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+            acceptedWork.mulfp(p.AcceptedWork);
+            newRecord.Payouts.emplace_back(p.UserId, value, valueWithoutFee, acceptedWork);
+          }
+
+          LOG_F(INFO, "  height=%llu hash=%s endTime=%lld startTime=%lld totalShareValue=%s availableCoins=%s",
+                static_cast<unsigned long long>(newRecord.Block.Height),
+                newRecord.Block.Hash.c_str(),
+                static_cast<long long>(newRecord.Block.Time.toUnixTime()),
+                static_cast<long long>(newRecord.StartTime.toUnixTime()),
+                formatSI(newRecord.TotalShareValue.getDecimal()).c_str(),
+                FormatMoney(newRecord.AvailableForPPLNS, coinInfo.FractionalPartSize).c_str());
+          LOG_F(INFO,
+                "    foundBy=%s expectedWork=%s accumulatedWork=%s txFee=%s primePOWTarget=%u shares=%zu payouts=%zu"
+                " pending=%d",
+                newRecord.Block.UserId.c_str(),
+                formatSI(newRecord.Block.ExpectedWork.getDecimal()).c_str(),
+                formatSI(newRecord.AccumulatedWork.getDecimal()).c_str(),
+                FormatMoney(newRecord.TxFee, coinInfo.FractionalPartSize).c_str(),
+                newRecord.Block.PrimePOWTarget,
+                newRecord.UserShares.size(),
+                newRecord.Payouts.size(),
+                isActive);
+
+          for (const auto &s : newRecord.UserShares) {
+            LOG_F(INFO, "    * share %s shareValue=%s incomingWork=%s",
+                  s.UserId.c_str(),
+                  formatSI(s.ShareValue.getDecimal()).c_str(),
+                  formatSI(s.IncomingWork.getDecimal()).c_str());
+          }
+
+          for (const auto &p : newRecord.Payouts) {
+            LOG_F(INFO, "    * payout %s value=%s valueWithoutFee=%s acceptedWork=%s",
+                  p.UserId.c_str(),
+                  FormatMoney(p.Value, coinInfo.FractionalPartSize).c_str(),
+                  FormatMoney(p.ValueWithoutFee, coinInfo.FractionalPartSize).c_str(),
+                  formatSI(p.AcceptedWork.getDecimal()).c_str());
+          }
+
+          // Strict checks on old data (before conversion)
+          bool hasPerUserIncomingWork = false;
+          if (!oldRecord.UserShares.empty()) {
+            double oldShareSum = 0;
+            double oldWorkSum = 0;
+            for (const auto &s : oldRecord.UserShares) {
+              oldShareSum += s.ShareValue;
+              oldWorkSum += s.IncomingWork;
+            }
+            if (oldShareSum != oldRecord.TotalShareValue) {
+              LOG_F(ERROR,
+                    "Round height=%llu: old data: sum of ShareValue (%.*g) != TotalShareValue (%.*g)",
+                    static_cast<unsigned long long>(oldRecord.Height),
+                    17, oldShareSum, 17, oldRecord.TotalShareValue);
+              return false;
+            }
+
+            hasPerUserIncomingWork = oldWorkSum != 0;
+            // v1 rounds don't have per-user IncomingWork (all zeros), skip check
+            if (hasPerUserIncomingWork && oldWorkSum != oldRecord.AccumulatedWork) {
+              LOG_F(ERROR,
+                    "Round height=%llu: old data: sum of IncomingWork (%.*g) != AccumulatedWork (%.*g)",
+                    static_cast<unsigned long long>(oldRecord.Height),
+                    17, oldWorkSum, 17, oldRecord.AccumulatedWork);
+              return false;
+            }
+          }
+
+          if (!oldRecord.Payouts.empty()) {
+            int64_t oldPayoutSum = 0;
+            for (const auto &p : oldRecord.Payouts)
+              oldPayoutSum += p.Value;
+            if (oldPayoutSum != oldRecord.AvailableCoins) {
+              LOG_F(ERROR,
+                    "Round height=%llu: old data: sum of payout Value (%lld) != AvailableCoins (%lld)",
+                    static_cast<unsigned long long>(oldRecord.Height),
+                    static_cast<long long>(oldPayoutSum),
+                    static_cast<long long>(oldRecord.AvailableCoins));
+              return false;
+            }
+          }
+
+          // Correct rounding errors after conversion
+          if (!newRecord.UserShares.empty()) {
+            if (!correctSum(newRecord.UserShares, newRecord.TotalShareValue, newRecord.Block.Height, "ShareValue",
+                  [](auto &s) -> UInt<256>& { return s.ShareValue; }))
+              return false;
+            // v1 rounds don't have per-user IncomingWork (all zeros), skip correction
+            if (hasPerUserIncomingWork) {
+              if (!correctSum(newRecord.UserShares, newRecord.AccumulatedWork, newRecord.Block.Height, "IncomingWork",
+                    [](auto &s) -> UInt<256>& { return s.IncomingWork; }))
+                return false;
+            }
+          }
+
+          if (!newRecord.Payouts.empty()) {
+            if (!correctSum(newRecord.Payouts, newRecord.AvailableForPPLNS, newRecord.Block.Height, "PayoutValue",
+                  [](auto &p) -> UInt<384>& { return p.Value; }))
+              return false;
+          }
+
+          if (isActive) {
+            activeRounds.push_back(std::move(newRecord));
+          } else {
+            // Track the highest-height completed round for lastRoundEndTime
+            if (newRecord.Block.Height > maxCompletedHeight) {
+              maxCompletedHeight = newRecord.Block.Height;
+              lastRoundEndTime = newRecord.Block.Time;
+            }
+            roundsDb.put(newRecord);
+            completedCount++;
+          }
         }
       }
+
+      LOG_F(INFO, "  Migrated %u completed rounds to accounting.rounds, %zu active rounds to state",
+            completedCount, activeRounds.size());
+    } else {
+      LOG_F(INFO, "  No previous rounds.v2 database found, skipping rounds");
     }
   }
 
-  // Find EndTime of the last round (= start time of current round)
-  Timestamp lastRoundEndTime;
-  {
-    std::filesystem::path roundsPath = dstCoinPath / "accounting.rounds";
-    if (std::filesystem::exists(roundsPath)) {
-      kvdb<rocksdbBase> roundsDb(roundsPath);
-      std::unique_ptr<rocksdbBase::IteratorType> It(roundsDb.iterator());
-      It->seekLast();
-      if (It->valid()) {
-        MiningRound R;
-        RawData data = It->value();
-        if (R.deserializeValue(data.data, data.size))
-          lastRoundEndTime = R.Block.Time;
-      }
-    }
-  }
   // Active rounds may have later EndTime than completed ones
   for (const auto &round : activeRounds) {
     if (round.Block.Time > lastRoundEndTime)
       lastRoundEndTime = round.Block.Time;
   }
 
-  // Load files from both directories
-  std::deque<CDatFile> datFilesV2;
-  std::deque<CDatFile> datFilesV1;
-  enumerateDatFiles(datFilesV2, srcCoinPath / "accounting.storage.2", 2, false);
-  enumerateDatFiles(datFilesV1, srcCoinPath / "accounting.storage", 1, false);
+  // === 2. Open accounting.state and prepare batch ===
+  rocksdbBase stateDb(dstStatePath);
+  rocksdbBase::CBatch batch = stateDb.batch("default");
 
-  // Combine and sort by FileId descending (newest first)
-  std::vector<CDatFile> datFiles;
-  datFiles.insert(datFiles.end(), std::make_move_iterator(datFilesV1.begin()), std::make_move_iterator(datFilesV1.end()));
-  datFiles.insert(datFiles.end(), std::make_move_iterator(datFilesV2.begin()), std::make_move_iterator(datFilesV2.end()));
-  std::sort(datFiles.begin(), datFiles.end(), [](const CDatFile &a, const CDatFile &b) { return a.FileId > b.FileId; });
+  // === 3. Migrate balance records ===
+  if (!coinInfo.IsAlgorithm) {
+    std::filesystem::path oldBalancePath = srcCoinPath / "balance";
+    if (std::filesystem::exists(oldBalancePath) && std::filesystem::is_directory(oldBalancePath)) {
+      LOG_F(INFO, "  Migrating balance -> accounting.state (b-prefix) ...");
+      unsigned balanceCount = 0;
 
-  if (datFiles.empty()) {
-    LOG_F(INFO, "  No accounting storage found to migrate");
-    return true;
+      rocksdbBase balanceDb(oldBalancePath);
+      std::unique_ptr<rocksdbBase::IteratorType> it(balanceDb.iterator());
+      it->seekFirst();
+      for (; it->valid(); it->next()) {
+        RawData data = it->value();
+        UserBalanceRecord2 oldRecord;
+        if (!oldRecord.deserializeValue(data.data, data.size)) {
+          LOG_F(ERROR, "Can't deserialize balance record, database corrupted");
+          return false;
+        }
+
+        if (oldRecord.BalanceWithFractional != 0 || oldRecord.Requested != 0 || oldRecord.Paid != 0)
+          activeUsers.insert(oldRecord.Login);
+
+        UserBalanceRecord newRecord;
+        newRecord.Login = oldRecord.Login;
+        newRecord.Balance = safeFromRational(oldRecord.BalanceWithFractional, "UserBalanceRecord.Balance");
+        newRecord.Balance /= static_cast<uint64_t>(old2.ExtraMultiplier);
+        newRecord.Requested = safeFromRational(oldRecord.Requested, "UserBalanceRecord.Requested");
+        newRecord.Paid = safeFromRational(oldRecord.Paid, "UserBalanceRecord.Paid");
+
+        LOG_F(INFO, "  %s balance=%s requested=%s paid=%s",
+              oldRecord.Login.c_str(),
+              FormatMoney(newRecord.Balance, coinInfo.FractionalPartSize).c_str(),
+              FormatMoney(newRecord.Requested, coinInfo.FractionalPartSize).c_str(),
+              FormatMoney(newRecord.Paid, coinInfo.FractionalPartSize).c_str());
+
+        batch.put(newRecord);
+        balanceCount++;
+      }
+
+      if (balanceCount > 0)
+        LOG_F(INFO, "  Migrated %u balance records", balanceCount);
+    } else {
+      LOG_F(INFO, "  No previous balance database found, skipping");
+    }
   }
 
-  LOG_F(INFO, "  Migrating accounting state (%zu files found)", datFiles.size());
+  // === 4. Migrate payouts.raw → .payoutqueue ===
+  {
+    std::filesystem::path payoutsRawPath = srcCoinPath / "payouts.raw";
+    if (std::filesystem::exists(payoutsRawPath)) {
+      FileDescriptor fd;
+      if (fd.open(payoutsRawPath.string().c_str())) {
+        size_t fileSize = fd.size();
+        if (fileSize > 0) {
+          xmstream input;
+          fd.read(input.reserve(fileSize), 0, fileSize);
+          fd.close();
+          input.seekSet(0);
 
-  // Try to parse files from newest to oldest
-  for (auto &file : datFiles) {
-    CAccountingFileData fileData;
-    if (tryParseAccountingDatFile(file.Path, fileData, &old2, file.Version)) {
-      LOG_F(INFO, "    Parsed %s: lastShareId=%llu recentUsers=%zu scores=%zu",
-            file.Path.filename().string().c_str(),
-            static_cast<unsigned long long>(fileData.LastShareId),
-            fileData.Recent.size(), fileData.CurrentScores.size());
+          xmstream output;
+          unsigned count = 0;
+          while (input.remaining()) {
+            PayoutDbRecord2 oldRecord;
+            if (!oldRecord.deserializeValue(input)) {
+              LOG_F(ERROR, "  Can't deserialize payouts.raw record, file corrupted");
+              break;
+            }
 
-      if (writeAccountingStateToDb(stateDb, fileData, lastRoundEndTime, activeRounds)) {
-        LOG_F(INFO, "    Successfully migrated to accounting.state");
-        return true;
-      } else {
-        LOG_F(ERROR, "    Failed to write to accounting.state");
-        return false;
+            PayoutDbRecord newRecord;
+            newRecord.UserId = oldRecord.UserId;
+            newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
+            newRecord.Value = safeFromRational(oldRecord.Value, "PayoutQueue.Value");
+            newRecord.TransactionId = oldRecord.TransactionId;
+            newRecord.TransactionData = oldRecord.TransactionData;
+            newRecord.Status = oldRecord.Status;
+            newRecord.TxFee = safeFromRational(oldRecord.TxFee, "PayoutQueue.TxFee");
+
+            LOG_F(INFO, "    payout: %s value=%s txId=%s status=%u",
+                  newRecord.UserId.c_str(),
+                  FormatMoney(newRecord.Value, coinInfo.FractionalPartSize).c_str(),
+                  newRecord.TransactionId.c_str(), newRecord.Status);
+
+            newRecord.serializeValue(output);
+            count++;
+          }
+
+          if (output.sizeOf() > 0) {
+            std::string key = ".payoutqueue";
+            batch.put(key.data(), key.size(), output.data(), output.sizeOf());
+            LOG_F(INFO, "  Migrated %u payouts from payouts.raw", count);
+          }
+        }
       }
     }
   }
 
-  LOG_F(WARNING, "    All .dat files are corrupted");
+  // === 5. Migrate accounting .dat files → state metadata + active rounds ===
+  {
+    std::deque<CDatFile> datFilesV2;
+    std::deque<CDatFile> datFilesV1;
+    enumerateDatFiles(datFilesV2, srcCoinPath / "accounting.storage.2", 2, false);
+    enumerateDatFiles(datFilesV1, srcCoinPath / "accounting.storage", 1, false);
+
+    std::vector<CDatFile> datFiles;
+    datFiles.insert(datFiles.end(),
+                    std::make_move_iterator(datFilesV1.begin()),
+                    std::make_move_iterator(datFilesV1.end()));
+    datFiles.insert(datFiles.end(),
+                    std::make_move_iterator(datFilesV2.begin()),
+                    std::make_move_iterator(datFilesV2.end()));
+    std::sort(datFiles.begin(), datFiles.end(),
+              [](const CDatFile &a, const CDatFile &b) { return a.FileId > b.FileId; });
+
+    if (!datFiles.empty()) {
+      LOG_F(INFO, "  Migrating accounting state (%zu files found)", datFiles.size());
+
+      bool parsed = false;
+      for (auto &file : datFiles) {
+        CAccountingFileData fileData;
+        if (tryParseAccountingDatFile(file.Path, fileData, &old2, file.Version)) {
+          LOG_F(INFO, "    Parsed %s: lastShareId=%llu recentUsers=%zu scores=%zu",
+                file.Path.filename().string().c_str(),
+                static_cast<unsigned long long>(fileData.LastShareId),
+                fileData.Recent.size(), fileData.CurrentScores.size());
+
+          // Save LastShareId as 0 — new worklog uses separate message ID space
+          {
+            xmstream stream;
+            DbIo<uint64_t>::serialize(stream, uint64_t{0});
+            std::string key = ".lastmsgid";
+            batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
+          }
+
+          // Save RecentStats
+          {
+            xmstream stream;
+            DbIo<decltype(fileData.Recent)>::serialize(stream, fileData.Recent);
+            std::string key = ".recentstats";
+            batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
+          }
+
+          // Save CurrentScores
+          {
+            xmstream stream;
+            DbIo<decltype(fileData.CurrentScores)>::serialize(stream, fileData.CurrentScores);
+            std::string key = ".currentscores";
+            batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
+          }
+
+          // Save CurrentRoundStartTime (if known)
+          if (lastRoundEndTime != Timestamp()) {
+            xmstream stream;
+            DbIo<Timestamp>::serialize(stream, lastRoundEndTime);
+            std::string key = ".currentroundstart";
+            batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
+          }
+
+          // Save active rounds
+          for (const auto &round : activeRounds)
+            batch.put(round);
+
+          parsed = true;
+          break;
+        }
+      }
+
+      if (!parsed)
+        LOG_F(WARNING, "    All .dat files are corrupted");
+    } else {
+      LOG_F(INFO, "  No accounting storage found to migrate");
+    }
+  }
+
+  if (!stateDb.writeBatch(batch)) {
+    LOG_F(ERROR, "Failed to write to accounting.state");
+    return false;
+  }
+
+  LOG_F(INFO, "  Successfully migrated to accounting.state");
   return true;
 }
 
@@ -811,7 +862,7 @@ static void serializeStatsFileData(xmstream &output, const CStatsFileData &fileD
 }
 
 // stats cache v1 (manual format, no version header, no PrimePOW fields) -> v3
-static bool migrateStatsCache(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const char *baseName, const char *newName, const CCoinInfoOld2 &old2, unsigned threads, uint64_t lastShareIdOverride = UINT64_MAX)
+static bool migrateStatsCacheV1(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const char *baseName, const char *newName, const CCoinInfoOld2 &old2, unsigned threads, uint64_t lastShareIdOverride = UINT64_MAX)
 {
   return migrateDirectoryMt(srcCoinPath, dstCoinPath, baseName, newName, [&old2, lastShareIdOverride](xmstream &input, xmstream &output) -> bool {
     CStatsFileData fileData;
@@ -863,6 +914,23 @@ static bool migrateStatsCacheV2(const std::filesystem::path &srcCoinPath, const 
     serializeStatsFileData(output, fileData, lastShareIdOverride);
     return true;
   }, threads, true);
+}
+
+// Unified stats cache migration: v1 + v2 → v3
+static bool migrateStatsCache(const std::filesystem::path &srcCoinPath,
+                              const std::filesystem::path &dstCoinPath,
+                              const char *baseName,
+                              const CCoinInfoOld2 &old2,
+                              unsigned threads,
+                              uint64_t lastShareIdOverride = UINT64_MAX)
+{
+  std::string dstName = std::string(baseName) + ".3";
+  std::string v2Name = std::string(baseName) + ".2";
+  if (!migrateStatsCacheV1(srcCoinPath, dstCoinPath, baseName, dstName.c_str(), old2, threads, lastShareIdOverride))
+    return false;
+  if (!migrateStatsCacheV2(srcCoinPath, dstCoinPath, v2Name.c_str(), dstName.c_str(), old2, threads, lastShareIdOverride))
+    return false;
+  return true;
 }
 
 // Read old share log v0 format (shares.log directory)
@@ -1296,7 +1364,13 @@ static bool migrateShareLogToWorklog(const std::filesystem::path &srcCoinPath,
   return true;
 }
 
-static bool migrateCoin(const std::filesystem::path &srcPath, const std::filesystem::path &dstPath, const CCoinInfo &coinInfo, const CCoinInfoOld2 &old2, unsigned threads, const std::string &statisticCutoff)
+static bool migrateCoin(const std::filesystem::path &srcPath,
+                        const std::filesystem::path &dstPath,
+                        const CCoinInfo &coinInfo,
+                        const CCoinInfoOld2 &old2,
+                        unsigned threads,
+                        const std::string &statisticCutoff,
+                        std::unordered_set<std::string> &activeUsers)
 {
   std::filesystem::path srcCoinPath = srcPath / coinInfo.Name;
   if (!std::filesystem::exists(srcCoinPath))
@@ -1306,44 +1380,41 @@ static bool migrateCoin(const std::filesystem::path &srcPath, const std::filesys
 
   LOG_F(INFO, "Migrating %s: %s", coinInfo.IsAlgorithm ? "algorithm" : "coin", coinInfo.Name.c_str());
 
+  // poolBalance.2/
   if (!migratePoolBalance(srcCoinPath, dstCoinPath, old2, threads))
     return false;
+  // pplns.payouts.2/
   if (!migratePPLNSPayouts(srcCoinPath, dstCoinPath, threads))
     return false;
-  if (!migratePayouts(srcCoinPath, dstCoinPath, threads))
+  // payouts.2/
+  if (!migratePayouts(srcCoinPath, dstCoinPath, threads, activeUsers))
     return false;
-  if (!migrateFoundBlocks(srcCoinPath, dstCoinPath, coinInfo, old2, threads))
+  // foundBlocks.2/
+  if (!migrateFoundBlocks(srcCoinPath, dstCoinPath, coinInfo, old2, threads, activeUsers))
     return false;
-  if (!migrateStats(srcCoinPath, dstCoinPath, old2, "workerStats", "statistic", threads, statisticCutoff))
+  // statistic/  (workerStats + poolstats)
+  if (!migrateStatistic(srcCoinPath, dstCoinPath, old2, threads, statisticCutoff))
     return false;
-  if (!migrateStats(srcCoinPath, dstCoinPath, old2, "poolstats", "statistic", threads, statisticCutoff))
-    return false;
-  std::vector<MiningRound> activeRounds;
-  if (!migrateRounds(srcCoinPath, dstCoinPath, coinInfo, old2, activeRounds))
+  // accounting.state/ + accounting.rounds/
+  if (!migrateAccountingState(srcCoinPath, dstCoinPath, coinInfo, old2, activeUsers))
     return false;
 
-  // Migrate old ShareLog to new worklog format (must run before cache migration)
+  // statistic.worklog/ + accounting.worklog/  (must run before cache migration)
   uint64_t poolCacheLastShareId = UINT64_MAX;
   uint64_t workersCacheLastShareId = UINT64_MAX;
   if (!migrateShareLogToWorklog(srcCoinPath, dstCoinPath, old2, &poolCacheLastShareId, &workersCacheLastShareId))
     return false;
 
-  if (!migrateAccountingToState(srcCoinPath, dstCoinPath, coinInfo, old2, activeRounds))
+  // stats.pool.cache.3/  (v1 + v2 → v3)
+  if (!migrateStatsCache(srcCoinPath, dstCoinPath, "stats.pool.cache", old2, threads, poolCacheLastShareId))
     return false;
-  if (!coinInfo.IsAlgorithm) {
-    if (!migrateBalance(srcCoinPath, dstCoinPath, coinInfo, old2))
-      return false;
-  }
-  if (!migrateStatsCache(srcCoinPath, dstCoinPath, "stats.pool.cache", "stats.pool.cache.3", old2, threads, poolCacheLastShareId))
-    return false;
-  if (!migrateStatsCacheV2(srcCoinPath, dstCoinPath, "stats.pool.cache.2", "stats.pool.cache.3", old2, threads, poolCacheLastShareId))
-    return false;
-  if (!migrateStatsCache(srcCoinPath, dstCoinPath, "stats.workers.cache", "stats.workers.cache.3", old2, threads, workersCacheLastShareId))
-    return false;
-  if (!migrateStatsCacheV2(srcCoinPath, dstCoinPath, "stats.workers.cache.2", "stats.workers.cache.3", old2, threads, workersCacheLastShareId))
+  // stats.workers.cache.3/  (v1 + v2 → v3)
+  if (!migrateStatsCache(srcCoinPath, dstCoinPath, "stats.workers.cache", old2, threads, workersCacheLastShareId))
     return false;
 
-  // Copy user stats cache for accounting UserStatsAcc_
+  // accounting.userstats/ — copy of users stats cache for the accounting subsystem.
+  // Statistics and Accounting each maintain their own independent user stats accumulator
+  // (CStatsSeriesMap), so after migration the same data must exist in both directories.
   {
     std::filesystem::path srcDir = dstCoinPath / "stats.users.cache.3";
     std::filesystem::path dstDir = dstCoinPath / "accounting.userstats";
@@ -1370,7 +1441,7 @@ static bool migrateUserSettings(const std::filesystem::path &srcPath, const std:
     newRecord.Coin = oldRecord.Coin;
     newRecord.Payout.Address = oldRecord.Address;
     newRecord.Payout.AutoPayout = oldRecord.AutoPayout;
-    newRecord.Payout.MinimalPayout = fromRational(static_cast<uint64_t>(oldRecord.MinimalPayout));
+    newRecord.Payout.MinimalPayout = safeFromRational(oldRecord.MinimalPayout, "UserSettingsRecord.MinimalPayout");
 
     auto coinIt = coinMap.find(oldRecord.Coin);
     if (coinIt == coinMap.end()) {
@@ -1391,6 +1462,38 @@ static bool migrateUserSettings(const std::filesystem::path &srcPath, const std:
   });
 }
 
+static bool migrateUsers(const std::filesystem::path &srcPath,
+                         const std::filesystem::path &dstPath,
+                         const std::unordered_set<std::string> &activeUsers)
+{
+  int64_t threeMonthsAgo = time(nullptr) - 90 * 24 * 3600;
+  unsigned totalCount = 0;
+  unsigned activeCount = 0;
+
+  bool result = migrateDatabase(srcPath, dstPath, "users", "users", [&](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+    UsersRecord oldRecord;
+    if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
+      LOG_F(ERROR, "Can't deserialize users record, database corrupted");
+      return false;
+    }
+
+    totalCount++;
+
+    bool isActive = activeUsers.count(oldRecord.Login) ||
+                    oldRecord.RegistrationDate >= threeMonthsAgo;
+    if (!isActive)
+      return true;
+
+    activeCount++;
+    batch.Put(it->key(), it->value());
+    return true;
+  });
+
+  LOG_F(INFO, "Users: total=%u, active=%u, inactive (removed)=%u",
+        totalCount, activeCount, totalCount - activeCount);
+  return result;
+}
+
 bool migrateV3(const std::filesystem::path &srcPath, const std::filesystem::path &dstPath, unsigned threads, const std::string &statisticCutoff)
 {
   std::unordered_map<std::string, CCoinInfo> coinMap;
@@ -1401,13 +1504,18 @@ bool migrateV3(const std::filesystem::path &srcPath, const std::filesystem::path
   if (!migrateUserSettings(srcPath, dstPath, coinMap))
     return false;
 
+  std::unordered_set<std::string> activeUsers;
   for (const auto &[name, coinInfo] : coinMap) {
-    if (!migrateCoin(srcPath, dstPath, coinInfo, old2Map[name], threads, statisticCutoff))
+    if (!migrateCoin(srcPath, dstPath, coinInfo, old2Map[name], threads, statisticCutoff, activeUsers))
       return false;
   }
 
+  // Migrate users — copy only active users (have balance/payouts/blocks or registered recently)
+  if (!migrateUsers(srcPath, dstPath, activeUsers))
+    return false;
+
   // Copy non-coin databases (no format changes, just rewrite with zstd compression)
-  static const char *copyDirs[] = {"useractions", "userfeeplan", "users", "usersessions"};
+  static const char *copyDirs[] = {"useractions", "userfeeplan", "usersessions"};
   for (const char *dir : copyDirs) {
     if (!copyDatabase(srcPath, dstPath, dir, threads))
       return false;

@@ -124,20 +124,25 @@ bool migrateDatabaseMt(const std::filesystem::path &srcPath, const std::filesyst
 
   std::filesystem::create_directories(newDbPath);
 
-  // Process partitions in groups
-  for (size_t i = 0; i < partitions.size(); i += threads) {
-    size_t end = std::min(i + static_cast<size_t>(threads), partitions.size());
-    std::vector<std::future<bool>> futures;
-    for (size_t j = i; j < end; j++) {
-      futures.push_back(std::async(std::launch::async, [&oldDbPath, &newDbPath, &partitions, &callback, j]() {
-        return migratePartition(oldDbPath / partitions[j], newDbPath / partitions[j], partitions[j], callback);
-      }));
-    }
+  // Worker pool: N threads process all partitions from shared index
+  std::atomic<size_t> nextPartition{0};
+  unsigned actualThreads = std::min(static_cast<size_t>(threads), partitions.size());
+  std::vector<std::future<bool>> futures;
+  for (unsigned t = 0; t < actualThreads; t++) {
+    futures.push_back(std::async(std::launch::async, [&]() -> bool {
+      for (;;) {
+        size_t j = nextPartition.fetch_add(1);
+        if (j >= partitions.size())
+          return true;
+        if (!migratePartition(oldDbPath / partitions[j], newDbPath / partitions[j], partitions[j], callback))
+          return false;
+      }
+    }));
+  }
 
-    for (auto &f : futures) {
-      if (!f.get())
-        return false;
-    }
+  for (auto &f : futures) {
+    if (!f.get())
+      return false;
   }
 
   return true;
@@ -291,20 +296,25 @@ bool migrateDirectoryMt(const std::filesystem::path &srcPath, const std::filesys
 
   std::filesystem::create_directories(newDirPath);
 
-  // Process files in groups
-  for (size_t i = 0; i < files.size(); i += threads) {
-    size_t end = std::min(i + static_cast<size_t>(threads), files.size());
-    std::vector<std::future<bool>> futures;
-    for (size_t j = i; j < end; j++) {
-      futures.push_back(std::async(std::launch::async, [&oldDirPath, &newDirPath, &files, &callback, j]() {
-        return migrateOneFile(oldDirPath / files[j], newDirPath / files[j], files[j], callback);
-      }));
-    }
+  // Worker pool: N threads process all files from shared index
+  std::atomic<size_t> nextFile{0};
+  unsigned actualThreads = std::min(static_cast<size_t>(threads), files.size());
+  std::vector<std::future<bool>> futures;
+  for (unsigned t = 0; t < actualThreads; t++) {
+    futures.push_back(std::async(std::launch::async, [&]() -> bool {
+      for (;;) {
+        size_t j = nextFile.fetch_add(1);
+        if (j >= files.size())
+          return true;
+        if (!migrateOneFile(oldDirPath / files[j], newDirPath / files[j], files[j], callback))
+          return false;
+      }
+    }));
+  }
 
-    for (auto &f : futures) {
-      if (!f.get())
-        return false;
-    }
+  for (auto &f : futures) {
+    if (!f.get())
+      return false;
   }
 
   return true;
@@ -332,19 +342,24 @@ bool copyDatabase(const std::filesystem::path &srcPath, const std::filesystem::p
 
   std::filesystem::create_directories(newDbPath);
 
-  for (size_t i = 0; i < partitions.size(); i += threads) {
-    size_t end = std::min(i + static_cast<size_t>(threads), partitions.size());
-    std::vector<std::future<bool>> futures;
-    for (size_t j = i; j < end; j++) {
-      futures.push_back(std::async(std::launch::async, [&oldDbPath, &newDbPath, &partitions, j]() {
-        return copyPartition(oldDbPath / partitions[j], newDbPath / partitions[j], partitions[j]);
-      }));
-    }
+  std::atomic<size_t> nextPartition{0};
+  unsigned actualThreads = std::min(static_cast<size_t>(threads), partitions.size());
+  std::vector<std::future<bool>> futures;
+  for (unsigned t = 0; t < actualThreads; t++) {
+    futures.push_back(std::async(std::launch::async, [&]() -> bool {
+      for (;;) {
+        size_t j = nextPartition.fetch_add(1);
+        if (j >= partitions.size())
+          return true;
+        if (!copyPartition(oldDbPath / partitions[j], newDbPath / partitions[j], partitions[j]))
+          return false;
+      }
+    }));
+  }
 
-    for (auto &f : futures) {
-      if (!f.get())
-        return false;
-    }
+  for (auto &f : futures) {
+    if (!f.get())
+      return false;
   }
 
   return true;
