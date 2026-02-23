@@ -285,6 +285,7 @@ bool CPoolFrontendConfig::load(rapidjson::Document &document, std::string &error
     jsonParseString(object, "poolChangePasswordLinkPrefix", PoolChangePasswordLinkPrefix, &error, localPath, errorDescription);
     jsonParseString(object, "poolActivate2faLinkPrefix", PoolActivate2faLinkPrefix, &error, localPath, errorDescription);
     jsonParseString(object, "poolDeactivate2faLinkPrefix", PoolDeactivate2faLinkPrefix, &error, localPath, errorDescription);
+    jsonParseString(object, "coinGeckoApiKey", CoinGeckoApiKey, "", &error, localPath, errorDescription);
     jsonParseBoolean(object, "smtpEnabled", &SmtpEnabled, &error, localPath, errorDescription);
     jsonParseString(object, "smtpServer", SmtpServer, &error, localPath, errorDescription);
     jsonParseString(object, "smtpLogin", SmtpLogin, &error, localPath, errorDescription);

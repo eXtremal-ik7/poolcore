@@ -6,7 +6,7 @@
 
 class CPriceFetcher {
 public:
-  CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coinInfo);
+  CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coinInfo, const std::string &coinGeckoApiKey = "");
   double getBtcUsd();
   double getPrice(const std::string &coinName);
   double getPrice(size_t globalBackendIdx);
@@ -30,4 +30,6 @@ private:
   std::atomic<double> BTCPrice_;
 
   std::unique_ptr<std::atomic<double>[]> CurrentPrices_;
+  std::string ApiHost_;
+  uint64_t PollInterval_;
 };

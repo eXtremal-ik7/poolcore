@@ -11,7 +11,10 @@
 #include <netdb.h>
 #endif
 
-static void buildGetQuery(const std::string address, const std::string &host, xmstream &out)
+static void buildGetQuery(const std::string address,
+                          const std::string &host,
+                          const std::string &apiKey,
+                          xmstream &out)
 {
   out.write("GET ");
     out.write(address.data(), address.size());
@@ -21,18 +24,35 @@ static void buildGetQuery(const std::string address, const std::string &host, xm
     out.write("\r\n");
   out.write("User-Agent: poolcore/1.0\r\n");
   out.write("Accept: application/json\r\n");
+  if (!apiKey.empty()) {
+    out.write("x-cg-pro-api-key: ");
+    out.write(apiKey.data(), apiKey.size());
+    out.write("\r\n");
+  }
   out.write("\r\n");
 }
 
-CPriceFetcher::CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coinInfo) : MonitorBase_(monitorBase), CoinInfo_(coinInfo)
+CPriceFetcher::CPriceFetcher(asyncBase *monitorBase,
+                             std::vector<CCoinInfo> &coinInfo,
+                             const std::string &coinGeckoApiKey) :
+  MonitorBase_(monitorBase),
+  CoinInfo_(coinInfo)
 {
+  if (!coinGeckoApiKey.empty()) {
+    ApiHost_ = "pro-api.coingecko.com";
+    PollInterval_ = 60 * 1000000;
+  } else {
+    ApiHost_ = "api.coingecko.com";
+    PollInterval_ = 300 * 1000000;
+  }
+
   CurrentPrices_.reset(new std::atomic<double>[coinInfo.size()]);
   for (size_t i = 0; i < coinInfo.size(); i++)
     CurrentPrices_[i].store(0.0);
 
   // coingecko resolve
   {
-    struct hostent *host = gethostbyname("api.coingecko.com");
+    struct hostent *host = gethostbyname(ApiHost_.c_str());
     if (host) {
       struct in_addr **hostAddrList = (struct in_addr**)host->h_addr_list;
       if (hostAddrList[0]) {
@@ -40,7 +60,7 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coi
         Address_.port = htons(443);
         Address_.family = AF_INET;
       } else {
-        LOG_F(ERROR, "Can't lookup address %s\n", "coingecko.com");
+        LOG_F(ERROR, "Can't lookup address %s\n", ApiHost_.c_str());
         exit(1);
       }
     }
@@ -68,7 +88,7 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coi
     }
 
     query.append("&vs_currencies=USD");
-    buildGetQuery(query, "api.coingecko.com", PreparedQuery_);
+    buildGetQuery(query, ApiHost_, coinGeckoApiKey, PreparedQuery_);
   }
 
   Client_ = nullptr;
@@ -101,7 +121,7 @@ void CPriceFetcher::updatePrice()
   SSLSocket *object = sslSocketNew(MonitorBase_, nullptr);
   Client_ = httpsClientNew(MonitorBase_, object);
   dynamicBufferClear(&ParseCtx_.buffer);
-  aioHttpConnect(Client_, &Address_, "api.coingecko.com", 3000000, [](AsyncOpStatus status, HTTPClient*, void *arg) {
+  aioHttpConnect(Client_, &Address_, ApiHost_.c_str(), 3000000, [](AsyncOpStatus status, HTTPClient*, void *arg) {
     static_cast<CPriceFetcher*>(arg)->onConnect(status);
   }, this);
 }
@@ -111,7 +131,7 @@ void CPriceFetcher::onConnect(AsyncOpStatus status)
   if (status != aosSuccess) {
     LOG_F(ERROR, "PriceFetcher connect error %i", status);
     httpClientDelete(Client_);
-    userEventStartTimer(TimerEvent_, 60*1000000, 1);
+    userEventStartTimer(TimerEvent_, PollInterval_, 1);
     return;
   }
 
@@ -129,7 +149,7 @@ void CPriceFetcher::onRequest(AsyncOpStatus status)
   }
 
   httpClientDelete(Client_);
-  userEventStartTimer(TimerEvent_, 60*1000000, 1);
+  userEventStartTimer(TimerEvent_, PollInterval_, 1);
 }
 
 void CPriceFetcher::processRequest(const char *data, size_t size)

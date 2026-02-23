@@ -244,7 +244,7 @@ int main(int argc, char *argv[])
     }
 
     // Initialize price fetcher
-    poolContext.PriceFetcher.reset(new CPriceFetcher(monitorBase, poolContext.CoinList));
+    poolContext.PriceFetcher.reset(new CPriceFetcher(monitorBase, poolContext.CoinList, config.CoinGeckoApiKey));
 
     // Initialize all backends
     std::map<std::string, StatisticServer*> knownAlgo;

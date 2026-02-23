@@ -71,6 +71,8 @@ struct CPoolFrontendConfig {
   std::string PoolActivate2faLinkPrefix;
   std::string PoolDeactivate2faLinkPrefix;
 
+  std::string CoinGeckoApiKey;
+
   bool SmtpEnabled;
   std::string SmtpServer;
   std::string SmtpLogin;
