@@ -6,6 +6,7 @@
 #include "poolcommon/utils.h"
 #include "poolcore/priceFetcher.h"
 #include "loguru.hpp"
+#include <algorithm>
 #include <cstring>
 #include <math.h>
 #include <thread>
@@ -449,7 +450,7 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
         // Fixed-point 128.256: high 128 bits = integer satoshi, low 256 bits = fractional
         UInt<384> batchCost = lastBaseBlockReward + averageTxFee;
         batchCost /= entry.ExpectedWork;
-        batchCost *= entry.AcceptedWork;
+        batchCost *= std::min(entry.AcceptedWork, entry.ExpectedWork);
         batchCost.mulfp(saturateCoeff);
         result.AccountingBatch.PPSReferenceCost += batchCost;
 

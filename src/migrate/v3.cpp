@@ -1617,7 +1617,7 @@ static bool migrateUserSettings(const std::filesystem::path &srcPath, const std:
     newRecord.Login = oldRecord.Login;
     newRecord.Coin = oldRecord.Coin;
     newRecord.Payout.Address = oldRecord.Address;
-    newRecord.Payout.AutoPayout = oldRecord.AutoPayout;
+    newRecord.Payout.AutoPayout = false;
     newRecord.Payout.MinimalPayout = safeFromRational(oldRecord.MinimalPayout, "UserSettingsRecord.MinimalPayout");
 
     auto coinIt = coinMap.find(oldRecord.Coin);
