@@ -5,9 +5,9 @@
 #include <algorithm>
 
 StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const CCoinInfo &coinInfo) : _cfg(config), CoinInfo_(coinInfo),
-  PoolStatsAcc_("stats.pool.cache.3", config.StatisticPoolGridInterval, config.StatisticKeepTime),
-  UserStats_("stats.users.cache.3", config.StatisticUserGridInterval, config.StatisticKeepTime),
-  WorkerStats_("stats.workers.cache.3", config.StatisticWorkerGridInterval, config.StatisticKeepTime),
+  PoolStatsAcc_("stats.pool.cache", config.StatisticPoolGridInterval, config.StatisticKeepTime),
+  UserStats_("stats.users.cache", config.StatisticUserGridInterval, config.StatisticKeepTime),
+  WorkerStats_("stats.workers.cache", config.StatisticWorkerGridInterval, config.StatisticKeepTime),
   StatsDb_(_cfg.dbPath / "statistic", std::make_shared<CWorkSummaryMergeOperator>()),
   ShareLog_(_cfg.dbPath / "statistic.worklog", coinInfo.Name, _cfg.ShareLogFileSizeLimit),
   TaskHandler_(this, base),

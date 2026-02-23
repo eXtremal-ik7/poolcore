@@ -105,6 +105,8 @@ struct CCoinInfo {
 
 class CNetworkClient {
 public:
+  static constexpr uint64_t ConnectTimeout = 2500000;
+
   using SumbitBlockCb = std::function<void(bool, uint32_t, const std::string&, const std::string&)>;
 
   enum EOperationStatus {

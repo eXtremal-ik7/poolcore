@@ -306,9 +306,8 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return false;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return false;
-
 
   if (HasGetWalletInfo_) {
     rapidjson::Document document;
@@ -333,7 +332,7 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
       connection.reset(getConnection(base));
       if (!connection)
         return false;
-      if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+      if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
         return false;
       HasGetWalletInfo_ = false;
     } else {
@@ -362,6 +361,7 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
         return false;
       }
     }
+    LOG_F(INFO, "%s %s: ioGetBalance: getbalance failed", CoinInfo_.Name.c_str(), FullHostName_.c_str());
   }
 
   return false;
@@ -375,7 +375,7 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphanA
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return false;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return false;
 
   std::string jsonQuery = "[";
@@ -450,7 +450,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return CNetworkClient::EStatusNetworkError;
 
   std::string rawTransaction;
@@ -592,7 +592,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioSendTransaction(asyncBase 
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return CNetworkClient::EStatusNetworkError;
 
   xmstream postData;
@@ -637,7 +637,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioGetTxConfirmations(asyncBa
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return CNetworkClient::EStatusNetworkError;
 
   xmstream postData;
@@ -711,7 +711,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioListUnspent(asyncBase *bas
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return CNetworkClient::EStatusNetworkError;
 
   xmstream postData;
@@ -756,7 +756,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZSendMany(asyncBase *base,
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return CNetworkClient::EStatusNetworkError;
 
   xmstream postData;
@@ -812,7 +812,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioZGetBalance(asyncBase *bas
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return CNetworkClient::EStatusNetworkError;
 
   xmstream postData;

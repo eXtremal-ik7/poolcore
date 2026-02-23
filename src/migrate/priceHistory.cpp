@@ -111,8 +111,6 @@ static int64_t findEarliestPayoutTimestamp(const std::filesystem::path &sourceDa
     std::filesystem::path payoutsPath;
     if (std::filesystem::is_directory(I->path() / "pplns.payouts"))
       payoutsPath = I->path() / "pplns.payouts";
-    else if (std::filesystem::is_directory(I->path() / "pplns.payouts.2"))
-      payoutsPath = I->path() / "pplns.payouts.2";
     else
       continue;
 

@@ -173,7 +173,7 @@ bool CEthereumRpcClient::ioGetBalance(asyncBase *base, GetBalanceResult &result)
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return false;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return false;
 
   UInt<384> balance;
@@ -193,7 +193,7 @@ bool CEthereumRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphan
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return false;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return false;
 
   // First, get best chain height
@@ -233,7 +233,7 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return false;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return false;
 
   // First, get best chain height
@@ -300,7 +300,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return CNetworkClient::EStatusNetworkError;
 
   // Check balance first
@@ -376,7 +376,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioSendTransaction(asyncBase
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return CNetworkClient::EStatusNetworkError;
 
   if ((status = ethSendRawTransaction(connection.get(), txData)) != EStatusOk) {
@@ -412,7 +412,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncB
   std::unique_ptr<CConnection> connection(getConnection(base));
   if (!connection)
     return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, 5000000) != 0)
+  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
     return CNetworkClient::EStatusNetworkError;
 
   ETHTransaction tx;

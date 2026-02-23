@@ -128,7 +128,7 @@ static void makeRandom(BaseBlob<BITS> &number)
 UserManager::UserManager(const std::filesystem::path &dbPath) :
   UsersDb_(dbPath / "users"),
   UserFeePlanDb_(dbPath / "userfeeplan"),
-  UserSettingsDb_(dbPath / "usersettings.2"),
+  UserSettingsDb_(dbPath / "usersettings"),
   UserActionsDb_(dbPath / "useractions"),
   UserSessionsDb_(dbPath / "usersessions")
 {

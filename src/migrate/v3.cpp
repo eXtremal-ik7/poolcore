@@ -10,6 +10,7 @@
 #include "poolcommon/file.h"
 #include "poolcommon/utils.h"
 #include "poolcore/plugin.h"
+#include "poolcommon/path.h"
 #include "loguru.hpp"
 #include <atomic>
 #include <unordered_map>
@@ -230,7 +231,7 @@ static bool migratePPLNSPayouts(
     srcCoinPath,
     dstCoinPath,
     "pplns.payouts",
-    "pplns.payouts.2",
+    "pplns.payouts",
     [priceDb, &coinGeckoName, &fixedCount](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
       CPPLNSPayout2 oldRecord;
       if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
@@ -296,7 +297,7 @@ static bool migratePayouts(const std::filesystem::path &srcCoinPath,
                            std::unordered_set<std::string> &activeUsers)
 {
   CPerThreadCollector collector(threads);
-  bool result = migrateDatabaseMt(srcCoinPath, dstCoinPath, "payouts", "payouts.2", [&collector](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+  bool result = migrateDatabaseMt(srcCoinPath, dstCoinPath, "payouts", "payouts", [&collector](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
     PayoutDbRecord2 oldRecord;
     if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
       LOG_F(ERROR, "Can't deserialize payouts record, database corrupted");
@@ -327,7 +328,7 @@ static bool migratePayouts(const std::filesystem::path &srcCoinPath,
 
 static bool migratePoolBalance(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, const CCoinInfoOld2 &old2, unsigned threads)
 {
-  return migrateDatabaseMt(srcCoinPath, dstCoinPath, "poolBalance", "poolBalance.2", [&old2](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+  return migrateDatabaseMt(srcCoinPath, dstCoinPath, "poolBalance", "poolBalance", [&old2](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
     PoolBalanceRecord2 oldRecord;
     if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
       LOG_F(ERROR, "Can't deserialize poolBalance record, database corrupted");
@@ -351,55 +352,198 @@ static bool migratePoolBalance(const std::filesystem::path &srcCoinPath, const s
   }, threads);
 }
 
-static bool migrateFoundBlocks(const std::filesystem::path &srcCoinPath,
-                               const std::filesystem::path &dstCoinPath,
-                               const CCoinInfo &coinInfo,
-                               const CCoinInfoOld2 &old2,
-                               unsigned threads,
-                               std::unordered_set<std::string> &activeUsers)
+static bool migrateAllFoundBlocks(
+  const std::filesystem::path &srcPath,
+  const std::filesystem::path &dstPath,
+  const std::unordered_map<std::string, CCoinInfo> &coinMap,
+  const std::unordered_map<std::string, CCoinInfoOld2> &old2Map,
+  std::unordered_set<std::string> &activeUsers)
 {
-  CPerThreadCollector collector(threads);
-  std::atomic<unsigned> debugCount{0};
-  bool result = migrateDatabaseMt(srcCoinPath, dstCoinPath, "foundBlocks", "foundBlocks.2", [&coinInfo, &old2, &debugCount, &collector](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
-    FoundBlockRecord2 oldRecord;
-    if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
-      LOG_F(ERROR, "Can't deserialize foundBlocks record, database corrupted");
+  LOG_F(INFO, "Migrating foundBlocks with merged mining cross-references ...");
+
+  struct LoadedFoundBlock {
+    std::string SerializedKey;
+    FoundBlockRecord Record;
+  };
+
+  using PartitionKey = std::pair<std::string, std::string>;  // {coinName, partitionName}
+
+  struct PartitionKeyHash {
+    size_t operator()(const PartitionKey &k) const {
+      size_t h = std::hash<std::string>{}(k.first);
+      h ^= std::hash<std::string>{}(k.second) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      return h;
+    }
+  };
+
+  // All blocks grouped by partition from the start
+  std::unordered_map<PartitionKey, std::vector<LoadedFoundBlock>, PartitionKeyHash> partitions;
+
+  // Reference to a specific block: partition key + index within that partition's vector
+  struct BlockRef {
+    PartitionKey Partition;
+    size_t Index;
+  };
+
+  std::unordered_map<std::string, std::vector<BlockRef>> hashIndex;
+  size_t totalBlocks = 0;
+
+  // Pass 1: Load all found blocks from all coins, grouped by partition
+  for (const auto &[coinName, coinInfo] : coinMap) {
+    std::filesystem::path oldDbPath = srcPath / coinName / "foundBlocks";
+    if (!std::filesystem::exists(oldDbPath) || !std::filesystem::is_directory(oldDbPath))
+      continue;
+
+    const CCoinInfoOld2 &old2 = old2Map.at(coinName);
+    unsigned coinBlockCount = 0;
+
+    for (std::filesystem::directory_iterator I(oldDbPath), IE; I != IE; ++I) {
+      if (!is_directory(I->status()))
+        continue;
+
+      std::string partitionName = I->path().filename().generic_string();
+      PartitionKey partKey{coinName, partitionName};
+
+      rocksdb::Options options;
+      options.create_if_missing = false;
+      rocksdb::DB *rawDb = nullptr;
+      rocksdb::Status status = rocksdb::DB::Open(options, path_to_utf8(I->path()), &rawDb);
+      if (!status.ok()) {
+        LOG_F(ERROR, "Can't open foundBlocks partition %s/%s: %s",
+              coinName.c_str(), partitionName.c_str(), status.ToString().c_str());
+        return false;
+      }
+      std::unique_ptr<rocksdb::DB> srcDb(rawDb);
+
+      auto &partitionBlocks = partitions[partKey];
+
+      rocksdb::ReadOptions readOptions;
+      std::unique_ptr<rocksdb::Iterator> it(srcDb->NewIterator(readOptions));
+      for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        FoundBlockRecord2 oldRecord;
+        if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
+          LOG_F(ERROR, "Can't deserialize foundBlocks record for %s, database corrupted", coinName.c_str());
+          return false;
+        }
+
+        activeUsers.insert(oldRecord.FoundBy);
+
+        size_t idx = partitionBlocks.size();
+        LoadedFoundBlock &block = partitionBlocks.emplace_back();
+        block.SerializedKey.assign(it->key().data(), it->key().size());
+
+        FoundBlockRecord &rec = block.Record;
+        rec.Height = oldRecord.Height;
+        rec.Hash = oldRecord.Hash;
+        rec.Time = Timestamp::fromUnixTime(oldRecord.Time);
+        rec.GeneratedCoins = safeFromRational(oldRecord.AvailableCoins, "FoundBlockRecord.AvailableCoins");
+        rec.FoundBy = oldRecord.FoundBy;
+        rec.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+        rec.ExpectedWork.mulfp(oldRecord.ExpectedWork);
+        rec.AccumulatedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
+        rec.AccumulatedWork.mulfp(oldRecord.AccumulatedWork);
+        rec.PublicHash = oldRecord.PublicHash;
+
+        if (coinBlockCount < 10) {
+          LOG_F(INFO, "  %s: height=%llu availableCoins=%s foundBy=%s",
+                coinName.c_str(),
+                static_cast<unsigned long long>(rec.Height),
+                FormatMoney(rec.GeneratedCoins, coinInfo.FractionalPartSize).c_str(),
+                rec.FoundBy.c_str());
+        } else if (coinBlockCount == 10) {
+          LOG_F(INFO, "  %s: ... and more", coinName.c_str());
+        }
+        coinBlockCount++;
+        totalBlocks++;
+
+        hashIndex[rec.Hash].push_back({partKey, idx});
+      }
+    }
+
+    if (coinBlockCount > 0)
+      LOG_F(INFO, "  %s: loaded %u foundBlocks", coinName.c_str(), coinBlockCount);
+  }
+
+  if (totalBlocks == 0) {
+    LOG_F(INFO, "  No foundBlocks to migrate");
+    return true;
+  }
+
+  // Pass 2: Fill MergedBlocks for blocks sharing the same hash
+  unsigned mergedCount = 0;
+  for (const auto &[hash, refs] : hashIndex) {
+    if (refs.size() < 2)
+      continue;
+
+    mergedCount++;
+    for (const auto &ref : refs) {
+      LoadedFoundBlock &block = partitions.at(ref.Partition)[ref.Index];
+      for (const auto &other : refs) {
+        if (&ref == &other)
+          continue;
+        const FoundBlockRecord &otherRecord = partitions.at(other.Partition)[other.Index].Record;
+        CMergedBlockInfo info;
+        info.CoinName = other.Partition.first;
+        info.Height = otherRecord.Height;
+        info.Hash = otherRecord.Hash;
+        block.Record.MergedBlocks.push_back(std::move(info));
+      }
+    }
+  }
+
+  LOG_F(INFO, "  Loaded %zu blocks total, %u hashes shared across coins", totalBlocks, mergedCount);
+
+  // Pass 3: Write each partition to destination database (no grouping needed)
+  for (const auto &[partKey, blocks] : partitions) {
+    const auto &[coinName, partitionName] = partKey;
+
+    std::filesystem::path dstDbPath = dstPath / coinName / "foundBlocks";
+    std::filesystem::create_directories(dstDbPath);
+
+    std::filesystem::path dstPartPath = dstDbPath / partitionName;
+    rocksdb::Options options;
+    options.create_if_missing = true;
+    options.compression = rocksdb::kZSTD;
+    rocksdb::DB *rawDb = nullptr;
+    rocksdb::Status status = rocksdb::DB::Open(options, path_to_utf8(dstPartPath), &rawDb);
+    if (!status.ok()) {
+      LOG_F(ERROR, "Can't create foundBlocks partition %s/%s: %s",
+            coinName.c_str(), partitionName.c_str(), status.ToString().c_str());
       return false;
     }
+    std::unique_ptr<rocksdb::DB> dstDb(rawDb);
 
-    collector.insert(oldRecord.FoundBy);
+    rocksdb::WriteBatch batch;
+    unsigned batchCount = 0;
+    for (const auto &block : blocks) {
+      xmstream stream;
+      block.Record.serializeValue(stream);
+      batch.Put(
+        rocksdb::Slice(block.SerializedKey.data(), block.SerializedKey.size()),
+        rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
 
-    FoundBlockRecord newRecord;
-    newRecord.Height = oldRecord.Height;
-    newRecord.Hash = oldRecord.Hash;
-    newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
-    newRecord.GeneratedCoins = safeFromRational(oldRecord.AvailableCoins, "FoundBlockRecord.AvailableCoins");
-    newRecord.FoundBy = oldRecord.FoundBy;
-    newRecord.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-    newRecord.ExpectedWork.mulfp(oldRecord.ExpectedWork);
-    newRecord.AccumulatedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
-    newRecord.AccumulatedWork.mulfp(oldRecord.AccumulatedWork);
-    newRecord.PublicHash = oldRecord.PublicHash;
-
-    unsigned n = debugCount.fetch_add(1);
-    if (n < 10) {
-      LOG_F(INFO, "  height=%llu availableCoins=%s foundBy=%s",
-            static_cast<unsigned long long>(newRecord.Height),
-            FormatMoney(newRecord.GeneratedCoins, coinInfo.FractionalPartSize).c_str(),
-            newRecord.FoundBy.c_str());
-    } else if (n == 10) {
-      LOG_F(INFO, "  ... and more");
+      batchCount++;
+      if (batchCount >= MigrateBatchSize) {
+        rocksdb::WriteOptions writeOptions;
+        dstDb->Write(writeOptions, &batch);
+        batch.Clear();
+        batchCount = 0;
+      }
     }
 
-    xmstream stream;
-    newRecord.serializeValue(stream);
-    batch.Put(it->key(), rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
-    return true;
-  }, threads);
+    if (batchCount > 0) {
+      rocksdb::WriteOptions writeOptions;
+      dstDb->Write(writeOptions, &batch);
+    }
 
-  if (result)
-    collector.mergeInto(activeUsers);
-  return result;
+    LOG_F(INFO, "  %s/%s: wrote %zu records, compacting...",
+          coinName.c_str(), partitionName.c_str(), blocks.size());
+    rocksdb::CompactRangeOptions compactOptions;
+    dstDb->CompactRange(compactOptions, nullptr, nullptr);
+  }
+
+  LOG_F(INFO, "  Successfully migrated %zu foundBlocks", totalBlocks);
+  return true;
 }
 
 // Helper: try to parse .dat file into CAccountingFileData
@@ -960,11 +1104,10 @@ static bool migrateStatsCache(const std::filesystem::path &srcCoinPath,
                               unsigned threads,
                               uint64_t lastShareIdOverride = UINT64_MAX)
 {
-  std::string dstName = std::string(baseName) + ".3";
   std::string v2Name = std::string(baseName) + ".2";
-  if (!migrateStatsCacheV1(srcCoinPath, dstCoinPath, baseName, dstName.c_str(), old2, threads, lastShareIdOverride))
+  if (!migrateStatsCacheV1(srcCoinPath, dstCoinPath, baseName, baseName, old2, threads, lastShareIdOverride))
     return false;
-  if (!migrateStatsCacheV2(srcCoinPath, dstCoinPath, v2Name.c_str(), dstName.c_str(), old2, threads, lastShareIdOverride))
+  if (!migrateStatsCacheV2(srcCoinPath, dstCoinPath, v2Name.c_str(), baseName, old2, threads, lastShareIdOverride))
     return false;
   return true;
 }
@@ -1417,17 +1560,14 @@ static bool migrateCoin(const std::filesystem::path &srcPath,
 
   LOG_F(INFO, "Migrating %s: %s", coinInfo.IsAlgorithm ? "algorithm" : "coin", coinInfo.Name.c_str());
 
-  // poolBalance.2/
+  // poolBalance/
   if (!migratePoolBalance(srcCoinPath, dstCoinPath, old2, threads))
     return false;
-  // pplns.payouts.2/
+  // pplns.payouts/
   if (!migratePPLNSPayouts(srcCoinPath, dstCoinPath, threads, priceDb, coinInfo.CoinGeckoName))
     return false;
-  // payouts.2/
+  // payouts/
   if (!migratePayouts(srcCoinPath, dstCoinPath, threads, activeUsers))
-    return false;
-  // foundBlocks.2/
-  if (!migrateFoundBlocks(srcCoinPath, dstCoinPath, coinInfo, old2, threads, activeUsers))
     return false;
   // statistic/  (workerStats + poolstats)
   if (!migrateStatistic(srcCoinPath, dstCoinPath, old2, threads, statisticCutoff))
@@ -1442,10 +1582,10 @@ static bool migrateCoin(const std::filesystem::path &srcPath,
   if (!migrateShareLogToWorklog(srcCoinPath, dstCoinPath, old2, &poolCacheLastShareId, &workersCacheLastShareId))
     return false;
 
-  // stats.pool.cache.3/  (v1 + v2 → v3)
+  // stats.pool.cache/  (v1 + v2 → current)
   if (!migrateStatsCache(srcCoinPath, dstCoinPath, "stats.pool.cache", old2, threads, poolCacheLastShareId))
     return false;
-  // stats.workers.cache.3/  (v1 + v2 → v3)
+  // stats.workers.cache/  (v1 + v2 → current)
   if (!migrateStatsCache(srcCoinPath, dstCoinPath, "stats.workers.cache", old2, threads, workersCacheLastShareId))
     return false;
 
@@ -1453,11 +1593,11 @@ static bool migrateCoin(const std::filesystem::path &srcPath,
   // Statistics and Accounting each maintain their own independent user stats accumulator
   // (CStatsSeriesMap), so after migration the same data must exist in both directories.
   {
-    std::filesystem::path srcDir = dstCoinPath / "stats.users.cache.3";
+    std::filesystem::path srcDir = dstCoinPath / "stats.users.cache";
     std::filesystem::path dstDir = dstCoinPath / "accounting.userstats";
     if (std::filesystem::exists(srcDir)) {
       std::filesystem::copy(srcDir, dstDir, std::filesystem::copy_options::recursive);
-      LOG_F(INFO, "  Copied stats.users.cache.3 -> accounting.userstats");
+      LOG_F(INFO, "  Copied stats.users.cache -> accounting.userstats");
     }
   }
 
@@ -1466,7 +1606,7 @@ static bool migrateCoin(const std::filesystem::path &srcPath,
 
 static bool migrateUserSettings(const std::filesystem::path &srcPath, const std::filesystem::path &dstPath, const std::unordered_map<std::string, CCoinInfo> &coinMap)
 {
-  return migrateDatabase(srcPath, dstPath, "usersettings", "usersettings.2", [&coinMap](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+  return migrateDatabase(srcPath, dstPath, "usersettings", "usersettings", [&coinMap](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
     UserSettingsRecord2 oldRecord;
     if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
       LOG_F(ERROR, "Can't deserialize user settings record, database corrupted");
@@ -1555,15 +1695,26 @@ bool migrateV3(const std::filesystem::path &srcPath, const std::filesystem::path
       return false;
   }
 
+  // Migrate foundBlocks across all coins (with merged mining cross-references)
+  if (!migrateAllFoundBlocks(srcPath, dstPath, coinMap, old2Map, activeUsers))
+    return false;
+
   // Migrate users — copy only active users (have balance/payouts/blocks or registered recently)
   if (!migrateUsers(srcPath, dstPath, activeUsers))
     return false;
 
   // Copy non-coin databases (no format changes, just rewrite with zstd compression)
-  static const char *copyDirs[] = {"useractions", "userfeeplan", "usersessions"};
+  static const char *copyDirs[] = {"useractions", "usersessions"};
   for (const char *dir : copyDirs) {
     if (!copyDatabase(srcPath, dstPath, dir, threads))
       return false;
+  }
+
+  // Create empty userfeeplan (old data is incompatible, start fresh)
+  {
+    std::filesystem::path feeplanPath = dstPath / "userfeeplan";
+    std::filesystem::create_directories(feeplanPath);
+    LOG_F(INFO, "Created empty userfeeplan database (old data discarded)");
   }
 
   return true;
