@@ -398,6 +398,7 @@ bool FoundBlockRecord::deserializeValue(const void *data, size_t size)
     dbIoUnserialize(stream, PublicHash);
     dbIoUnserialize(stream, MergedBlocks);
     dbIoUnserialize(stream, PrevFoundHash);
+    dbIoUnserialize(stream, ShareHash);
   }
 
   return !stream.eof();
@@ -423,6 +424,7 @@ void FoundBlockRecord::serializeValue(xmstream &stream) const
   dbIoSerialize(stream, PublicHash);
   dbIoSerialize(stream, MergedBlocks);
   dbIoSerialize(stream, PrevFoundHash);
+  dbIoSerialize(stream, ShareHash);
 }
 
 // ====================== PoolBalance ======================

@@ -122,7 +122,7 @@ public:
   void distributeBlockReward(MiningRound &R);
   CProcessedWorkSummary processWorkSummaryBatch(const CUserWorkSummaryBatch &batch);
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
-  void onBlockFound(const CBlockFoundData &block, const BaseBlob<256> &shareHash);
+  void onBlockFound(const CBlockFoundData &block);
   void onMergedBlockNotification(const std::string &coinName, uint64_t height, const std::string &hash, const BaseBlob<256> &shareHash);
   void onUserSettingsUpdate(const UserSettingsRecord &settings);
   void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::UserFeePair> &feeRecord);

@@ -714,7 +714,8 @@ private:
             block->GeneratedCoins = generatedCoins;
             block->ExpectedWork = expectedWork;
             block->PrimePOWTarget = 0;
-            backend->sendBlockFound(block, shareHash, std::move(shareBackends));
+            block->ShareHash = shareHash;
+            backend->sendBlockFound(block, std::move(shareBackends));
           }
         } else {
           LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
@@ -845,7 +846,8 @@ private:
               block->GeneratedCoins = generatedCoins;
               block->ExpectedWork = expectedWork;
               block->PrimePOWTarget = 0;
-              backend->sendBlockFound(block, shareHash, std::move(shareBackends));
+              block->ShareHash = shareHash;
+              backend->sendBlockFound(block, std::move(shareBackends));
             }
           } else {
             LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());

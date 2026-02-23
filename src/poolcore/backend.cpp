@@ -111,10 +111,10 @@ void PoolBackend::onWorkSummary(const CWorkSummaryBatch &batch)
   _statistics->onWorkSummary(batch);
 }
 
-void PoolBackend::onBlockFound(const CBlockFoundData &block, const BaseBlob<256> &shareHash, const std::vector<PoolBackend*> &shareBackends) {
-  _accounting->onBlockFound(block, shareHash);
+void PoolBackend::onBlockFound(const CBlockFoundData &block, const std::vector<PoolBackend*> &shareBackends) {
+  _accounting->onBlockFound(block);
   for (PoolBackend *other : shareBackends)
-    other->sendMergedBlockNotification(CoinInfo_.Name, block.Height, block.Hash, shareHash);
+    other->sendMergedBlockNotification(CoinInfo_.Name, block.Height, block.Hash, block.ShareHash);
 }
 
 void PoolBackend::onUserSettingsUpdate(const UserSettingsRecord &settings)

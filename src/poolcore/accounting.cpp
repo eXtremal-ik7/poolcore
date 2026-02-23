@@ -529,7 +529,7 @@ void AccountingDb::onUserFeePlanChange(const std::string &login, const std::stri
   LOG_F(INFO, "AccountingDb %s: user '%s' fee plan changed to '%s'", CoinInfo_.Name.c_str(), login.c_str(), feePlanId.c_str());
 }
 
-void AccountingDb::onBlockFound(const CBlockFoundData &block, const BaseBlob<256> &shareHash)
+void AccountingDb::onBlockFound(const CBlockFoundData &block)
 {
   UInt<256> accumulatedWork = UInt<256>::zero();
   for (const auto &score: State_.CurrentScores)
@@ -545,6 +545,7 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block, const BaseBlob<256
     blk.FoundBy = block.UserId;
     blk.ExpectedWork = block.ExpectedWork;
     blk.AccumulatedWork = accumulatedWork;
+    blk.ShareHash = block.ShareHash;
     if (hasDeferredReward())
       blk.PublicHash = "?";
     _foundBlocksDb.put(blk);
@@ -609,7 +610,7 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block, const BaseBlob<256
   PPSHistoryDb_.put(State_.PPSState);
 
   // Register this block for merged block notifications
-  auto [mIt, inserted] = PendingMergedNotifications_.try_emplace(shareHash);
+  auto [mIt, inserted] = PendingMergedNotifications_.try_emplace(block.ShareHash);
   auto &entry = mIt->second;
   entry.Height = block.Height;
   entry.Hash = block.Hash;
@@ -617,7 +618,7 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block, const BaseBlob<256
   if (!entry.Pending.empty())
     flushPendingMergedBlocks(entry);
   if (inserted)
-    PendingMergedTimestamps_.emplace_back(shareHash, Timestamp::now());
+    PendingMergedTimestamps_.emplace_back(block.ShareHash, Timestamp::now());
 }
 
 void AccountingDb::onMergedBlockNotification(const std::string &coinName, uint64_t height,

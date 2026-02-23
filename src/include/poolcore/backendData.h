@@ -31,6 +31,7 @@ struct CBlockFoundData {
   UInt<384> GeneratedCoins;
   UInt<256> ExpectedWork;
   uint32_t PrimePOWTarget;
+  BaseBlob<256> ShareHash;
 };
 
 
@@ -406,6 +407,8 @@ struct FoundBlockRecord {
   std::vector<CMergedBlockInfo> MergedBlocks;
   // Hash of the previous found block (forms a chain for efficient confirmation queries)
   std::string PrevFoundHash;
+  // Share hash used to correlate merged mining blocks
+  BaseBlob<256> ShareHash;
 
   std::string getPartitionId() const { return partByHeight(Height); }
   bool deserializeValue(const void *data, size_t size);
@@ -491,6 +494,7 @@ struct DbIo<CBlockFoundData> {
     DbIo<UInt<384>>::serialize(stream, data.GeneratedCoins);
     DbIo<UInt<256>>::serialize(stream, data.ExpectedWork);
     DbIo<uint32_t>::serialize(stream, data.PrimePOWTarget);
+    DbIo<BaseBlob<256>>::serialize(stream, data.ShareHash);
   }
 
   static inline void unserialize(xmstream &stream, CBlockFoundData &data) {
@@ -501,6 +505,7 @@ struct DbIo<CBlockFoundData> {
     DbIo<UInt<384>>::unserialize(stream, data.GeneratedCoins);
     DbIo<UInt<256>>::unserialize(stream, data.ExpectedWork);
     DbIo<uint32_t>::unserialize(stream, data.PrimePOWTarget);
+    DbIo<BaseBlob<256>>::unserialize(stream, data.ShareHash);
   }
 };
 
