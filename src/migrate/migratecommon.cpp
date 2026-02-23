@@ -384,3 +384,13 @@ std::string formatSI(const std::string &decimal)
   result += suffixes[level];
   return result;
 }
+
+bool isNonCoinDirectory(const std::string &name)
+{
+  static const char *skip[] = {"useractions", "userfeeplan", "users", "usersessions", "usersettings"};
+  for (const char *prefix : skip) {
+    if (name.starts_with(prefix))
+      return true;
+  }
+  return false;
+}

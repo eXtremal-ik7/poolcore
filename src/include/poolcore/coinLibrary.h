@@ -981,7 +981,7 @@ public:
       info.PubkeyAddressPrefix = {56};
       info.ScriptAddressPrefix = {22};
       info.DefaultRpcPort = 33873;
-      info.CoinGeckoName = "pepecoin";
+      info.CoinGeckoName = "pepecoin-network";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";

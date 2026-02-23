@@ -11,6 +11,7 @@
 #include "poolcommon/utils.h"
 #include "poolcore/plugin.h"
 #include "loguru.hpp"
+#include <atomic>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -118,15 +119,6 @@ private:
 
 std::atomic<size_t> CPerThreadCollector::nextGeneration_{1};
 
-static bool isNonCoinDirectory(const std::string &name)
-{
-  static const char *skip[] = {"useractions", "userfeeplan", "users", "usersessions", "usersettings"};
-  for (const char *prefix : skip) {
-    if (name.starts_with(prefix))
-      return true;
-  }
-  return false;
-}
 
 static bool loadCoinMap(const std::filesystem::path &srcPath,
                         std::unordered_map<std::string, CCoinInfo> &coinMap,
@@ -225,33 +217,77 @@ static bool migrateStatistic(const std::filesystem::path &srcCoinPath,
   return true;
 }
 
-static bool migratePPLNSPayouts(const std::filesystem::path &srcCoinPath, const std::filesystem::path &dstCoinPath, unsigned threads)
+static bool migratePPLNSPayouts(
+  const std::filesystem::path &srcCoinPath,
+  const std::filesystem::path &dstCoinPath,
+  unsigned threads,
+  const CPriceDatabase *priceDb,
+  const std::string &coinGeckoName)
 {
-  return migrateDatabaseMt(srcCoinPath, dstCoinPath, "pplns.payouts", "pplns.payouts.2", [](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
-    CPPLNSPayout2 oldRecord;
-    if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
-      LOG_F(ERROR, "Can't deserialize pplns.payouts record, database corrupted");
-      return false;
-    }
+  std::atomic<unsigned> fixedCount{0};
 
-    CPPLNSPayout newRecord;
-    newRecord.Login = oldRecord.Login;
-    newRecord.RoundStartTime = Timestamp::fromUnixTime(oldRecord.RoundStartTime);
-    newRecord.BlockHash = oldRecord.BlockHash;
-    newRecord.BlockHeight = oldRecord.BlockHeight;
-    newRecord.RoundEndTime = Timestamp::fromUnixTime(oldRecord.RoundEndTime);
-    newRecord.PayoutValue = safeFromRational(oldRecord.PayoutValue, "CPPLNSPayout.PayoutValue");
-    newRecord.RateToBTC = oldRecord.RateToBTC;
-    newRecord.RateBTCToUSD = oldRecord.RateBTCToUSD;
+  bool result = migrateDatabaseMt(
+    srcCoinPath,
+    dstCoinPath,
+    "pplns.payouts",
+    "pplns.payouts.2",
+    [priceDb, &coinGeckoName, &fixedCount](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+      CPPLNSPayout2 oldRecord;
+      if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
+        LOG_F(ERROR, "Can't deserialize pplns.payouts record, database corrupted");
+        return false;
+      }
 
-    xmstream keyStream;
-    newRecord.serializeKey(keyStream);
-    xmstream valStream;
-    newRecord.serializeValue(valStream);
-    batch.Put(rocksdb::Slice(keyStream.data<const char>(), keyStream.sizeOf()),
-              rocksdb::Slice(valStream.data<const char>(), valStream.sizeOf()));
-    return true;
-  }, threads);
+      CPPLNSPayout newRecord;
+      newRecord.Login = oldRecord.Login;
+      newRecord.RoundStartTime = Timestamp::fromUnixTime(oldRecord.RoundStartTime);
+      newRecord.BlockHash = oldRecord.BlockHash;
+      newRecord.BlockHeight = oldRecord.BlockHeight;
+      newRecord.RoundEndTime = Timestamp::fromUnixTime(oldRecord.RoundEndTime);
+      newRecord.PayoutValue = safeFromRational(oldRecord.PayoutValue, "CPPLNSPayout.PayoutValue");
+      if (priceDb && !coinGeckoName.empty()) {
+        double btcPrice = priceDb->lookupPrice("bitcoin", oldRecord.RoundEndTime);
+        if (btcPrice > 0.0) {
+          if (coinGeckoName == "bitcoin") {
+            newRecord.RateToBTC = 1.0;
+            newRecord.RateBTCToUSD = btcPrice;
+            fixedCount.fetch_add(1);
+          } else {
+            double coinPrice = priceDb->lookupPrice(coinGeckoName, oldRecord.RoundEndTime);
+            if (coinPrice > 0.0) {
+              newRecord.RateToBTC = coinPrice / btcPrice;
+              newRecord.RateBTCToUSD = btcPrice;
+              fixedCount.fetch_add(1);
+            } else {
+              newRecord.RateToBTC = oldRecord.RateToBTC;
+              newRecord.RateBTCToUSD = oldRecord.RateBTCToUSD;
+            }
+          }
+        } else {
+          newRecord.RateToBTC = oldRecord.RateToBTC;
+          newRecord.RateBTCToUSD = oldRecord.RateBTCToUSD;
+        }
+      } else {
+        newRecord.RateToBTC = oldRecord.RateToBTC;
+        newRecord.RateBTCToUSD = oldRecord.RateBTCToUSD;
+      }
+
+      xmstream keyStream;
+      newRecord.serializeKey(keyStream);
+      xmstream valStream;
+      newRecord.serializeValue(valStream);
+      batch.Put(
+        rocksdb::Slice(keyStream.data<const char>(), keyStream.sizeOf()),
+        rocksdb::Slice(valStream.data<const char>(), valStream.sizeOf()));
+      return true;
+    },
+    threads);
+
+  unsigned fixed = fixedCount.load();
+  if (fixed > 0)
+    LOG_F(INFO, "  pplns.payouts: updated exchange rates in %u records", fixed);
+
+  return result;
 }
 
 static bool migratePayouts(const std::filesystem::path &srcCoinPath,
@@ -1370,7 +1406,8 @@ static bool migrateCoin(const std::filesystem::path &srcPath,
                         const CCoinInfoOld2 &old2,
                         unsigned threads,
                         const std::string &statisticCutoff,
-                        std::unordered_set<std::string> &activeUsers)
+                        std::unordered_set<std::string> &activeUsers,
+                        const CPriceDatabase *priceDb)
 {
   std::filesystem::path srcCoinPath = srcPath / coinInfo.Name;
   if (!std::filesystem::exists(srcCoinPath))
@@ -1384,7 +1421,7 @@ static bool migrateCoin(const std::filesystem::path &srcPath,
   if (!migratePoolBalance(srcCoinPath, dstCoinPath, old2, threads))
     return false;
   // pplns.payouts.2/
-  if (!migratePPLNSPayouts(srcCoinPath, dstCoinPath, threads))
+  if (!migratePPLNSPayouts(srcCoinPath, dstCoinPath, threads, priceDb, coinInfo.CoinGeckoName))
     return false;
   // payouts.2/
   if (!migratePayouts(srcCoinPath, dstCoinPath, threads, activeUsers))
@@ -1494,8 +1531,16 @@ static bool migrateUsers(const std::filesystem::path &srcPath,
   return result;
 }
 
-bool migrateV3(const std::filesystem::path &srcPath, const std::filesystem::path &dstPath, unsigned threads, const std::string &statisticCutoff)
+bool migrateV3(const std::filesystem::path &srcPath, const std::filesystem::path &dstPath, unsigned threads, const std::string &statisticCutoff, const std::filesystem::path &priceDbPath)
 {
+  CPriceDatabase priceDb;
+  const CPriceDatabase *priceDbPtr = nullptr;
+  if (!priceDbPath.empty()) {
+    if (!loadPriceDatabase(priceDbPath, priceDb))
+      return false;
+    priceDbPtr = &priceDb;
+  }
+
   std::unordered_map<std::string, CCoinInfo> coinMap;
   std::unordered_map<std::string, CCoinInfoOld2> old2Map;
   if (!loadCoinMap(srcPath, coinMap, old2Map))
@@ -1506,7 +1551,7 @@ bool migrateV3(const std::filesystem::path &srcPath, const std::filesystem::path
 
   std::unordered_set<std::string> activeUsers;
   for (const auto &[name, coinInfo] : coinMap) {
-    if (!migrateCoin(srcPath, dstPath, coinInfo, old2Map[name], threads, statisticCutoff, activeUsers))
+    if (!migrateCoin(srcPath, dstPath, coinInfo, old2Map[name], threads, statisticCutoff, activeUsers, priceDbPtr))
       return false;
   }
 
