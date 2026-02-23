@@ -1,6 +1,7 @@
 #pragma once
 
 #include "p2putils/xmstream.h"
+#include <cstring>
 #include <string>
 
 namespace JSON {
@@ -8,6 +9,40 @@ namespace JSON {
 static inline char bin2hexLowerCaseDigit(uint8_t b, bool upperCase)
 {
   return b < 10 ? '0'+b : (upperCase ? 'A' : 'a') + b - 10;
+}
+
+static inline void writeEscapedString(xmstream &stream, const char *data, size_t size)
+{
+  const char *start = data;
+  const char *end = data + size;
+  for (const char *p = start; p < end; ++p) {
+    uint8_t ch = static_cast<uint8_t>(*p);
+    if (ch >= 0x20 && ch != '"' && ch != '\\')
+      continue;
+    if (p > start)
+      stream.write(start, p - start);
+    switch (ch) {
+      case '"':  stream.write("\\\"", 2); break;
+      case '\\': stream.write("\\\\", 2); break;
+      case '\b': stream.write("\\b", 2); break;
+      case '\f': stream.write("\\f", 2); break;
+      case '\n': stream.write("\\n", 2); break;
+      case '\r': stream.write("\\r", 2); break;
+      case '\t': stream.write("\\t", 2); break;
+      default: {
+        char buf[6] = {
+          '\\', 'u', '0', '0',
+          bin2hexLowerCaseDigit(ch >> 4, false),
+          bin2hexLowerCaseDigit(ch & 0xF, false)
+        };
+        stream.write(buf, 6);
+        break;
+      }
+    }
+    start = p + 1;
+  }
+  if (end > start)
+    stream.write(start, end - start);
 }
 
 class Object {
@@ -47,21 +82,21 @@ public:
   void addString(const char *name, const std::string &value) {
     addField(name);
     Stream_.write('\"');
-    Stream_.write(value.data(), value.size());
+    writeEscapedString(Stream_, value.data(), value.size());
     Stream_.write('\"');
   }
 
   void addString(const char *name, const void *value, size_t size) {
     addField(name);
     Stream_.write('\"');
-    Stream_.write(value, size);
+    writeEscapedString(Stream_, static_cast<const char*>(value), size);
     Stream_.write('\"');
   }
 
   void addString(const char *name, const char *value) {
     addField(name);
     Stream_.write('\"');
-    Stream_.write(value);
+    writeEscapedString(Stream_, value, strlen(value));
     Stream_.write('\"');
   }
 
@@ -153,21 +188,21 @@ public:
   void addString(const void *value, size_t size) {
     addField();
     Stream_.write('\"');
-    Stream_.write(value, size);
+    writeEscapedString(Stream_, static_cast<const char*>(value), size);
     Stream_.write('\"');
   }
 
   void addString(const std::string &value) {
     addField();
     Stream_.write('\"');
-    Stream_.write(value.data(), value.size());
+    writeEscapedString(Stream_, value.data(), value.size());
     Stream_.write('\"');
   }
 
   void addString(const char *value) {
     addField();
     Stream_.write('\"');
-    Stream_.write(value);
+    writeEscapedString(Stream_, value, strlen(value));
     Stream_.write('\"');
   }
 
