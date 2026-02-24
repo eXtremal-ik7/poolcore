@@ -483,7 +483,8 @@ std::vector<CPPSState> CAccountingApi::queryPPSHistory(int64_t timeFrom, int64_t
 }
 
 const char *CAccountingApi::updateBackendSettings(const std::optional<CBackendSettings::PPS> &pps,
-                                                  const std::optional<CBackendSettings::Payouts> &payouts)
+                                                  const std::optional<CBackendSettings::Payouts> &payouts,
+                                                  const std::optional<CBackendSettings::Swap> &swap)
 {
   CBackendSettings settings = State_.BackendSettings.load(std::memory_order_relaxed);
 
@@ -528,6 +529,15 @@ const char *CAccountingApi::updateBackendSettings(const std::optional<CBackendSe
 
     settings.PayoutConfig = *payouts;
     LOG_F(INFO, "[%s] Payouts config updated", CoinInfo_.Name.c_str());
+  }
+
+  if (swap.has_value()) {
+    settings.SwapConfig = *swap;
+    LOG_F(INFO,
+      "[%s] Swap config updated: acceptIncoming=%d, acceptOutgoing=%d",
+      CoinInfo_.Name.c_str(),
+      static_cast<int>(swap->AcceptIncoming),
+      static_cast<int>(swap->AcceptOutgoing));
   }
 
   State_.BackendSettings.store(settings, std::memory_order_relaxed);

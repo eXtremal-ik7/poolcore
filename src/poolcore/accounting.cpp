@@ -886,21 +886,18 @@ bool AccountingDb::applyReward(const std::string &address,
   }
 
   auto settingsIt = UserSettings_.find(balance.Login);
+  auto payoutConfig = State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig;
   UInt<384> nonQueuedBalance = balance.Balance - balance.Requested;
   if (!nonQueuedBalance.isNegative() &&
+      payoutConfig.InstantPayoutsEnabled &&
       settingsIt != UserSettings_.end() &&
-      settingsIt->second.Payout.AutoPayout) {
-    auto instantMinimalPayout = State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout;
-    auto userMinimalPayout = settingsIt->second.Payout.MinimalPayout;
-    if (userMinimalPayout < instantMinimalPayout) {
-      LOG_F(WARNING,
-            "[%s] User %s has MinimalPayout below pool's InstantMinimalPayout, using pool minimum",
-            CoinInfo_.Name.c_str(),
-            balance.Login.c_str());
-      userMinimalPayout = instantMinimalPayout;
-    }
+      settingsIt->second.Payout.Mode == EPayoutMode::Instant) {
+    auto instantMinimalPayout = payoutConfig.InstantMinimalPayout;
+    auto userThreshold = settingsIt->second.Payout.InstantPayoutThreshold;
+    if (userThreshold < instantMinimalPayout)
+      userThreshold = instantMinimalPayout;
 
-    if (nonQueuedBalance >= userMinimalPayout) {
+    if (nonQueuedBalance >= userThreshold) {
       State_.PayoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
       balance.Requested += nonQueuedBalance;
       result = true;

@@ -39,9 +39,12 @@ bool CAccountingState::load(const CCoinInfo &coinInfo)
       DbIo<Timestamp>::unserialize(stream, CurrentRoundStartTime);
     } else if (keyStr == ".settings") {
       CBackendSettings settings;
-      DbIo<CBackendSettings>::unserialize(stream, settings);
-      BackendSettings.store(settings, std::memory_order_relaxed);
-      settingsLoaded = true;
+      if (unserialize(stream, settings)) {
+        BackendSettings.store(settings, std::memory_order_relaxed);
+        settingsLoaded = true;
+      } else {
+        LOG_F(ERROR, "accounting: can't deserialize backend settings");
+      }
     } else if (keyStr == ".ppsstate") {
       DbIo<CPPSState>::unserialize(stream, PPSState);
     } else if (keyStr == ".payoutqueue") {
@@ -163,7 +166,7 @@ void CAccountingState::flushState(rocksdbBase::CBatch &batch)
 void CAccountingState::flushBackendSettings()
 {
   xmstream stream;
-  DbIo<CBackendSettings>::serialize(stream, BackendSettings.load(std::memory_order_relaxed));
+  serialize(stream, BackendSettings.load(std::memory_order_relaxed));
   Db.put("default", ".settings", 9, stream.data(), stream.sizeOf());
 }
 

@@ -1096,14 +1096,13 @@ void UserManager::updateCredentialsImpl(const std::string &sessionId, const std:
   callback("ok");
 }
 
-void UserManager::updateSettingsImpl(
-  const std::string &login,
-  const std::string &coin,
-  const std::optional<CSettingsPayout> &payout,
-  const std::optional<CSettingsMining> &mining,
-  const std::optional<CSettingsAutoExchange> &autoExchange,
-  const std::string &totp,
-  Task::DefaultCb callback)
+void UserManager::updateSettingsImpl(const std::string &login,
+                                     const std::string &coin,
+                                     const std::optional<CSettingsPayout> &payout,
+                                     const std::optional<CSettingsMining> &mining,
+                                     const std::optional<CSettingsAutoExchange> &autoExchange,
+                                     const std::string &totp,
+                                     Task::DefaultCb callback)
 {
   // Validate coin
   auto backendIt = Backends_.find(coin);
@@ -1112,19 +1111,60 @@ void UserManager::updateSettingsImpl(
     return;
   }
 
-  // PPS mode requires global PPS to be enabled for this coin
-  if (mining.has_value() &&
-      mining->MiningMode == EMiningMode::PPS &&
-      !backendIt->second->accountingDb()->backendSettings().PPSConfig.Enabled) {
-    callback("pps_not_available");
-    return;
+  if (payout.has_value()) {
+    const auto &payoutConfig = backendIt->second->accountingDb()->backendSettings().PayoutConfig;
+
+    if (payout->Mode == EPayoutMode::Instant && !payoutConfig.InstantPayoutsEnabled) {
+      callback("instant_payouts_disabled");
+      return;
+    }
+    if (payout->Mode == EPayoutMode::Regular && !payoutConfig.RegularPayoutsEnabled) {
+      callback("regular_payouts_disabled");
+      return;
+    }
+
+    // Check address (empty allowed only for disabled mode)
+    if (!(payout->Mode == EPayoutMode::Disabled && payout->Address.empty())) {
+      const CCoinInfo &coinInfo = backendIt->second->getCoinInfo();
+      if (!coinInfo.checkAddress(payout->Address, coinInfo.PayoutAddressType)) {
+        callback("invalid_address");
+        return;
+      }
+    }
+
+    // Check threshold for instant mode
+    if (payout->Mode == EPayoutMode::Instant) {
+      if (payout->InstantPayoutThreshold < payoutConfig.InstantMinimalPayout) {
+        callback("minimal_payout_too_low");
+        return;
+      }
+    }
   }
 
-  // Minimal payout must not be less than the pool's instant minimal payout
-  if (payout.has_value() && !payout->MinimalPayout.isZero()) {
-    auto payoutConfig = backendIt->second->accountingDb()->backendSettings().PayoutConfig;
-    if (payout->MinimalPayout < payoutConfig.InstantMinimalPayout) {
-      callback("minimal_payout_too_low");
+  if (mining.has_value()) {
+    if (mining->MiningMode == EMiningMode::PPS &&
+        !backendIt->second->accountingDb()->backendSettings().PPSConfig.Enabled) {
+      callback("pps_not_available");
+      return;
+    }
+  }
+
+  if (autoExchange.has_value() && !autoExchange->PayoutCoinName.empty()) {
+    if (autoExchange->PayoutCoinName == coin) {
+      callback("invalid_exchange_coin");
+      return;
+    }
+
+    auto targetIt = Backends_.find(autoExchange->PayoutCoinName);
+    if (targetIt == Backends_.end()) {
+      callback("invalid_exchange_coin");
+      return;
+    }
+
+    auto sourceSettings = backendIt->second->accountingDb()->backendSettings();
+    auto targetSettings = targetIt->second->accountingDb()->backendSettings();
+    if (!sourceSettings.SwapConfig.AcceptOutgoing || !targetSettings.SwapConfig.AcceptIncoming) {
+      callback("exchange_not_available");
       return;
     }
   }
@@ -1640,17 +1680,23 @@ void UserManager::adjustInstantMinimalPayout(const std::string &coin, const UInt
   for (auto it = SettingsCache_.begin(); it != SettingsCache_.end(); ++it) {
     if (it->second.Coin != coin)
       continue;
-    if (it->second.Payout.MinimalPayout.isZero() || it->second.Payout.MinimalPayout >= minimalPayout)
+    if (it->second.Payout.InstantPayoutThreshold.isZero() ||
+        it->second.Payout.InstantPayoutThreshold >= minimalPayout)
       continue;
 
     decltype(SettingsCache_)::accessor accessor;
-    if (SettingsCache_.find(accessor, it->first) && accessor->second.Payout.MinimalPayout < minimalPayout) {
+    if (SettingsCache_.find(accessor, it->first) &&
+        accessor->second.Payout.InstantPayoutThreshold < minimalPayout) {
       LOG_F(INFO,
-            "User %s/%s MinimalPayout adjusted to pool minimum",
+            "User %s/%s InstantPayoutThreshold adjusted to pool minimum",
             accessor->second.Login.c_str(),
             coin.c_str());
-      accessor->second.Payout.MinimalPayout = minimalPayout;
+      accessor->second.Payout.InstantPayoutThreshold = minimalPayout;
       UserSettingsDb_.put(accessor->second);
+
+      auto backendIt = Backends_.find(coin);
+      if (backendIt != Backends_.end())
+        backendIt->second->sendUserSettingsUpdate(accessor->second);
     }
   }
 }

@@ -32,7 +32,7 @@ extern CPluginContext gPluginContext;
 
 // Conversion from old int64_t rational values to new UInt<384> fixed-point.
 // Negative values wrap around via UInt<384> overflow (two's complement).
-static UInt<384> safeFromRational(int64_t value, const char *)
+static UInt<384> safeFromRational(int64_t value)
 {
   if (value >= 0)
     return fromRational(static_cast<uint64_t>(value));
@@ -245,7 +245,7 @@ static bool migratePPLNSPayouts(
       newRecord.BlockHash = oldRecord.BlockHash;
       newRecord.BlockHeight = oldRecord.BlockHeight;
       newRecord.RoundEndTime = Timestamp::fromUnixTime(oldRecord.RoundEndTime);
-      newRecord.PayoutValue = safeFromRational(oldRecord.PayoutValue, "CPPLNSPayout.PayoutValue");
+      newRecord.PayoutValue = safeFromRational(oldRecord.PayoutValue);
       if (priceDb && !coinGeckoName.empty()) {
         double btcPrice = priceDb->lookupPrice("bitcoin", oldRecord.RoundEndTime);
         if (btcPrice > 0.0) {
@@ -309,11 +309,11 @@ static bool migratePayouts(const std::filesystem::path &srcCoinPath,
     PayoutDbRecord newRecord;
     newRecord.UserId = oldRecord.UserId;
     newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
-    newRecord.Value = safeFromRational(oldRecord.Value, "PayoutDbRecord.Value");
+    newRecord.Value = safeFromRational(oldRecord.Value);
     newRecord.TransactionId = oldRecord.TransactionId;
     newRecord.TransactionData = oldRecord.TransactionData;
     newRecord.Status = oldRecord.Status;
-    newRecord.TxFee = safeFromRational(oldRecord.TxFee, "PayoutDbRecord.TxFee");
+    newRecord.TxFee = safeFromRational(oldRecord.TxFee);
 
     xmstream stream;
     newRecord.serializeValue(stream);
@@ -337,13 +337,13 @@ static bool migratePoolBalance(const std::filesystem::path &srcCoinPath, const s
 
     PoolBalanceRecord newRecord;
     newRecord.Time = oldRecord.Time;
-    newRecord.Balance = safeFromRational(oldRecord.BalanceWithFractional, "PoolBalanceRecord.Balance");
+    newRecord.Balance = safeFromRational(oldRecord.BalanceWithFractional);
     newRecord.Balance /= static_cast<uint64_t>(old2.ExtraMultiplier);
-    newRecord.Immature = safeFromRational(oldRecord.Immature, "PoolBalanceRecord.Immature");
-    newRecord.Users = safeFromRational(oldRecord.Users, "PoolBalanceRecord.Users");
-    newRecord.Queued = safeFromRational(oldRecord.Queued, "PoolBalanceRecord.Queued");
-    newRecord.ConfirmationWait = safeFromRational(oldRecord.ConfirmationWait, "PoolBalanceRecord.ConfirmationWait");
-    newRecord.Net = safeFromRational(oldRecord.Net, "PoolBalanceRecord.Net");
+    newRecord.Immature = safeFromRational(oldRecord.Immature);
+    newRecord.Users = safeFromRational(oldRecord.Users);
+    newRecord.Queued = safeFromRational(oldRecord.Queued);
+    newRecord.ConfirmationWait = safeFromRational(oldRecord.ConfirmationWait);
+    newRecord.Net = safeFromRational(oldRecord.Net);
 
     xmstream stream;
     newRecord.serializeValue(stream);
@@ -436,7 +436,7 @@ static bool migrateAllFoundBlocks(
         rec.Height = oldRecord.Height;
         rec.Hash = oldRecord.Hash;
         rec.Time = Timestamp::fromUnixTime(oldRecord.Time);
-        rec.GeneratedCoins = safeFromRational(oldRecord.AvailableCoins, "FoundBlockRecord.AvailableCoins");
+        rec.GeneratedCoins = safeFromRational(oldRecord.AvailableCoins);
         rec.FoundBy = oldRecord.FoundBy;
         rec.ExpectedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
         rec.ExpectedWork.mulfp(oldRecord.ExpectedWork);
@@ -691,7 +691,7 @@ static bool migrateAccountingState(const std::filesystem::path &srcCoinPath,
           newRecord.StartTime = Timestamp::fromUnixTime(oldRecord.StartTime);
           newRecord.TotalShareValue = UInt<256>::fromDouble(old2.WorkMultiplier);
           newRecord.TotalShareValue.mulfp(oldRecord.TotalShareValue);
-          newRecord.Block.GeneratedCoins = safeFromRational(oldRecord.AvailableCoins, "MiningRound.AvailableCoins");
+          newRecord.Block.GeneratedCoins = safeFromRational(oldRecord.AvailableCoins);
           newRecord.Block.GeneratedCoins /= static_cast<uint64_t>(old2.ExtraMultiplier);
           newRecord.AvailableForPPLNS = newRecord.Block.GeneratedCoins;
           newRecord.Block.UserId = oldRecord.FoundBy;
@@ -699,7 +699,7 @@ static bool migrateAccountingState(const std::filesystem::path &srcCoinPath,
           newRecord.Block.ExpectedWork.mulfp(oldRecord.ExpectedWork);
           newRecord.AccumulatedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
           newRecord.AccumulatedWork.mulfp(oldRecord.AccumulatedWork);
-          newRecord.TxFee = safeFromRational(oldRecord.TxFee, "MiningRound.TxFee");
+          newRecord.TxFee = safeFromRational(oldRecord.TxFee);
           newRecord.Block.PrimePOWTarget = oldRecord.PrimePOWTarget;
 
           // In old code, unpayed rounds were detected by non-empty Payouts.
@@ -717,9 +717,9 @@ static bool migrateAccountingState(const std::filesystem::path &srcCoinPath,
           }
 
           for (const auto &p : oldRecord.Payouts) {
-            UInt<384> value = safeFromRational(p.Value, "MiningRound.Payouts.Value");
+            UInt<384> value = safeFromRational(p.Value);
             value /= static_cast<uint64_t>(old2.ExtraMultiplier);
-            UInt<384> valueWithoutFee = safeFromRational(p.ValueWithoutFee, "MiningRound.Payouts.ValueWithoutFee");
+            UInt<384> valueWithoutFee = safeFromRational(p.ValueWithoutFee);
             valueWithoutFee /= static_cast<uint64_t>(old2.ExtraMultiplier);
             UInt<256> acceptedWork = UInt<256>::fromDouble(old2.WorkMultiplier);
             acceptedWork.mulfp(p.AcceptedWork);
@@ -875,10 +875,10 @@ static bool migrateAccountingState(const std::filesystem::path &srcCoinPath,
 
         UserBalanceRecord newRecord;
         newRecord.Login = oldRecord.Login;
-        newRecord.Balance = safeFromRational(oldRecord.BalanceWithFractional, "UserBalanceRecord.Balance");
+        newRecord.Balance = safeFromRational(oldRecord.BalanceWithFractional);
         newRecord.Balance /= static_cast<uint64_t>(old2.ExtraMultiplier);
-        newRecord.Requested = safeFromRational(oldRecord.Requested, "UserBalanceRecord.Requested");
-        newRecord.Paid = safeFromRational(oldRecord.Paid, "UserBalanceRecord.Paid");
+        newRecord.Requested = safeFromRational(oldRecord.Requested);
+        newRecord.Paid = safeFromRational(oldRecord.Paid);
 
         LOG_F(INFO, "  %s balance=%s requested=%s paid=%s",
               oldRecord.Login.c_str(),
@@ -922,11 +922,11 @@ static bool migrateAccountingState(const std::filesystem::path &srcCoinPath,
             PayoutDbRecord newRecord;
             newRecord.UserId = oldRecord.UserId;
             newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
-            newRecord.Value = safeFromRational(oldRecord.Value, "PayoutQueue.Value");
+            newRecord.Value = safeFromRational(oldRecord.Value);
             newRecord.TransactionId = oldRecord.TransactionId;
             newRecord.TransactionData = oldRecord.TransactionData;
             newRecord.Status = oldRecord.Status;
-            newRecord.TxFee = safeFromRational(oldRecord.TxFee, "PayoutQueue.TxFee");
+            newRecord.TxFee = safeFromRational(oldRecord.TxFee);
 
             LOG_F(INFO, "    payout: %s value=%s txId=%s status=%u",
                   newRecord.UserId.c_str(),
@@ -1617,8 +1617,8 @@ static bool migrateUserSettings(const std::filesystem::path &srcPath, const std:
     newRecord.Login = oldRecord.Login;
     newRecord.Coin = oldRecord.Coin;
     newRecord.Payout.Address = oldRecord.Address;
-    newRecord.Payout.AutoPayout = false;
-    newRecord.Payout.MinimalPayout = safeFromRational(oldRecord.MinimalPayout, "UserSettingsRecord.MinimalPayout");
+    newRecord.Payout.Mode = EPayoutMode::Disabled;
+    newRecord.Payout.InstantPayoutThreshold = safeFromRational(oldRecord.MinimalPayout);
 
     auto coinIt = coinMap.find(oldRecord.Coin);
     if (coinIt == coinMap.end()) {
@@ -1628,9 +1628,9 @@ static bool migrateUserSettings(const std::filesystem::path &srcPath, const std:
 
     const CCoinInfo &coinInfo = coinIt->second;
 
-    LOG_F(INFO, "  %s/%s address=%s minimalPayout=%s autoPayout=%u",
+    LOG_F(INFO, "  %s/%s address=%s instantPayoutThreshold=%s mode=disabled",
           oldRecord.Login.c_str(), oldRecord.Coin.c_str(), oldRecord.Address.c_str(),
-          FormatMoney(newRecord.Payout.MinimalPayout, coinInfo.FractionalPartSize).c_str(), static_cast<unsigned>(oldRecord.AutoPayout));
+          FormatMoney(newRecord.Payout.InstantPayoutThreshold, coinInfo.FractionalPartSize).c_str());
 
     xmstream stream;
     newRecord.serializeValue(stream);

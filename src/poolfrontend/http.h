@@ -54,6 +54,7 @@ private:
   void onUserRenewFeePlanReferralId(rapidjson::Document &document);
   void onUserActivate2faInitiate(rapidjson::Document &document);
   void onUserDeactivate2faInitiate(rapidjson::Document &document);
+  void onUserAdjustInstantPayoutThreshold(rapidjson::Document &document);
 
   void onBackendManualPayout(rapidjson::Document &document);
   void onBackendQueryUserBalance(rapidjson::Document &document);
@@ -113,6 +114,7 @@ private:
     fnUserRenewFeePlanReferralId,
     fnUserActivate2faInitiate,
     fnUserDeactivate2faInitiate,
+    fnUserAdjustInstantPayoutThreshold,
 
     // Backend functions
     fnBackendManualPayout,

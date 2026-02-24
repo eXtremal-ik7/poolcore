@@ -166,8 +166,29 @@ public:
   void queryPPSState(QueryPPSStateCallback callback) {
     TaskHandler_.push([callback = std::move(callback)](AccountingDb *a) { callback(a->api().queryPPSState()); });
   }
-  void updateBackendSettings(std::optional<CBackendSettings::PPS> pps, std::optional<CBackendSettings::Payouts> payouts, DefaultCb cb) {
-    TaskHandler_.push([pps = std::move(pps), payouts = std::move(payouts), cb = std::move(cb)](AccountingDb *a) { cb(a->api().updateBackendSettings(pps, payouts)); });
+  void updateBackendSettings(
+    std::optional<CBackendSettings::PPS> pps,
+    std::optional<CBackendSettings::Payouts> payouts,
+    std::optional<CBackendSettings::Swap> swap,
+    DefaultCb cb)
+  {
+    TaskHandler_.push([
+      pps = std::move(pps),
+      payouts = std::move(payouts),
+      swap = std::move(swap),
+      cb = std::move(cb)
+    ](AccountingDb *a) {
+      if (payouts.has_value()) {
+        for (const auto &[login, settings] : a->UserSettings_) {
+          if (!settings.Payout.InstantPayoutThreshold.isZero() &&
+              settings.Payout.InstantPayoutThreshold < payouts->InstantMinimalPayout) {
+            cb("users_threshold_conflict");
+            return;
+          }
+        }
+      }
+      cb(a->api().updateBackendSettings(pps, payouts, swap));
+    });
   }
 
   CBackendSettings backendSettings() const {

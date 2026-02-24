@@ -5,6 +5,7 @@
 #include "poolcore/workSummary.h"
 #include "poolcommon/baseBlob.h"
 #include "poolcommon/serialize.h"
+#include "poolcommon/tagged.h"
 #include "poolcommon/uint.h"
 #include <list>
 #include <string>
@@ -319,22 +320,40 @@ struct UserSessionRecord {
 };
 
 struct CSettingsPayout {
+  EPayoutMode Mode = EPayoutMode::Disabled;
   std::string Address;
-  UInt<384> MinimalPayout;
-  bool AutoPayout = false;
+  UInt<384> InstantPayoutThreshold;
+
+  static constexpr auto schema() {
+    return std::make_tuple(
+      field<1, &CSettingsPayout::Mode>(),
+      field<2, &CSettingsPayout::Address>(),
+      field<3, &CSettingsPayout::InstantPayoutThreshold>()
+    );
+  }
 };
 
 struct CSettingsMining {
   EMiningMode MiningMode = EMiningMode::PPLNS;
+
+  static constexpr auto schema() {
+    return std::make_tuple(
+      field<1, &CSettingsMining::MiningMode>()
+    );
+  }
 };
 
 struct CSettingsAutoExchange {
   std::string PayoutCoinName;
+
+  static constexpr auto schema() {
+    return std::make_tuple(
+      field<1, &CSettingsAutoExchange::PayoutCoinName>()
+    );
+  }
 };
 
-struct UserSettingsRecord {
-  enum { CurrentRecordVersion = 1 };
-
+struct UserSettingsRecord : CSerializable<UserSettingsRecord> {
   std::string Login;
   std::string Coin;
   CSettingsPayout Payout;
@@ -346,6 +365,16 @@ struct UserSettingsRecord {
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;
+
+  static constexpr auto schema() {
+    return std::make_tuple(
+      field<1, &UserSettingsRecord::Login>(),
+      field<2, &UserSettingsRecord::Coin>(),
+      field<3, &UserSettingsRecord::Payout>(),
+      field<4, &UserSettingsRecord::Mining>(),
+      field<5, &UserSettingsRecord::AutoExchange>()
+    );
+  }
 };
 
 struct FixedPointInteger {

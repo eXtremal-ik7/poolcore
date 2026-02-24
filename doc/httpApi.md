@@ -24,6 +24,7 @@
    * [userRenewFeePlanReferralId](#userrenewfeeplanreferralid)
    * [userActivate2faInitiate](#useractivate2fainitiate)
    * [userDeactivate2faInitiate](#userdeactivate2fainitiate)
+   * [userAdjustInstantPayoutThreshold](#useradjustinstantpayoutthreshold)
 * [Backend API functions](#backend-api-functions)
    * [backendManualPayout](#backendmanualpayout)
    * [backendQueryCoins](#backendquerycoins)
@@ -340,9 +341,9 @@ Returns user settings for each coin
 * coins: array of objects with fields:
   * name:string - coin ticker
   * payout: object with fields:
-    * address:string - payout address; can be null
-    * payoutThreshold:string - minimal value for automatic payout; can be null
-    * autoPayoutEnabled:boolean - enables or disables automatic payouts
+    * mode:string - payout mode: "disabled", "regular" or "instant"
+    * address:string - payout address
+    * instantPayoutThreshold:string - threshold for instant payouts
   * mining: object with fields:
     * mode:string - "pplns" or "pps"
   * autoExchange: object with fields:
@@ -360,9 +361,9 @@ curl -X POST -d '{"id": "...session..."}' http://localhost:18880/api/userGetSett
     {
       "name": "BTC",
       "payout": {
-        "address": null,
-        "payoutThreshold": null,
-        "autoPayoutEnabled": false
+        "mode": "disabled",
+        "address": "",
+        "instantPayoutThreshold": "0.00000000"
       },
       "mining": {
         "mode": "pplns"
@@ -374,9 +375,9 @@ curl -X POST -d '{"id": "...session..."}' http://localhost:18880/api/userGetSett
     {
       "name": "XPM",
       "payout": {
+        "mode": "instant",
         "address": "ATWDYBwVDvswyZADMbEo5yBt4tH2zfGjd1",
-        "payoutThreshold": "100.00",
-        "autoPayoutEnabled": true
+        "instantPayoutThreshold": "100.00"
       },
       "mining": {
         "mode": "pplns"
@@ -398,9 +399,9 @@ Update user settings for specific coin. At least one of payout/mining/autoExchan
 * [required] coin:string
 * [optional] totp:string - used only when 2fa for current user activated
 * [optional] payout:object - payout settings:
-  * [required] address:string - payout address
-  * [required] payoutThreshold:string - minimal threshold for automatic payout
-  * [required] autoPayoutEnabled:boolean - enable or disable automatic payouts
+  * [required] mode:string - payout mode: "disabled", "regular" or "instant"
+  * [required] address:string - payout address; must be valid for "regular" and "instant" modes; can be empty for "disabled"
+  * [required] instantPayoutThreshold:string - threshold for instant payouts; must be valid for "instant" mode; can be "0" for "disabled" and "regular"
 * [optional] mining:object - mining settings:
   * [required] mode:string - mining mode, "pplns" or "pps"
 * [optional] autoExchange:object - auto-exchange settings:
@@ -409,14 +410,21 @@ Update user settings for specific coin. At least one of payout/mining/autoExchan
 ### return values:
 * status:string - can be one of common status values or:
   * unknown_id: invalid session id
+  * invalid_payout_mode: mode value is not "disabled", "regular" or "instant"
   * invalid_address: invalid payout address
-  * invalid_mining_mode: mode value is not "pplns" or "pps"
+  * invalid_mining_mode: mining mode value is not "pplns" or "pps"
   * pps_not_available: PPS mode is not enabled for this coin
-  * minimal_payout_too_low: payout threshold is below pool's minimum instant payout
+  * instant_payouts_disabled: instant payouts are not enabled for this coin
+  * regular_payouts_disabled: regular payouts are not enabled for this coin
+  * minimal_payout_too_low: instant payout threshold is below pool's minimum
+  * invalid_exchange_coin: auto-exchange target coin does not exist
+  * exchange_not_available: auto-exchange direction is not allowed by swap configuration
 
 ### curl example:
 ```
-curl -X POST -d '{"id": "...session...", "coin": "XPM", "payout": {"address": "ATWDYBwVDvswyZADMbEo5yBt4tH2zfGjd1", "payoutThreshold": "100", "autoPayoutEnabled": true}}' http://localhost:18880/api/userUpdateSettings
+curl -X POST -d '{"id": "...session...", "coin": "XPM", "payout": {"mode": "instant", "address": "ATWDYBwVDvswyZADMbEo5yBt4tH2zfGjd1", "instantPayoutThreshold": "100"}}' http://localhost:18880/api/userUpdateSettings
+curl -X POST -d '{"id": "...session...", "coin": "BTC", "payout": {"mode": "regular", "address": "bc1q...", "instantPayoutThreshold": "0"}}' http://localhost:18880/api/userUpdateSettings
+curl -X POST -d '{"id": "...session...", "coin": "BTC", "payout": {"mode": "disabled", "address": "", "instantPayoutThreshold": "0"}}' http://localhost:18880/api/userUpdateSettings
 curl -X POST -d '{"id": "...session...", "coin": "BTC", "mining": {"mode": "pps"}}' http://localhost:18880/api/userUpdateSettings
 ```
 ### response examples:
@@ -734,6 +742,29 @@ curl -X POST -d '{"sessionId": "675ea7134fbc88d20763b61912d8aa2f22bab857dfbb1a8c
 {
   "status": "ok"
 }
+```
+
+## userAdjustInstantPayoutThreshold
+Adjust all users' instant payout threshold for a coin to be at least the specified value. Useful before raising the pool's instantMinimalPayout in backendUpdateConfig. Access: admin only.
+
+### arguments:
+* [required] id:string - admin session id
+* [required] coin:string
+* [required] threshold:string - new minimal instant payout threshold
+
+### return values:
+* status:string - can be one of common status values or:
+  * unknown_id: invalid session id or insufficient permissions
+  * invalid_coin: coin does not exist
+
+### curl example:
+```
+curl -X POST -d '{"id": "...session...", "coin": "BTC", "threshold": "0.01"}' http://localhost:18880/api/userAdjustInstantPayoutThreshold
+```
+
+### response examples:
+```
+{"status": "ok"}
 ```
 
 # Backend API functions
@@ -1400,6 +1431,9 @@ Returns backend configuration (PPS and payouts) for specified coin. Access: admi
   * regularMinimalPayout:string - minimal payout amount for regular payouts
   * regularPayoutInterval:integer - regular payout interval in hours
   * regularPayoutDayOffset:integer - regular payout day offset in hours
+* swap: object with fields:
+  * acceptIncoming:boolean - whether this coin accepts incoming auto-exchange
+  * acceptOutgoing:boolean - whether this coin allows outgoing auto-exchange
 
 ### curl example:
 ```
@@ -1427,6 +1461,10 @@ curl -X POST -d '{"id": "...session...", "coin": "BTC"}' http://localhost:18880/
     "regularMinimalPayout": "0.00050000",
     "regularPayoutInterval": 24,
     "regularPayoutDayOffset": 0
+  },
+  "swap": {
+    "acceptIncoming": true,
+    "acceptOutgoing": true
   }
 }
 ```
@@ -1582,7 +1620,9 @@ Update backend configuration for specified coin. At least one of pps/payouts sub
   * [required] regularMinimalPayout:string - minimal payout amount for regular payouts
   * [required] regularPayoutInterval:integer - regular payout interval in hours (must be > 0; must divide 24 or be a multiple of 24)
   * [optional] regularPayoutDayOffset:integer (default=0) - regular payout day offset in hours (must be in [0, 24))
-* [optional] adjustUserInstantMinimalPayout:boolean (default=false) - if true, adjust all users' minimal payout to be at least the new instantMinimalPayout
+* [optional] swap:object - auto-exchange configuration:
+  * [required] acceptIncoming:boolean - whether this coin accepts incoming auto-exchange
+  * [required] acceptOutgoing:boolean - whether this coin allows outgoing auto-exchange
 
 ### return values:
 * status:string - can be one of common status values or:
@@ -1594,11 +1634,13 @@ Update backend configuration for specified coin. At least one of pps/payouts sub
   * invalid_payout_interval: interval is zero or negative
   * invalid_regular_payout_interval: interval does not divide 24 and is not a multiple of 24
   * invalid_regular_payout_day_offset: offset >= 24 hours
+  * users_threshold_conflict: a user has non-zero instant payout threshold below the new instantMinimalPayout (regardless of current payout mode); use userAdjustInstantPayoutThreshold first
 
 ### curl example:
 ```
 curl -X POST -d '{"id": "...session...", "coin": "BTC", "pps": {"enabled": true, "poolFee": 4.0, "saturationFunction": "tanh", "saturationB0": 3.0, "saturationANegative": 0.5, "saturationAPositive": 0.3}}' http://localhost:18880/api/backendUpdateConfig
 curl -X POST -d '{"id": "...session...", "coin": "BTC", "payouts": {"instantPayoutsEnabled": true, "regularPayoutsEnabled": true, "instantMinimalPayout": "0.01", "instantPayoutInterval": 1, "regularMinimalPayout": "0.0005", "regularPayoutInterval": 24, "regularPayoutDayOffset": 0}}' http://localhost:18880/api/backendUpdateConfig
+curl -X POST -d '{"id": "...session...", "coin": "BTC", "swap": {"acceptIncoming": true, "acceptOutgoing": true}}' http://localhost:18880/api/backendUpdateConfig
 ```
 
 ### response examples:

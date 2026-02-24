@@ -198,20 +198,10 @@ void UsersRecord::serializeValue(xmstream &stream) const
 bool UserSettingsRecord::deserializeValue(const void *data, size_t size)
 {
   xmstream stream(const_cast<void*>(data), size);
-  uint32_t version;
-  dbIoUnserialize(stream, version);
-  dbIoUnserialize(stream, Login);
-  dbIoUnserialize(stream, Coin);
-  dbIoUnserialize(stream, Payout.Address);
-  dbIoUnserialize(stream, Payout.MinimalPayout);
-  dbIoUnserialize(stream, Payout.AutoPayout);
-  {
-    uint32_t mode;
-    dbIoUnserialize(stream, mode);
-    Mining.MiningMode = static_cast<EMiningMode>(mode);
-  }
-  dbIoUnserialize(stream, AutoExchange.PayoutCoinName);
-  return !stream.eof();
+  if (!unserialize(stream, *this))
+    return false;
+  return has<&UserSettingsRecord::Login>() &&
+         has<&UserSettingsRecord::Coin>();
 }
 
 void UserSettingsRecord::serializeKey(xmstream &stream) const
@@ -222,14 +212,7 @@ void UserSettingsRecord::serializeKey(xmstream &stream) const
 
 void UserSettingsRecord::serializeValue(xmstream &stream) const
 {
-  dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
-  dbIoSerialize(stream, Login);
-  dbIoSerialize(stream, Coin);
-  dbIoSerialize(stream, Payout.Address);
-  dbIoSerialize(stream, Payout.MinimalPayout);
-  dbIoSerialize(stream, Payout.AutoPayout);
-  dbIoSerialize(stream, static_cast<uint32_t>(Mining.MiningMode));
-  dbIoSerialize(stream, AutoExchange.PayoutCoinName);
+  serialize(stream, *this);
 }
 
 bool UserPersonalFeeRecord::deserializeValue(const void *data, size_t size)

@@ -81,7 +81,8 @@ public:
   std::vector<double> poolLuck(const std::vector<int64_t> &intervals);
   CPPSState queryPPSState();
   const char *updateBackendSettings(const std::optional<CBackendSettings::PPS> &pps,
-                                    const std::optional<CBackendSettings::Payouts> &payouts);
+                                    const std::optional<CBackendSettings::Payouts> &payouts,
+                                    const std::optional<CBackendSettings::Swap> &swap);
 
 private:
   asyncBase *Base_;

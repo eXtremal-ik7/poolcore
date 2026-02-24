@@ -36,6 +36,28 @@ inline bool parseMiningMode(const std::string &name, EMiningMode &mode)
   return false;
 }
 
+enum class EPayoutMode : unsigned {
+  Disabled = 0,
+  Regular,
+  Instant,
+  Count
+};
+
+inline const char *payoutModeName(EPayoutMode mode)
+{
+  static const char *names[] = {"disabled", "regular", "instant"};
+  unsigned index = static_cast<unsigned>(mode);
+  return index < std::size(names) ? names[index] : "unknown";
+}
+
+inline bool parsePayoutMode(const std::string &name, EPayoutMode &mode)
+{
+  if (name == "disabled") { mode = EPayoutMode::Disabled; return true; }
+  if (name == "regular") { mode = EPayoutMode::Regular; return true; }
+  if (name == "instant") { mode = EPayoutMode::Instant; return true; }
+  return false;
+}
+
 struct CCoinInfoOld2 {
   int64_t ExtraMultiplier = 100;
   double WorkMultiplier = 4294967296.0;

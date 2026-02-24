@@ -1,6 +1,7 @@
 #pragma once
 
 #include "backendData.h"
+#include "poolcommon/tagged.h"
 #include "workSummary.h"
 #include <optional>
 
@@ -34,6 +35,17 @@ public:
     double SaturationB0 = 0.0;
     double SaturationANegative = 0.0;
     double SaturationAPositive = 0.0;
+
+    static constexpr auto schema() {
+      return std::make_tuple(
+        field<1, &PPS::Enabled>(),
+        field<2, &PPS::PoolFee>(),
+        field<3, &PPS::SaturationFunction>(),
+        field<4, &PPS::SaturationB0>(),
+        field<5, &PPS::SaturationANegative>(),
+        field<6, &PPS::SaturationAPositive>()
+      );
+    }
   };
 
   struct Payouts {
@@ -48,10 +60,43 @@ public:
     UInt<384> RegularMinimalPayout;
     std::chrono::hours RegularPayoutInterval = std::chrono::hours(24);
     std::chrono::hours RegularPayoutDayOffset = std::chrono::hours(0);
+
+    static constexpr auto schema() {
+      return std::make_tuple(
+        field<1, &Payouts::InstantPayoutsEnabled>(),
+        field<2, &Payouts::RegularPayoutsEnabled>(),
+        field<3, &Payouts::InstantMinimalPayout>(),
+        field<4, &Payouts::InstantPayoutInterval>(),
+        field<5, &Payouts::RegularMinimalPayout>(),
+        field<6, &Payouts::RegularPayoutInterval>(),
+        field<7, &Payouts::RegularPayoutDayOffset>()
+      );
+    }
+  };
+
+  struct Swap {
+    bool AcceptIncoming = false;
+    bool AcceptOutgoing = false;
+
+    static constexpr auto schema() {
+      return std::make_tuple(
+        field<1, &Swap::AcceptIncoming>(),
+        field<2, &Swap::AcceptOutgoing>()
+      );
+    }
   };
 
   PPS PPSConfig;
   Payouts PayoutConfig;
+  Swap SwapConfig;
+
+  static constexpr auto schema() {
+    return std::make_tuple(
+      field<1, &CBackendSettings::PPSConfig>(),
+      field<2, &CBackendSettings::PayoutConfig>(),
+      field<3, &CBackendSettings::SwapConfig>()
+    );
+  }
 };
 
 struct CPPSBalanceSnapshot {
@@ -133,46 +178,6 @@ struct CProcessedWorkSummary {
 };
 
 // DbIo specializations
-
-template<> struct DbIo<CBackendSettings> {
-  static inline void serialize(xmstream &dst, const CBackendSettings &data) {
-    // PPS
-    DbIo<bool>::serialize(dst, data.PPSConfig.Enabled);
-    DbIo<double>::serialize(dst, data.PPSConfig.PoolFee);
-    DbIo<uint32_t>::serialize(dst, static_cast<uint32_t>(data.PPSConfig.SaturationFunction));
-    DbIo<double>::serialize(dst, data.PPSConfig.SaturationB0);
-    DbIo<double>::serialize(dst, data.PPSConfig.SaturationANegative);
-    DbIo<double>::serialize(dst, data.PPSConfig.SaturationAPositive);
-    // Payouts
-    DbIo<bool>::serialize(dst, data.PayoutConfig.InstantPayoutsEnabled);
-    DbIo<bool>::serialize(dst, data.PayoutConfig.RegularPayoutsEnabled);
-    DbIo<UInt<384>>::serialize(dst, data.PayoutConfig.InstantMinimalPayout);
-    DbIo<std::chrono::minutes>::serialize(dst, data.PayoutConfig.InstantPayoutInterval);
-    DbIo<UInt<384>>::serialize(dst, data.PayoutConfig.RegularMinimalPayout);
-    DbIo<std::chrono::hours>::serialize(dst, data.PayoutConfig.RegularPayoutInterval);
-    DbIo<std::chrono::hours>::serialize(dst, data.PayoutConfig.RegularPayoutDayOffset);
-  }
-
-  static inline void unserialize(xmstream &src, CBackendSettings &data) {
-    // PPS
-    DbIo<bool>::unserialize(src, data.PPSConfig.Enabled);
-    DbIo<double>::unserialize(src, data.PPSConfig.PoolFee);
-    uint32_t saturationFunction = 0;
-    DbIo<uint32_t>::unserialize(src, saturationFunction);
-    data.PPSConfig.SaturationFunction = static_cast<ESaturationFunction>(saturationFunction);
-    DbIo<double>::unserialize(src, data.PPSConfig.SaturationB0);
-    DbIo<double>::unserialize(src, data.PPSConfig.SaturationANegative);
-    DbIo<double>::unserialize(src, data.PPSConfig.SaturationAPositive);
-    // Payouts
-    DbIo<bool>::unserialize(src, data.PayoutConfig.InstantPayoutsEnabled);
-    DbIo<bool>::unserialize(src, data.PayoutConfig.RegularPayoutsEnabled);
-    DbIo<UInt<384>>::unserialize(src, data.PayoutConfig.InstantMinimalPayout);
-    DbIo<std::chrono::minutes>::unserialize(src, data.PayoutConfig.InstantPayoutInterval);
-    DbIo<UInt<384>>::unserialize(src, data.PayoutConfig.RegularMinimalPayout);
-    DbIo<std::chrono::hours>::unserialize(src, data.PayoutConfig.RegularPayoutInterval);
-    DbIo<std::chrono::hours>::unserialize(src, data.PayoutConfig.RegularPayoutDayOffset);
-  }
-};
 
 template<> struct DbIo<CPPSBalanceSnapshot> {
   static void serialize(xmstream &dst, const CPPSBalanceSnapshot &data);

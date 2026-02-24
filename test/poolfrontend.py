@@ -282,15 +282,18 @@ class Poolfrontend:
     def backendQueryPPSHistory(self, sessionId, coin, timeFrom, timeTo, requiredStatus=None, debug=None):
         return self.__call__("backendQueryPPSHistory", {"id": sessionId, "coin": coin, "timeFrom": timeFrom, "timeTo": timeTo}, requiredStatus, debug)
 
-    def backendUpdateConfig(self, sessionId, coin, pps=None, payouts=None, adjustUserInstantMinimalPayout=None, requiredStatus=None, debug=None):
+    def backendUpdateConfig(self, sessionId, coin, pps=None, payouts=None, swap=None, requiredStatus=None, debug=None):
         data = {"id": sessionId, "coin": coin}
         if pps is not None:
             data.update({"pps": pps})
         if payouts is not None:
             data.update({"payouts": payouts})
-        if adjustUserInstantMinimalPayout is not None:
-            data.update({"adjustUserInstantMinimalPayout": adjustUserInstantMinimalPayout})
+        if swap is not None:
+            data.update({"swap": swap})
         return self.__call__("backendUpdateConfig", data, requiredStatus, debug)
+
+    def userAdjustInstantPayoutThreshold(self, adminSessionId, coin, threshold, requiredStatus=None, debug=None):
+        return self.__call__("userAdjustInstantPayoutThreshold", {"id": adminSessionId, "coin": coin, "threshold": threshold}, requiredStatus, debug)
 
     def backendPoolLuck(self, coin, intervals, requiredStatus=None, debug=None):
         return self.__call__("backendPoolLuck", {"coin": coin, "intervals": intervals}, requiredStatus, debug)
