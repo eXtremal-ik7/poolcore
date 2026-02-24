@@ -804,10 +804,23 @@ Function returns coins listed on pool with fee information
   * name:string - unique coin id
   * fullName:string - display coin name
   * algorithm:string - mining algorithm
-  * minimalPayout:string - minimal allowed payout amount
   * ppsAvailable:boolean - whether PPS mining mode is enabled for this coin
   * pplnsFee:double - total PPLNS fee percentage from user's fee plan
   * ppsFee:double - total PPS fee percentage combining pool PPS fee and user's fee plan
+  * minimalRegularPayout:string - minimal payout amount for regular payouts (pool covers fee)
+  * minimalInstantPayout:string - minimal payout amount for instant payouts (user covers fee)
+  * acceptIncoming:boolean - whether this coin accepts incoming auto-exchange (can be swap target)
+  * acceptOutgoing:boolean - whether this coin allows outgoing auto-exchange (can be swap source)
+  * valueBTC:double|null - current coin price in BTC (1.0 for BTC itself); null if price unavailable
+  * valueUSD:double|null - current coin price in USD; null if price unavailable
+  * height:integer|null - current network block height (reserved, currently null)
+  * difficulty:double|null - current network difficulty (reserved, currently null)
+  * powerUnit:string|null - hashrate unit for profit calculator (reserved, currently null)
+  * powerMultLog10:integer|null - log10 multiplier for hashrate unit (reserved, currently null)
+  * powerPPS:double|null - hashrate units for dailyPPS calculation (reserved, currently null)
+  * dailyPPS:double|null - expected daily PPS income in coin per powerPPS units, 0% fee, saturation=1 (reserved, currently null)
+  * dailyPPSUSD:double|null - expected daily PPS income in USD (reserved, currently null)
+  * dailyPPSBTC:double|null - expected daily PPS income in BTC (reserved, currently null)
 
 ### curl example:
 ```
@@ -824,19 +837,45 @@ curl -X POST -d '{"id": "...session..."}' http://localhost:18880/api/backendQuer
       "name": "BTC",
       "fullName": "Bitcoin",
       "algorithm": "sha256",
-      "minimalPayout": "0.001",
       "ppsAvailable": true,
       "pplnsFee": 1.0,
-      "ppsFee": 5.0
+      "ppsFee": 5.0,
+      "minimalRegularPayout": "0.00050000",
+      "minimalInstantPayout": "0.01000000",
+      "acceptIncoming": true,
+      "acceptOutgoing": true,
+      "valueBTC": 1.0,
+      "valueUSD": 97000.0,
+      "height": null,
+      "difficulty": null,
+      "powerUnit": null,
+      "powerMultLog10": null,
+      "powerPPS": null,
+      "dailyPPS": null,
+      "dailyPPSUSD": null,
+      "dailyPPSBTC": null
     },
     {
-      "name": "LTC.testnet",
+      "name": "LTC",
       "fullName": "Litecoin",
       "algorithm": "scrypt",
-      "minimalPayout": "0.01",
       "ppsAvailable": false,
       "pplnsFee": 1.0,
-      "ppsFee": 5.0
+      "ppsFee": 5.0,
+      "minimalRegularPayout": "0.01000000",
+      "minimalInstantPayout": "0.10000000",
+      "acceptIncoming": false,
+      "acceptOutgoing": true,
+      "valueBTC": 0.001200000000,
+      "valueUSD": 116.400000000000,
+      "height": null,
+      "difficulty": null,
+      "powerUnit": null,
+      "powerMultLog10": null,
+      "powerPPS": null,
+      "dailyPPS": null,
+      "dailyPPSUSD": null,
+      "dailyPPSBTC": null
     }
   ]
 }

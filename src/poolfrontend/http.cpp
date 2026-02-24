@@ -1,5 +1,6 @@
 #include "http.h"
 #include "poolcommon/utils.h"
+#include "poolcore/priceFetcher.h"
 #include "poolcore/thread.h"
 #include "asyncio/coroutine.h"
 #include "asyncio/socket.h"
@@ -1625,7 +1626,6 @@ void PoolHttpConnection::onBackendQueryCoins(rapidjson::Document &document)
         object.addString("fullName", info.FullName);
         object.addString("algorithm", info.Algorithm);
         auto backendCfg = backend->accountingDb()->backendSettings();
-        object.addString("minimalPayout", FormatMoney(backendCfg.PayoutConfig.InstantMinimalPayout, info.FractionalPartSize));
         object.addBoolean("ppsAvailable", backendCfg.PPSConfig.Enabled);
 
         // PPLNS fee: sum of user fee plan percentages
@@ -1639,6 +1639,43 @@ void PoolHttpConnection::onBackendQueryCoins(rapidjson::Document &document)
         for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::PPS, info.Name))
           ppsFee += fee.Percentage;
         object.addDouble("ppsFee", ppsFee);
+
+        // Minimal payouts
+        object.addString("minimalRegularPayout",
+                         FormatMoney(backendCfg.PayoutConfig.RegularMinimalPayout, info.FractionalPartSize));
+        object.addString("minimalInstantPayout",
+                         FormatMoney(backendCfg.PayoutConfig.InstantMinimalPayout, info.FractionalPartSize));
+
+        // Swap flags
+        object.addBoolean("acceptIncoming", backendCfg.SwapConfig.AcceptIncoming);
+        object.addBoolean("acceptOutgoing", backendCfg.SwapConfig.AcceptOutgoing);
+
+        // Current prices
+        CPriceFetcher *priceFetcher = Server_.priceFetcher();
+        if (priceFetcher) {
+          double rateToBTC = priceFetcher->getPrice(info.Name);
+          double btcToUSD = priceFetcher->getBtcUsd();
+          if (rateToBTC > 0.0 && btcToUSD > 0.0) {
+            object.addDouble("valueBTC", rateToBTC);
+            object.addDouble("valueUSD", rateToBTC * btcToUSD);
+          } else {
+            object.addNull("valueBTC");
+            object.addNull("valueUSD");
+          }
+        } else {
+          object.addNull("valueBTC");
+          object.addNull("valueUSD");
+        }
+
+        // Placeholders for future calculator fields
+        object.addNull("height");
+        object.addNull("difficulty");
+        object.addNull("powerUnit");
+        object.addNull("powerMultLog10");
+        object.addNull("powerPPS");
+        object.addNull("dailyPPS");
+        object.addNull("dailyPPSUSD");
+        object.addNull("dailyPPSBTC");
       }
     }
   }
@@ -2701,12 +2738,14 @@ PoolHttpServer::PoolHttpServer(uint16_t port,
                                std::vector<std::unique_ptr<StatisticServer>> &algoMetaStatistic,
                                ComplexMiningStats &complexMiningStats,
                                const CPoolFrontendConfig &config,
-                               size_t threadsNum) :
+                               size_t threadsNum,
+                               CPriceFetcher *priceFetcher) :
   Port_(port),
   UserMgr_(userMgr),
   MiningStats_(complexMiningStats),
   Config_(config),
-  ThreadsNum_(threadsNum)
+  ThreadsNum_(threadsNum),
+  PriceFetcher_(priceFetcher)
 {
   Base_ = createAsyncBase(amOSDefault);
   for (size_t i = 0, ie = backends.size(); i != ie; ++i) {

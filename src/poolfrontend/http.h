@@ -5,6 +5,7 @@
 #include "poolcore/complexMiningStats.h"
 #include <p2putils/HttpRequestParse.h>
 
+class CPriceFetcher;
 class PoolHttpServer;
 
 class PoolHttpConnection {
@@ -172,7 +173,8 @@ public:
                  std::vector<std::unique_ptr<StatisticServer>> &algoMetaStatistic,
                  ComplexMiningStats &complexMiningStats,
                  const CPoolFrontendConfig &config,
-                 size_t threadsNum);
+                 size_t threadsNum,
+                 CPriceFetcher *priceFetcher);
 
   bool start();
   void stop();
@@ -199,6 +201,7 @@ public:
   std::vector<PoolBackend*> &backends() { return Backends_; }
   std::vector<StatisticDb*> &statistics() { return Statistic_; }
   ComplexMiningStats &miningStats() { return MiningStats_; }
+  CPriceFetcher *priceFetcher() { return PriceFetcher_; }
 
 private:
   static void acceptCb(AsyncOpStatus status, aioObject *object, HostAddress, socketTy socketFd, void *arg);
@@ -212,6 +215,7 @@ private:
   ComplexMiningStats &MiningStats_;
   const CPoolFrontendConfig &Config_;
   size_t ThreadsNum_;
+  CPriceFetcher *PriceFetcher_;
   std::vector<PoolBackend*> Backends_;
   std::vector<StatisticDb*> Statistic_;
 
