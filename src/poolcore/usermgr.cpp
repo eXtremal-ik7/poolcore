@@ -233,7 +233,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
 
       std::string error;
       if (!acceptFeePlanRecord(record, error))
-        break;
+        continue;
     }
   }
 
@@ -746,12 +746,14 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
   } else if (!credentials.ReferralId.empty()) {
     // Referral registration (only when feePlanId not set explicitly)
     auto referralId = BaseBlob<256>::fromHexRaw(credentials.ReferralId.c_str());
-    auto it = ReferralIdMap_.find(referralId);
-    if (it == ReferralIdMap_.end()) {
-      callback("invalid_referral_id");
-      return;
+    if (!referralId.isNull()) {
+      auto it = ReferralIdMap_.find(referralId);
+      if (it == ReferralIdMap_.end()) {
+        callback("invalid_referral_id");
+        return;
+      }
+      feePlan = it->second;
     }
-    feePlan = it->second;
   }
 
   // Prepare credentials (hashing password, activate link, etc...)

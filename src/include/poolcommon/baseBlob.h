@@ -10,7 +10,7 @@
 template<unsigned Bits>
 class BaseBlob {
 public:
-  BaseBlob() {}
+  BaseBlob() { setNull(); }
   BaseBlob(const BaseBlob &r) { memcpy(Data_, r.Data_, Size); }
 
   BaseBlob &operator=(const BaseBlob &r) {
