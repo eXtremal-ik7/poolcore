@@ -976,6 +976,8 @@ Returns sent payouts for user (time and transaction id for each)
   * time:integer - payout time in milliseconds since epoch
   * txid:string
   * value:string
+  * valueBTC:string
+  * valueUSD:string
   * status:integer (Initialized: 0, TxCreated: 1, TxSent: 2, TxConfirmed: 3, TxRejected: 4)
 
 ### curl example:
@@ -991,17 +993,23 @@ curl -X POST -d '{"id": "8fa732ed14193de6c50b419dcfa1480a3ff6b96208e68a9c1496974
       {
          "time":1595534238,
          "txid":"7b026ff4c4088fa94770f3351a07c2af3f593c7f6ffd48bc66da803372f15540",
-         "value":"117.29"
+         "value":"117.29",
+         "valueBTC":"0.00123456",
+         "valueUSD":"123.45"
       },
       {
          "time":1595533997,
          "txid":"0b331e1f7fde583fd643103e4777ae2f307aca4ec7bde412f0ab05e84ba43a80",
-         "value":"117.31"
+         "value":"117.31",
+         "valueBTC":"0.00123458",
+         "valueUSD":"123.47"
       },
       {
          "time":1595533637,
          "txid":"e4a2ec354f3abcf0b08f5e78b10dc08b525e22d5399db627606f0c36c7881fa6",
-         "value":"117.31"
+         "value":"117.31",
+         "valueBTC":"0.00123458",
+         "valueUSD":"123.47"
       }
    ]
 }

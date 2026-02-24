@@ -36,7 +36,8 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase,
                              std::vector<CCoinInfo> &coinInfo,
                              const std::string &coinGeckoApiKey) :
   MonitorBase_(monitorBase),
-  CoinInfo_(coinInfo)
+  CoinInfo_(coinInfo),
+  LastSuccessTime_(std::chrono::steady_clock::now())
 {
   if (!coinGeckoApiKey.empty()) {
     ApiHost_ = "pro-api.coingecko.com";
@@ -100,20 +101,32 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase,
   updatePrice();
 }
 
-double CPriceFetcher::getBtcUsd()
+double CPriceFetcher::getBtcUsd() const
 {
   return BTCPrice_.load();
 }
 
-double CPriceFetcher::getPrice(const std::string &coinName)
+double CPriceFetcher::getPrice(const std::string &coinName) const
 {
   auto I = CoinIndexMap_.find(coinName);
   return I != CoinIndexMap_.end() ? CurrentPrices_[I->second].load() : 0.0;
 }
 
-double CPriceFetcher::getPrice(size_t globalBackendIdx)
+double CPriceFetcher::getPrice(size_t globalBackendIdx) const
 {
   return CurrentPrices_[globalBackendIdx].load();
+}
+
+void CPriceFetcher::resetPricesIfStale()
+{
+  auto now = std::chrono::steady_clock::now();
+  if (now - LastSuccessTime_ < StaleTimeout_)
+    return;
+
+  LOG_F(WARNING, "PriceFetcher: no successful update for 30 minutes, resetting all prices to 0");
+  BTCPrice_.store(0.0);
+  for (size_t i = 0; i < CoinInfo_.size(); i++)
+    CurrentPrices_[i].store(0.0);
 }
 
 void CPriceFetcher::updatePrice()
@@ -130,6 +143,7 @@ void CPriceFetcher::onConnect(AsyncOpStatus status)
 {
   if (status != aosSuccess) {
     LOG_F(ERROR, "PriceFetcher connect error %i", status);
+    resetPricesIfStale();
     httpClientDelete(Client_);
     userEventStartTimer(TimerEvent_, PollInterval_, 1);
     return;
@@ -146,6 +160,7 @@ void CPriceFetcher::onRequest(AsyncOpStatus status)
     processRequest(ParseCtx_.body.data, ParseCtx_.body.size);
   } else {
     LOG_F(ERROR, "PriceFetcher request error %i; http code: %i", status, ParseCtx_.resultCode);
+    resetPricesIfStale();
   }
 
   httpClientDelete(Client_);
@@ -158,8 +173,10 @@ void CPriceFetcher::processRequest(const char *data, size_t size)
   std::string priceFetcherLog = "priceFetcher: ";
   rapidjson::Document document;
   document.Parse(data, size);
-  if (document.HasParseError())
+  if (document.HasParseError()) {
+    resetPricesIfStale();
     return;
+  }
 
   // bitcoin first
   if (document.HasMember("bitcoin") && document["bitcoin"].IsObject()) {
@@ -188,5 +205,6 @@ void CPriceFetcher::processRequest(const char *data, size_t size)
     priceFetcherLog.append(buffer);
   }
 
+  LastSuccessTime_ = std::chrono::steady_clock::now();
   LOG_F(INFO, "%s", priceFetcherLog.c_str());
 }

@@ -3,19 +3,21 @@
 #include "poolCore.h"
 #include "asyncio/asyncio.h"
 #include "asyncio/http.h"
+#include <chrono>
 
 class CPriceFetcher {
 public:
   CPriceFetcher(asyncBase *monitorBase, std::vector<CCoinInfo> &coinInfo, const std::string &coinGeckoApiKey = "");
-  double getBtcUsd();
-  double getPrice(const std::string &coinName);
-  double getPrice(size_t globalBackendIdx);
+  double getBtcUsd() const;
+  double getPrice(const std::string &coinName) const;
+  double getPrice(size_t globalBackendIdx) const;
 
 private:
   void updatePrice();
   void onConnect(AsyncOpStatus status);
   void onRequest(AsyncOpStatus status);
   void processRequest(const char *data, size_t size);
+  void resetPricesIfStale();
 
 private:
   asyncBase *MonitorBase_ = nullptr;
@@ -32,4 +34,7 @@ private:
   std::unique_ptr<std::atomic<double>[]> CurrentPrices_;
   std::string ApiHost_;
   uint64_t PollInterval_;
+
+  static constexpr std::chrono::minutes StaleTimeout_{30};
+  std::chrono::steady_clock::time_point LastSuccessTime_;
 };

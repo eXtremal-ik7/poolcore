@@ -12,7 +12,8 @@ CPayoutProcessor::CPayoutProcessor(asyncBase *base,
                                    CAccountingState &state,
                                    kvdb<rocksdbBase> &payoutDb,
                                    kvdb<rocksdbBase> &poolBalanceDb,
-                                   const std::unordered_map<std::string, UserSettingsRecord> &userSettings) :
+                                   const std::unordered_map<std::string, UserSettingsRecord> &userSettings,
+                                   const CPriceFetcher &priceFetcher) :
   Base_(base),
   Cfg_(cfg),
   CoinInfo_(coinInfo),
@@ -20,7 +21,8 @@ CPayoutProcessor::CPayoutProcessor(asyncBase *base,
   State_(state),
   PayoutDb_(payoutDb),
   PoolBalanceDb_(poolBalanceDb),
-  UserSettings_(userSettings)
+  UserSettings_(userSettings),
+  PriceFetcher_(priceFetcher)
 {
 }
 
@@ -221,8 +223,12 @@ void CPayoutProcessor::makePayout()
         }
       }
 
-      for (const auto &I: payoutAccMap)
-        State_.PayoutQueue.push_back(PayoutDbRecord(I.first, I.second));
+      for (const auto &I: payoutAccMap) {
+        PayoutDbRecord payoutRecord(I.first, I.second);
+        payoutRecord.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
+        payoutRecord.RateBTCToUSD = PriceFetcher_.getBtcUsd();
+        State_.PayoutQueue.push_back(std::move(payoutRecord));
+      }
     }
 
     unsigned index = 0;
@@ -471,7 +477,10 @@ bool CPayoutProcessor::requestManualPayout(const std::string &address, rocksdbBa
   if (nonQueuedBalance.isNegative())
     return false;
 
-  State_.PayoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
+  PayoutDbRecord payoutRecord(address, nonQueuedBalance);
+  payoutRecord.RateToBTC = PriceFetcher_.getPrice(CoinInfo_.Name);
+  payoutRecord.RateBTCToUSD = PriceFetcher_.getBtcUsd();
+  State_.PayoutQueue.push_back(std::move(payoutRecord));
   balance.Requested += nonQueuedBalance;
   State_.putBalance(batch, balance);
   return true;

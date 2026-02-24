@@ -1747,6 +1747,8 @@ void PoolHttpConnection::onBackendQueryPayouts(rapidjson::Document &document)
 
   std::vector<PayoutDbRecord> records;
   backend->queryPayouts(tokenInfo.Login, Timestamp(timeFrom), count, records);
+  unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
+  double rateScale = std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
   xmstream stream;
   reply200(stream);
   size_t offset = startChunk(stream);
@@ -1763,7 +1765,13 @@ void PoolHttpConnection::onBackendQueryPayouts(rapidjson::Document &document)
           JSON::Object payout(stream);
           payout.addInt("time", records[i].Time.count());
           payout.addString("txid", records[i].TransactionId);
-          payout.addString("value", FormatMoney(records[i].Value, backend->getCoinInfo().FractionalPartSize));
+          payout.addString("value", FormatMoney(records[i].Value, fractionalPartSize));
+          UInt<384> valueBTC = records[i].Value;
+          valueBTC.mulfp(records[i].RateToBTC * rateScale);
+          UInt<384> valueUSD = records[i].Value;
+          valueUSD.mulfp(records[i].RateToBTC * records[i].RateBTCToUSD * rateScale);
+          payout.addString("valueBTC", FormatMoney(valueBTC, 8));
+          payout.addString("valueUSD", FormatMoney(valueUSD, 8));
           payout.addInt("status", records[i].Status);
         }
       }

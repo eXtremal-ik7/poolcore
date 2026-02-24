@@ -1118,8 +1118,9 @@ void UserManager::updateSettingsImpl(const std::string &login,
       callback("instant_payouts_disabled");
       return;
     }
-    if (payout->Mode == EPayoutMode::Regular && !payoutConfig.RegularPayoutsEnabled) {
-      callback("regular_payouts_disabled");
+    // TODO: temporary, remove when regular payouts are implemented
+    if (payout->Mode == EPayoutMode::Regular) {
+      callback("regular_not_implemented_yet");
       return;
     }
 

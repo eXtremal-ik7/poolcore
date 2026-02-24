@@ -294,10 +294,14 @@ static bool migratePPLNSPayouts(
 static bool migratePayouts(const std::filesystem::path &srcCoinPath,
                            const std::filesystem::path &dstCoinPath,
                            unsigned threads,
-                           std::unordered_set<std::string> &activeUsers)
+                           std::unordered_set<std::string> &activeUsers,
+                           const CPriceDatabase *priceDb,
+                           const std::string &coinGeckoName)
 {
   CPerThreadCollector collector(threads);
-  bool result = migrateDatabaseMt(srcCoinPath, dstCoinPath, "payouts", "payouts", [&collector](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+  std::atomic<unsigned> fixedCount{0};
+  bool result = migrateDatabaseMt(srcCoinPath, dstCoinPath, "payouts", "payouts",
+    [&collector, priceDb, &coinGeckoName, &fixedCount](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
     PayoutDbRecord2 oldRecord;
     if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
       LOG_F(ERROR, "Can't deserialize payouts record, database corrupted");
@@ -314,12 +318,33 @@ static bool migratePayouts(const std::filesystem::path &srcCoinPath,
     newRecord.TransactionData = oldRecord.TransactionData;
     newRecord.Status = oldRecord.Status;
     newRecord.TxFee = safeFromRational(oldRecord.TxFee);
+    if (priceDb && !coinGeckoName.empty()) {
+      double btcPrice = priceDb->lookupPrice("bitcoin", oldRecord.Time);
+      if (btcPrice > 0.0) {
+        if (coinGeckoName == "bitcoin") {
+          newRecord.RateToBTC = 1.0;
+          newRecord.RateBTCToUSD = btcPrice;
+          fixedCount.fetch_add(1);
+        } else {
+          double coinPrice = priceDb->lookupPrice(coinGeckoName, oldRecord.Time);
+          if (coinPrice > 0.0) {
+            newRecord.RateToBTC = coinPrice / btcPrice;
+            newRecord.RateBTCToUSD = btcPrice;
+            fixedCount.fetch_add(1);
+          }
+        }
+      }
+    }
 
     xmstream stream;
     newRecord.serializeValue(stream);
     batch.Put(it->key(), rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
     return true;
   }, threads);
+
+  unsigned fixed = fixedCount.load();
+  if (fixed > 0)
+    LOG_F(INFO, "  payouts: updated exchange rates in %u records", fixed);
 
   if (result)
     collector.mergeInto(activeUsers);
@@ -643,7 +668,9 @@ static bool migrateAccountingState(const std::filesystem::path &srcCoinPath,
                                    const std::filesystem::path &dstCoinPath,
                                    const CCoinInfo &coinInfo,
                                    const CCoinInfoOld2 &old2,
-                                   std::unordered_set<std::string> &activeUsers)
+                                   std::unordered_set<std::string> &activeUsers,
+                                   const CPriceDatabase *priceDb,
+                                   const std::string &coinGeckoName)
 {
   std::filesystem::path dstStatePath = dstCoinPath / "accounting.state";
   LOG_F(INFO, "Migrating accounting state ...");
@@ -927,6 +954,21 @@ static bool migrateAccountingState(const std::filesystem::path &srcCoinPath,
             newRecord.TransactionData = oldRecord.TransactionData;
             newRecord.Status = oldRecord.Status;
             newRecord.TxFee = safeFromRational(oldRecord.TxFee);
+            if (priceDb && !coinGeckoName.empty()) {
+              double btcPrice = priceDb->lookupPrice("bitcoin", oldRecord.Time);
+              if (btcPrice > 0.0) {
+                if (coinGeckoName == "bitcoin") {
+                  newRecord.RateToBTC = 1.0;
+                  newRecord.RateBTCToUSD = btcPrice;
+                } else {
+                  double coinPrice = priceDb->lookupPrice(coinGeckoName, oldRecord.Time);
+                  if (coinPrice > 0.0) {
+                    newRecord.RateToBTC = coinPrice / btcPrice;
+                    newRecord.RateBTCToUSD = btcPrice;
+                  }
+                }
+              }
+            }
 
             LOG_F(INFO, "    payout: %s value=%s txId=%s status=%u",
                   newRecord.UserId.c_str(),
@@ -1567,13 +1609,13 @@ static bool migrateCoin(const std::filesystem::path &srcPath,
   if (!migratePPLNSPayouts(srcCoinPath, dstCoinPath, threads, priceDb, coinInfo.CoinGeckoName))
     return false;
   // payouts/
-  if (!migratePayouts(srcCoinPath, dstCoinPath, threads, activeUsers))
+  if (!migratePayouts(srcCoinPath, dstCoinPath, threads, activeUsers, priceDb, coinInfo.CoinGeckoName))
     return false;
   // statistic/  (workerStats + poolstats)
   if (!migrateStatistic(srcCoinPath, dstCoinPath, old2, threads, statisticCutoff))
     return false;
   // accounting.state/ + accounting.rounds/
-  if (!migrateAccountingState(srcCoinPath, dstCoinPath, coinInfo, old2, activeUsers))
+  if (!migrateAccountingState(srcCoinPath, dstCoinPath, coinInfo, old2, activeUsers, priceDb, coinInfo.CoinGeckoName))
     return false;
 
   // statistic.worklog/ + accounting.worklog/  (must run before cache migration)

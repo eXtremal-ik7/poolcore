@@ -74,7 +74,8 @@ AccountingDb::AccountingDb(asyncBase *base,
                    State_,
                    _payoutDb,
                    _poolBalanceDb,
-                   UserSettings_),
+                   UserSettings_,
+                   priceFetcher),
   Api_(base,
        config,
        coinInfo,
@@ -898,7 +899,10 @@ bool AccountingDb::applyReward(const std::string &address,
       userThreshold = instantMinimalPayout;
 
     if (nonQueuedBalance >= userThreshold) {
-      State_.PayoutQueue.push_back(PayoutDbRecord(address, nonQueuedBalance));
+      PayoutDbRecord payoutRecord(address, nonQueuedBalance);
+      payoutRecord.RateToBTC = rewardParams.RateToBTC;
+      payoutRecord.RateBTCToUSD = rewardParams.RateBTCToUSD;
+      State_.PayoutQueue.push_back(std::move(payoutRecord));
       balance.Requested += nonQueuedBalance;
       result = true;
     }

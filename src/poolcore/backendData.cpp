@@ -33,6 +33,8 @@ struct DbIo<PayoutDbRecord> {
     dbIoSerialize(stream, data.TransactionData);
     dbIoSerialize(stream, data.Status);
     dbIoSerialize(stream, data.TxFee);
+    dbIoSerialize(stream, data.RateToBTC);
+    dbIoSerialize(stream, data.RateBTCToUSD);
   }
 
   static inline void unserialize(xmstream &stream, PayoutDbRecord &data) {
@@ -45,6 +47,8 @@ struct DbIo<PayoutDbRecord> {
     dbIoUnserialize(stream, data.TransactionData);
     dbIoUnserialize(stream, data.Status);
     dbIoUnserialize(stream, data.TxFee);
+    dbIoUnserialize(stream, data.RateToBTC);
+    dbIoUnserialize(stream, data.RateBTCToUSD);
   }
 };
 

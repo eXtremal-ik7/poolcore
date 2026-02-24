@@ -138,8 +138,9 @@ struct PayoutDbRecord {
   std::string TransactionId;
   std::string TransactionData;
   uint32_t Status = EInitialized;
-  // Version 2
   UInt<384> TxFee = UInt<384>::zero();
+  double RateToBTC = 0.0;
+  double RateBTCToUSD = 0.0;
 
   std::string getPartitionId() const { return partByTime(Time.toUnixTime()); }
   bool deserializeValue(const void *data, size_t size);
