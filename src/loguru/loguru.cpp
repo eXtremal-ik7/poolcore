@@ -1499,6 +1499,8 @@ namespace loguru
 
 #if __cplusplus >= 202002L
 	LogChannel* g_channelLog = nullptr;
+	static std::vector<LogChannel*> s_channels;
+	static std::mutex               s_channels_mutex;
 
 	void set_global_channel_log(LogChannel* ch) { g_channelLog = ch; }
 
@@ -1566,6 +1568,11 @@ namespace loguru
 		}
 		write_channel_header(file_, verbosity);
 
+		{
+			std::lock_guard<std::mutex> lock(s_channels_mutex);
+			s_channels.push_back(this);
+		}
+
 		VLOG_F(g_internal_verbosity, "LogChannel: logging to '" LOGURU_FMT(s) "', verbosity: " LOGURU_FMT(d) "", currentPath_, verbosity);
 		return true;
 	}
@@ -1573,6 +1580,13 @@ namespace loguru
 	void LogChannel::close()
 	{
 		if (file_) {
+			{
+				std::lock_guard<std::mutex> lock(s_channels_mutex);
+				auto it = std::find(s_channels.begin(), s_channels.end(), this);
+				if (it != s_channels.end()) {
+					s_channels.erase(it);
+				}
+			}
 			fclose(file_);
 			file_ = nullptr;
 		}
@@ -1726,6 +1740,17 @@ namespace loguru
 				callback.flush(callback.user_data);
 			}
 		}
+#if __cplusplus >= 202002L
+		{
+			std::lock_guard<std::mutex> lock(s_channels_mutex);
+			for (auto* channel : s_channels) {
+				std::lock_guard<std::mutex> ch_lock(channel->mutex_);
+				if (channel->file_) {
+					fflush(channel->file_);
+				}
+			}
+		}
+#endif
 		s_needs_flushing = false;
 	}
 

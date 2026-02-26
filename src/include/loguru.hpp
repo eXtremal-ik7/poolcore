@@ -610,6 +610,7 @@ namespace loguru
 		friend LOGURU_EXPORT
 		void log_to_channel(LogChannel* channel, Verbosity verbosity,
 		                     const char* file, unsigned line, const char* message);
+		friend LOGURU_EXPORT void flush();
 	};
 
 	LOGURU_EXPORT
