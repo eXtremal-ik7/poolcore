@@ -159,10 +159,8 @@ int main(int argc, char **argv)
 
     std::filesystem::create_directories(destinationDatabase);
 
-    loguru::add_file((std::filesystem::path(destinationDatabase) / "migrate.log").generic_string().c_str(), loguru::Append, loguru::Verbosity_1);
-
     static loguru::LogChannel masterLog;
-    auto masterLogPath = (std::filesystem::path(destinationDatabase) / "logs" / "master" / "log-%Y-%m.log").generic_string();
+    auto masterLogPath = (std::filesystem::path(destinationDatabase) / "migrate.log").generic_string();
     masterLog.open(masterLogPath.c_str(), loguru::Append, loguru::Verbosity_1);
     loguru::set_global_channel_log(&masterLog);
 
