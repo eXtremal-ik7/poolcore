@@ -42,7 +42,7 @@ public:
 
   void stop(const char *threadName, const char *taskHandlerName) {
     push(nullptr);
-    LOG_F(INFO, "%s: %s finishing", threadName, taskHandlerName);
+    CLOG_F(INFO, "{}: {} finishing", threadName, taskHandlerName);
     while (!TaskHandlerFinished_)
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }

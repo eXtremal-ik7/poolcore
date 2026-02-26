@@ -18,8 +18,8 @@ static void checkConsistency(AccountingDb *accounting, const CCoinInfo &coinInfo
   for (const auto &[login, balance] : accounting->getUserBalanceMap())
     totalInBalance += balance.Requested;
 
-  LOG_F(INFO, "totalQueued: %s", FormatMoney(totalQueued, coinInfo.FractionalPartSize).c_str());
-  LOG_F(INFO, "totalRequested: %s", FormatMoney(totalInBalance, coinInfo.FractionalPartSize).c_str());
+  CLOG_F(INFO, "totalQueued: {}", FormatMoney(totalQueued, coinInfo.FractionalPartSize));
+  CLOG_F(INFO, "totalRequested: {}", FormatMoney(totalInBalance, coinInfo.FractionalPartSize));
 }
 
 
@@ -46,6 +46,9 @@ PoolBackend::PoolBackend(asyncBase *base,
   _accounting->setFeeEstimationService(FeeEstimationService_.get());
 
   ProfitSwitchCoeff_ = CoinInfo_.ProfitSwitchDefaultCoeff;
+
+  auto logPath = (_cfg.dbPath.parent_path() / "logs" / CoinInfo_.Name / "log-%Y-%m.log").generic_string();
+  LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
 
   if (CoinInfo_.HasDagFile) {
     EthDagFiles_ = new atomic_intrusive_ptr<EthashDagWrapper>[MaxEpochNum];
@@ -78,6 +81,7 @@ void PoolBackend::backendMain()
 {
   InitializeWorkerThread();
   loguru::set_thread_name(CoinInfo_.Name.c_str());
+  loguru::set_channel_log(&LogChannel_);
 
   TaskHandler_.start();
   _accounting->start();
@@ -95,7 +99,7 @@ void PoolBackend::backendMain()
     _accounting->payoutProcessor().checkBalance();
   }, std::chrono::microseconds(_cfg.BalanceCheckInterval), true);
 
-  LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
+  CLOG_F(INFO, "<info>: Pool backend for '{}' started, mode is {}, tid={}", CoinInfo_.Name, _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
   checkConsistency(_accounting.get(), CoinInfo_);
   asyncLoop(_base);
 }
@@ -146,17 +150,17 @@ void PoolBackend::onUpdateDag(unsigned epochNumber, bool bigEpoch)
     return;
 
   if (epochNumber != 0 && EthDagFiles_[epochNumber-1].get() != nullptr) {
-    LOG_F(INFO, "%s: remove DAG for epoch %u", CoinInfo_.Name.c_str(), epochNumber-1);
+    CLOG_F(INFO, "{}: remove DAG for epoch {}", CoinInfo_.Name, epochNumber-1);
     EthDagFiles_[epochNumber-1].reset();
   }
 
   if (EthDagFiles_[epochNumber].get() == nullptr) {
-    LOG_F(INFO, "%s: generate DAG for epoch %u", CoinInfo_.Name.c_str(), epochNumber);
+    CLOG_F(INFO, "{}: generate DAG for epoch {}", CoinInfo_.Name, epochNumber);
     EthDagFiles_[epochNumber].reset(new EthashDagWrapper(epochNumber, bigEpoch));
   }
 
   if (EthDagFiles_[epochNumber+1].get() == nullptr) {
-    LOG_F(INFO, "%s: generate DAG for epoch %u", CoinInfo_.Name.c_str(), epochNumber+1);
+    CLOG_F(INFO, "{}: generate DAG for epoch {}", CoinInfo_.Name, epochNumber+1);
     EthDagFiles_[epochNumber+1].reset(new EthashDagWrapper(epochNumber+1, bigEpoch));
   }
 }

@@ -108,7 +108,7 @@ const char *CAccountingApi::manualPayout(const std::string &user)
       if (result) {
         State_.addPayoutQueue(batch);
         State_.flushState(batch);
-        LOG_F(INFO, "Manual payout success for %s", user.c_str());
+        CLOG_F(INFO, "Manual payout success for {}", user);
         return "ok";
       } else {
         return "payout_error";
@@ -501,9 +501,9 @@ const char *CAccountingApi::updateBackendSettings(const std::optional<CBackendSe
     }
 
     settings.PPSConfig = *pps;
-    LOG_F(INFO,
-      "[%s] PPS config updated: enabled=%d, poolFee=%.2f, saturation=%s, B0=%.4f, aNeg=%.4f, aPos=%.4f",
-      CoinInfo_.Name.c_str(),
+    CLOG_F(INFO,
+      "[{}] PPS config updated: enabled={}, poolFee={:.2f}, saturation={}, B0={:.4f}, aNeg={:.4f}, aPos={:.4f}",
+      CoinInfo_.Name,
       static_cast<int>(pps->Enabled),
       pps->PoolFee,
       CBackendSettings::PPS::saturationFunctionName(pps->SaturationFunction),
@@ -528,14 +528,14 @@ const char *CAccountingApi::updateBackendSettings(const std::optional<CBackendSe
     }
 
     settings.PayoutConfig = *payouts;
-    LOG_F(INFO, "[%s] Payouts config updated", CoinInfo_.Name.c_str());
+    CLOG_F(INFO, "[{}] Payouts config updated", CoinInfo_.Name);
   }
 
   if (swap.has_value()) {
     settings.SwapConfig = *swap;
-    LOG_F(INFO,
-      "[%s] Swap config updated: acceptIncoming=%d, acceptOutgoing=%d",
-      CoinInfo_.Name.c_str(),
+    CLOG_F(INFO,
+      "[{}] Swap config updated: acceptIncoming={}, acceptOutgoing={}",
+      CoinInfo_.Name,
       static_cast<int>(swap->AcceptIncoming),
       static_cast<int>(swap->AcceptOutgoing));
   }

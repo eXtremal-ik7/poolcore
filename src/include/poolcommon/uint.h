@@ -8,6 +8,7 @@
 #include <limits>
 #include <cfloat>
 #include <cmath>
+#include <format>
 
 #include <assert.h>
 
@@ -1016,3 +1017,36 @@ static inline uint32_t uint256GetCompact(const UInt<256> &value, bool fNegative 
   nCompact |= (fNegative && (nCompact & 0x007fffff) ? 0x00800000 : 0);
   return nCompact;
 }
+
+// std::format support for UInt<Bits>
+// Default (no spec or {:x}) = hex lowercase without leading zeroes
+// {:X} = hex uppercase, {:d} = decimal, {:#x}/{:#X} = hex with 0x prefix
+template<unsigned Bits>
+struct std::formatter<UInt<Bits>> {
+  char presentation_ = 'x';
+  bool altForm_ = false;
+  bool upperCase_ = false;
+
+  template <class ParseContext>
+  constexpr auto parse(ParseContext &ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it == '#') {
+      altForm_ = true;
+      ++it;
+    }
+    if (it != ctx.end() && (*it == 'x' || *it == 'X' || *it == 'd')) {
+      presentation_ = *it;
+      upperCase_ = (*it == 'X');
+      ++it;
+    }
+    return it;
+  }
+
+  template <class FormatContext>
+  auto format(const UInt<Bits> &value, FormatContext &ctx) const {
+    if (presentation_ == 'd') {
+      return std::format_to(ctx.out(), "{}", value.getDecimal());
+    }
+    return std::format_to(ctx.out(), "{}", value.getHex(false, altForm_, upperCase_));
+  }
+};

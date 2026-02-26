@@ -101,7 +101,7 @@ int main(int argc, char *argv[])
   // Parse config
   FileDescriptor configFd;
   if (!configFd.open(argv[1])) {
-    LOG_F(ERROR, "Can't open config file %s", argv[1]);
+    CLOG_F(ERROR, "Can't open config file {}", argv[1]);
     return 1;
   }
 
@@ -112,7 +112,7 @@ int main(int argc, char *argv[])
   rapidjson::Document document;
   document.Parse<rapidjson::kParseCommentsFlag>(configData.c_str());
   if (document.HasParseError()) {
-    LOG_F(ERROR, "Config file %s is not valid JSON", argv[1]);
+    CLOG_F(ERROR, "Config file {} is not valid JSON", argv[1]);
     return 1;
   }
 
@@ -120,8 +120,8 @@ int main(int argc, char *argv[])
   {
     std::string error;
     if (!config.load(document, error)) {
-      LOG_F(ERROR, "Config file %s contains error", argv[1]);
-      LOG_F(ERROR, "%s", error.c_str());
+      CLOG_F(ERROR, "Config file {} contains error", argv[1]);
+      CLOG_F(ERROR, "{}", error);
       return 1;
     }
   }
@@ -141,13 +141,20 @@ int main(int argc, char *argv[])
       loguru::add_file((poolContext.DatabasePath / logFileName).generic_string().c_str(), loguru::Append, loguru::Verbosity_1);
     }
 
+    {
+      static loguru::LogChannel masterLog;
+      auto masterLogPath = (poolContext.DatabasePath / "logs" / "master" / "log-%Y-%m.log").generic_string();
+      masterLog.open(masterLogPath.c_str(), loguru::Append, loguru::Verbosity_1);
+      loguru::set_global_channel_log(&masterLog);
+    }
+
     // Check for outdated database format
     {
       std::vector<std::string> coinNames;
       for (const auto &coin : config.Coins)
         coinNames.push_back(coin.Name);
       if (isDbFormatOutdated(poolContext.DatabasePath, coinNames)) {
-        LOG_F(ERROR, "database needs to be manually updated with migrate tool");
+        CLOG_F(ERROR, "database needs to be manually updated with migrate tool");
         return 1;
       }
     }
@@ -170,7 +177,7 @@ int main(int argc, char *argv[])
       backendsNum*2 +       // Backends & metastatistic algorithm servers
       httpThreadsNum +      // HTTP server
       1;                    // Complex mining stats service
-    LOG_F(INFO, "Worker threads: %u; total pool threads: %u", workerThreadsNum, totalThreadsNum);
+    CLOG_F(INFO, "Worker threads: {}; total pool threads: {}", workerThreadsNum, totalThreadsNum);
 
     // Initialize user manager
     poolContext.UserMgr.reset(new UserManager(poolContext.DatabasePath));
@@ -196,19 +203,19 @@ int main(int argc, char *argv[])
       HostAddress smtpAddress;
       char *colonPos = (char*)strchr(config.SmtpServer.c_str(), ':');
       if (colonPos == nullptr) {
-        LOG_F(ERROR, "Invalid server %s\nIt must have address:port format", config.SmtpServer.c_str());
+        CLOG_F(ERROR, "Invalid server {}\nIt must have address:port format", config.SmtpServer);
         return 1;
       }
 
       *colonPos = 0;
       hostent *host = gethostbyname(config.SmtpServer.c_str());
       if (!host) {
-        LOG_F(ERROR, "Cannot retrieve address of %s (gethostbyname failed)", config.SmtpServer.c_str());
+        CLOG_F(ERROR, "Cannot retrieve address of {} (gethostbyname failed)", config.SmtpServer);
       }
 
       u_long addr = host->h_addr ? *reinterpret_cast<u_long*>(host->h_addr) : 0;
       if (!addr) {
-        LOG_F(ERROR, "Cannot retrieve address of %s (gethostbyname returns 0)", config.SmtpServer.c_str());
+        CLOG_F(ERROR, "Cannot retrieve address of {} (gethostbyname returns 0)", config.SmtpServer);
         return 1;
       }
 
@@ -235,7 +242,7 @@ int main(int argc, char *argv[])
         }
 
         if (!foundInExtra) {
-          LOG_F(ERROR, "Unknown coin: %s", coinName);
+          CLOG_F(ERROR, "Unknown coin: {}", coinName);
           return 1;
         }
       }
@@ -260,13 +267,13 @@ int main(int argc, char *argv[])
 
       // Backend parameters
       if (!parseMoneyValue(coinConfig.DefaultPayoutThreshold.c_str(), coinInfo.FractionalPartSize, &backendConfig.DefaultPayoutThreshold)) {
-        LOG_F(ERROR, "Can't load 'defaultPayoutThreshold' from %s coin config", coinName);
+        CLOG_F(ERROR, "Can't load 'defaultPayoutThreshold' from {} coin config", coinName);
         return 1;
       }
 
 
       if (coinConfig.RequiredConfirmations < coinInfo.MinimalConfirmationsNumber) {
-        LOG_F(ERROR, "Minimal required confirmations for %s is %u", coinInfo.Name.c_str(), coinInfo.MinimalConfirmationsNumber);
+        CLOG_F(ERROR, "Minimal required confirmations for {} is {}", coinInfo.Name, coinInfo.MinimalConfirmationsNumber);
         return 1;
       }
 
@@ -277,7 +284,7 @@ int main(int argc, char *argv[])
 
       for (const auto &addr: coinConfig.MiningAddresses) {
         if (!coinInfo.checkAddress(addr.Address, coinInfo.PayoutAddressType)) {
-          LOG_F(ERROR, "Invalid mining address: %s", addr.Address.c_str());
+          CLOG_F(ERROR, "Invalid mining address: {}", addr.Address);
           return 1;
         }
 
@@ -311,7 +318,7 @@ int main(int argc, char *argv[])
           }
 
           if (!client) {
-            LOG_F(ERROR, "Unknown node type: %s", node.Type.c_str());
+            CLOG_F(ERROR, "Unknown node type: {}", node.Type);
             return 1;
           }
         }
@@ -335,7 +342,7 @@ int main(int argc, char *argv[])
           }
 
           if (!client) {
-            LOG_F(ERROR, "Unknown node type: %s", node.Type.c_str());
+            CLOG_F(ERROR, "Unknown node type: {}", node.Type);
             return 1;
           }
         }
@@ -358,7 +365,7 @@ int main(int argc, char *argv[])
       if (AlgoIt == knownAlgo.end()) {
         CCoinInfo algoInfo = CCoinLibrary::get(coinInfo.Algorithm.c_str());
         if (algoInfo.Name.empty()) {
-          LOG_F(ERROR, "Coin %s has unknown algorithm: %s", coinInfo.Name.c_str(), coinInfo.Algorithm.c_str());
+          CLOG_F(ERROR, "Coin {} has unknown algorithm: {}", coinInfo.Name, coinInfo.Algorithm);
           return 1;
         }
 
@@ -392,7 +399,7 @@ int main(int argc, char *argv[])
       for (const auto &linkedCoinName: instanceConfig.Backends) {
         auto It = std::lower_bound(poolContext.Backends.begin(), poolContext.Backends.end(), linkedCoinName, [](const auto &backend, const std::string &name) { return backend->getCoinInfo().Name < name; });
         if (It == poolContext.Backends.end() || (*It)->getCoinInfo().Name != linkedCoinName) {
-          LOG_F(ERROR, "Instance %s linked with non-existent coin %s", instanceConfig.Name.c_str(), linkedCoinName.c_str());
+          CLOG_F(ERROR, "Instance {} linked with non-existent coin {}", instanceConfig.Name, linkedCoinName);
           return 1;
         }
 
@@ -404,17 +411,18 @@ int main(int argc, char *argv[])
       std::string algo;
       for (PoolBackend *linkedBackend: linkedBackends) {
         if (!algo.empty() && linkedBackend->getCoinInfo().Algorithm != algo) {
-          LOG_F(ERROR,
-                "Linked backends with different algorithms (%s and %s) to one instance %s",
-                algo.c_str(),
-                linkedBackend->getCoinInfo().Algorithm.c_str(),
-                instanceConfig.Name.c_str());
+          CLOG_F(ERROR,
+                "Linked backends with different algorithms ({} and {}) to one instance {}",
+                algo,
+                linkedBackend->getCoinInfo().Algorithm,
+                instanceConfig.Name);
           return 1;
         }
 
         algo = linkedBackend->getCoinInfo().Algorithm;
       }
 
+      auto logsPath = poolContext.DatabasePath / "logs";
       StatisticServer *algoMetaStatistic = linkedBackends[0]->getAlgoMetaStatistic();
       CPoolInstance *instance = PoolInstanceFabric::get(
         monitorBase,
@@ -428,7 +436,8 @@ int main(int argc, char *argv[])
         static_cast<unsigned>(instIdx),
         static_cast<unsigned>(instIdxE),
         instanceConfig.InstanceConfig,
-        poolContext.PriceFetcher.get());
+        poolContext.PriceFetcher.get(),
+        logsPath);
       if (!instance) {
         // Try create pool instances using extras
         for (const auto &proc: gPluginContext.CreatePoolInstanceProcs) {
@@ -444,16 +453,17 @@ int main(int argc, char *argv[])
             static_cast<unsigned>(instIdx),
             static_cast<unsigned>(instIdxE),
             instanceConfig.InstanceConfig,
-            poolContext.PriceFetcher.get());
+            poolContext.PriceFetcher.get(),
+            logsPath);
           if (instance)
             break;
         }
 
         if (!instance) {
-          LOG_F(ERROR,
-                "Can't create instance with type '%s' and prorotol '%s'",
-                instanceConfig.Type.c_str(),
-                instanceConfig.Protocol.c_str());
+          CLOG_F(ERROR,
+                "Can't create instance with type '{}' and prorotol '{}'",
+                instanceConfig.Type,
+                instanceConfig.Protocol);
           return 1;
         }
       }
@@ -497,7 +507,7 @@ int main(int argc, char *argv[])
   std::thread monitorThread([](asyncBase *base) {
     InitializeWorkerThread();
     loguru::set_thread_name("monitor");
-    LOG_F(INFO, "monitor started tid=%u", GetGlobalThreadId());
+    CLOG_F(INFO, "monitor started tid={}", GetGlobalThreadId());
     asyncLoop(base);
   }, monitorBase);
 
@@ -517,7 +527,7 @@ int main(int argc, char *argv[])
       }
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
-    LOG_F(INFO, "Interrupted by user");
+    CLOG_F(INFO, "Interrupted by user");
     // Stop mining stats
     if (poolContext.MiningStats)
       poolContext.MiningStats->stop();
@@ -539,6 +549,6 @@ int main(int argc, char *argv[])
 
   sigIntThread.detach();
   monitorThread.join();
-  LOG_F(INFO, "poolfrondend stopped\n");
+  CLOG_F(INFO, "poolfrondend stopped");
   return 0;
 }

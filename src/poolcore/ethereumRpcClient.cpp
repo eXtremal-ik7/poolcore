@@ -83,7 +83,7 @@ CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, con
   URI uri;
   std::string uriAddress = (std::string)"http://" + address;
   if (!uriParse(uriAddress.c_str(), &uri)) {
-    LOG_F(ERROR, "%s: can't parse address %s", coinInfo.Name.c_str(), address);
+    CLOG_F(ERROR, "{}: can't parse address {}", coinInfo.Name, address);
     exit(1);
   }
 
@@ -97,7 +97,7 @@ CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, con
         Address_.port = htons(port);
         Address_.family = AF_INET;
       } else {
-        LOG_F(ERROR, "%s: can't lookup address %s\n", coinInfo.Name.c_str(), uri.domain.c_str());
+        CLOG_F(ERROR, "{}: can't lookup address {}", coinInfo.Name, uri.domain);
         exit(1);
       }
     }
@@ -116,7 +116,7 @@ CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, con
   FullHostName_ = HostName_ + ":" + std::to_string(port);
 
   if (config.MiningAddresses.size() != 1) {
-    LOG_F(ERROR, "ERROR: ethereum-based backends support working with only one mining address\n");
+    CLOG_F(ERROR, "ERROR: ethereum-based backends support working with only one mining address");
     exit(1);
   }
 
@@ -508,12 +508,12 @@ void CEthereumRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
 void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 {
   if (status != aosSuccess || WorkFetcher_.ParseCtx.resultCode != 200) {
-    LOG_F(WARNING, "%s %s: request error code: %u (http result code: %u, data: %s)",
-          CoinInfo_.Name.c_str(),
-          FullHostName_.c_str(),
-          static_cast<unsigned>(status),
-          WorkFetcher_.ParseCtx.resultCode,
-          WorkFetcher_.ParseCtx.body.data ? WorkFetcher_.ParseCtx.body.data : "<null>");
+    CLOG_F(WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
+           CoinInfo_.Name,
+           FullHostName_,
+           static_cast<unsigned>(status),
+           WorkFetcher_.ParseCtx.resultCode,
+           WorkFetcher_.ParseCtx.body.data ? WorkFetcher_.ParseCtx.body.data : "<null>");
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
@@ -522,7 +522,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   std::unique_ptr<CBlockTemplate> blockTemplate(new CBlockTemplate(CoinInfo_.Name, CoinInfo_.WorkType));
   blockTemplate->Document.Parse(WorkFetcher_.ParseCtx.body.data);
   if (blockTemplate->Document.HasParseError()) {
-    LOG_F(WARNING, "%s %s: JSON parse error", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    CLOG_F(WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
@@ -564,7 +564,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     // Check DAG presence
     int epochNumber = ethashGetEpochNumber(seedHash.begin());
     if (epochNumber == -1) {
-      LOG_F(ERROR, "Can't find epoch number for seed %s", seedHash.getHexLE().c_str());
+      CLOG_F(ERROR, "Can't find epoch number for seed {}", seedHash.getHexLE());
       break;
     }
 
@@ -586,7 +586,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
       Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
       WorkFetcher_.Height = height;
       WorkFetcher_.WorkId = workId;
-      LOG_F(INFO, "%s: new work available; height: %" PRIu64 "; difficulty: %lf", CoinInfo_.Name.c_str(), height, difficulty);
+      CLOG_F(INFO, "{}: new work available; height: {}; difficulty: {}", CoinInfo_.Name, height, difficulty);
     }
 
     // Wait 100ms
@@ -611,7 +611,7 @@ CEthereumRpcClient::CConnection *CEthereumRpcClient::getConnection(asyncBase *ba
   connection->Socket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
   // NOTE: Linux only
   if (connection->Socket == -1) {
-    LOG_F(ERROR, "Can't create socket (open file descriptors limit is over?)");
+    CLOG_F(ERROR, "Can't create socket (open file descriptors limit is over?)");
     return nullptr;
   }
   connection->Client = httpClientNew(base, newSocketIo(base, connection->Socket));
@@ -818,7 +818,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
     return status;
 
   if (!document.HasMember("result") || !document["result"].IsObject()) {
-    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
     return EStatusProtocolError;
   }
 
@@ -826,7 +826,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
   if (!blockObject.HasMember("mixHash") || !blockObject["mixHash"].IsString() || blockObject["mixHash"].GetStringLength() != 66 ||
       !blockObject.HasMember("hash") || !blockObject["hash"].IsString() || blockObject["hash"].GetStringLength() != 66 ||
       !blockObject.HasMember("gasUsed") || !blockObject["gasUsed"].IsString() || blockObject["gasUsed"].GetStringLength() < 3) {
-    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
     return EStatusProtocolError;
   }
 
@@ -836,7 +836,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
 
   if (blockObject.HasMember("baseFeePerGas")) {
     if (!blockObject["baseFeePerGas"].IsString() || blockObject["gasUsed"].GetStringLength() < 3) {
-      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
       return EStatusProtocolError;
     }
 
@@ -845,7 +845,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
 
   // transactions
   if (!blockObject.HasMember("transactions") || !blockObject["transactions"].IsArray()) {
-    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
     return EStatusProtocolError;
   }
 
@@ -853,7 +853,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
     // Here we need hash and gas price
     if (!txObject.HasMember("gasPrice") || !txObject["gasPrice"].IsString() || txObject["gasPrice"].GetStringLength() < 3 ||
         !txObject.HasMember("hash") || !txObject["hash"].IsString() || txObject["hash"].GetStringLength() != 66) {
-      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
       return EStatusProtocolError;
     }
 
@@ -865,13 +865,13 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
 
   // uncles
   if (!blockObject.HasMember("uncles") || !blockObject["uncles"].IsArray()) {
-    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
     return EStatusProtocolError;
   }
 
   for (const auto &uncle: blockObject["uncles"].GetArray()) {
     if (!uncle.IsString() || uncle.GetStringLength() != 66) {
-      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
       return EStatusProtocolError;
     }
 
@@ -905,7 +905,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetUncleByBlockNumberAnd
     return status;
 
   if (!document.HasMember("result") || !document["result"].IsObject()) {
-    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
     return EStatusProtocolError;
   }
 
@@ -913,7 +913,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetUncleByBlockNumberAnd
   if (!blockObject.HasMember("mixHash") || !blockObject["mixHash"].IsString() || blockObject["mixHash"].GetStringLength() != 66 ||
       !blockObject.HasMember("hash") || !blockObject["hash"].IsString() || blockObject["hash"].GetStringLength() != 66 ||
       !blockObject.HasMember("gasUsed") || !blockObject["gasUsed"].IsString() || blockObject["gasUsed"].GetStringLength() < 3) {
-    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
     return EStatusProtocolError;
   }
 
@@ -923,7 +923,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetUncleByBlockNumberAnd
 
   if (blockObject.HasMember("baseFeePerGas")) {
     if (!blockObject["baseFeePerGas"].IsString() || blockObject["gasUsed"].GetStringLength() < 3) {
-      LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
       return EStatusProtocolError;
     }
 
@@ -996,7 +996,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionReceipt(CC
     return status;
 
   if (!document.HasMember("result") || !document["result"].IsObject()) {
-    LOG_F(WARNING, "%s %s: response invalid format", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
     return EStatusProtocolError;
   }
 

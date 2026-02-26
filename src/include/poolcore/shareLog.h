@@ -12,7 +12,6 @@
 #include "poolcommon/serialize.h"
 #include "loguru.hpp"
 #include "p2putils/xmstream.h"
-#include <inttypes.h>
 
 struct ShareLogMsgHeader {
   uint64_t Id;
@@ -33,7 +32,7 @@ public:
   void replay(ReplayShareCallback replayShare) {
     enumerateDatFiles(ShareLog_, Path_, 3, true);
     if (ShareLog_.empty())
-      LOG_F(WARNING, "%s: share log is empty like at first run", BackendName_.c_str());
+      CLOG_F(WARNING, "{}: share log is empty like at first run", BackendName_);
 
     for (auto &file: ShareLog_)
       replayShares(file, replayShare);
@@ -47,7 +46,7 @@ public:
       if (lastFile.Fd.open(lastFile.Path)) {
         lastFile.Fd.seekSet(lastFile.Fd.size());
       } else {
-        LOG_F(ERROR, "Can't open share log %s", path_to_utf8(lastFile.Path).c_str());
+        CLOG_F(ERROR, "Can't open share log {}", lastFile.Path);
         ShareLoggingEnabled_ = false;
       }
     } else {
@@ -100,11 +99,11 @@ public:
 
   void cleanupOldFiles(uint64_t lastAggregatedShareId) {
     if (isDebugBackend() && !ShareLog_.empty()) {
-      LOG_F(1, "Last aggregated share id: %" PRIu64 "; first file range is [%" PRIu64 ": %" PRIu64 "]", lastAggregatedShareId, ShareLog_.front().FileId, ShareLog_.front().LastShareId);
+      CLOG_F(1, "Last aggregated share id: {}; first file range is [{}: {}]", lastAggregatedShareId, ShareLog_.front().FileId, ShareLog_.front().LastShareId);
     }
 
     while (ShareLog_.size() > 1 && ShareLog_.front().LastShareId < lastAggregatedShareId) {
-      LOG_F(INFO, "remove old share log file %s", path_to_utf8(ShareLog_.front().Path).c_str());
+      CLOG_F(INFO, "remove old share log file {}", ShareLog_.front().Path);
       std::filesystem::remove(ShareLog_.front().Path);
       ShareLog_.pop_front();
     }
@@ -113,11 +112,11 @@ public:
 private:
   void replayShares(CDatFile &file, const ReplayShareCallback &replayShare) {
     if (isDebugBackend())
-      LOG_F(1, "%s: Replaying shares from file %s", BackendName_.c_str(), path_to_utf8(file.Path).c_str());
+      CLOG_F(1, "{}: Replaying shares from file {}", BackendName_, file.Path);
 
     FileDescriptor fd;
     if (!fd.open(path_to_utf8(file.Path).c_str())) {
-      LOG_F(ERROR, "ShareLog: can't open file %s", path_to_utf8(file.Path).c_str());
+      CLOG_F(ERROR, "ShareLog: can't open file {}", file.Path);
       return;
     }
 
@@ -126,7 +125,7 @@ private:
     size_t bytesRead = fd.read(stream.reserve(fileSize), 0, fileSize);
     fd.close();
     if (bytesRead != fileSize) {
-      LOG_F(ERROR, "ShareLog: can't read file %s", path_to_utf8(file.Path).c_str());
+      CLOG_F(ERROR, "ShareLog: can't read file {}", file.Path);
       return;
     }
 
@@ -137,7 +136,7 @@ private:
     stream.seekSet(0);
     while (stream.remaining()) {
       if (stream.remaining() < sizeof(ShareLogMsgHeader)) {
-        LOG_F(ERROR, "ShareLog: truncated header in %s", path_to_utf8(file.Path).c_str());
+        CLOG_F(ERROR, "ShareLog: truncated header in {}", file.Path);
         break;
       }
 
@@ -148,16 +147,16 @@ private:
       uint32_t storedCrc = xletoh(header->Crc32);
 
       if (dataSize > stream.remaining()) {
-        LOG_F(ERROR, "ShareLog: truncated data in %s", path_to_utf8(file.Path).c_str());
+        CLOG_F(ERROR, "ShareLog: truncated data in {}", file.Path);
         break;
       }
 
       uint8_t *dataPtr = stream.seek<uint8_t>(dataSize);
       uint32_t computedCrc = crc32c(dataPtr, dataSize);
       if (computedCrc != storedCrc) {
-        LOG_F(ERROR,
-          "ShareLog: CRC32C mismatch in %s (stored %08X, computed %08X)",
-          path_to_utf8(file.Path).c_str(),
+        CLOG_F(ERROR,
+          "ShareLog: CRC32C mismatch in {} (stored {:08X}, computed {:08X})",
+          file.Path,
           storedCrc,
           computedCrc);
         break;
@@ -167,7 +166,7 @@ private:
       T data;
       DbIo<T>::unserialize(payload, data);
       if (payload.eof()) {
-        LOG_F(ERROR, "ShareLog: corrupted payload in %s", path_to_utf8(file.Path).c_str());
+        CLOG_F(ERROR, "ShareLog: corrupted payload in {}", file.Path);
         break;
       }
 
@@ -183,7 +182,7 @@ private:
     file.LastShareId = id;
 
     if (isDebugBackend())
-      LOG_F(1, "%s: Replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", BackendName_.c_str(), counter, minMessageId, maxMessageId);
+      CLOG_F(1, "{}: Replayed {} shares from {} to {}", BackendName_, counter, minMessageId, maxMessageId);
   }
 
   void startNewShareLogFile() {
@@ -195,10 +194,10 @@ private:
     file.FileId = CurrentMessageId_;
     file.LastShareId = 0;
     if (!file.Fd.open(file.Path)) {
-      LOG_F(ERROR, "ShareLog: can't write to share log %s", path_to_utf8(file.Path).c_str());
+      CLOG_F(ERROR, "ShareLog: can't write to share log {}", file.Path);
       ShareLoggingEnabled_ = false;
     } else {
-      LOG_F(INFO, "ShareLog: started new share log file %s", path_to_utf8(file.Path).c_str());
+      CLOG_F(INFO, "ShareLog: started new share log file {}", file.Path);
     }
   }
 

@@ -31,12 +31,12 @@ void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, 
   *needSkipPayout = false;
   auto minimalPayout = State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout;
   if (payout.Value < minimalPayout) {
-    LOG_F(INFO,
-          "[%u] Accounting: ignore this payout to %s, value is %s, minimal is %s",
-          index,
-          payout.UserId.c_str(),
-          FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(),
-          FormatMoney(minimalPayout, CoinInfo_.FractionalPartSize).c_str());
+    CLOG_F(INFO,
+           "[{}] Accounting: ignore this payout to {}, value is {}, minimal is {}",
+           index,
+           payout.UserId,
+           FormatMoney(payout.Value, CoinInfo_.FractionalPartSize),
+           FormatMoney(minimalPayout, CoinInfo_.FractionalPartSize));
     *needSkipPayout = true;
     return;
   }
@@ -44,7 +44,7 @@ void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, 
   // Get address for payment
   auto settingsIt = UserSettings_.find(payout.UserId);
   if (settingsIt == UserSettings_.end() || settingsIt->second.Payout.Address.empty()) {
-    LOG_F(WARNING, "user %s did not setup payout address, ignoring", payout.UserId.c_str());
+    CLOG_F(WARNING, "user {} did not setup payout address, ignoring", payout.UserId);
     *needSkipPayout = true;
     return;
   }
@@ -52,7 +52,7 @@ void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, 
   const UserSettingsRecord &settings = settingsIt->second;
   recipient = settings.Payout.Address;
   if (!CoinInfo_.checkAddress(settings.Payout.Address, CoinInfo_.PayoutAddressType)) {
-    LOG_F(ERROR, "Invalid payment address %s for %s", settings.Payout.Address.c_str(), payout.UserId.c_str());
+    CLOG_F(ERROR, "Invalid payment address {} for {}", settings.Payout.Address, payout.UserId);
     *needSkipPayout = true;
     return;
   }
@@ -65,10 +65,10 @@ void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, 
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusInsufficientFunds) {
-    LOG_F(INFO, "No money left to pay");
+    CLOG_F(INFO, "No money left to pay");
     return;
   } else {
-    LOG_F(ERROR, "Payment %s to %s failed with error \"%s\"", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), settings.Payout.Address.c_str(), transaction.Error.c_str());
+    CLOG_F(ERROR, "Payment {} to {} failed with error \"{}\"", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize), settings.Payout.Address, transaction.Error);
     return;
   }
 
@@ -83,22 +83,22 @@ void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, 
     // Update user balance
     auto It = State_.BalanceMap.find(payout.UserId);
     if (It == State_.BalanceMap.end()) {
-      LOG_F(ERROR, "payout to unknown address %s", payout.UserId.c_str());
+      CLOG_F(ERROR, "payout to unknown address {}", payout.UserId);
       return;
     }
 
-    LOG_F(INFO, "   * correct requested balance for %s by %s", payout.UserId.c_str(), FormatMoney(delta, CoinInfo_.FractionalPartSize).c_str());
+    CLOG_F(INFO, "   * correct requested balance for {} by {}", payout.UserId, FormatMoney(delta, CoinInfo_.FractionalPartSize));
     UserBalanceRecord &balance = It->second;
     balance.Requested -= delta;
     State_.putBalance(batch, balance);
   } else if (payout.Value < transactionTotalValue) {
-    LOG_F(ERROR, "Payment %s to %s failed: too big transaction amount", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), settings.Payout.Address.c_str());
+    CLOG_F(ERROR, "Payment {} to {} failed: too big transaction amount", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize), settings.Payout.Address);
     return;
   }
 
   // Save transaction to database
   if (!State_.KnownTransactions.insert(transaction.TxId).second) {
-    LOG_F(ERROR, "Node generated duplicate for transaction %s !!!", transaction.TxId.c_str());
+    CLOG_F(ERROR, "Node generated duplicate for transaction {} !!!", transaction.TxId);
     return;
   }
 
@@ -119,7 +119,7 @@ bool CPayoutProcessor::sendTransaction(PayoutDbRecord &payout)
     // Nothing to do
   } else if (status == CNetworkClient::EStatusVerifyRejected) {
     // Sending failed, transaction is rejected
-    LOG_F(ERROR, "Transaction %s to %s marked as rejected, removing from database...", payout.TransactionId.c_str(), payout.UserId.c_str());
+    CLOG_F(ERROR, "Transaction {} to {} marked as rejected, removing from database...", payout.TransactionId, payout.UserId);
 
     // Update transaction in database
     payout.Status = PayoutDbRecord::ETxRejected;
@@ -131,7 +131,7 @@ bool CPayoutProcessor::sendTransaction(PayoutDbRecord &payout)
     payout.Status = PayoutDbRecord::EInitialized;
     return false;
   } else {
-    LOG_F(WARNING, "Sending transaction %s to %s error \"%s\", will try send later...", payout.TransactionId.c_str(), payout.UserId.c_str(), error.c_str());
+    CLOG_F(WARNING, "Sending transaction {} to {} error \"{}\", will try send later...", payout.TransactionId, payout.UserId, error);
     return false;
   }
 
@@ -152,7 +152,7 @@ bool CPayoutProcessor::checkTxConfirmations(PayoutDbRecord &payout, rocksdbBase:
     payout.Status = PayoutDbRecord::ETxCreated;
   } else if (status == CNetworkClient::EStatusVerifyRejected) {
     // Sending failed, transaction is rejected
-    LOG_F(ERROR, "Transaction %s to %s marked as rejected, removing from database...", payout.TransactionId.c_str(), payout.UserId.c_str());
+    CLOG_F(ERROR, "Transaction {} to {} marked as rejected, removing from database...", payout.TransactionId, payout.UserId);
 
     // Update transaction in database
     payout.Status = PayoutDbRecord::ETxRejected;
@@ -164,7 +164,7 @@ bool CPayoutProcessor::checkTxConfirmations(PayoutDbRecord &payout, rocksdbBase:
     payout.Status = PayoutDbRecord::EInitialized;
     return false;
   } else {
-    LOG_F(WARNING, "Checking transaction %s to %s error \"%s\", will do it later...", payout.TransactionId.c_str(), payout.UserId.c_str(), error.c_str());
+    CLOG_F(WARNING, "Checking transaction {} to {} error \"{}\", will do it later...", payout.TransactionId, payout.UserId, error);
     return false;
   }
 
@@ -176,7 +176,7 @@ bool CPayoutProcessor::checkTxConfirmations(PayoutDbRecord &payout, rocksdbBase:
     // Update user balance
     auto It = State_.BalanceMap.find(payout.UserId);
     if (It == State_.BalanceMap.end()) {
-      LOG_F(ERROR, "payout to unknown address %s", payout.UserId.c_str());
+      CLOG_F(ERROR, "payout to unknown address {}", payout.UserId);
       return false;
     }
 
@@ -196,7 +196,7 @@ bool CPayoutProcessor::checkTxConfirmations(PayoutDbRecord &payout, rocksdbBase:
 void CPayoutProcessor::makePayout()
 {
   if (!State_.PayoutQueue.empty()) {
-    LOG_F(INFO, "Accounting: checking %u payout requests...", (unsigned)State_.PayoutQueue.size());
+    CLOG_F(INFO, "Accounting: checking {} payout requests...", State_.PayoutQueue.size());
 
     auto batch = CAccountingState::batch();
 
@@ -212,11 +212,11 @@ void CPayoutProcessor::makePayout()
 
         if (I->Value < State_.BackendSettings.load(std::memory_order_relaxed).PayoutConfig.InstantMinimalPayout) {
           payoutAccMap[I->UserId] += I->Value;
-          LOG_F(INFO,
-                "Accounting: merge payout %s for %s (total already %s)",
-                FormatMoney(I->Value, CoinInfo_.FractionalPartSize).c_str(),
-                I->UserId.c_str(),
-                FormatMoney(payoutAccMap[I->UserId], CoinInfo_.FractionalPartSize).c_str());
+          CLOG_F(INFO,
+                 "Accounting: merge payout {} for {} (total already {})",
+                 FormatMoney(I->Value, CoinInfo_.FractionalPartSize),
+                 I->UserId,
+                 FormatMoney(payoutAccMap[I->UserId], CoinInfo_.FractionalPartSize));
           State_.PayoutQueue.erase(I++);
         } else {
           ++I;
@@ -251,7 +251,7 @@ void CPayoutProcessor::makePayout()
           // Send transaction and change it status to 'Sent'
           // For bitcoin-based API it's 'sendrawtransaction'
           if (sendTransaction(payout))
-            LOG_F(INFO, " * sent %s to %s(%s) with txid %s", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize).c_str(), payout.UserId.c_str(), recipientAddress.c_str(), payout.TransactionId.c_str());
+            CLOG_F(INFO, " * sent {} to {}({}) with txid {}", FormatMoney(payout.Value, CoinInfo_.FractionalPartSize), payout.UserId, recipientAddress, payout.TransactionId);
         } else {
           // buildTransaction failed — stop processing the queue;
           // this payout will block all subsequent payouts until resolved
@@ -260,11 +260,11 @@ void CPayoutProcessor::makePayout()
       } else if (payout.Status == PayoutDbRecord::ETxCreated) {
         // Resend transaction
         if (sendTransaction(payout))
-          LOG_F(INFO, " * retry send txid %s to %s", payout.TransactionId.c_str(), payout.UserId.c_str());
+          CLOG_F(INFO, " * retry send txid {} to {}", payout.TransactionId, payout.UserId);
       } else if (payout.Status == PayoutDbRecord::ETxSent) {
         // Check confirmations
         if (checkTxConfirmations(payout, batch))
-          LOG_F(INFO, " * transaction txid %s to %s confirmed", payout.TransactionId.c_str(), payout.UserId.c_str());
+          CLOG_F(INFO, " * transaction txid {} to {} confirmed", payout.TransactionId, payout.UserId);
       } else {
         // Invalid status
       }
@@ -301,19 +301,19 @@ void CPayoutProcessor::makePayout()
         CNetworkClient::ZSendMoneyResult zsendResult;
         CNetworkClient::EOperationStatus status = ClientDispatcher_.ioZSendMoney(Base_, out.first, Cfg_.poolZAddr, out.second, "", 1, UInt<384>::zero(), zsendResult);
         if (status == CNetworkClient::EStatusOk && !zsendResult.AsyncOperationId.empty()) {
-          LOG_F(INFO,
-                " * moving %s coins from %s to %s started (%s)",
-                FormatMoney(out.second, CoinInfo_.FractionalPartSize).c_str(),
-                out.first.c_str(),
-                Cfg_.poolZAddr.c_str(),
-                zsendResult.AsyncOperationId.c_str());
+          CLOG_F(INFO,
+                 " * moving {} coins from {} to {} started ({})",
+                 FormatMoney(out.second, CoinInfo_.FractionalPartSize),
+                 out.first,
+                 Cfg_.poolZAddr,
+                 zsendResult.AsyncOperationId);
         } else {
-          LOG_F(INFO,
-                " * async operation start error %s: source=%s, destination=%s, amount=%s",
-                !zsendResult.Error.empty() ? zsendResult.Error.c_str() : "<unknown error>",
-                out.first.c_str(),
-                Cfg_.poolZAddr.c_str(),
-                FormatMoney(out.second, CoinInfo_.FractionalPartSize).c_str());
+          CLOG_F(INFO,
+                 " * async operation start error {}: source={}, destination={}, amount={}",
+                 !zsendResult.Error.empty() ? zsendResult.Error : std::string("<unknown error>"),
+                 out.first,
+                 Cfg_.poolZAddr,
+                 FormatMoney(out.second, CoinInfo_.FractionalPartSize));
         }
       }
     }
@@ -321,15 +321,15 @@ void CPayoutProcessor::makePayout()
     // move Z-Addr to T-Addr
     UInt<384> zbalance;
     if (ClientDispatcher_.ioZGetBalance(Base_, Cfg_.poolZAddr, &zbalance) == CNetworkClient::EStatusOk && zbalance.nonZero()) {
-      LOG_F(INFO, "Accounting: move %s coins to transparent address", FormatMoney(zbalance, CoinInfo_.FractionalPartSize).c_str());
+      CLOG_F(INFO, "Accounting: move {} coins to transparent address", FormatMoney(zbalance, CoinInfo_.FractionalPartSize));
       CNetworkClient::ZSendMoneyResult zsendResult;
       if (ClientDispatcher_.ioZSendMoney(Base_, Cfg_.poolZAddr, Cfg_.poolTAddr, zbalance, "", 1, UInt<384>::zero(), zsendResult) == CNetworkClient::EStatusOk) {
-        LOG_F(INFO,
-              "moving %s coins from %s to %s started (%s)",
-              FormatMoney(zbalance, CoinInfo_.FractionalPartSize).c_str(),
-              Cfg_.poolZAddr.c_str(),
-              Cfg_.poolTAddr.c_str(),
-              !zsendResult.AsyncOperationId.empty() ? zsendResult.AsyncOperationId.c_str() : "<none>");
+        CLOG_F(INFO,
+               "moving {} coins from {} to {} started ({})",
+               FormatMoney(zbalance, CoinInfo_.FractionalPartSize),
+               Cfg_.poolZAddr,
+               Cfg_.poolTAddr,
+               !zsendResult.AsyncOperationId.empty() ? zsendResult.AsyncOperationId : std::string("<none>"));
       }
     }
   }
@@ -343,23 +343,23 @@ void CPayoutProcessor::makePayout()
   for (auto &userIt: State_.BalanceMap) {
     UInt<384> enqueuedBalance = enqueued[userIt.first];
     if (userIt.second.Requested != enqueuedBalance) {
-      LOG_F(ERROR,
-            "User %s: enqueued: %s, control sum: %s",
-            userIt.first.c_str(),
-            FormatMoney(enqueuedBalance, CoinInfo_.FractionalPartSize).c_str(),
-            FormatMoney(userIt.second.Requested, CoinInfo_.FractionalPartSize).c_str());
+      CLOG_F(ERROR,
+             "User {}: enqueued: {}, control sum: {}",
+             userIt.first,
+             FormatMoney(enqueuedBalance, CoinInfo_.FractionalPartSize),
+             FormatMoney(userIt.second.Requested, CoinInfo_.FractionalPartSize));
       inconsistent = true;
     }
   }
 
   if (inconsistent)
-    LOG_F(ERROR, "Payout database inconsistent, restart pool for rebuild recommended");
+    CLOG_F(ERROR, "Payout database inconsistent, restart pool for rebuild recommended");
 
   // Make a service after every payment session
   {
     std::string serviceError;
     if (ClientDispatcher_.ioWalletService(Base_, serviceError) != CNetworkClient::EStatusOk)
-      LOG_F(ERROR, "Wallet service ERROR: %s", serviceError.c_str());
+      CLOG_F(ERROR, "Wallet service ERROR: {}", serviceError);
   }
 
 }
@@ -379,14 +379,14 @@ void CPayoutProcessor::checkBalance()
   UInt<384> zbalance = UInt<384>::zero();
   if (!Cfg_.poolZAddr.empty()) {
     if (ClientDispatcher_.ioZGetBalance(Base_, Cfg_.poolZAddr, &zbalance) != CNetworkClient::EStatusOk) {
-      LOG_F(ERROR, "can't get balance of Z-address %s", Cfg_.poolZAddr.c_str());
+      CLOG_F(ERROR, "can't get balance of Z-address {}", Cfg_.poolZAddr);
       return;
     }
   }
 
   CNetworkClient::GetBalanceResult getBalanceResult;
   if (!ClientDispatcher_.ioGetBalance(Base_, getBalanceResult)) {
-    LOG_F(ERROR, "can't retrieve balance");
+    CLOG_F(ERROR, "can't retrieve balance");
     return;
   }
 
@@ -422,16 +422,16 @@ void CPayoutProcessor::checkBalance()
     PoolBalanceDb_.put(pb);
   }
 
-  LOG_F(INFO,
-        "accounting: balance=%s req/balance=%s req/queue=%s immature=%s users=%s queued=%s, confwait=%s, net=%s",
-        FormatMoney(balance, CoinInfo_.FractionalPartSize).c_str(),
-        FormatMoney(requestedInBalance, CoinInfo_.FractionalPartSize).c_str(),
-        FormatMoney(requestedInQueue, CoinInfo_.FractionalPartSize).c_str(),
-        FormatMoney(immature, CoinInfo_.FractionalPartSize).c_str(),
-        FormatMoney(userBalance, CoinInfo_.FractionalPartSize).c_str(),
-        FormatMoney(queued, CoinInfo_.FractionalPartSize).c_str(),
-        FormatMoney(confirmationWait, CoinInfo_.FractionalPartSize).c_str(),
-        FormatMoney(net, CoinInfo_.FractionalPartSize).c_str());
+  CLOG_F(INFO,
+         "accounting: balance={} req/balance={} req/queue={} immature={} users={} queued={}, confwait={}, net={}",
+         FormatMoney(balance, CoinInfo_.FractionalPartSize),
+         FormatMoney(requestedInBalance, CoinInfo_.FractionalPartSize),
+         FormatMoney(requestedInQueue, CoinInfo_.FractionalPartSize),
+         FormatMoney(immature, CoinInfo_.FractionalPartSize),
+         FormatMoney(userBalance, CoinInfo_.FractionalPartSize),
+         FormatMoney(queued, CoinInfo_.FractionalPartSize),
+         FormatMoney(confirmationWait, CoinInfo_.FractionalPartSize),
+         FormatMoney(net, CoinInfo_.FractionalPartSize));
 
   if (State_.BackendSettings.load(std::memory_order_relaxed).PPSConfig.Enabled) {
     const auto &reward = State_.PPSState.LastBaseBlockReward;
@@ -441,24 +441,24 @@ void CPayoutProcessor::checkBalance()
     double minSqLambda = CPPSState::sqLambda(State_.PPSState.Min.Balance, reward, State_.PPSState.Min.TotalBlocksFound);
     double maxBalanceInBlocks = CPPSState::balanceInBlocks(State_.PPSState.Max.Balance, reward);
     double maxSqLambda = CPPSState::sqLambda(State_.PPSState.Max.Balance, reward, State_.PPSState.Max.TotalBlocksFound);
-    LOG_F(INFO,
-          "PPS state: balance=%s, refBalance=%s (%.3f blocks, sqLambda=%.4f),"
-          " min=%s (%.3f blocks, sqLambda=%.4f),"
-          " max=%s (%.3f blocks, sqLambda=%.4f),"
-          " blocks=%.3f, saturateCoeff=%.4f, avgTxFee=%s",
-          FormatMoney(State_.PPSState.Balance, CoinInfo_.FractionalPartSize).c_str(),
-          FormatMoney(State_.PPSState.ReferenceBalance, CoinInfo_.FractionalPartSize).c_str(),
-          refBalanceInBlocks,
-          refSqLambda,
-          FormatMoney(State_.PPSState.Min.Balance, CoinInfo_.FractionalPartSize).c_str(),
-          minBalanceInBlocks,
-          minSqLambda,
-          FormatMoney(State_.PPSState.Max.Balance, CoinInfo_.FractionalPartSize).c_str(),
-          maxBalanceInBlocks,
-          maxSqLambda,
-          State_.PPSState.TotalBlocksFound,
-          State_.PPSState.LastSaturateCoeff,
-          FormatMoney(State_.PPSState.LastAverageTxFee, CoinInfo_.FractionalPartSize).c_str());
+    CLOG_F(INFO,
+           "PPS state: balance={}, refBalance={} ({:.3f} blocks, sqLambda={:.4f}),"
+           " min={} ({:.3f} blocks, sqLambda={:.4f}),"
+           " max={} ({:.3f} blocks, sqLambda={:.4f}),"
+           " blocks={:.3f}, saturateCoeff={:.4f}, avgTxFee={}",
+           FormatMoney(State_.PPSState.Balance, CoinInfo_.FractionalPartSize),
+           FormatMoney(State_.PPSState.ReferenceBalance, CoinInfo_.FractionalPartSize),
+           refBalanceInBlocks,
+           refSqLambda,
+           FormatMoney(State_.PPSState.Min.Balance, CoinInfo_.FractionalPartSize),
+           minBalanceInBlocks,
+           minSqLambda,
+           FormatMoney(State_.PPSState.Max.Balance, CoinInfo_.FractionalPartSize),
+           maxBalanceInBlocks,
+           maxSqLambda,
+           State_.PPSState.TotalBlocksFound,
+           State_.PPSState.LastSaturateCoeff,
+           FormatMoney(State_.PPSState.LastAverageTxFee, CoinInfo_.FractionalPartSize));
   }
 }
 

@@ -1,4 +1,5 @@
 #include "migratecommon.h"
+#include "poolcommon/path.h"
 #include "poolcore/coinLibrary.h"
 #include "poolcore/plugin.h"
 #include "asyncio/asyncio.h"
@@ -72,7 +73,7 @@ static std::vector<std::string> discoverCoinGeckoIds(const std::filesystem::path
     }
 
     if (info.Name.empty()) {
-      LOG_F(WARNING, "Unknown directory in database path: %s", name.c_str());
+      CLOG_F(WARNING, "Unknown directory in database path: {}", name);
       continue;
     }
 
@@ -80,12 +81,12 @@ static std::vector<std::string> discoverCoinGeckoIds(const std::filesystem::path
       continue;
 
     if (info.CoinGeckoName.empty()) {
-      LOG_F(WARNING, "%s: no CoinGecko mapping, skipping", info.Name.c_str());
+      CLOG_F(WARNING, "{}: no CoinGecko mapping, skipping", info.Name);
       continue;
     }
 
     if (seen.insert(info.CoinGeckoName).second) {
-      LOG_F(INFO, "Found coin: %s (CoinGecko: %s)", info.Name.c_str(), info.CoinGeckoName.c_str());
+      CLOG_F(INFO, "Found coin: {} (CoinGecko: {})", info.Name, info.CoinGeckoName);
       result.push_back(info.CoinGeckoName);
     }
   }
@@ -243,7 +244,7 @@ static ERequestResult fetchChunk(
 
   int connectResult = ioHttpConnect(client, &ctx->Address, CoinGeckoHost, ConnectTimeoutUs);
   if (connectResult != 0) {
-    LOG_F(ERROR, "  %s: connect failed", coinId.c_str());
+    CLOG_F(ERROR, "  {}: connect failed", coinId);
     httpClientDelete(client);
     return ERequestResult::Error;
   }
@@ -259,7 +260,7 @@ static ERequestResult fetchChunk(
   unsigned httpCode = parseCtx.resultCode;
 
   if (requestStatus != aosSuccess) {
-    LOG_F(ERROR, "  %s: request failed, status=%d", coinId.c_str(), requestStatus);
+    CLOG_F(ERROR, "  {}: request failed, status={}", coinId, static_cast<unsigned>(requestStatus));
     httpClientDelete(client);
     return ERequestResult::Error;
   }
@@ -267,24 +268,24 @@ static ERequestResult fetchChunk(
   httpClientDelete(client);
 
   if (httpCode == 429) {
-    LOG_F(WARNING, "  %s: rate limited (429)", coinId.c_str());
+    CLOG_F(WARNING, "  {}: rate limited (429)", coinId);
     return ERequestResult::RateLimited;
   }
 
   if (httpCode != 200) {
-    LOG_F(ERROR, "  %s: HTTP %u", coinId.c_str(), httpCode);
+    CLOG_F(ERROR, "  {}: HTTP {}", coinId, httpCode);
     return ERequestResult::Error;
   }
 
   rapidjson::Document document;
   document.Parse(parseCtx.body.data, parseCtx.body.size);
   if (document.HasParseError() || !document.IsObject()) {
-    LOG_F(ERROR, "  %s: JSON parse error", coinId.c_str());
+    CLOG_F(ERROR, "  {}: JSON parse error", coinId);
     return ERequestResult::Error;
   }
 
   if (!document.HasMember("prices") || !document["prices"].IsArray()) {
-    LOG_F(ERROR, "  %s: missing 'prices' array", coinId.c_str());
+    CLOG_F(ERROR, "  {}: missing 'prices' array", coinId);
     return ERequestResult::Error;
   }
 
@@ -322,7 +323,7 @@ static bool writePriceBatch(
   rocksdb::WriteOptions writeOptions;
   rocksdb::Status status = db->Write(writeOptions, &batch);
   if (!status.ok()) {
-    LOG_F(ERROR, "  %s: RocksDB write failed: %s", coinId.c_str(), status.ToString().c_str());
+    CLOG_F(ERROR, "  {}: RocksDB write failed: {}", coinId, status.ToString());
     return false;
   }
 
@@ -331,21 +332,21 @@ static bool writePriceBatch(
 
 static bool downloadCoinHistory(CPriceHistoryContext *ctx, const std::string &coinId)
 {
-  LOG_F(INFO, "%s: starting download", coinId.c_str());
+  CLOG_F(INFO, "{}: starting download", coinId);
 
   int64_t lastStored = getLastStoredTimestamp(ctx->Db, coinId);
   int64_t startTime;
   if (lastStored > 0) {
     startTime = lastStored + 1;
-    LOG_F(INFO, "  %s: resuming from %s", coinId.c_str(), formatDate(startTime).c_str());
+    CLOG_F(INFO, "  {}: resuming from {}", coinId, formatDate(startTime));
   } else {
     startTime = ctx->StartTimestamp;
-    LOG_F(INFO, "  %s: starting from %s (no previous data)", coinId.c_str(), formatDate(startTime).c_str());
+    CLOG_F(INFO, "  {}: starting from {} (no previous data)", coinId, formatDate(startTime));
   }
 
   int64_t now = static_cast<int64_t>(time(nullptr));
   if (startTime >= now) {
-    LOG_F(INFO, "  %s: already up to date", coinId.c_str());
+    CLOG_F(INFO, "  {}: already up to date", coinId);
     return true;
   }
 
@@ -369,18 +370,18 @@ static bool downloadCoinHistory(CPriceHistoryContext *ctx, const std::string &co
         case ERequestResult::RateLimited:
           rateLimitCount++;
           if (rateLimitCount > 10) {
-            LOG_F(ERROR, "  %s: too many rate limits, aborting", coinId.c_str());
+            CLOG_F(ERROR, "  {}: too many rate limits, aborting", coinId);
             return false;
           }
-          LOG_F(INFO, "  %s: sleeping 65s (rate limit)", coinId.c_str());
+          CLOG_F(INFO, "  {}: sleeping 65s (rate limit)", coinId);
           ioSleep(ctx->SleepEvent, RateLimitSleepUs);
           retry--;
           break;
         case ERequestResult::Error:
           if (retry + 1 < MaxRetries) {
-            LOG_F(WARNING,
-              "  %s: error, retrying in 30s (attempt %u/%u)",
-              coinId.c_str(),
+            CLOG_F(WARNING,
+              "  {}: error, retrying in 30s (attempt {}/{})",
+              coinId,
               retry + 1,
               MaxRetries);
             ioSleep(ctx->SleepEvent, ErrorRetrySleepUs);
@@ -390,12 +391,12 @@ static bool downloadCoinHistory(CPriceHistoryContext *ctx, const std::string &co
     }
 
     if (!chunkDone) {
-      LOG_F(ERROR,
-        "  %s: failed after %u retries for chunk %s..%s",
-        coinId.c_str(),
+      CLOG_F(ERROR,
+        "  {}: failed after {} retries for chunk {}..{}",
+        coinId,
         MaxRetries,
-        formatDate(chunkStart).c_str(),
-        formatDate(chunkEnd).c_str());
+        formatDate(chunkStart),
+        formatDate(chunkEnd));
       return false;
     }
 
@@ -403,11 +404,11 @@ static bool downloadCoinHistory(CPriceHistoryContext *ctx, const std::string &co
       return false;
 
     totalPoints += static_cast<unsigned>(prices.size());
-    LOG_F(INFO,
-      "  %s: fetched %s..%s (%zu points)",
-      coinId.c_str(),
-      formatDate(chunkStart).c_str(),
-      formatDate(chunkEnd).c_str(),
+    CLOG_F(INFO,
+      "  {}: fetched {}..{} ({} points)",
+      coinId,
+      formatDate(chunkStart),
+      formatDate(chunkEnd),
       prices.size());
 
     chunkStart = chunkEnd;
@@ -416,7 +417,7 @@ static bool downloadCoinHistory(CPriceHistoryContext *ctx, const std::string &co
       ioSleep(ctx->SleepEvent, InterRequestSleepUs);
   }
 
-  LOG_F(INFO, "%s: completed, %u total points stored", coinId.c_str(), totalPoints);
+  CLOG_F(INFO, "{}: completed, {} total points stored", coinId, totalPoints);
   return true;
 }
 
@@ -427,51 +428,51 @@ static void priceHistoryCoroutine(void *arg)
 
   for (const auto &coinId : ctx->CoinIds) {
     if (!downloadCoinHistory(ctx, coinId)) {
-      LOG_F(ERROR, "%s: failed, continuing with next coin", coinId.c_str());
+      CLOG_F(ERROR, "{}: failed, continuing with next coin", coinId);
       allOk = false;
     }
   }
 
   if (allOk)
-    LOG_F(INFO, "All coins completed successfully");
+    CLOG_F(INFO, "All coins completed successfully");
   else
-    LOG_F(WARNING, "Some coins had errors, check log above");
+    CLOG_F(WARNING, "Some coins had errors, check log above");
 
   postQuitOperation(ctx->Base);
 }
 
 bool fetchPriceHistory(const char *sourceDatabase, const char *dbPath, const char *apiKey)
 {
-  LOG_F(INFO, "Fetching price history to %s", dbPath);
-  LOG_F(INFO, "Discovering coins from %s", sourceDatabase);
+  CLOG_F(INFO, "Fetching price history to {}", dbPath);
+  CLOG_F(INFO, "Discovering coins from {}", sourceDatabase);
 
   std::vector<std::string> coinIds = discoverCoinGeckoIds(sourceDatabase);
   if (coinIds.empty()) {
-    LOG_F(ERROR, "No coins with CoinGecko mapping found in %s", sourceDatabase);
+    CLOG_F(ERROR, "No coins with CoinGecko mapping found in {}", sourceDatabase);
     return false;
   }
 
   int64_t startTimestamp = findEarliestPayoutTimestamp(sourceDatabase);
   if (startTimestamp == 0) {
-    LOG_F(ERROR, "No pplns.payouts partitions found in %s", sourceDatabase);
+    CLOG_F(ERROR, "No pplns.payouts partitions found in {}", sourceDatabase);
     return false;
   }
 
-  LOG_F(INFO, "Earliest payout partition: %s", formatDate(startTimestamp).c_str());
+  CLOG_F(INFO, "Earliest payout partition: {}", formatDate(startTimestamp));
 
   // CoinGecko Basic plan: historical data limited to past 2 years
   static constexpr int64_t TwoYearsSeconds = 2 * 365 * 24 * 3600;
   int64_t now = static_cast<int64_t>(time(nullptr));
   int64_t twoYearsAgo = now - TwoYearsSeconds;
   if (startTimestamp < twoYearsAgo) {
-    LOG_F(WARNING,
-      "Start date %s is beyond CoinGecko 2-year limit, clamping to %s",
-      formatDate(startTimestamp).c_str(),
-      formatDate(twoYearsAgo).c_str());
+    CLOG_F(WARNING,
+      "Start date {} is beyond CoinGecko 2-year limit, clamping to {}",
+      formatDate(startTimestamp),
+      formatDate(twoYearsAgo));
     startTimestamp = twoYearsAgo;
   }
 
-  LOG_F(INFO, "Will fetch price history for %zu coins from %s", coinIds.size(), formatDate(startTimestamp).c_str());
+  CLOG_F(INFO, "Will fetch price history for {} coins from {}", coinIds.size(), formatDate(startTimestamp));
 
   rocksdb::Options options;
   options.create_if_missing = true;
@@ -479,7 +480,7 @@ bool fetchPriceHistory(const char *sourceDatabase, const char *dbPath, const cha
   rocksdb::DB *rawDb = nullptr;
   rocksdb::Status status = rocksdb::DB::Open(options, dbPath, &rawDb);
   if (!status.ok()) {
-    LOG_F(ERROR, "Can't open database %s: %s", dbPath, status.ToString().c_str());
+    CLOG_F(ERROR, "Can't open database {}: {}", dbPath, status.ToString());
     return false;
   }
   std::unique_ptr<rocksdb::DB> db(rawDb);
@@ -491,12 +492,12 @@ bool fetchPriceHistory(const char *sourceDatabase, const char *dbPath, const cha
   {
     struct hostent *host = gethostbyname(CoinGeckoHost);
     if (!host) {
-      LOG_F(ERROR, "Can't resolve %s", CoinGeckoHost);
+      CLOG_F(ERROR, "Can't resolve {}", CoinGeckoHost);
       return false;
     }
     struct in_addr **addrList = reinterpret_cast<struct in_addr **>(host->h_addr_list);
     if (!addrList[0]) {
-      LOG_F(ERROR, "No addresses for %s", CoinGeckoHost);
+      CLOG_F(ERROR, "No addresses for {}", CoinGeckoHost);
       return false;
     }
     address.ipv4 = addrList[0]->s_addr;
@@ -504,7 +505,7 @@ bool fetchPriceHistory(const char *sourceDatabase, const char *dbPath, const cha
     address.family = AF_INET;
   }
 
-  LOG_F(INFO, "Resolved %s successfully", CoinGeckoHost);
+  CLOG_F(INFO, "Resolved {} successfully", CoinGeckoHost);
 
   CPriceHistoryContext ctx;
   ctx.Base = base;
@@ -522,7 +523,7 @@ bool fetchPriceHistory(const char *sourceDatabase, const char *dbPath, const cha
   asyncLoop(base);
 
   deleteUserEvent(ctx.SleepEvent);
-  LOG_F(INFO, "Price history fetch completed");
+  CLOG_F(INFO, "Price history fetch completed");
   return true;
 }
 
@@ -548,7 +549,7 @@ double CPriceDatabase::lookupPrice(const std::string &coinGeckoId, int64_t times
 
 bool loadPriceDatabase(const std::filesystem::path &dbPath, CPriceDatabase &out)
 {
-  LOG_F(INFO, "Loading price database from %s", dbPath.c_str());
+  CLOG_F(INFO, "Loading price database from {}", dbPath);
 
   rocksdb::Options options;
   options.create_if_missing = false;
@@ -556,7 +557,7 @@ bool loadPriceDatabase(const std::filesystem::path &dbPath, CPriceDatabase &out)
   std::string dbPathStr = dbPath.generic_string();
   rocksdb::Status status = rocksdb::DB::Open(options, dbPathStr, &rawDb);
   if (!status.ok()) {
-    LOG_F(ERROR, "Can't open price database %s: %s", dbPathStr.c_str(), status.ToString().c_str());
+    CLOG_F(ERROR, "Can't open price database {}: {}", dbPathStr, status.ToString());
     return false;
   }
   std::unique_ptr<rocksdb::DB> db(rawDb);
@@ -594,6 +595,6 @@ bool loadPriceDatabase(const std::filesystem::path &dbPath, CPriceDatabase &out)
     totalRecords++;
   }
 
-  LOG_F(INFO, "Loaded %u price records for %zu coins", totalRecords, out.Prices.size());
+  CLOG_F(INFO, "Loaded {} price records for {} coins", totalRecords, out.Prices.size());
   return true;
 }

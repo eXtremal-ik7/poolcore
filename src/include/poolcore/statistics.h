@@ -162,6 +162,7 @@ private:
   std::unique_ptr<StatisticDb> Statistics_;
   std::thread Thread_;
   TaskHandlerCoroutine<StatisticServer> TaskHandler_;
+  loguru::LogChannel LogChannel_;
 };
 
 

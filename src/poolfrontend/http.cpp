@@ -2770,12 +2770,12 @@ bool PoolHttpServer::start()
   socketReuseAddr(hSocket);
 
   if (socketBind(hSocket, &address) != 0) {
-    LOG_F(ERROR, "PoolHttpServer: can't bind port %u\n", static_cast<unsigned>(Port_));
+    CLOG_F(ERROR, "PoolHttpServer: can't bind port {}", static_cast<unsigned>(Port_));
     return false;
   }
 
   if (socketListen(hSocket) != 0) {
-    LOG_F(ERROR, "PoolHttpServer: can't listen port %u\n", static_cast<unsigned>(Port_));
+    CLOG_F(ERROR, "PoolHttpServer: can't listen port {}", static_cast<unsigned>(Port_));
     return false;
   }
 
@@ -2789,7 +2789,7 @@ bool PoolHttpServer::start()
       snprintf(threadName, sizeof(threadName), "http%zu", i);
       loguru::set_thread_name(threadName);
       InitializeWorkerThread();
-      LOG_F(INFO, "http server started tid=%u", GetGlobalThreadId());
+      CLOG_F(INFO, "http server started tid={}", GetGlobalThreadId());
       asyncLoop(server->Base_);
     }, this);
   }
@@ -2801,7 +2801,7 @@ void PoolHttpServer::stop()
 {
   postQuitOperation(Base_);
   for (size_t i = 0; i < ThreadsNum_; i++) {
-    LOG_F(INFO, "http worker %zu finishing", i);
+    CLOG_F(INFO, "http worker {} finishing", i);
     Threads_[i].join();
   }
 }
@@ -2814,7 +2814,7 @@ void PoolHttpServer::acceptCb(AsyncOpStatus status, aioObject *object, HostAddre
     PoolHttpConnection *connection = new PoolHttpConnection(*static_cast<PoolHttpServer*>(arg), connectionSocket);
     connection->run();
   } else {
-    LOG_F(ERROR, "HTTP api accept connection failed");
+    CLOG_F(ERROR, "HTTP api accept connection failed");
   }
 
   aioAccept(object, 0, acceptCb, arg);

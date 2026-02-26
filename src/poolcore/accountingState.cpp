@@ -1,6 +1,5 @@
 #include "poolcore/accountingState.h"
 #include "loguru.hpp"
-#include <cinttypes>
 
 CAccountingState::CAccountingState(const std::filesystem::path &dbPath)
   : DbPath_(dbPath),
@@ -43,7 +42,7 @@ bool CAccountingState::load(const CCoinInfo &coinInfo)
         BackendSettings.store(settings, std::memory_order_relaxed);
         settingsLoaded = true;
       } else {
-        LOG_F(ERROR, "accounting: can't deserialize backend settings");
+        CLOG_F(ERROR, "accounting: can't deserialize backend settings");
       }
     } else if (keyStr == ".ppsstate") {
       DbIo<CPPSState>::unserialize(stream, PPSState);
@@ -60,13 +59,13 @@ bool CAccountingState::load(const CCoinInfo &coinInfo)
       if (round.deserializeValue(stream))
         ActiveRounds.push_back(std::move(round));
       else
-        LOG_F(ERROR, "Failed to deserialize active round");
+        CLOG_F(ERROR, "Failed to deserialize active round");
     } else if (!keyStr.empty() && keyStr[0] == 'b') {
       UserBalanceRecord balance;
       if (balance.deserializeValue(value.data, value.size))
         BalanceMap[balance.Login] = balance;
       else
-        LOG_F(ERROR, "Failed to deserialize balance record");
+        CLOG_F(ERROR, "Failed to deserialize balance record");
     }
 
     It->next();
@@ -86,10 +85,10 @@ bool CAccountingState::load(const CCoinInfo &coinInfo)
 
   LastAcceptedMsgId_ = SavedShareId;
 
-  LOG_F(INFO, "AccountingDb: loaded %zu balance records from state", BalanceMap.size());
+  CLOG_F(INFO, "AccountingDb: loaded {} balance records from state", BalanceMap.size());
 
   if (SavedShareId != 0) {
-    LOG_F(INFO, "AccountingDb: loaded state from db, SavedShareId=%" PRIu64 "", SavedShareId);
+    CLOG_F(INFO, "AccountingDb: loaded state from db, SavedShareId={}", SavedShareId);
     return true;
   }
   return false;

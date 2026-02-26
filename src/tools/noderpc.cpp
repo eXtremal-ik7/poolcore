@@ -6,7 +6,6 @@
 #include "poolcore/ethereumRPCClient.h"
 #include "poolcore/plugin.h"
 #include "loguru.hpp"
-#include <inttypes.h>
 #include <getopt.h>
 
 CPluginContext gPluginContext;
@@ -50,16 +49,16 @@ void getBalanceCoro(CContext *context)
 {
   CNetworkClient::GetBalanceResult result;
   if (context->Client->ioGetBalance(context->Base, result)) {
-    LOG_F(INFO, "balance: %s immature: %s\n", FormatMoney(result.Balance, context->CoinInfo.FractionalPartSize).c_str(), FormatMoney(result.Immatured, context->CoinInfo.FractionalPartSize).c_str());
+    CLOG_F(INFO, "balance: {} immature: {}", FormatMoney(result.Balance, context->CoinInfo.FractionalPartSize), FormatMoney(result.Immatured, context->CoinInfo.FractionalPartSize));
   } else {
-    LOG_F(ERROR, "ioGetBalance failed");
+    CLOG_F(ERROR, "ioGetBalance failed");
   }
 }
 
 void buildTransactionCoro(CContext *context)
 {
   if (context->ArgsNum != 3) {
-    LOG_F(INFO, "Usage: buildTransaction <address> <change_address> <amount>");
+    CLOG_F(INFO, "Usage: buildTransaction <address> <change_address> <amount>");
     return;
   }
 
@@ -68,13 +67,13 @@ void buildTransactionCoro(CContext *context)
   const char *amount = context->Argv[2];
 
   if (!context->CoinInfo.checkAddress(destinationAddress, context->CoinInfo.PayoutAddressType)) {
-    LOG_F(INFO, "Invalid %s address: %s", context->CoinInfo.Name.c_str(), destinationAddress);
+    CLOG_F(INFO, "Invalid {} address: {}", context->CoinInfo.Name, destinationAddress);
     return;
   }
 
   UInt<384> value;
   if (!parseMoneyValue(amount, context->CoinInfo.FractionalPartSize, &value)) {
-    LOG_F(INFO, "Invalid amount: %s %s", amount, context->CoinInfo.Name.c_str());
+    CLOG_F(INFO, "Invalid amount: {} {}", amount, context->CoinInfo.Name);
     return;
   }
 
@@ -84,23 +83,23 @@ void buildTransactionCoro(CContext *context)
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusInsufficientFunds) {
-    LOG_F(INFO, "No money left to pay");
+    CLOG_F(INFO, "No money left to pay");
     return;
   } else {
-    LOG_F(ERROR, "Payment %s to %s failed with error \"%s\"", FormatMoney(value, context->CoinInfo.FractionalPartSize).c_str(), destinationAddress, transaction.Error.c_str());
+    CLOG_F(ERROR, "Payment {} to {} failed with error \"{}\"", FormatMoney(value, context->CoinInfo.FractionalPartSize), destinationAddress, transaction.Error);
     return;
   }
 
-  LOG_F(INFO, "txData: %s", transaction.TxData.c_str());
-  LOG_F(INFO, "txId: %s", transaction.TxId.c_str());
-  LOG_F(INFO, "real value: %s", FormatMoney(transaction.Value, context->CoinInfo.FractionalPartSize).c_str());
-  LOG_F(INFO, "fee: %s", FormatMoney(transaction.Fee, context->CoinInfo.FractionalPartSize).c_str());
+  CLOG_F(INFO, "txData: {}", transaction.TxData);
+  CLOG_F(INFO, "txId: {}", transaction.TxId);
+  CLOG_F(INFO, "real value: {}", FormatMoney(transaction.Value, context->CoinInfo.FractionalPartSize));
+  CLOG_F(INFO, "fee: {}", FormatMoney(transaction.Fee, context->CoinInfo.FractionalPartSize));
 }
 
 void sendTransactionCoro(CContext *context)
 {
   if (context->ArgsNum != 2) {
-    LOG_F(INFO, "Usage: sendTransaction <txdata> <txid>");
+    CLOG_F(INFO, "Usage: sendTransaction <txdata> <txid>");
     return;
   }
 
@@ -112,20 +111,20 @@ void sendTransactionCoro(CContext *context)
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusVerifyRejected) {
-    LOG_F(ERROR, "Transaction %s rejected", txData);
+    CLOG_F(ERROR, "Transaction {} rejected", txData);
     return;
   } else {
-    LOG_F(WARNING, "Sending transaction %s error \"%s\", will try send later...", txData, error.c_str());
+    CLOG_F(WARNING, "Sending transaction {} error \"{}\", will try send later...", txData, error);
     return;
   }
 
-  LOG_F(INFO, "sending ok");
+  CLOG_F(INFO, "sending ok");
 }
 
 void getTxConfirmationsCoro(CContext *context)
 {
   if (context->ArgsNum != 1) {
-    LOG_F(INFO, "Usage: getTxConfirmations <txid>");
+    CLOG_F(INFO, "Usage: getTxConfirmations <txid>");
     return;
   }
 
@@ -137,21 +136,21 @@ void getTxConfirmationsCoro(CContext *context)
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusInvalidAddressOrKey) {
-    LOG_F(ERROR, "Transaction %s not included in block, will try resend", txId);
+    CLOG_F(ERROR, "Transaction {} not included in block, will try resend", txId);
     return;
   } else {
-    LOG_F(WARNING, "Transaction %s checkong error \"%s\", will try later...", txId, error.c_str());
+    CLOG_F(WARNING, "Transaction {} checking error \"{}\", will try later...", txId, error);
     return;
   }
 
-  LOG_F(INFO, "Confirmations: %" PRIi64 "", confirmations);
-  LOG_F(INFO, "Fee: %s\n", FormatMoney(txFee, context->CoinInfo.FractionalPartSize).c_str());
+  CLOG_F(INFO, "Confirmations: {}", confirmations);
+  CLOG_F(INFO, "Fee: {}", FormatMoney(txFee, context->CoinInfo.FractionalPartSize));
 }
 
 void getBlockConfirmationCoro(CContext *context)
 {
   if (context->ArgsNum != 2) {
-    LOG_F(INFO, "Usage: getBlockConfirmation <hash> <height>");
+    CLOG_F(INFO, "Usage: getBlockConfirmation <hash> <height>");
     return;
   }
 
@@ -163,16 +162,16 @@ void getBlockConfirmationCoro(CContext *context)
   queryElement.Hash = blockHash;
   queryElement.Height = xatoi<uint64_t>(blockHeight);
   if (context->Client->ioGetBlockConfirmations(context->Base, 0, query)) {
-    LOG_F(INFO, "confirmations: %" PRId64 "", queryElement.Confirmations);
+    CLOG_F(INFO, "confirmations: {}", queryElement.Confirmations);
   } else {
-    LOG_F(ERROR, "can't get confirmations for %s", blockHash);
+    CLOG_F(ERROR, "can't get confirmations for {}", blockHash);
   }
 }
 
 void getBlockExtraInfoCoro(CContext *context)
 {
   if (context->ArgsNum != 2) {
-    LOG_F(INFO, "Usage: getBlockExtraInfo <hash> <height>");
+    CLOG_F(INFO, "Usage: getBlockExtraInfo <hash> <height>");
     return;
   }
 
@@ -186,38 +185,38 @@ void getBlockExtraInfoCoro(CContext *context)
   queryElement.TxFee = UInt<384>::zero();
   queryElement.BlockReward = UInt<384>::zero();
   if (context->Client->ioGetBlockExtraInfo(context->Base, 0, query)) {
-    LOG_F(INFO, "confirmations: %" PRId64 "", queryElement.Confirmations);
-    LOG_F(INFO, "public hash: %s", queryElement.PublicHash.c_str());
-    LOG_F(INFO, "tx fee: %s", FormatMoney(queryElement.TxFee, context->CoinInfo.FractionalPartSize).c_str());
-    LOG_F(INFO, "block reward: %s", FormatMoney(queryElement.BlockReward, context->CoinInfo.FractionalPartSize).c_str());
+    CLOG_F(INFO, "confirmations: {}", queryElement.Confirmations);
+    CLOG_F(INFO, "public hash: {}", queryElement.PublicHash);
+    CLOG_F(INFO, "tx fee: {}", FormatMoney(queryElement.TxFee, context->CoinInfo.FractionalPartSize));
+    CLOG_F(INFO, "block reward: {}", FormatMoney(queryElement.BlockReward, context->CoinInfo.FractionalPartSize));
   } else {
-    LOG_F(ERROR, "can't get confirmations for %s", blockHash);
+    CLOG_F(ERROR, "can't get confirmations for {}", blockHash);
   }
 }
 
 void listUnspentCoro(CContext *context)
 {
   if (context->ArgsNum != 0) {
-    LOG_F(INFO, "Usage: listUnspent");
+    CLOG_F(INFO, "Usage: listUnspent");
     return;
   }
 
   CNetworkClient::ListUnspentResult unspent;
   CNetworkClient::EOperationStatus status = context->Client->ioListUnspent(context->Base, unspent);
   if (status == CNetworkClient::EStatusOk) {
-    LOG_F(INFO, "Unspent outputs:");
+    CLOG_F(INFO, "Unspent outputs:");
     for (const auto &output: unspent.Outs) {
-      LOG_F(INFO, "%s: %s; isCoinbase: %s", output.Address.c_str(), FormatMoney(output.Amount, context->CoinInfo.FractionalPartSize).c_str(), output.IsCoinbase ? "yes" : "no");
+      CLOG_F(INFO, "{}: {}; isCoinbase: {}", output.Address, FormatMoney(output.Amount, context->CoinInfo.FractionalPartSize), output.IsCoinbase ? "yes" : "no");
     }
   } else {
-    LOG_F(ERROR, "listUnspent error %u", status);
+    CLOG_F(ERROR, "listUnspent error {}", static_cast<unsigned>(status));
   }
 }
 
 void zsendManyCoro(CContext *context)
 {
   if (context->ArgsNum != 6) {
-    LOG_F(INFO, "Usage: zsendMany <source> <destination> <amount> <memo> <minconf> <fee>");
+    CLOG_F(INFO, "Usage: zsendMany <source> <destination> <amount> <memo> <minconf> <fee>");
     return;
   }
 
@@ -226,7 +225,7 @@ void zsendManyCoro(CContext *context)
 
   UInt<384> amount;
   if (!parseMoneyValue(context->Argv[2], context->CoinInfo.FractionalPartSize, &amount)) {
-    LOG_F(ERROR, "Can't parse amount value %s", context->Argv[2]);
+    CLOG_F(ERROR, "Can't parse amount value {}", context->Argv[2]);
     return;
   }
 
@@ -235,32 +234,32 @@ void zsendManyCoro(CContext *context)
 
   UInt<384> fee;
   if (!parseMoneyValue(context->Argv[5], context->CoinInfo.FractionalPartSize, &fee)) {
-    LOG_F(ERROR, "Can't parse fee value %s", context->Argv[5]);
+    CLOG_F(ERROR, "Can't parse fee value {}", context->Argv[5]);
     return;
   }
 
   CNetworkClient::ZSendMoneyResult result;
   CNetworkClient::EOperationStatus status = context->Client->ioZSendMany(context->Base, source, destination, amount, memo, minConf, fee, result);
   if (status == CNetworkClient::EStatusOk) {
-    LOG_F(INFO, "AsyncOp ID: %s", result.AsyncOperationId.c_str());
+    CLOG_F(INFO, "AsyncOp ID: {}", result.AsyncOperationId);
   } else {
-    LOG_F(ERROR, "zsendMany error: %s", result.Error.c_str());
+    CLOG_F(ERROR, "zsendMany error: {}", result.Error);
   }
 }
 
 void zgetBalanceCoro(CContext *context)
 {
   if (context->ArgsNum != 1) {
-    LOG_F(INFO, "Usage: zgetBalance <address>");
+    CLOG_F(INFO, "Usage: zgetBalance <address>");
     return;
   }
 
   UInt<384> balance = UInt<384>::zero();
   CNetworkClient::EOperationStatus status = context->Client->ioZGetBalance(context->Base, context->Argv[0], &balance);
   if (status == CNetworkClient::EStatusOk) {
-    LOG_F(INFO, "balance: %s", FormatMoney(balance, context->CoinInfo.FractionalPartSize).c_str());
+    CLOG_F(INFO, "balance: {}", FormatMoney(balance, context->CoinInfo.FractionalPartSize));
   } else {
-    LOG_F(ERROR, "zgetBalance error");
+    CLOG_F(ERROR, "zgetBalance error");
   }
 }
 
@@ -279,6 +278,10 @@ int main(int argc, char **argv)
   loguru::init(argc, argv);
   loguru::g_stderr_verbosity = 1;
   loguru::set_thread_name("main");
+
+  static loguru::LogChannel masterLog;
+  masterLog.open("noderpc.log", loguru::Append, loguru::Verbosity_1);
+  loguru::set_global_channel_log(&masterLog);
 
   std::string type;
   std::string coin;
@@ -375,7 +378,7 @@ int main(int argc, char **argv)
     }
 
     if (!foundInExtra) {
-      LOG_F(ERROR, "Unknown coin: %s", coin.c_str());
+      CLOG_F(ERROR, "Unknown coin: {}", coin);
       return 1;
     }
   }
@@ -415,7 +418,7 @@ int main(int argc, char **argv)
     }
 
     if (!context.Client) {
-      LOG_F(ERROR, "Unknown node type: %s", type.c_str());
+      CLOG_F(ERROR, "Unknown node type: {}", type);
       return 1;
     }
   }
@@ -466,7 +469,7 @@ int main(int argc, char **argv)
       postQuitOperation(static_cast<CContext*>(arg)->Base);
     }, &context, 0x10000));
   } else {
-    LOG_F(ERROR, "Unknown method: %s", method.c_str());
+    CLOG_F(ERROR, "Unknown method: {}", method);
     return 1;
   }
 

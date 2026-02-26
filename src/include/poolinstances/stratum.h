@@ -64,7 +64,8 @@ public:
                   unsigned instanceId,
                   unsigned instancesNum,
                   rapidjson::Value &config,
-                  CPriceFetcher *priceFetcher)
+                  CPriceFetcher *priceFetcher,
+                  const std::filesystem::path &logsPath)
       : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic, miningStats),
         CurrentThreadId_(0),
         PriceFetcher_(priceFetcher)
@@ -86,8 +87,8 @@ public:
     jp::jsonParseStringArrayOptional(config, "primaryBackends", primaryBackendNames, &acc, "", cfgError);
     jp::jsonParseStringArrayOptional(config, "secondaryBackends", secondaryBackendNames, &acc, "", cfgError);
     if (acc != jp::EOk) {
-      LOG_F(ERROR, "%s: can't load stratum config", Name_.c_str());
-      LOG_F(ERROR, "%s", cfgError.c_str());
+      CLOG_FC(LogChannel_, ERROR, "{}: can't load stratum config", Name_);
+      CLOG_FC(LogChannel_, ERROR, "{}", cfgError);
       exit(1);
     }
 
@@ -96,7 +97,7 @@ public:
     if (versionMask.has_value()) {
       // BTC ASIC boost
       if (versionMask.value().size() != 8) {
-        LOG_F(ERROR, "versionMask must be 8-byte hex value");
+        CLOG_FC(LogChannel_, ERROR, "versionMask must be 8-byte hex value");
         exit(1);
       }
 
@@ -130,10 +131,10 @@ public:
     }
 
     if (primaryBackends.empty()) {
-      LOG_F(ERROR, "%s: empty primary backends list", Name_.c_str());
+      CLOG_FC(LogChannel_, ERROR, "{}: empty primary backends list", Name_);
       exit(1);
     } else if (primaryBackends.size() > 1 && !ProfitSwitcherEnabled_) {
-      LOG_F(ERROR, "%s: too much primary backends specified without profit switcher", Name_.c_str());
+      CLOG_FC(LogChannel_, ERROR, "{}: too much primary backends specified without profit switcher", Name_);
       exit(1);
     }
 
@@ -149,7 +150,7 @@ public:
       Data_[i].WorkerBase = threadPool.getBase(i);
 
       // initialize work storage
-      Data_[i].WorkStorage.init(linkedBackends, workResetBackends, primaryBackends, secondaryBackends);
+      Data_[i].WorkStorage.init(linkedBackends, workResetBackends, primaryBackends, secondaryBackends, &LogChannel_);
 
       // initialize share accumulators and flush timer
       Data_[i].Accumulators.resize(linkedBackends.size());
@@ -174,6 +175,9 @@ public:
     HasRtt_ = hasRtt;
     ListenPort_ = port;
     X::Stratum::miningConfigInitialize(MiningCfg_, config);
+
+    auto logPath = (logsPath / ("stratum." + std::to_string(port)) / "log-%Y-%m.log").generic_string();
+    LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
   }
 
   virtual void start() override {
@@ -185,7 +189,7 @@ public:
 
     createListener(MonitorBase_, ListenPort_, [](socketTy socket, HostAddress address, void *arg) {
       static_cast<StratumInstance*>(arg)->newFrontendConnection(socket, address);
-    }, this);
+    }, this, LogChannel_);
   }
 
   virtual void checkNewBlockTemplate(CBlockTemplate *blockTemplate, PoolBackend *backend) override {
@@ -212,13 +216,13 @@ public:
       for (const auto &name: backendNamesList.value()) {
         auto It = backendsMap.find(name);
         if (It == backendsMap.end()) {
-          LOG_F(ERROR, "%s: unknown primary backend %s", Name_.c_str(), name.c_str());
+          CLOG_FC(LogChannel_, ERROR, "{}: unknown primary backend {}", Name_, name);
           exit(1);
         }
 
         size_t index = It->second;
         if (needCheck && !fn(linkedBackends[index])) {
-          LOG_F(ERROR, "%s: %s cannot be a part of %s", Name_.c_str(), name.c_str(), listName);
+          CLOG_FC(LogChannel_, ERROR, "{}: {} cannot be a part of {}", Name_, name, listName);
           exit(1);
         }
 
@@ -242,7 +246,7 @@ public:
 
     X::Stratum::workerConfigInitialize(connection->WorkerConfig, data.ThreadCfg);
     if (isDebugInstanceStratumConnections())
-      LOG_F(1, "%s: new connection from %s", Name_.c_str(), connection->AddressHr.c_str());
+      CLOG_FC(LogChannel_, 1, "{}: new connection from {}", Name_, connection->AddressHr);
 
     // Initialize share difficulty
     connection->setStratumDifficulty(ConstantShareDiff_);
@@ -261,7 +265,7 @@ public:
     auto &coinInfo = backend->getCoinInfo();
     const std::string &addr = backendConfig.MiningAddresses.get().MiningAddress;
     if (!X::Proto::decodeHumanReadableAddress(addr, coinInfo.PubkeyAddressPrefix, miningAddress)) {
-      LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), addr.c_str());
+      CLOG_FC(LogChannel_, WARNING, "{}: mining address {} is invalid", coinInfo.Name, addr);
       return;
     }
 
@@ -313,7 +317,7 @@ public:
         }
 
         if (GetLocalThreadId() == 0)
-          LOG_F(INFO, "[t=0] %s: ProfitSwitcher:%s", Name_.c_str(), profitSwitcherInfo.c_str());
+          CLOG_FC(LogChannel_, INFO, "[t=0] {}: ProfitSwitcher:{}", Name_, profitSwitcherInfo);
       }
     } else {
       // Without profit switched we use main work source
@@ -352,7 +356,7 @@ public:
       auto endPt = std::chrono::steady_clock::now();
       auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(endPt - beginPt).count();
       if (GetLocalThreadId() == 0)
-        LOG_F(INFO, "[t=0] %s: Broadcast %s work %" PRIi64 "(reset=%s) & send to %u clients in %.3lf seconds", Name_.c_str(), workName(work).c_str(), work->stratumId(), resetPreviousWork ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
+        CLOG_FC(LogChannel_, INFO, "[t=0] {}: Broadcast {} work {}(reset={}) & send to {} clients in {:.3f} seconds", Name_, workName(work), work->stratumId(), resetPreviousWork ? "yes" : "no", counter, static_cast<double>(timeDiff)/1000.0);
     }
   }
 
@@ -393,7 +397,7 @@ private:
 
     ~Connection() {
       if (isDebugInstanceStratumConnections())
-        LOG_F(1, "%s: disconnected from %s", Instance->Name_.c_str(), AddressHr.c_str());
+        CLOG_FC(Instance->LogChannel_, 1, "{}: disconnected from {}", Instance->Name_, AddressHr);
       Instance->Data_[WorkerId].Connections_.erase(this);
     }
 
@@ -493,7 +497,7 @@ private:
   void send(Connection *connection, const xmstream &stream) {
     if (isDebugInstanceStratumMessages()) {
       std::string msg(stream.data<char>(), stream.sizeOf());
-      LOG_F(1, "%s(%s): outgoing message %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
+      CLOG_FC(LogChannel_, 1, "{}({}): outgoing message {}", Name_, connection->AddressHr, msg);
     }
     if (++connection->SendCounter_ < UncheckedSendCount) {
       aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, 0, nullptr, nullptr);
@@ -501,7 +505,7 @@ private:
       aioWrite(connection->Socket, stream.data(), stream.sizeOf(), afWaitAll, SendTimeout, [](AsyncOpStatus status, aioObject*, size_t, void *arg) {
         if (status != aosSuccess) {
           Connection *connection = static_cast<Connection*>(arg);
-          LOG_F(1, "%s: send timeout to %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str());
+          CLOG_FC(connection->Instance->LogChannel_, 1, "{}: send timeout to {}", connection->Instance->Name_, connection->AddressHr);
           connection->close();
         }
       }, connection);
@@ -534,7 +538,7 @@ private:
     X::Stratum::workerConfigOnSubscribe(connection->WorkerConfig, MiningCfg_, msg, stream, subscribeInfo);
     send(connection, stream);
     if (isDebugInstanceStratumConnections())
-      LOG_F(1, "%s(%s): subscribe data: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), subscribeInfo.c_str());
+      CLOG_FC(LogChannel_, 1, "{}({}): subscribe data: {}", Name_, connection->AddressHr, subscribeInfo);
   }
 
   bool onStratumAuthorize(Connection *connection, CStratumMessage &msg) {
@@ -600,9 +604,9 @@ private:
             struct in_addr addr;
             addr.s_addr = connection->Address.ipv4;
             // TODO: change to DEBUG
-            LOG_F(WARNING,
-                  "%s: can't setup version rolling for %s (client mask: %X; minimal bit count: %X, server mask: %X)",
-                  connection->Instance->Name_.c_str(),
+            CLOG_FC(LogChannel_, WARNING,
+                  "{}: can't setup version rolling for {} (client mask: {:X}; minimal bit count: {:X}, server mask: {:X})",
+                  Name_,
                   inet_ntoa(addr),
                   msg.MiningConfigure.VersionRollingMask.has_value() ? msg.MiningConfigure.VersionRollingMask.value() : 0,
                   msg.MiningConfigure.VersionRollingMinBitCount.has_value() ? msg.MiningConfigure.VersionRollingMinBitCount.value() : 0,
@@ -690,7 +694,7 @@ private:
       }
 
       std::string blockHash = work->blockHash(workInternalBackendIdx);
-      LOG_F(INFO, "%s: pending proof of work %s sending; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work->txNum(workInternalBackendIdx));
+      CLOG_FC(LogChannel_, INFO, "{}: pending proof of work {} sending; hash: {}; transactions: {}", Name_, backend->getCoinInfo().Name, blockHash, work->txNum(workInternalBackendIdx));
 
       // Serialize block
       xmstream blockHexData;
@@ -703,7 +707,7 @@ private:
         [height, blockHash, generatedCoins, expectedWork, globalBackendIdx, backend, this, userName, shareHash,
          shareBackends = std::move(shareBackends)](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
-          LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
+          CLOG_FC(LogChannel_, INFO, "* block {} ({}) accepted by {}", blockHash, height, hostName);
           if (successNum == 1) {
             flushAccumulator(globalBackendIdx);
             CBlockFoundData *block = new CBlockFoundData;
@@ -718,7 +722,7 @@ private:
             backend->sendBlockFound(block, std::move(shareBackends));
           }
         } else {
-          LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
+          CLOG_FC(LogChannel_, ERROR, "* block {} ({}) rejected by {} error: {}", blockHash, height, hostName, error);
         }
       });
     }
@@ -735,7 +739,7 @@ private:
     auto It = connection->Workers.find(msg.Submit.WorkerName);
     if (It == connection->Workers.end()) {
       if (isDebugInstanceStratumRejects())
-        LOG_F(1, "%s(%s) reject: unknown worker name: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.Submit.WorkerName.c_str());
+        CLOG_FC(LogChannel_, 1, "{}({}) reject: unknown worker name: {}", Name_, connection->AddressHr, msg.Submit.WorkerName);
       errorCode = StratumErrorUnauthorizedWorker;
       return false;
     }
@@ -748,7 +752,7 @@ private:
       size_t sharpPos = msg.Submit.JobId.find('#');
       if (sharpPos == msg.Submit.JobId.npos) {
         if (isDebugInstanceStratumRejects())
-          LOG_F(1, "%s(%s) %s/%s reject: invalid job id format: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), msg.Submit.JobId.c_str());
+          CLOG_FC(LogChannel_, 1, "{}({}) {}/{} reject: invalid job id format: {}", Name_, connection->AddressHr, worker.User, worker.WorkerName, msg.Submit.JobId);
         errorCode = StratumErrorJobNotFound;
         return false;
       }
@@ -758,7 +762,7 @@ private:
       work = data.WorkStorage.workById(majorJobId);
       if (!work) {
         if (isDebugInstanceStratumRejects())
-          LOG_F(1, "%s(%s) %s/%s reject: unknown job id: %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), msg.Submit.JobId.c_str());
+          CLOG_FC(LogChannel_, 1, "{}({}) {}/{} reject: unknown job id: {}", Name_, connection->AddressHr, worker.User, worker.WorkerName, msg.Submit.JobId);
         errorCode = StratumErrorJobNotFound;
         return false;
       }
@@ -768,7 +772,7 @@ private:
     std::string user = worker.User;
     if (!work->prepareForSubmit(connection->WorkerConfig, msg)) {
       if (isDebugInstanceStratumRejects())
-        LOG_F(1, "%s(%s) %s/%s reject: invalid share format", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
+        CLOG_FC(LogChannel_, 1, "{}({}) {}/{} reject: invalid share format", Name_, connection->AddressHr, worker.User, worker.WorkerName);
       errorCode = StratumErrorInvalidShare;
       return false;
     }
@@ -777,7 +781,7 @@ private:
     typename X::Proto::BlockHashTy shareHash = work->shareHash();
     if (data.WorkStorage.isDuplicate(work, shareHash)) {
       if (isDebugInstanceStratumRejects())
-        LOG_F(1, "%s(%s) %s/%s reject: duplicate share", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str());
+        CLOG_FC(LogChannel_, 1, "{}({}) {}/{} reject: duplicate share", Name_, connection->AddressHr, worker.User, worker.WorkerName);
       errorCode = StratumErrorDuplicateShare;
       return false;
     }
@@ -788,7 +792,7 @@ private:
       PoolBackend *backend = work->backend(i);
       if (!backend) {
         if (isDebugInstanceStratumRejects())
-          LOG_F(1, "%s(%s) %s/%s sub-reject: backend %zu not initialized", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), worker.User.c_str(), worker.WorkerName.c_str(), i);
+          CLOG_FC(LogChannel_, 1, "{}({}) {}/{} sub-reject: backend {} not initialized", Name_, connection->AddressHr, worker.User, worker.WorkerName, i);
         continue;
       }
 
@@ -800,13 +804,13 @@ private:
 
       if (!checkStatus.IsShare) {
         if (isDebugInstanceStratumRejects())
-          LOG_F(1,
-                "%s(%s) %s/%s sub-reject(%s): invalid share (below target)",
-                connection->Instance->Name_.c_str(),
-                connection->AddressHr.c_str(),
-                worker.User.c_str(),
-                worker.WorkerName.c_str(),
-                backend->getCoinInfo().Name.c_str());
+          CLOG_FC(LogChannel_, 1,
+                "{}({}) {}/{} sub-reject({}): invalid share (below target)",
+                Name_,
+                connection->AddressHr,
+                worker.User,
+                worker.WorkerName,
+                backend->getCoinInfo().Name);
         continue;
       }
 
@@ -815,7 +819,7 @@ private:
         connection->StratumDifficultyInt, Timestamp::now(), 0, 0, false);
 
       if (checkStatus.IsBlock) {
-        LOG_F(INFO, "%s: new proof of work for %s found; hash: %s; transactions: %zu", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str(), work->txNum(i));
+        CLOG_FC(LogChannel_, INFO, "{}: new proof of work for {} found; hash: {}; transactions: {}", Name_, backend->getCoinInfo().Name, blockHash, work->txNum(i));
 
         // Serialize block
         xmstream blockHexData;
@@ -835,7 +839,7 @@ private:
           [height, blockHash, generatedCoins, expectedWork, globalBackendIdx, backend, this, user=worker.User, shareHash,
            shareBackends = std::move(shareBackends)](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
           if (success) {
-            LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.c_str(), height, hostName.c_str());
+            CLOG_FC(LogChannel_, INFO, "* block {} ({}) accepted by {}", blockHash, height, hostName);
             if (successNum == 1) {
               flushAccumulator(globalBackendIdx);
               CBlockFoundData *block = new CBlockFoundData;
@@ -850,14 +854,14 @@ private:
               backend->sendBlockFound(block, std::move(shareBackends));
             }
           } else {
-            LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.c_str(), height, hostName.c_str(), error.c_str());
+            CLOG_FC(LogChannel_, ERROR, "* block {} ({}) rejected by {} error: {}", blockHash, height, hostName, error);
           }
         });
 
         foundBlockMask[globalBackendIdx] = true;
       } else if (checkStatus.IsPendingBlock) {
         if (data.WorkStorage.updatePending(globalBackendIdx, worker.User, worker.WorkerName, checkStatus.Hash, connection->StratumDifficultyInt, xatoi<uint64_t>(msg.Submit.JobId.c_str()), connection->WorkerConfig, msg))
-          LOG_F(INFO, "%s: new pending block %s found; hash: %s", Name_.c_str(), backend->getCoinInfo().Name.c_str(), blockHash.c_str());
+          CLOG_FC(LogChannel_, INFO, "{}: new pending block {} found; hash: {}", Name_, backend->getCoinInfo().Name, blockHash);
       }
     }
 
@@ -932,7 +936,7 @@ private:
 
       if (invalidSharedPercent >= 20) {
         if (isDebugInstanceStratumConnections())
-          LOG_F(1, "%s: connection %s: too much errors, disconnecting...", Name_.c_str(), connection->AddressHr.c_str());
+          CLOG_FC(LogChannel_, 1, "{}: connection {}: too much errors, disconnecting...", Name_, connection->AddressHr);
         connection->close();
         return;
       }
@@ -1019,7 +1023,7 @@ private:
       size_t stratumMsgSize = nextMsgPos - p;
       if (isDebugInstanceStratumMessages()) {
         std::string msg(p, stratumMsgSize);
-        LOG_F(1, "%s(%s): incoming message %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
+        CLOG_FC(connection->Instance->LogChannel_, 1, "{}({}): incoming message {}", connection->Instance->Name_, connection->AddressHr, msg);
       }
 
       switch (X::Stratum::decodeStratumMessage(msg, p, stratumMsgSize)) {
@@ -1061,8 +1065,8 @@ private:
               struct in_addr addr;
               addr.s_addr = connection->Address.ipv4;
               std::string msg(p, stratumMsgSize);
-              LOG_F(ERROR, "%s: unknown stratum method received from %s" , connection->Instance->Name_.c_str(), inet_ntoa(addr));
-              LOG_F(ERROR, " * message text: %s", msg.c_str());
+              CLOG_FC(connection->Instance->LogChannel_, ERROR, "{}: unknown stratum method received from {}", connection->Instance->Name_, inet_ntoa(addr));
+              CLOG_FC(connection->Instance->LogChannel_, ERROR, " * message text: {}", msg);
               break;
             }
           }
@@ -1071,14 +1075,14 @@ private:
         case EStratumDecodeStatusTy::EStratumStatusJsonError : {
           std::string msg(p, stratumMsgSize);
           if (isDebugInstanceStratumMessages())
-            LOG_F(1, "%s(%s): JsonError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
+            CLOG_FC(connection->Instance->LogChannel_, 1, "{}({}): JsonError {}", connection->Instance->Name_, connection->AddressHr, msg);
           result = false;
           break;
         }
         case EStratumDecodeStatusTy::EStratumStatusFormatError : {
           std::string msg(p, stratumMsgSize);
           if (isDebugInstanceStratumMessages())
-            LOG_F(1, "%s(%s): FormatError %s", connection->Instance->Name_.c_str(), connection->AddressHr.c_str(), msg.c_str());
+            CLOG_FC(connection->Instance->LogChannel_, 1, "{}({}): FormatError {}", connection->Instance->Name_, connection->AddressHr, msg);
           result = false;
           break;
         }
@@ -1100,7 +1104,7 @@ private:
       if (connection->MsgTailSize >= sizeof(connection->Buffer)) {
         struct in_addr addr;
         addr.s_addr = connection->Address.ipv4;
-        LOG_F(ERROR, "%s: too long stratum message from %s", connection->Instance->Name_.c_str(), inet_ntoa(addr));
+        CLOG_FC(connection->Instance->LogChannel_, ERROR, "{}: too long stratum message from {}", connection->Instance->Name_, inet_ntoa(addr));
         connection->close();
         return;
       }
@@ -1161,4 +1165,6 @@ private:
 
   // Price fetcher
   CPriceFetcher *PriceFetcher_ = nullptr;
+
+  loguru::LogChannel LogChannel_;
 };

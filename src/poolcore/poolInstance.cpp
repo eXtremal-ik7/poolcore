@@ -28,7 +28,7 @@ void CThreadPool::start()
       loguru::set_thread_name(name);
       InitializeWorkerThread();
       SetLocalThreadId(threadData->Id);
-      LOG_F(INFO, "worker %u started tid=%u", threadData->Id, GetGlobalThreadId());
+      CLOG_F(INFO, "worker {} started tid={}", threadData->Id, GetGlobalThreadId());
       asyncLoop(threadData->Base);
     }, &threadData);
   }
@@ -40,7 +40,7 @@ void CThreadPool::stop()
     ThreadData &threadData = Threads_[i];
     postQuitOperation(threadData.Base);
     threadData.Thread.join();
-    LOG_F(INFO, "worker %u stopped", threadData.Id);
+    CLOG_F(INFO, "worker {} stopped", threadData.Id);
   }
 }
 

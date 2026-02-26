@@ -53,7 +53,7 @@ bool UserManager::sendMail(const std::string &login, const std::string &emailAdd
   localAddress.port = 0;
   SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
   if (!client) {
-    LOG_F(ERROR, "Can't create smtp client");
+    CLOG_F(ERROR, "Can't create smtp client");
     error = "smtp_client_create_error";
     return false;
   }
@@ -87,9 +87,9 @@ bool UserManager::sendMail(const std::string &login, const std::string &emailAdd
                               16000000);
   if (result != 0) {
     if (result == -smtpError)
-      LOG_F(ERROR, "SMTP error; code: %u; text: %s", smtpClientGetResultCode(client), smtpClientGetResponse(client));
+      CLOG_F(ERROR, "SMTP error; code: {}; text: {}", smtpClientGetResultCode(client), smtpClientGetResponse(client));
     else
-      LOG_F(ERROR, "SMTP client error %u", -result);
+      CLOG_F(ERROR, "SMTP client error {}", -result);
     smtpClientDelete(client);
     error = "email_send_error";
     return false;
@@ -97,7 +97,7 @@ bool UserManager::sendMail(const std::string &login, const std::string &emailAdd
 
 
   smtpClientDelete(client);
-  LOG_F(INFO, "%s %s: %s", login.c_str(), emailTitlePrefix.c_str(), actionId.getHexLE().c_str());
+  CLOG_F(INFO, "{} {}: {}", login, emailTitlePrefix, actionId.getHexLE());
   return true;
 }
 
@@ -139,7 +139,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
     for (It->seekFirst(); It->valid(); It->next()) {
       UsersRecord userRecord;
       if (!userRecord.deserializeValue(It->value().data, It->value().size)) {
-        LOG_F(ERROR, "Database corrupted (users)");
+        CLOG_F(ERROR, "Database corrupted (users)");
         exit(1);
       }
 
@@ -150,13 +150,13 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
       UsersCache_.insert(std::make_pair(userRecord.Login, userRecord));
       if (!userRecord.EMail.empty()) {
         if (!AllEmails_.insert(userRecord.EMail).second) {
-          LOG_F(ERROR, "Non-unique email detected: %s", userRecord.EMail.c_str());
+          CLOG_F(ERROR, "Non-unique email detected: {}", userRecord.EMail);
           exit(1);
         }
       }
     }
 
-    LOG_F(INFO, "UserManager: loaded %zu user records", UsersCache_.size());
+    CLOG_F(INFO, "UserManager: loaded {} user records", UsersCache_.size());
   }
 
   {
@@ -165,7 +165,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
     for (It->seekFirst(); It->valid(); It->next()) {
       UserSettingsRecord settingsRecord;
       if (!settingsRecord.deserializeValue(It->value().data, It->value().size)) {
-        LOG_F(ERROR, "Database corrupted (user settings)");
+        CLOG_F(ERROR, "Database corrupted (user settings)");
         exit(1);
       }
 
@@ -175,7 +175,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
       SettingsCache_.insert(std::make_pair(key, settingsRecord));
     }
 
-    LOG_F(INFO, "UserManager: loaded %zu user settings records", SettingsCache_.size());
+    CLOG_F(INFO, "UserManager: loaded {} user settings records", SettingsCache_.size());
   }
 
   {
@@ -184,7 +184,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
     for (It->seekFirst(); It->valid(); It->next()) {
       UserSessionRecord sessionRecord;
       if (!sessionRecord.deserializeValue(It->value().data, It->value().size)) {
-        LOG_F(ERROR, "Database corrupted (user sessions) -> close all sessions");
+        CLOG_F(ERROR, "Database corrupted (user sessions) -> close all sessions");
         UserSessionsDb_.clear();
         SessionsCache_.clear();
         break;
@@ -195,7 +195,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
         LoginSessionMap_[sessionRecord.Login] = sessionRecord.Id;
     }
 
-    LOG_F(INFO, "UserManager: loaded %zu user sessions", SessionsCache_.size());
+    CLOG_F(INFO, "UserManager: loaded {} user sessions", SessionsCache_.size());
   }
 
   {
@@ -204,7 +204,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
     for (It->seekFirst(); It->valid(); It->next()) {
       UserActionRecord actionRecord;
       if (!actionRecord.deserializeValue(It->value().data, It->value().size)) {
-        LOG_F(ERROR, "Database corrupted (user actions) -> cancel all actions");
+        CLOG_F(ERROR, "Database corrupted (user actions) -> cancel all actions");
         It->cleanup();
         UserActionsDb_.clear();
         ActionsCache_.clear();
@@ -215,7 +215,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
       LoginActionMap_[actionRecord.Login] = actionRecord.Id;
     }
 
-    LOG_F(INFO, "UserManager: loaded %zu user actions", ActionsCache_.size());
+    CLOG_F(INFO, "UserManager: loaded {} user actions", ActionsCache_.size());
   }
 
   {
@@ -227,7 +227,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
     for (It->seekFirst(); It->valid(); It->next()) {
       UserFeePlanRecord record;
       if (!record.deserializeValue(It->value().data, It->value().size)) {
-        LOG_F(ERROR, "Database corrupted (fee plan)");
+        CLOG_F(ERROR, "Database corrupted (fee plan)");
         break;
       }
 
@@ -255,7 +255,7 @@ void UserManager::stop()
 {
   // Wait all coroutines
   if (CoroutineCounter_) {
-    LOG_F(INFO, "Wait %u coroutines", CoroutineCounter_);
+    CLOG_F(INFO, "Wait {} coroutines", CoroutineCounter_);
     while (CoroutineCounter_)
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
@@ -274,13 +274,13 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
     for (const auto &pair: config) {
       if (UsersCache_.count(pair.UserId) == 0) {
         error = "unknown_login";
-        LOG_F(ERROR, "UserManager: can't accept fee plan '%s', user %s not exists", planId.c_str(), pair.UserId.c_str());
+        CLOG_F(ERROR, "UserManager: can't accept fee plan '{}', user {} not exists", planId, pair.UserId);
         return false;
       }
 
       if (pair.Percentage < 0.0) {
         error = "invalid_percentage";
-        LOG_F(ERROR, "UserManager: can't accept fee plan '%s', negative percentage for user %s", planId.c_str(), pair.UserId.c_str());
+        CLOG_F(ERROR, "UserManager: can't accept fee plan '{}', negative percentage for user {}", planId, pair.UserId);
         return false;
       }
 
@@ -289,7 +289,7 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
 
     if (sum >= 100.0) {
       error = "fee_too_much";
-      LOG_F(ERROR, "UserManager: can't accept fee plan '%s', fee %.2lf too big", planId.c_str(), sum);
+      CLOG_F(ERROR, "UserManager: can't accept fee plan '{}', fee {:.2f} too big", planId, sum);
       return false;
     }
 
@@ -364,12 +364,12 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
   if (!record.ReferralId.isNull())
     ReferralIdMap_[record.ReferralId] = record.FeePlanId;
 
-  LOG_F(INFO, "UserManager: accepted fee plan %s", record.FeePlanId.c_str());
+  CLOG_F(INFO, "UserManager: accepted fee plan {}", record.FeePlanId);
   for (size_t i = 0, ie = record.Modes.size(); i != ie; ++i) {
     const char *modeName = miningModeName(static_cast<EMiningMode>(i));
-    LOG_F(INFO, " [%s] default: %s", modeName, feeConfigToString(record.Modes[i].Default).c_str());
+    CLOG_F(INFO, " [{}] default: {}", modeName, feeConfigToString(record.Modes[i].Default));
     for (const auto &coinCfg: record.Modes[i].CoinSpecific)
-      LOG_F(INFO, " [%s] %s: %s", modeName, coinCfg.CoinName.c_str(), feeConfigToString(coinCfg.Config).c_str());
+      CLOG_F(INFO, " [{}] {}: {}", modeName, coinCfg.CoinName, feeConfigToString(coinCfg.Config));
   }
 
   return true;
@@ -484,7 +484,7 @@ void UserManager::userManagerCleanup()
       ActionsCache_.erase(actionId);
     UserSessionsDb_.writeBatch(sessionBatch);
     UserActionsDb_.writeBatch(actionBatch);
-    LOG_F(INFO, "(CLEANER) Removed sessions: %zu; actions: %zu; inactive users: %zu; updated sessions: %zu", sessionIdForDelete.size(), actionIdForDelete.size(), usersDeletedCount, updatedSessions);
+    CLOG_F(INFO, "(CLEANER) Removed sessions: {}; actions: {}; inactive users: {}; updated sessions: {}", sessionIdForDelete.size(), actionIdForDelete.size(), usersDeletedCount, updatedSessions);
     ioSleep(CleanupEvent_, CleanupInterval_ * 1000000);
   }
 }
@@ -582,7 +582,7 @@ void UserManager::actionImpl(const BaseBlob<512> &id, const std::string &newPass
     }
 
     default: {
-      LOG_F(ERROR, "Action %s detected unknown type %u", id.getHexLE().c_str(), actionRecord.Type);
+      CLOG_F(ERROR, "Action {} detected unknown type {}", id.getHexLE(), actionRecord.Type);
       status = "unknown_type";
       break;
     }
@@ -789,7 +789,7 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
       localAddress.port = 0;
       SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
       if (!client) {
-        LOG_F(ERROR, "Can't create smtp client");
+        CLOG_F(ERROR, "Can't create smtp client");
         callback("smtp_client_create_error");
         return;
       }
@@ -822,9 +822,9 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
                                   16000000);
       if (result != 0) {
         if (result == -smtpError)
-          LOG_F(ERROR, "SMTP error; code: %u; text: %s", smtpClientGetResultCode(client), smtpClientGetResponse(client));
+          CLOG_F(ERROR, "SMTP error; code: {}; text: {}", smtpClientGetResultCode(client), smtpClientGetResponse(client));
         else
-          LOG_F(ERROR, "SMTP client error %u", -result);
+          CLOG_F(ERROR, "SMTP client error {}", -result);
         smtpClientDelete(client);
         callback("email_send_error");
         return;
@@ -850,7 +850,7 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
   for (const auto &[coinName, backend] : Backends_)
     backend->sendUserFeePlanChange(credentials.Login, feePlan);
 
-  LOG_F(INFO, "New user: %s (%s) email: %s; actionId: %s", userRecord.Login.c_str(), userRecord.Name.c_str(), userRecord.EMail.c_str(), actionRecord.Id.getHexLE().c_str());
+  CLOG_F(INFO, "New user: {} ({}) email: {}; actionId: {}", userRecord.Login, userRecord.Name, userRecord.EMail, actionRecord.Id.getHexLE());
   callback("ok");
 }
 
@@ -905,7 +905,7 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
     localAddress.port = 0;
     SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
     if (!client) {
-      LOG_F(ERROR, "Can't create smtp client");
+      CLOG_F(ERROR, "Can't create smtp client");
       callback("smtp_client_create_error");
       return;
     }
@@ -938,9 +938,9 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
                                 16000000);
     if (result != 0) {
       if (result == -smtpError)
-        LOG_F(ERROR, "SMTP error; code: %u; text: %s", smtpClientGetResultCode(client), smtpClientGetResponse(client));
+        CLOG_F(ERROR, "SMTP error; code: {}; text: {}", smtpClientGetResultCode(client), smtpClientGetResponse(client));
       else
-        LOG_F(ERROR, "SMTP client error %u", -result);
+        CLOG_F(ERROR, "SMTP client error {}", -result);
       smtpClientDelete(client);
       callback("email_send_error");
       return;
@@ -950,7 +950,7 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
   }
 
   actionAdd(actionRecord);
-  LOG_F(INFO, "Resend email for %s to %s; actionId: %s", credentials.Login.c_str(), email.c_str(), actionRecord.Id.getHexLE().c_str());
+  CLOG_F(INFO, "Resend email for {} to {}; actionId: {}", credentials.Login, email, actionRecord.Id.getHexLE());
   callback("ok");
 }
 
@@ -1213,11 +1213,11 @@ void UserManager::updateSettingsImpl(const std::string &login,
   }
 
   UserSettingsDb_.put(settings);
-  LOG_F(INFO,
-        "update %s/%s settings: address=%s",
-        settings.Login.c_str(),
-        settings.Coin.c_str(),
-        settings.Payout.Address.c_str());
+  CLOG_F(INFO,
+        "update {}/{} settings: address={}",
+        settings.Login,
+        settings.Coin,
+        settings.Payout.Address);
 
   // Notify backend about settings update
   backendIt->second->sendUserSettingsUpdate(settings);
@@ -1288,7 +1288,7 @@ void UserManager::createFeePlanImpl(const std::string &sessionId, const std::str
   record.Modes.resize(static_cast<size_t>(EMiningMode::Count));
   UserFeePlanDb_.put(record);
 
-  LOG_F(INFO, "UserManager: created fee plan %s", feePlanId.c_str());
+  CLOG_F(INFO, "UserManager: created fee plan {}", feePlanId);
   callback("ok");
 }
 
@@ -1382,7 +1382,7 @@ void UserManager::deleteFeePlanImpl(const std::string &sessionId, const std::str
     backend->sendFeePlanDelete(feePlanId);
   }
 
-  LOG_F(INFO, "UserManager: deleted fee plan %s, reset %zu users to default", feePlanId.c_str(), affectedUsers.size());
+  CLOG_F(INFO, "UserManager: deleted fee plan {}, reset {} users to default", feePlanId, affectedUsers.size());
   callback("ok");
 }
 
@@ -1452,7 +1452,7 @@ void UserManager::renewFeePlanReferralIdImpl(
   buildFeePlanRecord(feePlanId, accessor->second, record);
   UserFeePlanDb_.put(record);
 
-  LOG_F(INFO, "UserManager: renewed referral ID for fee plan %s: %s", feePlanId.c_str(), newId.getHexRaw().c_str());
+  CLOG_F(INFO, "UserManager: renewed referral ID for fee plan {}: {}", feePlanId, newId.getHexRaw());
   callback("ok", newId.getHexRaw());
 }
 
@@ -1688,10 +1688,10 @@ void UserManager::adjustInstantMinimalPayout(const std::string &coin, const UInt
     decltype(SettingsCache_)::accessor accessor;
     if (SettingsCache_.find(accessor, it->first) &&
         accessor->second.Payout.InstantPayoutThreshold < minimalPayout) {
-      LOG_F(INFO,
-            "User %s/%s InstantPayoutThreshold adjusted to pool minimum",
-            accessor->second.Login.c_str(),
-            coin.c_str());
+      CLOG_F(INFO,
+            "User {}/{} InstantPayoutThreshold adjusted to pool minimum",
+            accessor->second.Login,
+            coin);
       accessor->second.Payout.InstantPayoutThreshold = minimalPayout;
       UserSettingsDb_.put(accessor->second);
 

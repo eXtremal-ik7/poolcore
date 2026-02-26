@@ -24,7 +24,8 @@ public:
                             unsigned instanceId,
                             unsigned instancesNum,
                             rapidjson::Value &config,
-                            CPriceFetcher *priceFetcher);
+                            CPriceFetcher *priceFetcher,
+                            const std::filesystem::path &logsPath);
 
 private:
   using NewPoolInstanceFunction = std::function<CPoolInstance*(
@@ -37,7 +38,8 @@ private:
     unsigned,
     unsigned,
     rapidjson::Value&,
-    CPriceFetcher*)>;
+    CPriceFetcher*,
+    const std::filesystem::path&)>;
 
 private:
   static std::unordered_map<std::string, NewPoolInstanceFunction> FabricData_;

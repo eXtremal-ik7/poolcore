@@ -103,21 +103,21 @@ private:
         }
       }
 
-      LOG_F(WARNING, "%s %s: http result code: %u, data: %s",
-            CoinInfo_.Name.c_str(),
-            FullHostName_.c_str(),
-            connection.ParseCtx.resultCode,
-            connection.ParseCtx.body.data ? connection.ParseCtx.body.data : "<null>");
+      CLOG_F(WARNING, "{} {}: http result code: {}, data: {}",
+             CoinInfo_.Name,
+             FullHostName_,
+             connection.ParseCtx.resultCode,
+             connection.ParseCtx.body.data ? connection.ParseCtx.body.data : "<null>");
       return false;
     }
 
     if (document.HasParseError()) {
-      LOG_F(WARNING, "%s %s: JSON parse error", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      CLOG_F(WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
       return false;
     }
 
     if (!document.HasMember("result")) {
-      LOG_F(WARNING, "%s %s: JSON: no 'result' object", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      CLOG_F(WARNING, "{} {}: JSON: no 'result' object", CoinInfo_.Name, FullHostName_);
       return false;
     }
 
@@ -128,7 +128,7 @@ private:
   EOperationStatus ioQueryJson(CConnection &connection, const std::string &query, rapidjson::Document &document, uint64_t timeout) {
     AsyncOpStatus status = ioHttpRequest(connection.Client, query.data(), query.size(), timeout, httpParseDefault, &connection.ParseCtx);
     if (status != aosSuccess) {
-      LOG_F(WARNING, "%s %s: error code: %u", CoinInfo_.Name.c_str(), FullHostName_.c_str(), status);
+      CLOG_F(WARNING, "{} {}: error code: {}", CoinInfo_.Name, FullHostName_, static_cast<unsigned>(status));
       return status == aosTimeout ? EStatusTimeout : EStatusNetworkError;
     }
 
@@ -145,17 +145,17 @@ private:
         }
       }
 
-      LOG_F(WARNING, "%s %s: request error code: %u (http result code: %u, data: %s)",
-            CoinInfo_.Name.c_str(),
-            FullHostName_.c_str(),
-            static_cast<unsigned>(status),
-            connection.ParseCtx.resultCode,
-            connection.ParseCtx.body.data ? connection.ParseCtx.body.data : "<null>");
+      CLOG_F(WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
+             CoinInfo_.Name,
+             FullHostName_,
+             static_cast<unsigned>(status),
+             connection.ParseCtx.resultCode,
+             connection.ParseCtx.body.data ? connection.ParseCtx.body.data : "<null>");
       return EStatusProtocolError;
     }
 
     if (document.HasParseError()) {
-      LOG_F(WARNING, "%s %s: JSON parse error", CoinInfo_.Name.c_str(), FullHostName_.c_str());
+      CLOG_F(WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
       return EStatusProtocolError;
     }
 

@@ -281,7 +281,7 @@ rocksdbBase::rocksdbBase(const std::filesystem::path &path) : _path(path)
 
   std::sort(_partitions.begin(), _partitions.end());
   if (!_partitions.empty())
-    LOG_F(INFO, "Found %zu partitions for %s", _partitions.size(), path.c_str());
+    CLOG_F(INFO, "Found {} partitions for {}", _partitions.size(), path);
 }
 
 rocksdbBase::~rocksdbBase()
@@ -289,7 +289,7 @@ rocksdbBase::~rocksdbBase()
   for (auto &p: _partitions) {
     delete p.db;
     if (p.db)
-      LOG_F(INFO, "partition %s / %s was closed", path_to_utf8(_path).c_str(), p.id.c_str());
+      CLOG_F(INFO, "partition {} / {} was closed", _path, p.id);
   }
 }
 

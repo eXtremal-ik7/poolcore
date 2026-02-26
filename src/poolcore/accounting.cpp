@@ -19,11 +19,11 @@ const std::vector<::UserFeePair> emptyFeeRecord;
 void AccountingDb::printRecentStatistic()
 {
   if (State_.RecentStats.empty()) {
-    LOG_F(INFO, "[%s] Recent statistic: empty", CoinInfo_.Name.c_str());
+    CLOG_F(INFO, "[{}] Recent statistic: empty", CoinInfo_.Name);
     return;
   }
 
-  LOG_F(INFO, "[%s] Recent statistic:", CoinInfo_.Name.c_str());
+  CLOG_F(INFO, "[{}] Recent statistic:", CoinInfo_.Name);
   for (const auto &user: State_.RecentStats) {
     std::string line = user.UserId;
     line.append(": ");
@@ -35,7 +35,7 @@ void AccountingDb::printRecentStatistic()
       firstIter = false;
     }
 
-    LOG_F(INFO, " * %s", line.c_str());
+    CLOG_F(INFO, " * {}", line);
   }
 }
 
@@ -93,12 +93,12 @@ AccountingDb::AccountingDb(asyncBase *base,
   // Start loading user data from UserManager in parallel with local DB loading
   std::thread settingsThread([this]() {
     UserManager_.fillUserCoinSettings(CoinInfo_.Name, UserSettings_);
-    LOG_F(INFO, "AccountingDb: loaded %zu user settings for %s", UserSettings_.size(), CoinInfo_.Name.c_str());
+    CLOG_F(INFO, "AccountingDb: loaded {} user settings for {}", UserSettings_.size(), CoinInfo_.Name);
   });
 
   std::thread feePlanIdsThread([this]() {
     UserManager_.fillUserFeePlanIds(UserFeePlanIds_);
-    LOG_F(INFO, "AccountingDb: loaded %zu user fee plan assignments for %s", UserFeePlanIds_.size(), CoinInfo_.Name.c_str());
+    CLOG_F(INFO, "AccountingDb: loaded {} user fee plan assignments for {}", UserFeePlanIds_.size(), CoinInfo_.Name);
   });
 
   std::thread feePlansThread([this]() {
@@ -108,14 +108,14 @@ AccountingDb::AccountingDb(asyncBase *base,
       for (auto &[feePlanId, feeList] : records)
         FeePlanCache_[{feePlanId, mode}] = std::move(feeList);
     }
-    LOG_F(INFO, "AccountingDb: loaded %zu fee plan entries for %s", FeePlanCache_.size(), CoinInfo_.Name.c_str());
+    CLOG_F(INFO, "AccountingDb: loaded {} fee plan entries for {}", FeePlanCache_.size(), CoinInfo_.Name);
   });
 
   UserStatsAcc_.load(config.dbPath, coinInfo.Name);
   State_.load(coinInfo);
-  LOG_F(INFO, "loaded %u payouts from db", static_cast<unsigned>(State_.PayoutQueue.size()));
+  CLOG_F(INFO, "loaded {} payouts from db", State_.PayoutQueue.size());
 
-  LOG_F(INFO, "loaded %zu active rounds from state", State_.ActiveRounds.size());
+  CLOG_F(INFO, "loaded {} active rounds from state", State_.ActiveRounds.size());
 
   // Wait for user data loading threads before replay
   // (replay needs UserSettings_, UserFeePlanIds_, FeePlanCache_ for PPS mode handling)
@@ -136,11 +136,11 @@ AccountingDb::AccountingDb(asyncBase *base,
 
   printRecentStatistic();
   if (!State_.CurrentScores.empty()) {
-    LOG_F(INFO, "[%s] current scores:", CoinInfo_.Name.c_str());
+    CLOG_F(INFO, "[{}] current scores:", CoinInfo_.Name);
     for (const auto &It: State_.CurrentScores)
-      LOG_F(INFO, " * %s: %s", It.first.c_str(), It.second.getDecimal().c_str());
+      CLOG_F(INFO, " * {}: {}", It.first, It.second.getDecimal());
   } else {
-    LOG_F(INFO, "[%s] current scores is empty", CoinInfo_.Name.c_str());
+    CLOG_F(INFO, "[{}] current scores is empty", CoinInfo_.Name);
   }
   // Flush replayed data immediately so AccumulationInterval_ is reset.
   // Otherwise, if the pool was down for a long time, the first live share
@@ -204,7 +204,7 @@ void AccountingDb::ppsPayout()
   if (State_.PPSPendingBalance.empty())
     return;
 
-  LOG_F(INFO, "[%s] PPS payout: %zu users", CoinInfo_.Name.c_str(), State_.PPSPendingBalance.size());
+  CLOG_F(INFO, "[{}] PPS payout: {} users", CoinInfo_.Name, State_.PPSPendingBalance.size());
 
   Timestamp now = Timestamp::now();
   Timestamp intervalBegin = now - _cfg.PPSPayoutInterval;
@@ -223,13 +223,13 @@ void AccountingDb::ppsPayout()
     totalPaid += value;
     if (applyReward(userId, value, EMiningMode::PPS, rewardParams, batch, payoutHistoryBatch))
       payoutQueued = true;
-    LOG_F(INFO, " * %s: +%s", userId.c_str(), FormatMoneyFull(value, CoinInfo_.FractionalPartSize).c_str());
+    CLOG_F(INFO, " * {}: +{}", userId, FormatMoneyFull(value, CoinInfo_.FractionalPartSize));
   }
 
-  LOG_F(INFO,
-        "[%s] PPS payout total: %s",
-        CoinInfo_.Name.c_str(),
-        FormatMoney(totalPaid, CoinInfo_.FractionalPartSize).c_str());
+  CLOG_F(INFO,
+        "[{}] PPS payout total: {}",
+        CoinInfo_.Name,
+        FormatMoney(totalPaid, CoinInfo_.FractionalPartSize));
 
   if (!payoutHistoryBatch.empty())
     PPSPayoutsDb.writeBatch(payoutHistoryBatch);
@@ -267,18 +267,18 @@ void AccountingDb::distributeBlockReward(MiningRound &R)
       State_.PPSState.ReferenceBalance += ppsShare;
       State_.PPSState.TotalBlocksFound += ppsFraction;
       State_.PPSState.updateMinMax(Timestamp::now());
-      LOG_F(INFO,
-            " * PPS correction: %s (%.3f of block, remaining for PPLNS: %s)",
-            FormatMoney(ppsShare, CoinInfo_.FractionalPartSize).c_str(),
+      CLOG_F(INFO,
+            " * PPS correction: {} ({:.3f} of block, remaining for PPLNS: {})",
+            FormatMoney(ppsShare, CoinInfo_.FractionalPartSize),
             ppsFraction,
-            FormatMoney(R.AvailableForPPLNS, CoinInfo_.FractionalPartSize).c_str());
+            FormatMoney(R.AvailableForPPLNS, CoinInfo_.FractionalPartSize));
     }
   }
 
   R.Payouts.clear();
 
   if (R.TotalShareValue.isZero()) {
-    LOG_F(WARNING, "Block found but no PPLNS shares, skipping payouts");
+    CLOG_F(WARNING, "Block found but no PPLNS shares, skipping payouts");
     return;
   }
 
@@ -322,11 +322,11 @@ void AccountingDb::distributeBlockReward(MiningRound &R)
       feeValuesSum = UInt<384>::zero();
       feeValues.clear();
       debugString = "NONE";
-      LOG_F(ERROR, "   * user %s: fee over 100%% can't be applied", record.UserId.c_str());
+      CLOG_F(ERROR, "   * user {}: fee over 100% can't be applied", record.UserId);
     }
 
     payouts.emplace_back(record.UserId, payoutValue, payoutValue, record.IncomingWork);
-    LOG_F(INFO, " * %s %s -> %sremaining %s", record.UserId.c_str(), FormatMoney(payoutValue+feeValuesSum, CoinInfo_.FractionalPartSize).c_str(), debugString.c_str(), FormatMoney(payoutValue, CoinInfo_.FractionalPartSize).c_str());
+    CLOG_F(INFO, " * {} {} -> {}remaining {}", record.UserId, FormatMoney(payoutValue+feeValuesSum, CoinInfo_.FractionalPartSize), debugString, FormatMoney(payoutValue, CoinInfo_.FractionalPartSize));
   }
 
   mergeSorted(payouts.begin(), payouts.end(), feePayouts.begin(), feePayouts.end(),
@@ -369,10 +369,10 @@ void AccountingDb::distributeBlockReward(MiningRound &R)
           I->Value += 1u;
       }
       totalPayout += I->Value;
-      LOG_F(INFO, "   * %s: payout: %s", I->UserId.c_str(), FormatMoney(I->Value, CoinInfo_.FractionalPartSize).c_str());
+      CLOG_F(INFO, "   * {}: payout: {}", I->UserId, FormatMoney(I->Value, CoinInfo_.FractionalPartSize));
     }
 
-    LOG_F(INFO, " * total payout (after correct): %s", FormatMoney(totalPayout, CoinInfo_.FractionalPartSize).c_str());
+    CLOG_F(INFO, " * total payout (after correct): {}", FormatMoney(totalPayout, CoinInfo_.FractionalPartSize));
   }
 }
 
@@ -380,8 +380,8 @@ void AccountingDb::onUserWorkSummary(const CUserWorkSummaryBatch &batch)
 {
   if (batch.Time.TimeBegin > batch.Time.TimeEnd ||
       (batch.Time.TimeEnd - batch.Time.TimeBegin) > MaxBatchTimeInterval) {
-    LOG_F(ERROR,
-          "AccountingDb::onUserWorkSummary: invalid batch time [%" PRId64 ", %" PRId64 "], %zu entries dropped",
+    CLOG_F(ERROR,
+          "AccountingDb::onUserWorkSummary: invalid batch time [{}, {}], {} entries dropped",
           batch.Time.TimeBegin.count(),
           batch.Time.TimeEnd.count(),
           batch.Entries.size());
@@ -485,9 +485,9 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
           double userFeePct = 0.0;
           for (const auto &fee : feeRecord)
             userFeePct += fee.Percentage;
-          LOG_F(ERROR,
-            "PPS user %s: fee sum (pool %.2f%% + user %.2f%%) exceeds 100%%, fees not applied",
-            entry.UserId.c_str(),
+          CLOG_F(ERROR,
+            "PPS user {}: fee sum (pool {:.2f}% + user {:.2f}%) exceeds 100%, fees not applied",
+            entry.UserId,
             ppsPoolFee,
             userFeePct);
           result.AccountingBatch.PPSBalances.emplace_back(entry.UserId, batchCost);
@@ -514,21 +514,21 @@ void AccountingDb::onUserSettingsUpdate(const UserSettingsRecord &settings)
 void AccountingDb::onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::UserFeePair> &feeRecord)
 {
   FeePlanCache_[{feePlanId, mode}] = feeRecord;
-  LOG_F(INFO, "AccountingDb %s: fee plan '%s' updated for mode %s, %zu entries",
-    CoinInfo_.Name.c_str(), feePlanId.c_str(), miningModeName(mode), feeRecord.size());
+  CLOG_F(INFO, "AccountingDb {}: fee plan '{}' updated for mode {}, {} entries",
+    CoinInfo_.Name, feePlanId, miningModeName(mode), feeRecord.size());
 }
 
 void AccountingDb::onFeePlanDelete(const std::string &feePlanId)
 {
   for (unsigned m = 0; m < static_cast<unsigned>(EMiningMode::Count); ++m)
     FeePlanCache_.erase({feePlanId, static_cast<EMiningMode>(m)});
-  LOG_F(INFO, "AccountingDb %s: fee plan '%s' deleted", CoinInfo_.Name.c_str(), feePlanId.c_str());
+  CLOG_F(INFO, "AccountingDb {}: fee plan '{}' deleted", CoinInfo_.Name, feePlanId);
 }
 
 void AccountingDb::onUserFeePlanChange(const std::string &login, const std::string &feePlanId)
 {
   UserFeePlanIds_[login] = feePlanId;
-  LOG_F(INFO, "AccountingDb %s: user '%s' fee plan changed to '%s'", CoinInfo_.Name.c_str(), login.c_str(), feePlanId.c_str());
+  CLOG_F(INFO, "AccountingDb {}: user '{}' fee plan changed to '{}'", CoinInfo_.Name, login, feePlanId);
 }
 
 void AccountingDb::onBlockFound(const CBlockFoundData &block)
@@ -556,7 +556,7 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block)
   State_.ActiveRounds.emplace_back();
   MiningRound &R = State_.ActiveRounds.back();
 
-  LOG_F(INFO, " * block height: %" PRIu64 ", hash: %s, value: %s", block.Height, block.Hash.c_str(), FormatMoney(block.GeneratedCoins, CoinInfo_.FractionalPartSize).c_str());
+  CLOG_F(INFO, " * block height: {}, hash: {}, value: {}", block.Height, block.Hash, FormatMoney(block.GeneratedCoins, CoinInfo_.FractionalPartSize));
 
   R.Block = block;
   R.AccumulatedWork = accumulatedWork;
@@ -662,8 +662,8 @@ void AccountingDb::flushPendingMergedBlocks(CMergedBlockPending &pending)
       }
     }
     if (!found) {
-      LOG_F(INFO, "AccountingDb %s: merged block %s/%" PRIu64 " linked to block %" PRIu64 "/%s",
-            CoinInfo_.Name.c_str(), merged.CoinName.c_str(), merged.Height, blk.Height, blk.Hash.c_str());
+      CLOG_F(INFO, "AccountingDb {}: merged block {}/{} linked to block {}/{}",
+            CoinInfo_.Name, merged.CoinName, merged.Height, blk.Height, blk.Hash);
       blk.MergedBlocks.push_back(std::move(merged));
     }
   }
@@ -687,16 +687,16 @@ AccountingDb::ERoundConfirmationResult AccountingDb::processRoundConfirmation(Mi
                                                                               rocksdbBase::CBatch &stateBatch)
 {
   if (confirmations == -1) {
-    LOG_F(INFO, "block %" PRIu64 "/%s marked as orphan, can't do any payout", R.Block.Height, hash.c_str());
+    CLOG_F(INFO, "block {}/{} marked as orphan, can't do any payout", R.Block.Height, hash);
     if (R.PPSValue.nonZero()) {
       State_.PPSState.Balance -= R.PPSValue;
       State_.PPSState.ReferenceBalance -= R.PPSValue;
       State_.PPSState.TotalBlocksFound -= R.PPSBlockPart;
       State_.PPSState.OrphanBlocks += R.PPSBlockPart;
       State_.PPSState.updateMinMax(Timestamp::now());
-      LOG_F(INFO,
-            " * PPS correction reversed: %s (%.3f of block)",
-            FormatMoney(R.PPSValue, CoinInfo_.FractionalPartSize).c_str(),
+      CLOG_F(INFO,
+            " * PPS correction reversed: {} ({:.3f} of block)",
+            FormatMoney(R.PPSValue, CoinInfo_.FractionalPartSize),
             R.PPSBlockPart);
     }
 
@@ -704,7 +704,7 @@ AccountingDb::ERoundConfirmationResult AccountingDb::processRoundConfirmation(Mi
     State_.deleteRound(stateBatch, R);
     return ERoundConfirmationResult::EOrphan;
   } else if (confirmations >= _cfg.RequiredConfirmations) {
-    LOG_F(INFO, "Make payout for block %" PRIu64 "/%s", R.Block.Height, R.Block.Hash.c_str());
+    CLOG_F(INFO, "Make payout for block {}/{}", R.Block.Height, R.Block.Hash);
     if (hasDeferredReward())
       distributeBlockReward(R);
 
@@ -737,14 +737,14 @@ void AccountingDb::checkBlockConfirmations()
   if (activeRounds.empty())
     return;
 
-  LOG_F(INFO, "Checking %zu blocks for confirmations...", activeRounds.size());
+  CLOG_F(INFO, "Checking {} blocks for confirmations...", activeRounds.size());
 
   std::vector<CNetworkClient::GetBlockConfirmationsQuery> confirmationsQuery;
   for (auto &round : activeRounds)
     confirmationsQuery.push_back({round.Block.Hash, round.Block.Height});
 
   if (!ClientDispatcher_.ioGetBlockConfirmations(Base_, _cfg.RequiredConfirmations, confirmationsQuery)) {
-    LOG_F(ERROR, "ioGetBlockConfirmations api call failed");
+    CLOG_F(ERROR, "ioGetBlockConfirmations api call failed");
     return;
   }
 
@@ -778,14 +778,14 @@ void AccountingDb::checkBlockExtraInfo()
   if (activeRounds.empty())
     return;
 
-  LOG_F(INFO, "Checking %zu blocks for extra info...", activeRounds.size());
+  CLOG_F(INFO, "Checking {} blocks for extra info...", activeRounds.size());
 
   std::vector<CNetworkClient::GetBlockExtraInfoQuery> confirmationsQuery;
   for (auto &round : activeRounds)
     confirmationsQuery.emplace_back(round.Block.Hash, round.Block.Height, round.TxFee, round.Block.GeneratedCoins);
 
   if (!ClientDispatcher_.ioGetBlockExtraInfo(Base_, _cfg.RequiredConfirmations, confirmationsQuery)) {
-    LOG_F(ERROR, "ioGetBlockExtraInfo api call failed");
+    CLOG_F(ERROR, "ioGetBlockExtraInfo api call failed");
     return;
   }
 

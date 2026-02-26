@@ -61,7 +61,7 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase,
         Address_.port = htons(443);
         Address_.family = AF_INET;
       } else {
-        LOG_F(ERROR, "Can't lookup address %s\n", ApiHost_.c_str());
+        CLOG_F(ERROR, "Can't lookup address {}", ApiHost_);
         exit(1);
       }
     }
@@ -73,7 +73,7 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase,
     for (size_t i = 0; i < CoinInfo_.size(); i++) {
       const auto &coin = CoinInfo_[i];
       if (coin.CoinGeckoName.empty()) {
-        LOG_F(ERROR, "PriceFetcher: %s not have at coingecko.com", coin.Name.c_str());
+        CLOG_F(ERROR, "PriceFetcher: {} not have at coingecko.com", coin.Name);
         continue;
       }
 
@@ -123,7 +123,7 @@ void CPriceFetcher::resetPricesIfStale()
   if (now - LastSuccessTime_ < StaleTimeout_)
     return;
 
-  LOG_F(WARNING, "PriceFetcher: no successful update for 30 minutes, resetting all prices to 0");
+  CLOG_F(WARNING, "PriceFetcher: no successful update for 30 minutes, resetting all prices to 0");
   BTCPrice_.store(0.0);
   for (size_t i = 0; i < CoinInfo_.size(); i++)
     CurrentPrices_[i].store(0.0);
@@ -142,7 +142,7 @@ void CPriceFetcher::updatePrice()
 void CPriceFetcher::onConnect(AsyncOpStatus status)
 {
   if (status != aosSuccess) {
-    LOG_F(ERROR, "PriceFetcher connect error %i", status);
+    CLOG_F(ERROR, "PriceFetcher connect error {}", static_cast<int>(status));
     resetPricesIfStale();
     httpClientDelete(Client_);
     userEventStartTimer(TimerEvent_, PollInterval_, 1);
@@ -159,7 +159,7 @@ void CPriceFetcher::onRequest(AsyncOpStatus status)
   if (status == aosSuccess && ParseCtx_.resultCode == 200) {
     processRequest(ParseCtx_.body.data, ParseCtx_.body.size);
   } else {
-    LOG_F(ERROR, "PriceFetcher request error %i; http code: %i", status, ParseCtx_.resultCode);
+    CLOG_F(ERROR, "PriceFetcher request error {}; http code: {}", static_cast<int>(status), ParseCtx_.resultCode);
     resetPricesIfStale();
   }
 
@@ -206,5 +206,5 @@ void CPriceFetcher::processRequest(const char *data, size_t size)
   }
 
   LastSuccessTime_ = std::chrono::steady_clock::now();
-  LOG_F(INFO, "%s", priceFetcherLog.c_str());
+  CLOG_F(INFO, "{}", priceFetcherLog);
 }

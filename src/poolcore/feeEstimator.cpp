@@ -74,9 +74,9 @@ void CFeeEstimationService::start()
     std::vector<CNetworkClient::BlockTxFeeInfo> fees;
     bool ok = Dispatcher_.ioGetBlockTxFees(Base_, fromHeight, toHeight, fees);
     if (!ok) {
-      LOG_F(WARNING,
-            "%s: fee estimation disabled (getblockstats not supported or RPC error)",
-            CoinInfo_.Name.c_str());
+      CLOG_F(WARNING,
+            "{}: fee estimation disabled (getblockstats not supported or RPC error)",
+            CoinInfo_.Name);
       Supported_ = false;
       return;
     }
@@ -90,10 +90,10 @@ void CFeeEstimationService::start()
     int64_t avgFee = Estimator_.computeNormalizedAvgFee();
     AverageFee_ = avgFee > 0 ? fromRational(static_cast<uint64_t>(avgFee)) : UInt<384>();
     std::string avgFeeFormatted = FormatMoney(AverageFee_, CoinInfo_.FractionalPartSize);
-    LOG_F(INFO,
-          "%s: average block tx fee: %s (%zu blocks in window)",
-          CoinInfo_.Name.c_str(),
-          avgFeeFormatted.c_str(),
+    CLOG_F(INFO,
+          "{}: average block tx fee: {} ({} blocks in window)",
+          CoinInfo_.Name,
+          avgFeeFormatted,
           Estimator_.size());
   });
 }

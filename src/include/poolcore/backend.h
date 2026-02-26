@@ -40,6 +40,7 @@ private:
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
   StatisticServer *AlgoMetaStatistic_ = nullptr;
+  loguru::LogChannel LogChannel_;
 
   TaskHandlerCoroutine<PoolBackend> TaskHandler_;
   CPeriodicTimer CheckConfirmationsTimer_;

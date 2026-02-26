@@ -19,7 +19,7 @@ void enumerateDatFiles(std::deque<CDatFile> &cache,
     std::string fileName = I->path().filename().generic_string();
     auto dotDatPos = fileName.find(".dat");
     if (dotDatPos == fileName.npos) {
-      LOG_F(WARNING, "Unexpected file in dat directory: %s", fileName.c_str());
+      CLOG_F(WARNING, "Unexpected file in dat directory: {}", fileName);
       continue;
     }
 

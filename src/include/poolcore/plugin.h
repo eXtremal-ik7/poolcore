@@ -38,7 +38,8 @@ using FCreatePoolInstance = std::function<CPoolInstance*(asyncBase*,
                                                          unsigned,
                                                          unsigned,
                                                          rapidjson::Value&,
-                                                         CPriceFetcher*)>;
+                                                         CPriceFetcher*,
+                                                         const std::filesystem::path&)>;
 
 using FCreateMiningStatsHandler = std::function<ComplexMiningStats*(const std::vector<std::unique_ptr<PoolBackend>>&,
                                                                     const std::filesystem::path&)>;

@@ -21,9 +21,10 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
                      unsigned instanceId,
                      unsigned instancesNum,
                      rapidjson::Value &config,
-                     CPriceFetcher *priceFetcher) {
+                     CPriceFetcher *priceFetcher,
+                     const std::filesystem::path &logsPath) {
     return new StratumInstance<BTC::X>(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher);
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher, logsPath);
   }},
   {"DASH.stratum", [](asyncBase *base,
                       UserManager &userMgr,
@@ -34,9 +35,10 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
                       unsigned instanceId,
                       unsigned instancesNum,
                       rapidjson::Value &config,
-                      CPriceFetcher *priceFetcher) {
+                      CPriceFetcher *priceFetcher,
+                      const std::filesystem::path &logsPath) {
     return new StratumInstance<DASH::X>(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher);
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher, logsPath);
   }},
   {"DGB.qubit.stratum", [](asyncBase *base,
                            UserManager &userMgr,
@@ -47,9 +49,10 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
                            unsigned instanceId,
                            unsigned instancesNum,
                            rapidjson::Value &config,
-                           CPriceFetcher *priceFetcher) {
+                           CPriceFetcher *priceFetcher,
+                           const std::filesystem::path &logsPath) {
     return new StratumInstance<DGB::X<DGB::Algo::EQubit>>(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher);
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher, logsPath);
   }},
   {"DGB.skein.stratum", [](asyncBase *base,
                            UserManager &userMgr,
@@ -60,9 +63,10 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
                            unsigned instanceId,
                            unsigned instancesNum,
                            rapidjson::Value &config,
-                           CPriceFetcher *priceFetcher) {
+                           CPriceFetcher *priceFetcher,
+                           const std::filesystem::path &logsPath) {
     return new StratumInstance<DGB::X<DGB::Algo::ESkein>>(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher);
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher, logsPath);
   }},
   {"DGB.odo.stratum", [](asyncBase *base,
                          UserManager &userMgr,
@@ -73,9 +77,10 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
                          unsigned instanceId,
                          unsigned instancesNum,
                          rapidjson::Value &config,
-                         CPriceFetcher *priceFetcher) {
+                         CPriceFetcher *priceFetcher,
+                         const std::filesystem::path &logsPath) {
     return new StratumInstance<DGB::X<DGB::Algo::EOdo>>(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher);
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher, logsPath);
   }},
   {"DOGE.stratum", [](asyncBase *base,
                       UserManager &userMgr,
@@ -86,9 +91,10 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
                       unsigned instanceId,
                       unsigned instancesNum,
                       rapidjson::Value &config,
-                      CPriceFetcher *priceFetcher) {
+                      CPriceFetcher *priceFetcher,
+                      const std::filesystem::path &logsPath) {
     return new StratumInstance<DOGE::X>(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher);
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher, logsPath);
   }},
   {"ETH.stratum", [](asyncBase *base,
                      UserManager &userMgr,
@@ -99,9 +105,10 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
                      unsigned instanceId,
                      unsigned instancesNum,
                      rapidjson::Value &config,
-                     CPriceFetcher *priceFetcher) {
+                     CPriceFetcher *priceFetcher,
+                     const std::filesystem::path &logsPath) {
     return new StratumInstance<ETH::X>(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher);
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher, logsPath);
   }},
   {"LTC.stratum", [](asyncBase *base,
                      UserManager &userMgr,
@@ -112,9 +119,10 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
                      unsigned instanceId,
                      unsigned instancesNum,
                      rapidjson::Value &config,
-                     CPriceFetcher *priceFetcher) {
+                     CPriceFetcher *priceFetcher,
+                     const std::filesystem::path &logsPath) {
     return new StratumInstance<LTC::X>(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher);
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher, logsPath);
   }},
   {"ZEC.stratum", [](asyncBase *base,
                      UserManager &userMgr,
@@ -125,9 +133,10 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
                      unsigned instanceId,
                      unsigned instancesNum,
                      rapidjson::Value &config,
-                     CPriceFetcher *priceFetcher) {
+                     CPriceFetcher *priceFetcher,
+                     const std::filesystem::path &logsPath) {
     return new StratumInstance<ZEC::X>(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher);
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher, logsPath);
   }},
   {"XPM.zmq", [](asyncBase *base,
                  UserManager &userMgr,
@@ -138,9 +147,10 @@ std::unordered_map<std::string, PoolInstanceFabric::NewPoolInstanceFunction> Poo
                  unsigned instanceId,
                  unsigned instancesNum,
                  rapidjson::Value &config,
-                 CPriceFetcher*) {
+                 CPriceFetcher*,
+                 const std::filesystem::path &logsPath) {
     return new ZmqInstance<XPM::X>(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config);
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, logsPath);
   }}
 };
 
@@ -155,12 +165,13 @@ CPoolInstance *PoolInstanceFabric::get(asyncBase *base,
                                       unsigned instanceId,
                                       unsigned instancesNum,
                                       rapidjson::Value &config,
-                                      CPriceFetcher *priceFetcher)
+                                      CPriceFetcher *priceFetcher,
+                                      const std::filesystem::path &logsPath)
 {
   std::string key = type + "." + protocol;
   auto It = FabricData_.find(key);
   return It != FabricData_.end() ?
     It->second(
-      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher) :
+      base, userMgr, linkedBackends, pool, algoMetaStatistic, miningStats, instanceId, instancesNum, config, priceFetcher, logsPath) :
     nullptr;
 }

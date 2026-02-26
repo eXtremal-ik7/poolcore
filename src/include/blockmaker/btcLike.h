@@ -217,9 +217,6 @@ public:
 
     this->BlockReward_ -= blockRewardDelta;
 
-    if (txFilter)
-      LOG_F(INFO, " * [txfilter] transactions num %zu -> %zu; coinbase value %" PRIi64 " -> %" PRIi64 "", static_cast<size_t>(transactions.Size()), processedTransactions.size(), this->BlockReward_+blockRewardDelta, this->BlockReward_);
-
     // Calculate witness commitment
     if (SegwitEnabled) {
       if (!calculateWitnessCommitment(resultValue, txFilter, processedTransactions, WitnessCommitment, error))

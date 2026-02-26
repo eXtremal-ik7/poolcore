@@ -17,11 +17,12 @@ static constexpr unsigned REQUIRED_MINER_VERSION = 1061;
 static bool checkRequest(pool::proto::Request &req,
                          pool::proto::Reply &rep,
                          void *msg,
-                         size_t msgSize)
+                         size_t msgSize,
+                         loguru::LogChannel &logChannel)
 {
   // TODO: size limit check
   if (!req.ParseFromArray(msg, static_cast<int>(msgSize))) {
-    LOG_F(WARNING, "invalid message received");
+    CLOG_FC(logChannel, WARNING, "invalid message received");
     return false;
   }
 
@@ -43,7 +44,8 @@ public:
               ComplexMiningStats *miningStats,
               unsigned instanceId,
               unsigned instancesNum,
-              rapidjson::Value &config)
+              rapidjson::Value &config,
+              const std::filesystem::path &logsPath)
       : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic, miningStats)
   {
     Name_ = (std::string)X::Proto::TickerName + ".zmq";
@@ -80,7 +82,7 @@ public:
     if (!(config.HasMember("port") && config["port"].IsInt() &&
           config.HasMember("workerPort") && config["workerPort"].IsInt() &&
           config.HasMember("hostName") && config["hostName"].IsString())) {
-      LOG_F(ERROR, "instance %s: can't read 'port', 'workerPort', 'hostName' values from config", "XPM/zmq");
+      CLOG_FC(LogChannel_, ERROR, "instance {}: can't read 'port', 'workerPort', 'hostName' values from config", "XPM/zmq");
       exit(1);
     }
 
@@ -89,6 +91,9 @@ public:
     HostName_ = config["hostName"].GetString();
 
     X::Zmq::initializeMiningConfig(MiningCfg_, config);
+
+    auto logPath = (logsPath / ("zmq." + std::to_string(ListenPort_)) / "log-%Y-%m.log").generic_string();
+    LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
   }
 
   virtual void start() override {
@@ -98,7 +103,7 @@ public:
     // Frontend listener
     createListener(MonitorBase_, ListenPort_, [](socketTy socket, HostAddress, void *arg) {
       static_cast<ZmqInstance*>(arg)->newFrontendConnection(socket);
-    }, this);
+    }, this, LogChannel_);
 
     // Worker/signal listeners (2*<worker num> ports used)
     for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++) {
@@ -108,14 +113,16 @@ public:
         [](socketTy socket, HostAddress address, void *arg) {
           static_cast<ZmqInstance*>(arg)->newWorkerConnection(socket, address);
         },
-        this);
+        this,
+        LogChannel_);
       createListener(
         Data_[i].WorkerBase,
         WorkerPort_ + i*2 + 1,
         [](socketTy socket, HostAddress, void *arg) {
           static_cast<ZmqInstance*>(arg)->newSignalsConnection(socket);
         },
-        this);
+        this,
+        LogChannel_);
     }
   }
 
@@ -349,7 +356,7 @@ private:
         shareWork, Timestamp::now(), shareDiff, primePOWTarget, isPrimePOW);
 
     if (isBlock) {
-      LOG_F(INFO, "%s: new proof of work found hash: %s transactions: %zu", Name_.c_str(), blockHash.getHexLE().c_str(), data.Work.txNum());
+      CLOG_FC(LogChannel_, INFO, "{}: new proof of work found hash: {} transactions: {}", Name_, blockHash.getHexLE(), data.Work.txNum());
       // Submit to nodes
       UInt<256> expectedWork = work.expectedWork();
 
@@ -361,7 +368,7 @@ private:
                                 work.blockHexData().sizeOf(),
                                 [height, user, blockHash, generatedCoins, expectedWork, primePOWTarget, globalBackendIdx, backend, this](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
-          LOG_F(INFO, "* block %s (%" PRIu64 ") accepted by %s", blockHash.getHexLE().c_str(), height, hostName.c_str());
+          CLOG_FC(LogChannel_, INFO, "* block {} ({}) accepted by {}", blockHash.getHexLE(), height, hostName);
           if (successNum == 1) {
             flushAccumulator(globalBackendIdx);
             CBlockFoundData *block = new CBlockFoundData;
@@ -375,7 +382,7 @@ private:
             backend->sendBlockFound(block, {});
           }
         } else {
-          LOG_F(ERROR, "* block %s (%" PRIu64 ") rejected by %s error: %s", blockHash.getHexLE().c_str(), height, hostName.c_str(), error.c_str());
+          CLOG_FC(LogChannel_, ERROR, "* block {} ({}) rejected by {} error: {}", blockHash.getHexLE(), height, hostName, error);
         }
       });
 
@@ -389,7 +396,7 @@ private:
 
   void onStats(ThreadData &data, pool::proto::Request &req, pool::proto::Reply &rep) {
     if (!req.has_stats()) {
-      LOG_F(WARNING, "!req.has_stats()");
+      CLOG_FC(LogChannel_, WARNING, "!req.has_stats()");
       return;
     }
 
@@ -468,13 +475,13 @@ private:
     typename X::Proto::AddressTy miningAddress;
     const std::string &addr = backendConfig.MiningAddresses.get().MiningAddress;
     if (!X::Proto::decodeHumanReadableAddress(addr, coinInfo.PubkeyAddressPrefix, miningAddress)) {
-      LOG_F(WARNING, "%s: mining address %s is invalid", coinInfo.Name.c_str(), addr.c_str());
+      CLOG_FC(LogChannel_, WARNING, "{}: mining address {} is invalid", coinInfo.Name, addr);
       return;
     }
 
     std::string error;
     if (!X::Zmq::loadFromTemplate(data.Work, blockTemplate->Document, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg, error)) {
-      LOG_F(ERROR, "%s: can't process block template; error: %s", Name_.c_str(), error.c_str());
+      CLOG_FC(LogChannel_, ERROR, "{}: can't process block template; error: {}", Name_, error);
       return;
     }
 
@@ -524,7 +531,7 @@ private:
   void frontendProc(Connection *connection, zmtpUserMsgTy type) {
     pool::proto::Request req;
     pool::proto::Reply rep;
-    if (type != zmtpMessage || !checkRequest(req, rep, connection->Stream.data(), connection->Stream.remaining())) {
+    if (type != zmtpMessage || !checkRequest(req, rep, connection->Stream.data(), connection->Stream.remaining(), LogChannel_)) {
       delete connection;
       return;
     }
@@ -568,7 +575,7 @@ private:
   void workerProc(Connection *connection, zmtpUserMsgTy type) {
     pool::proto::Request req;
     pool::proto::Reply rep;
-    if (type != zmtpMessage || !checkRequest(req, rep, connection->Stream.data(), connection->Stream.remaining())) {
+    if (type != zmtpMessage || !checkRequest(req, rep, connection->Stream.data(), connection->Stream.remaining(), LogChannel_)) {
       delete connection;
       return;
     }
@@ -602,4 +609,5 @@ private:
   std::string HostName_;
   typename X::Zmq::MiningConfig MiningCfg_;
   std::string Name_;
+  loguru::LogChannel LogChannel_;
 };

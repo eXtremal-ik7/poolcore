@@ -11,7 +11,7 @@ bool isDbFormatOutdated(const std::filesystem::path &dbPath, const std::vector<s
     // accounting.state is the definitive marker of current format.
     // Old format uses rounds.v2 + balance + accounting.storage instead.
     if (!std::filesystem::exists(coinDbPath / "accounting.state")) {
-      LOG_F(ERROR, "Outdated database format: %s missing accounting.state — migration required", coinName.c_str());
+      CLOG_F(ERROR, "Outdated database format: {} missing accounting.state — migration required", coinName);
       return true;
     }
   }

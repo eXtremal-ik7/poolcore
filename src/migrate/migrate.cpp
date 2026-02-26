@@ -161,6 +161,11 @@ int main(int argc, char **argv)
 
     loguru::add_file((std::filesystem::path(destinationDatabase) / "migrate.log").generic_string().c_str(), loguru::Append, loguru::Verbosity_1);
 
+    static loguru::LogChannel masterLog;
+    auto masterLogPath = (std::filesystem::path(destinationDatabase) / "logs" / "master" / "log-%Y-%m.log").generic_string();
+    masterLog.open(masterLogPath.c_str(), loguru::Append, loguru::Verbosity_1);
+    loguru::set_global_channel_log(&masterLog);
+
     // Compute statistic cutoff partition name (yyyy.mm)
     std::string statisticCutoff;
     {
@@ -184,16 +189,16 @@ int main(int argc, char **argv)
       exit(1);
     }
 
-    LOG_F(INFO, "Using %u threads for parallel migration", threads);
-    LOG_F(INFO, "Source: %s", sourceDatabase);
-    LOG_F(INFO, "Destination: %s", destinationDatabase);
-    LOG_F(INFO, "Statistic cutoff: %s (keep %u months)", statisticCutoff.c_str(), keepStatisticMonths);
+    CLOG_F(INFO, "Using {} threads for parallel migration", threads);
+    CLOG_F(INFO, "Source: {}", sourceDatabase);
+    CLOG_F(INFO, "Destination: {}", destinationDatabase);
+    CLOG_F(INFO, "Statistic cutoff: {} (keep {} months)", statisticCutoff, keepStatisticMonths);
 
     // Update price database before migration
     if (priceDbPath) {
-      LOG_F(INFO, "Updating price database at %s", priceDbPath);
+      CLOG_F(INFO, "Updating price database at {}", priceDbPath);
       if (!fetchPriceHistory(sourceDatabase, priceDbPath, apiKey)) {
-        LOG_F(ERROR, "Failed to update price database");
+        CLOG_F(ERROR, "Failed to update price database");
         return 1;
       }
     }
@@ -203,11 +208,11 @@ int main(int argc, char **argv)
     success = migrateV3(sourceDatabase, destinationDatabase, threads, statisticCutoff, priceDbPath ? priceDbPath : "") && success;
 
     if (!success) {
-      LOG_F(ERROR, "Migration failed");
+      CLOG_F(ERROR, "Migration failed");
       return 1;
     }
 
-    LOG_F(INFO, "All migrations completed successfully");
+    CLOG_F(INFO, "All migrations completed successfully");
     return 0;
   }
 

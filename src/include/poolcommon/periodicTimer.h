@@ -41,7 +41,7 @@ public:
 
   // Wait for coroutine to finish (blocking)
   void wait(const char *threadName, const char *timerName) {
-    LOG_F(INFO, "%s: %s finishing", threadName, timerName);
+    CLOG_F(INFO, "{}: {} finishing", threadName, timerName);
     while (!Finished_)
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }

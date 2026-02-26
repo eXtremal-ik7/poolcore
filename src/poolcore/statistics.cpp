@@ -22,7 +22,7 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   PoolStatsAcc_.load(_cfg.dbPath, coinInfo.Name);
 
   if (isDebugStatistic())
-    LOG_F(1, "%s: last aggregated id: %" PRIu64 " last known id: %" PRIu64 "", coinInfo.Name.c_str(), lastAggregatedShareId(), lastKnownShareId());
+    CLOG_F(1, "{}: last aggregated id: {} last known id: {}", coinInfo.Name, lastAggregatedShareId(), lastKnownShareId());
 
   ShareLog_.replay([this](uint64_t messageId, const CWorkSummaryBatch &batch) {
     WorkerStats_.addBatch(messageId, batch);
@@ -38,7 +38,7 @@ StatisticDb::StatisticDb(asyncBase *base, const PoolBackendConfig &config, const
   });
 
   if (isDebugStatistic())
-    LOG_F(1, "%s: replayed %" PRIu64 " shares from %" PRIu64 " to %" PRIu64 "", coinInfo.Name.c_str(), Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
+    CLOG_F(1, "{}: replayed {} shares from {} to {}", coinInfo.Name, Dbg_.Count, Dbg_.MinShareId, Dbg_.MaxShareId);
 
   // Flush replayed data immediately so AccumulationInterval_ is reset.
   // Otherwise, if the pool was down for a long time, the first live share
@@ -69,15 +69,15 @@ void StatisticDb::updatePoolStatsCached(Timestamp currentTime)
   }
 
   if (isDebugStatistic())
-    LOG_F(1, "update pool stats:");
+    CLOG_F(1, "update pool stats:");
   PoolStatsAcc_.series().calcAverageMetrics(CoinInfo_, _cfg.StatisticPoolPowerCalculateInterval, currentTime, PoolStatsCached_);
 
-  LOG_F(INFO,
-        "clients: %u, workers: %u, power: %" PRIu64 ", share rate: %.3lf shares/s",
-        PoolStatsCached_.ClientsNum,
-        PoolStatsCached_.WorkersNum,
-        PoolStatsCached_.AveragePower,
-        PoolStatsCached_.SharesPerSecond);
+  CLOG_F(INFO,
+         "clients: {}, workers: {}, power: {}, share rate: {:.3f} shares/s",
+         PoolStatsCached_.ClientsNum,
+         PoolStatsCached_.WorkersNum,
+         PoolStatsCached_.AveragePower,
+         PoolStatsCached_.SharesPerSecond);
 }
 
 void StatisticDb::flushPool(Timestamp currentTime)
@@ -100,11 +100,11 @@ void StatisticDb::onWorkSummary(const CWorkSummaryBatch &batch)
 {
   if (batch.Time.TimeBegin > batch.Time.TimeEnd ||
       (batch.Time.TimeEnd - batch.Time.TimeBegin) > MaxBatchTimeInterval) {
-    LOG_F(ERROR,
-          "StatisticDb::onWorkSummary: invalid batch time [%" PRId64 ", %" PRId64 "], %zu entries dropped",
-          batch.Time.TimeBegin.count(),
-          batch.Time.TimeEnd.count(),
-          batch.Entries.size());
+    CLOG_F(ERROR,
+           "StatisticDb::onWorkSummary: invalid batch time [{}, {}], {} entries dropped",
+           batch.Time.TimeBegin.count(),
+           batch.Time.TimeEnd.count(),
+           batch.Entries.size());
     return;
   }
 
@@ -175,7 +175,7 @@ void StatisticDb::getUserStats(const std::string &user, CStats &userStats, std::
     CStats &result = allStats.emplace_back();
     result.WorkerId = std::move(workerId);
     if (isDebugStatistic())
-      LOG_F(1, "Retrieve statistic for %s/%s", user.c_str(), result.WorkerId.c_str());
+      CLOG_F(1, "Retrieve statistic for {}/{}", user, result.WorkerId);
     acc.calcAverageMetrics(CoinInfo_, _cfg.StatisticWorkersPowerCalculateInterval, now, result);
     userStats.SharesPerSecond += result.SharesPerSecond;
     userStats.SharesWork += result.SharesWork;
@@ -232,7 +232,7 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     return;
 
   if (isDebugStatistic())
-    LOG_F(1, "getHistory for %s/%s from %" PRIi64 " to %" PRIi64 " group interval %" PRIi64 "", login.c_str(), workerId.c_str(), timeFrom, timeTo, groupByInterval);
+    CLOG_F(1, "getHistory for {}/{} from {} to {} group interval {}", login, workerId, timeFrom, timeTo, groupByInterval);
   std::unique_ptr<rocksdbBase::IteratorType> It(StatsDb_.iterator());
 
   CWorkSummaryEntryWithTime valueRecord;
@@ -261,7 +261,7 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
   constexpr size_t MaxHistoryCells = 3200;
   size_t count = (lastTimeLabel - firstTimeLabel) / groupBy + 1;
   if (count > MaxHistoryCells) {
-    LOG_F(WARNING, "statisticDb: too much count %zu", count);
+    CLOG_F(WARNING, "statisticDb: too much count {}", count);
     return;
   }
 
@@ -296,11 +296,11 @@ void StatisticDb::getHistory(const std::string &login, const std::string &worker
     size_t lastIdx = static_cast<size_t>((clampedEnd - gridStart + groupBy - std::chrono::milliseconds(1)) / groupBy);
 
     if (isDebugStatistic() && firstIdx < lastIdx)
-      LOG_F(1,
-            "getHistory: use row with time=%" PRIi64 " shares=%" PRIu64 " work=%s",
-            valueRecord.Time.TimeEnd.toUnixTime(),
-            valueRecord.Data.SharesNum,
-            valueRecord.Data.SharesWork.getDecimal().c_str());
+      CLOG_F(1,
+             "getHistory: use row with time={} shares={} work={}",
+             valueRecord.Time.TimeEnd.toUnixTime(),
+             valueRecord.Data.SharesNum,
+             valueRecord.Data.SharesWork.getDecimal());
 
     Timestamp cellBegin = gridStart + groupBy * static_cast<int64_t>(firstIdx);
     Timestamp cellEnd = cellBegin + groupBy;
@@ -415,6 +415,9 @@ StatisticServer::StatisticServer(asyncBase *base, const PoolBackendConfig &confi
   Base_(base), Cfg_(config), CoinInfo_(coinInfo), TaskHandler_(this, base)
 {
   Statistics_.reset(new StatisticDb(Base_, config, CoinInfo_));
+
+  auto logPath = (Cfg_.dbPath.parent_path() / "logs" / CoinInfo_.Name / "log-%Y-%m.log").generic_string();
+  LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
 }
 
 void StatisticServer::start()
@@ -434,10 +437,11 @@ void StatisticServer::statisticServerMain()
 {
   InitializeWorkerThread();
   loguru::set_thread_name(CoinInfo_.Name.c_str());
+  loguru::set_channel_log(&LogChannel_);
   TaskHandler_.start();
   Statistics_->start();
 
-  LOG_F(INFO, "<info>: Pool backend for '%s' started, mode is %s, tid=%u", CoinInfo_.Name.c_str(), Cfg_.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
+  CLOG_F(INFO, "<info>: Pool backend for '{}' started, mode is {}, tid={}", CoinInfo_.Name, Cfg_.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
   asyncLoop(Base_);
 }
 

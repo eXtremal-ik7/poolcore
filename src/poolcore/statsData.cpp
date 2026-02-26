@@ -4,7 +4,6 @@
 #include "loguru.hpp"
 #include <algorithm>
 #include <cassert>
-#include <cinttypes>
 
 void CStats::merge(const CWorkSummary &data)
 {
@@ -67,11 +66,11 @@ void CStatsSeries::calcAverageMetrics(const CCoinInfo &coinInfo, std::chrono::se
 
   int64_t intervalSeconds = std::chrono::duration_cast<std::chrono::seconds>(calculateInterval).count();
   if (isDebugStatistic())
-    LOG_F(1,
-          "  * interval: %" PRIi64 "; shares num: %" PRIu64 "; shares work: %s",
-          intervalSeconds,
-          sharesNum,
-          sharesWork.getDecimal().c_str());
+    CLOG_F(1,
+           "  * interval: {}; shares num: {}; shares work: {}",
+           intervalSeconds,
+           sharesNum,
+           sharesWork.getDecimal());
 
   result.SharesPerSecond = (double)sharesNum / intervalSeconds;
   result.AveragePower = coinInfo.calculateAveragePower(sharesWork, intervalSeconds, primePOWTarget);
@@ -159,7 +158,7 @@ static bool parseStatsCacheFile(const std::string &coinName, CDatFile &file, CSt
 {
   FileDescriptor fd;
   if (!fd.open(path_to_utf8(file.Path).c_str())) {
-    LOG_F(ERROR, "StatisticDb: can't open file %s", path_to_utf8(file.Path).c_str());
+    CLOG_F(ERROR, "StatisticDb: can't open file {}", file.Path);
     return false;
   }
 
@@ -168,7 +167,7 @@ static bool parseStatsCacheFile(const std::string &coinName, CDatFile &file, CSt
   size_t bytesRead = fd.read(stream.reserve(fileSize), 0, fileSize);
   fd.close();
   if (bytesRead != fileSize) {
-    LOG_F(ERROR, "StatisticDb: can't read file %s", path_to_utf8(file.Path).c_str());
+    CLOG_F(ERROR, "StatisticDb: can't read file {}", file.Path);
     return false;
   }
 
@@ -176,7 +175,7 @@ static bool parseStatsCacheFile(const std::string &coinName, CDatFile &file, CSt
   DbIo<CStatsFileData>::unserialize(stream, fileData);
 
   if (stream.remaining() || stream.eof()) {
-    LOG_F(ERROR, "<%s> StatisticDb: corrupted file %s", coinName.c_str(), path_to_utf8(file.Path).c_str());
+    CLOG_F(ERROR, "<{}> StatisticDb: corrupted file {}", coinName, file.Path);
     return false;
   }
 
@@ -198,21 +197,21 @@ void CStatsSeriesSingle::load(const std::filesystem::path &dbPath, const std::st
     }
 
     if (fileData.Records.size() != 1) {
-      LOG_F(ERROR,
-            "<%s> Pool stats file has %zu records, expected 1: %s",
-            coinName.c_str(),
-            fileData.Records.size(),
-            path_to_utf8(file.Path).c_str());
+      CLOG_F(ERROR,
+             "<{}> Pool stats file has {} records, expected 1: {}",
+             coinName,
+             fileData.Records.size(),
+             file.Path);
       std::filesystem::remove(file.Path);
       continue;
     }
 
     const auto &record = fileData.Records[0];
     if (!record.UserId.empty() || !record.WorkerId.empty()) {
-      LOG_F(ERROR,
-            "<%s> Pool stats record has non-empty login/workerId: %s",
-            coinName.c_str(),
-            path_to_utf8(file.Path).c_str());
+      CLOG_F(ERROR,
+             "<{}> Pool stats record has non-empty login/workerId: {}",
+             coinName,
+             file.Path);
       std::filesystem::remove(file.Path);
       continue;
     }
@@ -227,17 +226,17 @@ void CStatsSeriesSingle::load(const std::filesystem::path &dbPath, const std::st
     Series_.LastShareTime = gridEnd;
 
     if (isDebugStatistic()) {
-      LOG_F(1, "<%s> Loaded pool stats: shares: %" PRIu64 " work: %s",
-            coinName.c_str(),
-            record.Data.SharesNum,
-            record.Data.SharesWork.getDecimal().c_str());
+      CLOG_F(1, "<{}> Loaded pool stats: shares: {} work: {}",
+             coinName,
+             record.Data.SharesNum,
+             record.Data.SharesWork.getDecimal());
     }
 
     LastSavedMsgId_ = std::max(LastSavedMsgId_, file.LastShareId);
     loadedCount++;
   }
 
-  LOG_F(INFO, "<%s> Loaded %zu pool stats cache files from %s", coinName.c_str(), loadedCount, path_to_utf8(CachePath_).c_str());
+  CLOG_F(INFO, "<{}> Loaded {} pool stats cache files from {}", coinName, loadedCount, CachePath_);
   LastAcceptedMsgId_ = LastSavedMsgId_;
 }
 
@@ -271,12 +270,12 @@ void CStatsSeriesMap::load(const std::filesystem::path &dbPath, const std::strin
       acc.LastShareTime = gridEnd;
 
       if (isDebugStatistic()) {
-        LOG_F(1, "<%s> Loaded: %s/%s shares: %" PRIu64 " work: %s",
-              coinName.c_str(),
-              !record.UserId.empty() ? record.UserId.c_str() : "<empty>",
-              !record.WorkerId.empty() ? record.WorkerId.c_str() : "<empty>",
-              record.Data.SharesNum,
-              record.Data.SharesWork.getDecimal().c_str());
+        CLOG_F(1, "<{}> Loaded: {}/{} shares: {} work: {}",
+               coinName,
+               !record.UserId.empty() ? record.UserId : std::string("<empty>"),
+               !record.WorkerId.empty() ? record.WorkerId : std::string("<empty>"),
+               record.Data.SharesNum,
+               record.Data.SharesWork.getDecimal());
       }
     }
 
@@ -284,7 +283,7 @@ void CStatsSeriesMap::load(const std::filesystem::path &dbPath, const std::strin
     loadedCount++;
   }
 
-  LOG_F(INFO, "<%s> Loaded %zu stats cache files from %s", coinName.c_str(), loadedCount, path_to_utf8(CachePath_).c_str());
+  CLOG_F(INFO, "<{}> Loaded {} stats cache files from {}", coinName, loadedCount, CachePath_);
   LastAcceptedMsgId_ = LastSavedMsgId_;
 }
 
@@ -316,7 +315,7 @@ void CStatsSeriesSingle::rebuildDatFile(const std::filesystem::path &dbPath, int
       auto filePath = datFilePath(dbPath, CachePath_, gridEndMs);
       FileDescriptor fd;
       if (!fd.open(filePath)) {
-        LOG_F(ERROR, "StatisticDb: can't write file %s", path_to_utf8(filePath).c_str());
+        CLOG_F(ERROR, "StatisticDb: can't write file {}", filePath);
         return;
       }
       fd.write(stream.data(), stream.sizeOf());
@@ -332,7 +331,7 @@ static void removeDatFile(const std::filesystem::path &dbPath, const std::string
 {
   auto filePath = datFilePath(dbPath, cachePath, gridEndMs);
   if (isDebugStatistic())
-    LOG_F(1, "Removing old statistic cache file %s", path_to_utf8(filePath).c_str());
+    CLOG_F(1, "Removing old statistic cache file {}", filePath);
   std::filesystem::remove(filePath);
 }
 
@@ -363,7 +362,7 @@ void CStatsSeriesMap::rebuildDatFile(const std::filesystem::path &dbPath, int64_
   auto filePath = datFilePath(dbPath, CachePath_, gridEndMs);
   FileDescriptor fd;
   if (!fd.open(filePath)) {
-    LOG_F(ERROR, "StatisticDb: can't write file %s", path_to_utf8(filePath).c_str());
+    CLOG_F(ERROR, "StatisticDb: can't write file {}", filePath);
     return;
   }
   fd.write(header.data(), header.sizeOf());
@@ -376,9 +375,9 @@ void CStatsSeriesSingle::flush(Timestamp currentTime,
 {
   LastSavedMsgId_ = LastAcceptedMsgId_;
   if (isDebugStatistic() && (Series_.Current.SharesNum > 0 || !Series_.Current.SharesWork.isZero()))
-    LOG_F(1, "Flush pool statistics (shares=%" PRIu64 ", work=%s)",
-          Series_.Current.SharesNum,
-          Series_.Current.SharesWork.getDecimal().c_str());
+    CLOG_F(1, "Flush pool statistics (shares={}, work={})",
+           Series_.Current.SharesNum,
+           Series_.Current.SharesWork.getDecimal());
 
   kvdb<rocksdbBase>::Batch batch;
   std::set<Timestamp> modifiedTimes, removedTimes;
@@ -409,11 +408,11 @@ void CStatsSeriesMap::flush(Timestamp currentTime,
     auto [login, workerId] = splitStatsKey(it->first);
 
     if (isDebugStatistic() && (it->second.Current.SharesNum > 0 || !it->second.Current.SharesWork.isZero()))
-      LOG_F(1, "Flush statistics for %s/%s (shares=%" PRIu64 ", work=%s)",
-            !login.empty() ? login.c_str() : "<none>",
-            !workerId.empty() ? workerId.c_str() : "<none>",
-            it->second.Current.SharesNum,
-            it->second.Current.SharesWork.getDecimal().c_str());
+      CLOG_F(1, "Flush statistics for {}/{} (shares={}, work={})",
+             !login.empty() ? login : std::string("<none>"),
+             !workerId.empty() ? workerId : std::string("<none>"),
+             it->second.Current.SharesNum,
+             it->second.Current.SharesWork.getDecimal());
 
     it->second.flush(AccumulationInterval_.TimeBegin, AccumulationInterval_.TimeEnd,
                      login, workerId, currentTime, db ? &batch : nullptr, modifiedTimes, removedTimes);

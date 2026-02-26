@@ -46,7 +46,9 @@ public:
   void init(const std::vector<PoolBackend*> &backends,
             const std::vector<size_t> &workResetList,
             const std::vector<size_t> &primaryBackends,
-            const std::vector<size_t> &secondaryBackends) {
+            const std::vector<size_t> &secondaryBackends,
+            loguru::LogChannel *logChannel) {
+    LogChannel_ = logChannel;
     BackendsNum_ = backends.size();
     Backends_ = backends;
 
@@ -142,13 +144,12 @@ public:
             if (mergedWork) {
               pushMergedWork(mergedWork, backendIdx);
             } else if (!error.empty()) {
-              std::string tickers;
-              LOG_F(ERROR, "%s: can't create merged work error: %s", stratumInstanceName.c_str(), error.c_str());
+              CLOG_FC(*LogChannel_, ERROR, "{}: can't create merged work error: {}", stratumInstanceName, error);
             }
           }
         }
       } else if (!error.empty()) {
-        LOG_F(ERROR, "%s: can't create primary work for %s; error: %s", stratumInstanceName.c_str(), ticker.c_str(), error.c_str());
+        CLOG_FC(*LogChannel_, ERROR, "{}: can't create primary work for {}; error: {}", stratumInstanceName, ticker, error);
       }
     }
 
@@ -196,12 +197,11 @@ public:
           if (mergedWork) {
             pushMergedWork(mergedWork, primaryIdx);
           } else if (!error.empty()) {
-            std::string tickers;
-            LOG_F(ERROR, "%s: can't create merged work error: %s", stratumInstanceName.c_str(), error.c_str());
+            CLOG_FC(*LogChannel_, ERROR, "{}: can't create merged work error: {}", stratumInstanceName, error);
           }
         }
       } else if (!error.empty()) {
-        LOG_F(ERROR, "%s: can't create secondary work for %s; error: %s", stratumInstanceName.c_str(), ticker.c_str(), error.c_str());
+        CLOG_FC(*LogChannel_, ERROR, "{}: can't create secondary work for {}; error: {}", stratumInstanceName, ticker, error);
       }
     }
   }
@@ -254,6 +254,7 @@ public:
 private:
   size_t BackendsNum_ = 0;
   CWork *CurrentWork_= nullptr;
+  loguru::LogChannel *LogChannel_ = nullptr;
   std::vector<PoolBackend*> Backends_;
   std::vector<bool> WorkResetMap_;
   std::vector<bool> PrimaryBackendMap_;

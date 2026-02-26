@@ -178,7 +178,7 @@ void CNetworkClientDispatcher::poll()
   if (!GetWorkClients_.empty()) {
     GetWorkClients_[CurrentWorkFetcherIdx]->poll();
   } else {
-    LOG_F(ERROR, "%s: no nodes configured", CoinInfo_.Name.c_str());
+    CLOG_F(ERROR, "{}: no nodes configured", CoinInfo_.Name);
   }
 }
 

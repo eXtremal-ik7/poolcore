@@ -25,7 +25,7 @@ static void listenerAcceptCb(AsyncOpStatus status, aioObject *object, HostAddres
   aioAccept(object, 0, listenerAcceptCb, arg);
 }
 
-static void createListener(asyncBase *base, uint16_t port, ListenerCallback callback, void *arg)
+static void createListener(asyncBase *base, uint16_t port, ListenerCallback callback, void *arg, loguru::LogChannel &logChannel)
 {
   HostAddress address;
   address.family = AF_INET;
@@ -34,12 +34,12 @@ static void createListener(asyncBase *base, uint16_t port, ListenerCallback call
   socketTy hSocket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
   socketReuseAddr(hSocket);
   if (socketBind(hSocket, &address) != 0) {
-    LOG_F(ERROR, "cannot bind port: %i", port);
+    CLOG_FC(logChannel, ERROR, "cannot bind port: {}", port);
     exit(1);
   }
 
   if (socketListen(hSocket) != 0) {
-    LOG_F(ERROR, "listen error: %i", port);
+    CLOG_FC(logChannel, ERROR, "listen error: {}", port);
     exit(1);
   }
 

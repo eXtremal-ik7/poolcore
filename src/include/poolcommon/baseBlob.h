@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <format>
 #include <string>
 
 template<unsigned Bits>
@@ -167,5 +168,33 @@ struct TbbHash {
 
   bool equal(const BaseBlob<BitSize> &s1, const BaseBlob<BitSize> &s2) const {
     return s1 == s2;
+  }
+};
+
+// std::format support for BaseBlob<Bits>
+// Default (no spec or {:x}) = hex raw lowercase
+// {:X} = hex uppercase, {:#x}/{:#X} = hex with 0x prefix
+template<unsigned Bits>
+struct std::formatter<BaseBlob<Bits>> {
+  bool altForm_ = false;
+  bool upperCase_ = false;
+
+  template <class ParseContext>
+  constexpr auto parse(ParseContext &ctx) {
+    auto it = ctx.begin();
+    if (it != ctx.end() && *it == '#') {
+      altForm_ = true;
+      ++it;
+    }
+    if (it != ctx.end() && (*it == 'x' || *it == 'X')) {
+      upperCase_ = (*it == 'X');
+      ++it;
+    }
+    return it;
+  }
+
+  template <class FormatContext>
+  auto format(const BaseBlob<Bits> &value, FormatContext &ctx) const {
+    return std::format_to(ctx.out(), "{}", value.getHexRaw(upperCase_, altForm_));
   }
 };

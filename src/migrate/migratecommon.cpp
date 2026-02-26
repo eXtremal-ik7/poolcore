@@ -15,7 +15,7 @@ static bool migratePartition(const std::filesystem::path &oldPartPath, const std
   rocksdb::DB *oldDbRaw = nullptr;
   rocksdb::Status status = rocksdb::DB::Open(oldOptions, path_to_utf8(oldPartPath), &oldDbRaw);
   if (!status.ok()) {
-    LOG_F(ERROR, "Can't open partition %s: %s", partitionName.c_str(), status.ToString().c_str());
+    CLOG_F(ERROR, "Can't open partition {}: {}", partitionName, status.ToString());
     return false;
   }
   std::unique_ptr<rocksdb::DB> oldDb(oldDbRaw);
@@ -26,7 +26,7 @@ static bool migratePartition(const std::filesystem::path &oldPartPath, const std
   rocksdb::DB *newDbRaw = nullptr;
   status = rocksdb::DB::Open(newOptions, path_to_utf8(newPartPath), &newDbRaw);
   if (!status.ok()) {
-    LOG_F(ERROR, "Can't create partition %s: %s", partitionName.c_str(), status.ToString().c_str());
+    CLOG_F(ERROR, "Can't create partition {}: {}", partitionName, status.ToString());
     return false;
   }
   std::unique_ptr<rocksdb::DB> newDb(newDbRaw);
@@ -57,7 +57,7 @@ static bool migratePartition(const std::filesystem::path &oldPartPath, const std
     newDb->Write(writeOptions, &batch);
   }
 
-  LOG_F(INFO, "  %s: migrated %u records, compacting...", partitionName.c_str(), count);
+  CLOG_F(INFO, "  {}: migrated {} records, compacting...", partitionName, count);
   rocksdb::CompactRangeOptions compactOptions;
   newDb->CompactRange(compactOptions, nullptr, nullptr);
   return true;
@@ -77,12 +77,12 @@ bool migrateDatabase(const std::filesystem::path &srcPath, const std::filesystem
 {
   std::filesystem::path oldDbPath = srcPath / baseName;
   if (!std::filesystem::exists(oldDbPath) || !std::filesystem::is_directory(oldDbPath)) {
-    LOG_F(INFO, "No previous %s database found, skipping", baseName);
+    CLOG_F(INFO, "No previous {} database found, skipping", baseName);
     return true;
   }
 
   std::filesystem::path newDbPath = dstPath / newName;
-  LOG_F(INFO, "Migrating %s -> %s ...", baseName, newName);
+  CLOG_F(INFO, "Migrating {} -> {} ...", baseName, newName);
 
   std::filesystem::create_directories(newDbPath);
 
@@ -101,7 +101,7 @@ bool migrateDatabaseMt(const std::filesystem::path &srcPath, const std::filesyst
 {
   std::filesystem::path oldDbPath = srcPath / baseName;
   if (!std::filesystem::exists(oldDbPath) || !std::filesystem::is_directory(oldDbPath)) {
-    LOG_F(INFO, "No previous %s database found, skipping", baseName);
+    CLOG_F(INFO, "No previous {} database found, skipping", baseName);
     return true;
   }
 
@@ -112,7 +112,7 @@ bool migrateDatabaseMt(const std::filesystem::path &srcPath, const std::filesyst
       continue;
     std::string name = I->path().filename().generic_string();
     if (filter && !filter(name)) {
-      LOG_F(INFO, "  %s: skipping partition %s (filtered)", baseName, name.c_str());
+      CLOG_F(INFO, "  {}: skipping partition {} (filtered)", baseName, name);
       continue;
     }
     partitions.push_back(std::move(name));
@@ -120,7 +120,7 @@ bool migrateDatabaseMt(const std::filesystem::path &srcPath, const std::filesyst
   std::sort(partitions.begin(), partitions.end());
 
   std::filesystem::path newDbPath = dstPath / newName;
-  LOG_F(INFO, "Migrating %s -> %s (%zu partitions, %u threads) ...", baseName, newName, partitions.size(), threads);
+  CLOG_F(INFO, "Migrating {} -> {} ({} partitions, {} threads) ...", baseName, newName, partitions.size(), threads);
 
   std::filesystem::create_directories(newDbPath);
 
@@ -152,12 +152,12 @@ bool migrateFile(const std::filesystem::path &srcDir, const std::filesystem::pat
 {
   std::filesystem::path oldFilePath = srcDir / baseName;
   if (!std::filesystem::exists(oldFilePath) || !std::filesystem::is_regular_file(oldFilePath)) {
-    LOG_F(INFO, "No previous %s file found, skipping", baseName);
+    CLOG_F(INFO, "No previous {} file found, skipping", baseName);
     return true;
   }
 
   std::filesystem::path newFilePath = dstDir / newName;
-  LOG_F(INFO, "Migrating file %s -> %s ...", baseName, newName);
+  CLOG_F(INFO, "Migrating file {} -> {} ...", baseName, newName);
 
   // Read entire old file
   auto fileSize = std::filesystem::file_size(oldFilePath);
@@ -165,7 +165,7 @@ bool migrateFile(const std::filesystem::path &srcDir, const std::filesystem::pat
   if (fileSize > 0) {
     FILE *f = fopen(path_to_utf8(oldFilePath).c_str(), "rb");
     if (!f) {
-      LOG_F(ERROR, "Can't open %s: %s", baseName, strerror(errno));
+      CLOG_F(ERROR, "Can't open {}: {}", baseName, strerror(errno));
       return false;
     }
     fread(input.reserve(fileSize), 1, fileSize, f);
@@ -186,14 +186,14 @@ bool migrateFile(const std::filesystem::path &srcDir, const std::filesystem::pat
   std::filesystem::create_directories(newFilePath.parent_path());
   FILE *f = fopen(path_to_utf8(newFilePath).c_str(), "wb");
   if (!f) {
-    LOG_F(ERROR, "Can't create %s: %s", newName, strerror(errno));
+    CLOG_F(ERROR, "Can't create {}: {}", newName, strerror(errno));
     return false;
   }
   if (output.sizeOf() > 0)
     fwrite(output.data(), 1, output.sizeOf(), f);
   fclose(f);
 
-  LOG_F(INFO, "  migrated %u records", count);
+  CLOG_F(INFO, "  migrated {} records", count);
   return true;
 }
 
@@ -205,7 +205,7 @@ static bool migrateOneFile(const std::filesystem::path &oldFilePath, const std::
   if (fileSize > 0) {
     FILE *f = fopen(path_to_utf8(oldFilePath).c_str(), "rb");
     if (!f) {
-      LOG_F(ERROR, "Can't open %s: %s", fileName.c_str(), strerror(errno));
+      CLOG_F(ERROR, "Can't open {}: {}", fileName, strerror(errno));
       return false;
     }
     fread(input.reserve(fileSize), 1, fileSize, f);
@@ -223,14 +223,14 @@ static bool migrateOneFile(const std::filesystem::path &oldFilePath, const std::
 
   FILE *f = fopen(path_to_utf8(newFilePath).c_str(), "wb");
   if (!f) {
-    LOG_F(ERROR, "Can't create %s: %s", fileName.c_str(), strerror(errno));
+    CLOG_F(ERROR, "Can't create {}: {}", fileName, strerror(errno));
     return false;
   }
   if (output.sizeOf() > 0)
     fwrite(output.data(), 1, output.sizeOf(), f);
   fclose(f);
 
-  LOG_F(INFO, "  %s: migrated %u records", fileName.c_str(), count);
+  CLOG_F(INFO, "  {}: migrated {} records", fileName, count);
   return true;
 }
 
@@ -238,13 +238,13 @@ bool migrateDirectory(const std::filesystem::path &srcPath, const std::filesyste
 {
   std::filesystem::path oldDirPath = srcPath / baseName;
   if (!std::filesystem::exists(oldDirPath) || !std::filesystem::is_directory(oldDirPath)) {
-    LOG_F(INFO, "No previous %s directory found, skipping", baseName);
+    CLOG_F(INFO, "No previous {} directory found, skipping", baseName);
     return true;
   }
 
   std::filesystem::path newDirPath = dstPath / newName;
   if (!skipTargetCheck && std::filesystem::exists(newDirPath)) {
-    LOG_F(INFO, "%s already exists, skipping migration", newName);
+    CLOG_F(INFO, "{} already exists, skipping migration", newName);
     return true;
   }
 
@@ -257,7 +257,7 @@ bool migrateDirectory(const std::filesystem::path &srcPath, const std::filesyste
   }
   std::sort(files.begin(), files.end());
 
-  LOG_F(INFO, "Migrating directory %s -> %s (%zu files) ...", baseName, newName, files.size());
+  CLOG_F(INFO, "Migrating directory {} -> {} ({} files) ...", baseName, newName, files.size());
 
   std::filesystem::create_directories(newDirPath);
 
@@ -273,13 +273,13 @@ bool migrateDirectoryMt(const std::filesystem::path &srcPath, const std::filesys
 {
   std::filesystem::path oldDirPath = srcPath / baseName;
   if (!std::filesystem::exists(oldDirPath) || !std::filesystem::is_directory(oldDirPath)) {
-    LOG_F(INFO, "No previous %s directory found, skipping", baseName);
+    CLOG_F(INFO, "No previous {} directory found, skipping", baseName);
     return true;
   }
 
   std::filesystem::path newDirPath = dstPath / newName;
   if (!skipTargetCheck && std::filesystem::exists(newDirPath)) {
-    LOG_F(INFO, "%s already exists, skipping migration", newName);
+    CLOG_F(INFO, "{} already exists, skipping migration", newName);
     return true;
   }
 
@@ -292,7 +292,7 @@ bool migrateDirectoryMt(const std::filesystem::path &srcPath, const std::filesys
   }
   std::sort(files.begin(), files.end());
 
-  LOG_F(INFO, "Migrating directory %s -> %s (%zu files, %u threads) ...", baseName, newName, files.size(), threads);
+  CLOG_F(INFO, "Migrating directory {} -> {} ({} files, {} threads) ...", baseName, newName, files.size(), threads);
 
   std::filesystem::create_directories(newDirPath);
 
@@ -324,7 +324,7 @@ bool copyDatabase(const std::filesystem::path &srcPath, const std::filesystem::p
 {
   std::filesystem::path oldDbPath = srcPath / name;
   if (!std::filesystem::exists(oldDbPath) || !std::filesystem::is_directory(oldDbPath)) {
-    LOG_F(INFO, "No %s database found, skipping copy", name);
+    CLOG_F(INFO, "No {} database found, skipping copy", name);
     return true;
   }
 
@@ -338,7 +338,7 @@ bool copyDatabase(const std::filesystem::path &srcPath, const std::filesystem::p
   std::sort(partitions.begin(), partitions.end());
 
   std::filesystem::path newDbPath = dstPath / name;
-  LOG_F(INFO, "Copying database %s (%zu partitions, %u threads) ...", name, partitions.size(), threads);
+  CLOG_F(INFO, "Copying database {} ({} partitions, {} threads) ...", name, partitions.size(), threads);
 
   std::filesystem::create_directories(newDbPath);
 
