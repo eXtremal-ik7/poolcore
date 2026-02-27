@@ -159,6 +159,7 @@ rocksdb::DB *rocksdbBase::open(rocksdbBase::partition &partition)
       rocksdb::Options options;
       options.create_if_missing = true;
       options.compression = rocksdb::kZSTD;
+      options.keep_log_file_num = 4;
       if (MergeOperator_)
         options.merge_operator = MergeOperator_;
       rocksdb::Status status = rocksdb::DB::Open(options, path_to_utf8(partitionPath), &partition.db);
