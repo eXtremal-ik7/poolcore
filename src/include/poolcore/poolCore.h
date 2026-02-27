@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+namespace loguru { class LogChannel; }
 class CPreparedQuery;
 class CNetworkClientDispatcher;
 struct asyncBase;
@@ -243,9 +244,11 @@ public:
   virtual void poll() = 0;
 
   void setDispatcher(CNetworkClientDispatcher *dispatcher) { Dispatcher_ = dispatcher; }
+  void setLogChannel(loguru::LogChannel *channel) { LogChannel_ = channel; }
 
 protected:
   CNetworkClientDispatcher *Dispatcher_ = nullptr;
+  loguru::LogChannel *LogChannel_ = nullptr;
 
 private:
   struct ThreadData {

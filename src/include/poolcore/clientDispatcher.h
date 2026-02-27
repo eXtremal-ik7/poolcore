@@ -31,6 +31,12 @@ public:
   PoolBackend *backend() { return Backend_; }
   void setBackend(PoolBackend *backend) { Backend_ = backend; }
   void setFeeEstimationService(CFeeEstimationService *service) { FeeEstimationService_ = service; }
+  void setLogChannel(loguru::LogChannel *channel) {
+    for (auto &client: GetWorkClients_)
+      client->setLogChannel(channel);
+    for (auto &client: RPCClients_)
+      client->setLogChannel(channel);
+  }
 
   // Common API
   bool ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result);

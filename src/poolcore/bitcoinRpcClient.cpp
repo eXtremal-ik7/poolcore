@@ -976,12 +976,12 @@ void CBitcoinRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
 void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 {
   if (status != aosSuccess || WorkFetcher_.ParseCtx.resultCode != 200) {
-    CLOG_F(WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
-           CoinInfo_.Name,
-           FullHostName_,
-           static_cast<unsigned>(status),
-           WorkFetcher_.ParseCtx.resultCode,
-           WorkFetcher_.ParseCtx.body.data ? WorkFetcher_.ParseCtx.body.data : "<null>");
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
+            CoinInfo_.Name,
+            FullHostName_,
+            static_cast<unsigned>(status),
+            WorkFetcher_.ParseCtx.resultCode,
+            WorkFetcher_.ParseCtx.body.data ? WorkFetcher_.ParseCtx.body.data : "<null>");
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
@@ -990,14 +990,14 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   std::unique_ptr<CBlockTemplate> blockTemplate(new CBlockTemplate(CoinInfo_.Name, CoinInfo_.WorkType));
   blockTemplate->Document.Parse(WorkFetcher_.ParseCtx.body.data);
   if (blockTemplate->Document.HasParseError()) {
-    CLOG_F(WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
   if (!blockTemplate->Document["result"].IsObject()) {
-    CLOG_F(WARNING, "{} {}: JSON invalid format: no result object", CoinInfo_.Name, FullHostName_);
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON invalid format: no result object", CoinInfo_.Name, FullHostName_);
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
@@ -1012,7 +1012,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   jsonParseInt(resultObject, "height", &height, &validAcc);
   jsonParseString(resultObject, "bits", bits, true, &validAcc);
   if (!validAcc || prevBlockHash.size() < 16) {
-    CLOG_F(WARNING, "{} {}: getblocktemplate invalid format", CoinInfo_.Name, FullHostName_);
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: getblocktemplate invalid format", CoinInfo_.Name, FullHostName_);
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
@@ -1021,7 +1021,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   if (!WorkFetcher_.LongPollId.empty()) {
     jsonParseString(resultObject, "longpollid", WorkFetcher_.LongPollId, true, &validAcc);
     if (!validAcc) {
-      CLOG_F(WARNING, "{} {}: does not support long poll, strongly recommended update your node", CoinInfo_.Name, FullHostName_);
+      CLOG_FC(*LogChannel_, WARNING, "{} {}: does not support long poll, strongly recommended update your node", CoinInfo_.Name, FullHostName_);
       WorkFetcher_.LongPollId.clear();
     }
   }
@@ -1039,7 +1039,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 
   // Check new work available
   if (WorkFetcher_.WorkId != workId) {
-    CLOG_F(INFO, "{}: new work available; previous block: {}; height: {}; difficulty: {}", CoinInfo_.Name, prevBlockHash, static_cast<unsigned>(height), difficulty);
+    CLOG_FC(*LogChannel_, INFO, "{}: new work available; previous block: {}; height: {}; difficulty: {}", CoinInfo_.Name, prevBlockHash, static_cast<unsigned>(height), difficulty);
     Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
   }
 

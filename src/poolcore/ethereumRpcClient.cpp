@@ -508,12 +508,12 @@ void CEthereumRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
 void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 {
   if (status != aosSuccess || WorkFetcher_.ParseCtx.resultCode != 200) {
-    CLOG_F(WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
-           CoinInfo_.Name,
-           FullHostName_,
-           static_cast<unsigned>(status),
-           WorkFetcher_.ParseCtx.resultCode,
-           WorkFetcher_.ParseCtx.body.data ? WorkFetcher_.ParseCtx.body.data : "<null>");
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
+            CoinInfo_.Name,
+            FullHostName_,
+            static_cast<unsigned>(status),
+            WorkFetcher_.ParseCtx.resultCode,
+            WorkFetcher_.ParseCtx.body.data ? WorkFetcher_.ParseCtx.body.data : "<null>");
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
@@ -522,7 +522,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
   std::unique_ptr<CBlockTemplate> blockTemplate(new CBlockTemplate(CoinInfo_.Name, CoinInfo_.WorkType));
   blockTemplate->Document.Parse(WorkFetcher_.ParseCtx.body.data);
   if (blockTemplate->Document.HasParseError()) {
-    CLOG_F(WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
     httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
@@ -564,7 +564,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     // Check DAG presence
     int epochNumber = ethashGetEpochNumber(seedHash.begin());
     if (epochNumber == -1) {
-      CLOG_F(ERROR, "Can't find epoch number for seed {}", seedHash.getHexLE());
+      CLOG_FC(*LogChannel_, ERROR, "Can't find epoch number for seed {}", seedHash.getHexLE());
       break;
     }
 
@@ -586,7 +586,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
       Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
       WorkFetcher_.Height = height;
       WorkFetcher_.WorkId = workId;
-      CLOG_F(INFO, "{}: new work available; height: {}; difficulty: {}", CoinInfo_.Name, height, difficulty);
+      CLOG_FC(*LogChannel_, INFO, "{}: new work available; height: {}; difficulty: {}", CoinInfo_.Name, height, difficulty);
     }
 
     // Wait 100ms

@@ -49,6 +49,7 @@ PoolBackend::PoolBackend(asyncBase *base,
 
   auto logPath = (_cfg.dbPath.parent_path() / "logs" / CoinInfo_.Name / "log-%Y-%m.log").generic_string();
   LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
+  clientDispatcher.setLogChannel(&LogChannel_);
 
   if (CoinInfo_.HasDagFile) {
     EthDagFiles_ = new atomic_intrusive_ptr<EthashDagWrapper>[MaxEpochNum];
