@@ -1,835 +1,583 @@
+# HTTP API
+
+All endpoints: `POST /api/<name>`. Request and response bodies are JSON.
+Response is sent with chunked transfer encoding. All responses include a `status` field (`"ok"` or error string).
+
+Timestamps in request/response are **Unix timestamps (seconds)** unless noted otherwise.
+Money values (balances, payouts, thresholds) are formatted as **decimal strings** (e.g. `"0.01234567"`).
+
+## Authentication
+
+- **None** — endpoint is public
+- **Session** — requires `id` (or `sessionId`) field with a valid session token from `userLogin`
+- **Admin** — requires admin session (login with `adminPasswordHash`)
+- **Observer** — requires admin or observer session
+
+When `targetLogin` is provided:
+- Admin/observer can query any user
+- Regular users can only query themselves (targetLogin is ignored or must match own login)
+
 # Table of contents
 
-* [Common status values suitable for all operations](#common-status-values-suitable-for-all-operations)
+* [Common status values](#common-status-values)
 * [User management](#user-management)
-   * [userChangePasswordInitiate](#userchangepasswordinitiate)
-   * [userChangePasswordForce](#userchangepasswordforce)
-   * [userCreate](#usercreate)
-   * [userResendEmail](#userresendemail)
-   * [userAction](#useraction)
-   * [userLogin](#userlogin)
-   * [userLogout](#userlogout)
-   * [userQueryMonitoringSession](#userquerymonitoringsession)
-   * [userGetCredentials](#usergetcredentials)
-   * [userUpdateCredentials](#userupdatecredentials)
-   * [userGetSettings](#usergetsettings)
-   * [userUpdateSettings](#userupdatesettings)
-   * [userEnumerateAll](#userenumerateall)
-   * [userEnumerateFeePlan](#userenumeratefeeplan)
-   * [userCreateFeePlan](#usercreatefeeplan)
-   * [userQueryFeePlan](#userqueryfeeplan)
-   * [userUpdateFeePlan](#userupdatefeeplan)
-   * [userDeleteFeePlan](#userdeletefeeplan)
-   * [userChangeFeePlan](#userchangefeeplan)
-   * [userRenewFeePlanReferralId](#userrenewfeeplanreferralid)
-   * [userActivate2faInitiate](#useractivate2fainitiate)
-   * [userDeactivate2faInitiate](#userdeactivate2fainitiate)
-   * [userAdjustInstantPayoutThreshold](#useradjustinstantpayoutthreshold)
-* [Backend API functions](#backend-api-functions)
-   * [backendManualPayout](#backendmanualpayout)
-   * [backendQueryCoins](#backendquerycoins)
-   * [backendQueryUserBalance](#backendqueryuserbalance)
-   * [backendQueryFoundBlocks](#backendqueryfoundblocks)
-   * [backendQueryPayouts](#backendquerypayouts)
-   * [backendQueryPoolStats](#backendquerypoolstats)
-   * [backendQueryPoolStatsHistory](#backendquerypoolstatshistory)
-   * [backendQueryUserStats](#backendqueryuserstats)
-   * [backendQueryUserStatsHistory](#backendqueryuserstatshistory)
-   * [backendQueryWorkerStatsHistory](#backendqueryworkerstatshistory)
-   * [backendQueryPPLNSPayouts](#backendquerypplnspayouts)
-   * [backendQueryPPLNSAcc](#backendquerypplnsacc)
-   * [backendQueryPPSPayouts](#backendqueryppsppayouts)
-   * [backendQueryPPSPayoutsAcc](#backendqueryppsppayoutsacc)
-   * [backendQueryProfitSwitchCoeff](#backendqueryprofitswitchcoeff)
-   * [backendUpdateProfitSwitchCoeff](#backendupdateprofitswitchcoeff)
-   * [backendGetConfig](#backendgetconfig)
-   * [backendGetPPSState](#backendgetppsstate)
-   * [backendQueryPPSHistory](#backendqueryppshistory)
-   * [backendUpdateConfig](#backendupdateconfig)
-   * [backendPoolLuck](#backendpoolluck)
-* [Other API functions](#other-api-functions)
-   * [instanceEnumerateAll](#instanceenumerateall)
-   * [complexMiningStatsGetInfo](#complexminingstatsgetinfo)
+  * [userCreate](#usercreate)
+  * [userResendEmail](#userresendemail)
+  * [userAction](#useraction)
+  * [userLogin](#userlogin)
+  * [userLogout](#userlogout)
+  * [userQueryMonitoringSession](#userquerymonitoringsession)
+  * [userChangePasswordInitiate](#userchangepasswordinitiate)
+  * [userChangePasswordForce](#userchangepasswordforce)
+  * [userGetCredentials](#usergetcredentials)
+  * [userUpdateCredentials](#userupdatecredentials)
+  * [userGetSettings](#usergetsettings)
+  * [userUpdateSettings](#userupdatesettings)
+  * [userEnumerateAll](#userenumerateall)
+  * [userActivate2faInitiate](#useractivate2fainitiate)
+  * [userDeactivate2faInitiate](#userdeactivate2fainitiate)
+  * [userAdjustInstantPayoutThreshold](#useradjustinstantpayoutthreshold)
+* [Fee plan management](#fee-plan-management)
+  * [userEnumerateFeePlan](#userenumeratefeeplan)
+  * [userCreateFeePlan](#usercreatefeeplan)
+  * [userQueryFeePlan](#userqueryfeeplan)
+  * [userUpdateFeePlan](#userupdatefeeplan)
+  * [userDeleteFeePlan](#userdeletefeeplan)
+  * [userChangeFeePlan](#userchangefeeplan)
+  * [userRenewFeePlanReferralId](#userrenewfeeplanreferralid)
+* [Backend queries](#backend-queries)
+  * [backendQueryCoins](#backendquerycoins)
+  * [backendQueryFoundBlocks](#backendqueryfoundblocks)
+  * [backendQueryPoolStats](#backendquerypoolstats)
+  * [backendQueryPoolStatsHistory](#backendquerypoolstatshistory)
+  * [backendPoolLuck](#backendpoolluck)
+  * [instanceEnumerateAll](#instanceenumerateall)
+* [User backend queries](#user-backend-queries)
+  * [backendQueryUserBalance](#backendqueryuserbalance)
+  * [backendQueryUserStats](#backendqueryuserstats)
+  * [backendQueryUserStatsHistory](#backendqueryuserstatshistory)
+  * [backendQueryWorkerStatsHistory](#backendqueryworkerstatshistory)
+  * [backendQueryPayouts](#backendquerypayouts)
+  * [backendManualPayout](#backendmanualpayout)
+  * [backendQueryPPLNSPayouts](#backendquerypplnspayouts)
+  * [backendQueryPPLNSAcc](#backendquerypplnsacc)
+  * [backendQueryPPSPayouts](#backendquerippspayouts)
+  * [backendQueryPPSPayoutsAcc](#backendquerippspayoutsacc)
+* [Admin endpoints](#admin-endpoints)
+  * [backendGetConfig](#backendgetconfig)
+  * [backendUpdateConfig](#backendupdateconfig)
+  * [backendGetPPSState](#backendgetppsstate)
+  * [backendQueryPPSHistory](#backendqueryppshistory)
+  * [backendQueryProfitSwitchCoeff](#backendqueryprofitswitchcoeff)
+  * [backendUpdateProfitSwitchCoeff](#backendupdateprofitswitchcoeff)
+  * [complexMiningStatsGetInfo](#complexminingstatsgettinfo)
 
-# Common status values suitable for all operations
+---
 
-* ok: operation success
-* invalid_json: request is not correct json
-* json_format_error: missed argument or argument type mismatch
-* request_format_error: invalid function arguments passed
+## Common status values
 
-# User management
+| Status | Description |
+|--------|-------------|
+| `"ok"` | Operation succeeded |
+| `"invalid_json"` | Request body is not valid JSON |
+| `"unknown_error"` | Unspecified server error |
+| `"unknown_id"` | Invalid session or action ID |
+| `"invalid_password"` | Wrong password |
+| `"duplicate_email"` | Email already registered |
+| `"duplicate_login"` | Login already exists |
+| `"user_not_active"` | User account not activated |
+| `"2fa_required"` | Two-factor authentication code required |
+| `"invalid_2fa"` | Invalid 2FA code |
+| `"not_implemented"` | Feature not yet implemented |
 
-## userChangePasswordInitiate
-Initiate change user's password procedure. if parameter <poolfrontend.smtpEnabled> is "true" in pool config function sends email with link for change password. Link format is http://<poolfrontend.poolHostAddress><poolfrontend.poolChangePasswordLinkPrefix><actionId>, where poolfrontend.poolHostAddress and poolfrontend.poolChangePasswordLinkPrefix defined in pool config; actionId: 512-bit unique identifier of operation, that can be user as input parameter of 'userChangePassword' api.
+---
 
-### arguments:
-* login:string - Unique user identifier (up to 64 characters)
+## User management
 
-### return values:
-* status:string - can be one of common status values
+### userCreate
 
-### curl example:
-```
-curl -X POST -d '{"login": "user"}' http://localhost:18880/api/userChangePasswordInitiate
-```
+Creates a new user account. If SMTP is enabled, sends an activation email.
 
-### response examples:
-```
-{"status": "ok"}
-```
+- **Auth**: none (public registration) or session (admin creating user)
 
-## userChangePasswordForce
-Change user password directly (only for admin account)
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | no | `""` | Session ID (admin can set isActive, feePlanId) |
+| `login` | string | yes | | Username |
+| `password` | string | yes | | Password |
+| `name` | string | no | `""` | Display name |
+| `email` | string | no | `""` | Email address |
+| `totp` | string | no | `""` | 2FA code (if parent user has 2FA) |
+| `isActive` | bool | no | `false` | Activate immediately (admin only) |
+| `isReadOnly` | bool | no | `false` | Read-only account |
+| `feePlanId` | string | no | `""` | Assign fee plan (admin only) |
+| `referralId` | string | no | `""` | Referral ID for fee plan (cannot combine with feePlanId) |
 
-### arguments:
-* [required] id:string - admin's session id
-* [required] login:string - user's login
-* [required] newPassword:string - new password
+**Response**: `status`
 
-### return values:
-* status:string - can be one of common status values
+---
 
-### curl example:
-```
-curl -X POST -d '{"id": "f3c70b71fe9ad27d2b1861c408058cbc39949a1a3aa834baccdc29721580bc28d6e6a42a5431f023c5031bd6009a1df65d67165b37181b2d991ca3022a703a65", "login": "user", "newPassword": "12345678"}' http://localhost:18880/api/userChangePasswordForce
-```
+### userResendEmail
 
-### response examples:
-```
-{"status": "ok"}
-```
+Resends the activation email for an inactive account.
 
-## userCreate
-Register new user and send email with activation link if parameter <poolfrontend.smtpEnabled> is "true" in pool config. Activation link format is http://<poolfrontend.poolHostAddress><poolfrontend.poolActivateLinkPrefix><actionId>, where poolfrontend.poolHostAddress and poolfrontend.poolActivateLinkPrefix defined in pool config; actionId: 512-bit unique identifier of operation, that can be user as input parameter of 'useraction' api.
-Pool frontend must have a handler for configured activation link fornat.
+- **Auth**: none
 
-### arguments:
-* [required] login:string - Unique user identifier (up to 64 characters)
-* [required] password:string - Password (8-64 characters length)
-* [optional] email:string - User email, can be omitted, if isActive=true
-* [required] name:string - User name (display instead of login in 'blocks found by pool' table (up to 256 characters)
-* [optional] isActive:boolean - if true, function will create activated user (option available for admin account only)
-* [optional] isReadOnly:boolean - if true, user will have no write access to his account (option available for admin account only)
-* [optional] id:string - unique user session id returned by userlogin function, only admin session is usable
-* [optional] feePlanId:string - fee plan for user (option available for admin account only)
-* [optional] referralId:string - referral ID (hex, 64 chars) to assign fee plan automatically; mutually exclusive with feePlanId
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `login` | string | yes | | Username |
+| `password` | string | yes | | Password |
+| `email` | string | no | `""` | Email address |
 
-### return values:
-* status:string - can be one of common status values or:
-  * login_format_invalid
-  * password_format_invalid
-  * email_format_invalid
-  * name_format_invalid
-  * duplicate_email: already have another user with requested email
-  * duplicate_login: already have user with requested login
-  * smtp_client_create_error: internal error with SMTP protocol client
-  * email_send_error: error received from SMTP server, details in pool log
-  * fee_plan_not_allowed: setup fee plan available only from admin account
-  * fee_plan_not_exists: non-existent fee plan sent
-  * invalid_referral_id: referral ID not found
-  * request_format_error: both feePlanId and referralId specified
+**Response**: `status`
 
-### curl example:
-```
-curl -X POST -d '{"login": "user", "password": "12345678", "email": "my@email.com"}' http://localhost:18880/api/userCreate
-curl -X POST -d '{"login": "ro", "password": "12345678", "isActive": true, "isReadOnly": true, "id": "aa342d65135cfb6485c8ca52bacd774418fd1a76fbce5a418ae607a4471c9de0a52e46f36d2b5d1645f83598e34fed7e2750772080122fdaf92becf5e60ed058"}' http://localhost:18880/api/userCreate
-curl -X POST -d '{"login": "miner3", "password": "12345678", "email": "miner3@mail.none", "id": "c5a192d62871086fb72bcf736683e0610c486121aeaffb35193af2d63d2144aa8b85a4c56038678de3d8d7c47727e9616d950574dd9b2324e16b49dbeb9f02ad", "feePlanId": "special"}' http://localhost:18880/api/userCreate
-```
+---
 
-### response examples:
-```
-{"status": "ok"}
-```
-```
-{"status": "duplicate_email"}
-```
+### userAction
 
-### activation link format example:
-```
-http://localhost/actions/useracivate?id=6310abb30747f6498a5ec114fdfcc844babdbd9566bcc69e9a2472536a6a850892f339e0866215140497e186710cc15af5582de5e222e4e4a6089dcfd0270017
-```
+Performs a pending user action (account activation, password change, 2FA toggle).
 
-## userResendEmail
-Create new user activation id and send it by email. Useful when first email with activation link not received by user.
+- **Auth**: none (uses action token)
 
-### arguments:
-* login:string - Unique user identifier (up to 64 characters)
-* password:string - Password (8-64 characters length)
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `actionId` | string | yes | | Action token (from email link) |
+| `newPassword` | string | no | `""` | New password (for password change actions) |
+| `totp` | string | no | `""` | 2FA code (for 2FA activation) |
 
-### return values:
-* status:string - can be one of common status values or:
-  * invalid_password
-  * user_already_active
-  * smtp_client_create_error: internal error with SMTP protocol client
-  * email_send_error: error received from SMTP server, details in pool log
+**Response**: `status`
 
-### curl example:
-```
-curl -X POST -d "{\"login\": \"user\", \"password\": \"12345678\", \"email\": \"my@email.com\"}" http://localhost:18880/api/userResendEmail
-```
-### response examples:
-```
-{"status": "ok"}
-```
-```
-{"status": "user_already_active"}
-```
+---
 
-## userAction
-Confirm various user actions, such as user activation, changing password, etc
+### userLogin
 
-### arguments:
-* [required] actionId:string - unique identifier of operation generated by another api function
-* [optional] newPassword:string - used for password change action
-* [optional] totp:string - used for two factor authentication activation
+Authenticates a user and returns a session token.
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid or already activated id
-  * unknown_login: internal error
-  * password_format_invalid: password does not meet requirements
-  * 2fa_invalid: invalid totp code
-  * 2fa_already_activated - double 2fa activation
-  * 2fa_not_activated - double 2fa deactivation
-  * user_already_active: internal error
-  * unknown_type: internal error
+- **Auth**: none
 
-### curl example:
-```
-curl -X POST -d '{"actionId": "512e07374333be020565a39be1083f7571a0d8ad0a3eadc9608465a4842b4e5a39384374f91cf540c54979bae0923dbccd667427a26ed8e4913d1f1509ab03ac", "totp": "361607"}' http://localhost:18880/api/userAction
-```
-### response examples:
-```
-{"status": "ok"}
-```
-```
-{"status": "unknown_id"}
-```
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `login` | string | yes | | Username |
+| `password` | string | yes | | Password |
+| `totp` | string | no | `""` | 2FA code (required if 2FA enabled) |
 
-## userLogin
-Log in procedure, function accepted login/password and returns session id unique for user
+**Response**:
 
-### arguments:
-* login:string
-* password:string
-* totp:string - used only when 2fa for current user activated
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `sessionid` | string | Session token for subsequent requests |
+| `isReadOnly` | bool | Whether session is read-only |
 
-### return values:
-* sessionid:string: unique session identifier, needed for other api functions
-* status:string - can be one of common status values or:
-  * invalid_password: login/password mismatch
-  * user_not_active: user registered, but not activated using special link sent to email
-  * 2fa_invalid: invalid totp code
+---
 
-### curl example:
-```
-curl -X POST -d "{\"login\": \"user\", \"password\": \"12345678\"}" http://localhost:18880/api/userLogin
-```
-### responses examples:
-```
-{"sessionid": "863fe99ef908bc4ba7e954c381224f0370d8840ef6c653b14eba865caafb87c4aa2635312099a72aedc450c8dfa2d87e37641271d927c474b661afc73552d9fc","status": "ok"}
-```
-```
-{"sessionid": "","status": "user_not_active"}
-```
-```
-{"sessionId": "","status": "invalid_password"}
-```
+### userLogout
 
-## userLogout
-Close user session, invalidate session id
+Invalidates a session.
 
-### arguments:
-* id:string - unique user session id returned by userlogin function
+- **Auth**: none (session self-invalidation)
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID to invalidate |
 
-### curl example:
-```
-curl -X POST -d "{\"id\": \"d6c6a5b8839f4af4eac0e085a25d87efa27c56be6930763877a1410238d6d16b8e83f080719d7d0e6a0a7f927b257f39328ec67922dbdbf5a31c09d9e9413071\"}" http://localhost:18880/api/userLogout
-```
+**Response**: `status`
 
-### response examples:
-```
-{"status": "ok"}
-```
-```
-{"status": "unknown_id"}
-```
+---
 
-## userQueryMonitoringSession
-Create a monitoring (read-only) session for a user
+### userQueryMonitoringSession
 
-### arguments:
-* [required] id:string - unique user session id
-* [optional] targetLogin:string - target user login (only for admin session id)
+Creates a read-only monitoring session for a user. Admin can create sessions for other users via `targetLogin`.
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-* sessionid:string - monitoring session id
+- **Auth**: session
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "targetLogin": "miner1"}' http://localhost:18880/api/userQueryMonitoringSession
-```
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user (admin only) |
 
-### response examples:
-```
-{"status": "ok", "sessionid": "...monitoring_session_id..."}
-```
+**Response**:
 
-## userGetCredentials
-Query user information
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `sessionid` | string | Monitoring session token |
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [optional] targetLogin:string - various user login (only for admin session id)
+---
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-* name:string
-* email:string
-* registrationDate:integer - uses unix time format
+### userChangePasswordInitiate
 
-### curl example:
-```
-curl -X POST -d "{\"id\": \"f8cb3890197f7b4c981e0cec4d28125fca9ea28fe2928121184e1b3a7e4f28048606b6dcead1281b836dafcb540ca507c86d0e2066a595b6fc8c7c3509699c24\"}" http://localhost:18880/api/userGetCredentials
-```
+Initiates password change by sending a reset email.
 
-### response examples:
-```
-{"status": "ok","name": "user","email": "my@email.com","registrationDate": 1594539116}
-```
+- **Auth**: none
 
-## userUpdateCredentials
-Function can update only user public name
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `login` | string | yes | Username |
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [optional] targetLogin:string - various user login (only for admin session id)
-* [required] name:string - user public name
+**Response**: `status`
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
+---
 
-### curl example:
-```
-curl -X POST -d '{"id": "af7a1d980afef159bf224c7af676252e924e375f03cbf4b25b999a080829908cc8997b89aca051c444d6e831dcb78230b0369ec8399729d95da09b41e4aed43d", "targetLogin": "user3", "name": "user333"}' http://localhost:18880/api/userUpdateCredentials
-```
+### userChangePasswordForce
 
-### response examples:
-```
-{"status": "ok"}
-```
+Changes password using an action token (from email link).
 
-## userGetSettings
-Returns user settings for each coin
+- **Auth**: none (uses action token)
 
-### arguments
-* [required] id:string - unique identifier of operation generated by another api function
-* [optional] targetLogin:string - various user login (only for admin session id)
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Action token |
+| `login` | string | yes | Username |
+| `newPassword` | string | yes | New password |
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-* coins: array of objects with fields:
-  * name:string - coin ticker
-  * payout: object with fields:
-    * mode:string - payout mode: "disabled", "regular" or "instant"
-    * address:string - payout address
-    * instantPayoutThreshold:string - threshold for instant payouts
-  * mining: object with fields:
-    * mode:string - "pplns" or "pps"
-  * autoExchange: object with fields:
-    * payoutCoinName:string - coin name for auto-exchange payout; empty string if not set
+**Response**: `status`
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session..."}' http://localhost:18880/api/userGetSettings
-```
-### response examples:
-```
+---
+
+### userGetCredentials
+
+Returns user profile information.
+
+- **Auth**: session
+
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user (admin only) |
+
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `login` | string | Username |
+| `name` | string | Display name |
+| `email` | string | Email |
+| `registrationDate` | int | Unix timestamp |
+| `isActive` | bool | Account active |
+| `isReadOnly` | bool | Read-only account |
+| `has2fa` | bool | 2FA enabled |
+
+---
+
+### userUpdateCredentials
+
+Updates user profile (name, email, password).
+
+- **Auth**: session
+
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user (admin only) |
+| `name` | string | no | `""` | New display name |
+| `email` | string | no | `""` | New email |
+| `password` | string | no | `""` | New password |
+| `isActive` | bool | no | `false` | Activate/deactivate (admin only) |
+| `isReadOnly` | bool | no | `false` | Set read-only (admin only) |
+
+**Response**: `status`
+
+---
+
+### userGetSettings
+
+Returns per-coin mining and payout settings for a user.
+
+- **Auth**: session
+
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user (admin only) |
+
+**Response**:
+
+```json
 {
   "status": "ok",
   "coins": [
     {
       "name": "BTC",
-      "payout": {
-        "mode": "disabled",
-        "address": "",
-        "instantPayoutThreshold": "0.00000000"
-      },
-      "mining": {
-        "mode": "pplns"
-      },
-      "autoExchange": {
-        "payoutCoinName": ""
-      }
-    },
-    {
-      "name": "XPM",
-      "payout": {
-        "mode": "instant",
-        "address": "ATWDYBwVDvswyZADMbEo5yBt4tH2zfGjd1",
-        "instantPayoutThreshold": "100.00"
-      },
-      "mining": {
-        "mode": "pplns"
-      },
-      "autoExchange": {
-        "payoutCoinName": ""
-      }
+      "payout": { "mode": "enabled", "address": "1abc...", "instantPayoutThreshold": "0.1" },
+      "mining": { "mode": "PPLNS" },
+      "autoExchange": { "payoutCoinName": "" }
     }
   ]
 }
 ```
 
-## userUpdateSettings
-Update user settings for specific coin. At least one of payout/mining/autoExchange sub-objects must be provided.
+---
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [optional] targetLogin:string - various user login (only for admin session id)
-* [required] coin:string
-* [optional] totp:string - used only when 2fa for current user activated
-* [optional] payout:object - payout settings:
-  * [required] mode:string - payout mode: "disabled", "regular" or "instant"
-  * [required] address:string - payout address; must be valid for "regular" and "instant" modes; can be empty for "disabled"
-  * [required] instantPayoutThreshold:string - threshold for instant payouts; must be valid for "instant" mode; can be "0" for "disabled" and "regular"
-* [optional] mining:object - mining settings:
-  * [required] mode:string - mining mode, "pplns" or "pps"
-* [optional] autoExchange:object - auto-exchange settings:
-  * [required] payoutCoinName:string - coin name for auto-exchange payout
+### userUpdateSettings
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * invalid_payout_mode: mode value is not "disabled", "regular" or "instant"
-  * invalid_address: invalid payout address
-  * invalid_mining_mode: mining mode value is not "pplns" or "pps"
-  * pps_not_available: PPS mode is not enabled for this coin
-  * instant_payouts_disabled: instant payouts are not enabled for this coin
-  * regular_payouts_disabled: regular payouts are not enabled for this coin
-  * minimal_payout_too_low: instant payout threshold is below pool's minimum
-  * invalid_exchange_coin: auto-exchange target coin does not exist
-  * exchange_not_available: auto-exchange direction is not allowed by swap configuration
+Updates per-coin mining and payout settings. Requires TOTP for address changes if 2FA is enabled.
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "coin": "XPM", "payout": {"mode": "instant", "address": "ATWDYBwVDvswyZADMbEo5yBt4tH2zfGjd1", "instantPayoutThreshold": "100"}}' http://localhost:18880/api/userUpdateSettings
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "payout": {"mode": "regular", "address": "bc1q...", "instantPayoutThreshold": "0"}}' http://localhost:18880/api/userUpdateSettings
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "payout": {"mode": "disabled", "address": "", "instantPayoutThreshold": "0"}}' http://localhost:18880/api/userUpdateSettings
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "mining": {"mode": "pps"}}' http://localhost:18880/api/userUpdateSettings
-```
-### response examples:
-```
-{"status": "ok"}
-```
+- **Auth**: session
 
-## userEnumerateAll
-Returns all registered users for admin/observer account or all 'child' users with personal fee for regular accounts
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user (admin only) |
+| `coin` | string | yes | | Coin name (e.g. "BTC") |
+| `totp` | string | no | `""` | 2FA code |
+| `payout` | object | no | | `{mode, address, instantPayoutThreshold}` |
+| `mining` | object | no | | `{mode}` — "PPLNS" or "PPS" |
+| `autoExchange` | object | no | | `{payoutCoinName}` |
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [required] coin:string
-* [optional] offset:integer (default=0) - first row offset
-* [optional] size:integer (default=100) - rows count in result
-* [optional] sortBy:string (default="averagePower") - column for sorting, can be:
-  * login
-  * workersNum
-  * averagePower
-  * sharesPerSecond
-  * lastShareTime
-* [optional] sortDescending:boolean (default=true) - enable descending sort
+At least one of `payout`, `mining`, `autoExchange` must be provided.
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * unknown_column_name: invalid sortBy value
-* users - array of credentials objects with these fields:
-  * login:string
-  * name:string
-  * email:string
-  * registrationDate:integer - uses unix time format
-  * feePlanId:string - fee plan for user
-  * workers:integer - number of connections for current user in last N minutes
-  * shareRate:float - shares per second
-  * power:integer - usually hashrate, depends on coin type
-  * lastShareTime:integer - time of last received shared by user
+**Response**: `status`
 
-### curl example:
-```
-curl -X POST -d '{"id": "c26411c326d0e62d02cb0d1614a37eac4e3b848fb37eb7a46f3a2ddceb20a81407a0fa589979efc888c914125c922076552e4ac45324af6a869d8dbbff406422", "coin": "sha256"}' http://localhost:18880/api/userEnumerateAll
-```
+---
 
-### response examples:
-```
+### userEnumerateAll
+
+Lists all users with statistics. Admin/observer only.
+
+- **Auth**: admin or observer
+
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `coin` | string | no | `"sha256"` | Coin/algorithm for stats |
+| `offset` | uint64 | no | `0` | Pagination offset |
+| `size` | uint64 | no | `100` | Page size |
+| `sortBy` | string | no | `"averagePower"` | Sort field: `login`, `workersNum`, `averagePower`, `sharesPerSecond`, `lastShareTime` |
+| `sortDescending` | bool | no | `true` | Sort direction |
+
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `users` | array | Array of user objects |
+
+Each user object:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `login` | string | Username |
+| `name` | string | Display name |
+| `email` | string | Email |
+| `registrationDate` | int | Unix timestamp |
+| `isActive` | bool | |
+| `isReadOnly` | bool | |
+| `feePlanId` | string | |
+| `workers` | int | Active worker count |
+| `shareRate` | double | Shares per second |
+| `power` | int | Hash rate |
+| `lastShareTime` | int | Unix timestamp |
+
+---
+
+### userActivate2faInitiate
+
+Starts 2FA activation. Returns the TOTP secret key for QR code generation.
+
+- **Auth**: session
+
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `sessionId` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user (admin only) |
+
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `key` | string | TOTP secret key (base32) |
+
+---
+
+### userDeactivate2faInitiate
+
+Starts 2FA deactivation. Sends confirmation email.
+
+- **Auth**: session
+
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `sessionId` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user (admin only) |
+
+**Response**: `status`
+
+---
+
+### userAdjustInstantPayoutThreshold
+
+Sets the global instant payout threshold for a coin. Admin only.
+
+- **Auth**: admin
+
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `coin` | string | yes | Coin name |
+| `threshold` | string | yes | Money value (decimal string) |
+
+**Response**: `status`
+
+---
+
+## Fee plan management
+
+All fee plan endpoints require admin session.
+
+### userEnumerateFeePlan
+
+Lists all fee plan IDs.
+
+- **Auth**: session
+
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `plans` | array | Array of fee plan ID strings |
+
+---
+
+### userCreateFeePlan
+
+Creates a new empty fee plan.
+
+- **Auth**: session
+
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `feePlanId` | string | yes | New fee plan ID |
+
+**Response**: `status`
+
+---
+
+### userQueryFeePlan
+
+Returns fee plan configuration for a specific mining mode.
+
+- **Auth**: session
+
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `feePlanId` | string | yes | Fee plan ID |
+| `mode` | string | yes | `"PPLNS"` or `"PPS"` |
+
+**Response**:
+
+```json
 {
   "status": "ok",
-  "users": [
-    {
-      "login": "miner3",
-      "name": "miner3",
-      "email": "miner3@mail.none",
-      "registrationDate": 1622841331,
-      "isActive": false,
-      "isReadOnly": false,
-      "feePlanId": "special",
-      "workers": 0,
-      "shareRate": 0.0,
-      "power": 0,
-      "lastShareTime": 0
-    }
-  ]
-}
-```
-
-## userEnumerateFeePlan
-Returns list of all fee plan IDs (for admin or observer account)
-
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-* plans:[string] - array of fee plan identifiers
-
-### curl example:
-```
-curl -X POST -d '{"id": "ADMIN_SESSION_ID"}' http://localhost:18880/api/userEnumerateFeePlan
-```
-
-### response examples:
-```
-{
-  "status": "ok",
-  "plans": ["default", "special"]
-}
-```
-
-## userCreateFeePlan
-Create new empty fee plan (for admin account only)
-
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [required] feePlanId:string - unique fee plan identifier
-
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * fee_plan_already_exists: fee plan with this id already exists
-
-### curl example:
-```
-curl -X POST -d '{"id": "ADMIN_SESSION_ID", "feePlanId": "special"}' http://localhost:18880/api/userCreateFeePlan
-```
-
-### response examples:
-```
-{
-  "status": "ok"
-}
-```
-
-## userQueryFeePlan
-Returns fee plan configuration for specified mining mode (for admin or observer account)
-
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [required] feePlanId:string - unique fee plan identifier
-* [required] mode:string - mining mode: "pplns" or "pps"
-
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * unknown_fee_plan: non-existent fee plan requested
-  * invalid_mining_mode: invalid mode value
-* feePlanId:string - fee plan identifier
-* mode:string - mining mode
-* referralId:string|null - referral ID (hex, 64 chars) or null if not generated
-* default:[UserFeePair] - default fee config ({userId:string, percentage:double})
-* coinSpecific:[CoinFeeConfig] - per-coin overrides ({coinName:string, config:[UserFeePair]})
-
-### curl example:
-```
-curl -X POST -d '{"id": "ADMIN_SESSION_ID", "feePlanId": "special", "mode": "pplns"}' http://localhost:18880/api/userQueryFeePlan
-```
-
-### response examples:
-```
-{
-  "status": "ok",
-  "feePlanId": "special",
-  "mode": "pplns",
-  "referralId": "a1b2c3...64hex...",
+  "feePlanId": "default",
+  "mode": "PPLNS",
+  "referralId": "abc123...",
   "default": [
-    {"userId": "adm1", "percentage": 1.0},
-    {"userId": "adm2", "percentage": 1.0}
+    { "userId": "pool", "percentage": 1.0 }
   ],
   "coinSpecific": [
-    {
-      "coinName": "LTC.regtest",
-      "config": [
-        {"userId": "adm1", "percentage": 10.0},
-        {"userId": "adm2", "percentage": 10.0}
-      ]
-    }
+    { "coinName": "BTC", "config": [{ "userId": "pool", "percentage": 0.5 }] }
   ]
 }
 ```
 
-## userUpdateFeePlan
-Update fee plan configuration for specified mining mode (for admin account only).
-Plan must already exist (use userCreateFeePlan first). Only the specified mode is updated.
+---
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [required] feePlanId:string - unique fee plan identifier
-* [required] mode:string - mining mode: "pplns" or "pps"
-* [required] default:[UserFeePair] - default fee config ({userId:string, percentage:double})
-* [optional] coinSpecific:[CoinFeeConfig] - per-coin overrides ({coinName:string, config:[UserFeePair]})
+### userUpdateFeePlan
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * unknown_fee_plan: fee plan does not exist
-  * invalid_mining_mode: invalid mode value
-  * invalid_coin: coin does not exist
-  * unknown_login: user referenced in fee config does not exist
-  * fee_too_much: total fee percentage >= 100%
-  * invalid_percentage: negative percentage value
+Updates fee plan configuration for a specific mining mode.
 
-### curl example:
-```
-curl -X POST -d '{"id": "ADMIN_SESSION_ID", "feePlanId": "special", "mode": "pplns", "default": [{"userId": "adm1", "percentage": 1.0}, {"userId": "adm2", "percentage": 1.0}], "coinSpecific": [{"coinName": "LTC.regtest", "config": [{"userId": "adm1", "percentage": 10}, {"userId": "adm2", "percentage": 10}]}]}' http://localhost:18880/api/userUpdateFeePlan
-```
+- **Auth**: session
 
-### response examples:
-```
-{
-  "status": "ok"
-}
-```
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `feePlanId` | string | yes | Fee plan ID |
+| `mode` | string | yes | `"PPLNS"` or `"PPS"` |
+| `default` | array | yes | `[{userId, percentage}]` |
+| `coinSpecific` | array | yes | `[{coinName, config: [{userId, percentage}]}]` |
 
-## userDeleteFeePlan
-Delete fee plan (for admin account only).
-All users assigned to this plan will be reset to "default". Cannot delete the "default" plan.
+**Response**: `status`
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [required] feePlanId:string - unique fee plan identifier
+---
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * unknown_fee_plan: fee plan does not exist
-  * cant_delete_default_plan: cannot delete the default plan
+### userDeleteFeePlan
 
-### curl example:
-```
-curl -X POST -d '{"id": "ADMIN_SESSION_ID", "feePlanId": "special"}' http://localhost:18880/api/userDeleteFeePlan
-```
+Deletes a fee plan.
 
-### response examples:
-```
-{
-  "status": "ok"
-}
-```
+- **Auth**: session
 
-## userChangeFeePlan
-Change fee plan for specified user (for admin account only)
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `feePlanId` | string | yes | Fee plan ID to delete |
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [optional] targetLogin:string - various user login (only for admin session id)
-* [required] feePlanId:string - unique fee plan identifier
+**Response**: `status`
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * fee_plan_not_exists: non-existent fee plan sent
+---
 
-### curl example:
-```
-curl -X POST -d '{"id": "ADMIN_SESSION_ID", "targetLogin": "user1", "feePlanId": "special"}' http://localhost:18880/api/userChangeFeePlan
-```
+### userChangeFeePlan
 
-### response examples:
-```
-{
-  "status": "ok"
-}
-```
+Assigns a fee plan to a user.
 
-## userRenewFeePlanReferralId
-Generate (or regenerate) a referral ID for a fee plan. The old referral ID (if any) is invalidated. Access: admin only.
+- **Auth**: session
 
-### arguments:
-* [required] id:string - admin session id
-* [required] feePlanId:string - unique fee plan identifier
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `targetLogin` | string | yes | User to update |
+| `feePlanId` | string | yes | Fee plan ID to assign |
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id or insufficient permissions
-  * unknown_fee_plan: fee plan does not exist
-* referralId:string - new referral ID (hex, 64 chars)
+**Response**: `status`
 
-### curl example:
-```
-curl -X POST -d '{"id": "ADMIN_SESSION_ID", "feePlanId": "special"}' http://localhost:18880/api/userRenewFeePlanReferralId
-```
+---
 
-### response examples:
-```
-{
-  "status": "ok",
-  "referralId": "a1b2c3d4e5f6...64hex..."
-}
-```
+### userRenewFeePlanReferralId
 
-## userActivate2faInitiate
-Activate two factor authentication
+Regenerates the referral ID for a fee plan.
 
-### arguments:
-* [required] sessionId:string - User session identifier
-* [optional] targetLogin:string - various user login (only for admin session id)
+- **Auth**: session
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * 2fa_already_activated: double 2fa activation
-* key:string - 2fa totp secrey key
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `feePlanId` | string | yes | Fee plan ID |
 
-### curl example:
-```
-curl -X POST -d '{"sessionId": "675ea7134fbc88d20763b61912d8aa2f22bab857dfbb1a8c5aacfb5b17b67203fd47215b17c01a42378e2598e0b83ca185c65827a3141cd2d0fec8ee9ef18921"}' http://localhost:18880/api/userActivate2faInitiate
-```
+**Response**:
 
-### response examples:
-```
-{
-  "status": "ok"
-}
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `referralId` | string | New referral ID (may be absent if generation fails) |
 
-## userDeactivate2faInitiate
-Deactivate two factor authentication
+---
 
-### arguments:
-* [required] sessionId:string - User session identifier
-* [optional] targetLogin:string - various user login (only for admin session id)
+## Backend queries
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * 2fa_not_activated: double 2fa deactivation
+Public endpoints for pool information.
 
-### curl example:
-```
-curl -X POST -d '{"sessionId": "675ea7134fbc88d20763b61912d8aa2f22bab857dfbb1a8c5aacfb5b17b67203fd47215b17c01a42378e2598e0b83ca185c65827a3141cd2d0fec8ee9ef18921"}' http://localhost:18880/api/userDeactivate2faInitiate
-```
+### backendQueryCoins
 
-### response examples:
-```
-{
-  "status": "ok"
-}
-```
+Returns information about all supported coins.
 
-## userAdjustInstantPayoutThreshold
-Adjust all users' instant payout threshold for a coin to be at least the specified value. Useful before raising the pool's instantMinimalPayout in backendUpdateConfig. Access: admin only.
+- **Auth**: none (optional session for user-specific fee rates)
 
-### arguments:
-* [required] id:string - admin session id
-* [required] coin:string
-* [required] threshold:string - new minimal instant payout threshold
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | no | `""` | Session ID (for fee calculation) |
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id or insufficient permissions
-  * invalid_coin: coin does not exist
+**Response**:
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "threshold": "0.01"}' http://localhost:18880/api/userAdjustInstantPayoutThreshold
-```
-
-### response examples:
-```
-{"status": "ok"}
-```
-
-# Backend API functions
-
-## backendManualPayout
-Force payout all funds from user balance
-
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [optional] targetLogin:string - various user login (only for admin session id)
-* [required] coin:string
-
-### return values:
-* status:string - can be one of common status values or:
-  * payout_error - can't make payout, usually address not set for requested coin
-  * insufficient_balance - user non-queued balance less than minimal allowed payout amount
-  * no_balance - no balance record found (ok for just registered users)
-
-### curl example:
-```
-curl -X POST -d '{"id": "ae860bab2faca258c790563a5f97640e55c3c8f23df3fbfde07ed46e201beebbcd04f5b536c5aaf07969c55b09c569c46f37bcfb896c6931be2f9cc4bc6372f8", "coin": "XPM.testnet"}' http://localhost:18880/api/backendManualPayout
-```
-### response examples:
-```
-{"status": "ok"}
-```
-
-## backendQueryCoins
-Function returns coins listed on pool with fee information
-
-### arguments:
-* [optional] id:string - user session id; if provided, fees are calculated from the user's fee plan; otherwise the default fee plan is used
-
-### return values:
-* status:string - can be one of common status values
-* coins: array of objects with these fields:
-  * name:string - unique coin id
-  * fullName:string - display coin name
-  * algorithm:string - mining algorithm
-  * ppsAvailable:boolean - whether PPS mining mode is enabled for this coin
-  * pplnsFee:double - total PPLNS fee percentage from user's fee plan
-  * ppsFee:double - total PPS fee percentage combining pool PPS fee and user's fee plan
-  * minimalRegularPayout:string - minimal payout amount for regular payouts (pool covers fee)
-  * minimalInstantPayout:string - minimal payout amount for instant payouts (user covers fee)
-  * acceptIncoming:boolean - whether this coin accepts incoming auto-exchange (can be swap target)
-  * acceptOutgoing:boolean - whether this coin allows outgoing auto-exchange (can be swap source)
-  * valueBTC:double|null - current coin price in BTC (1.0 for BTC itself); null if price unavailable
-  * valueUSD:double|null - current coin price in USD; null if price unavailable
-  * height:integer|null - current network block height (reserved, currently null)
-  * difficulty:double|null - current network difficulty (reserved, currently null)
-  * powerUnit:string|null - hashrate unit for profit calculator (reserved, currently null)
-  * powerMultLog10:integer|null - log10 multiplier for hashrate unit (reserved, currently null)
-  * powerPPS:double|null - hashrate units for dailyPPS calculation (reserved, currently null)
-  * dailyPPS:double|null - expected daily PPS income in coin per powerPPS units, 0% fee, saturation=1 (reserved, currently null)
-  * dailyPPSUSD:double|null - expected daily PPS income in USD (reserved, currently null)
-  * dailyPPSBTC:double|null - expected daily PPS income in BTC (reserved, currently null)
-
-### curl example:
-```
-curl -X POST -d '{}' http://localhost:18880/api/backendQueryCoins
-curl -X POST -d '{"id": "...session..."}' http://localhost:18880/api/backendQueryCoins
-```
-
-### response examples:
-```
+```json
 {
   "status": "ok",
   "coins": [
@@ -839,946 +587,637 @@ curl -X POST -d '{"id": "...session..."}' http://localhost:18880/api/backendQuer
       "algorithm": "sha256",
       "ppsAvailable": true,
       "pplnsFee": 1.0,
-      "ppsFee": 5.0,
-      "minimalRegularPayout": "0.00050000",
-      "minimalInstantPayout": "0.01000000",
-      "acceptIncoming": true,
-      "acceptOutgoing": true,
-      "valueBTC": 1.0,
-      "valueUSD": 97000.0,
-      "height": null,
-      "difficulty": null,
-      "powerUnit": null,
-      "powerMultLog10": null,
-      "powerPPS": null,
-      "dailyPPS": null,
-      "dailyPPSUSD": null,
-      "dailyPPSBTC": null
-    },
-    {
-      "name": "LTC",
-      "fullName": "Litecoin",
-      "algorithm": "scrypt",
-      "ppsAvailable": false,
-      "pplnsFee": 1.0,
-      "ppsFee": 5.0,
-      "minimalRegularPayout": "0.01000000",
-      "minimalInstantPayout": "0.10000000",
+      "ppsFee": 2.0,
+      "minimalRegularPayout": "0.01",
+      "minimalInstantPayout": "0.001",
       "acceptIncoming": false,
-      "acceptOutgoing": true,
-      "valueBTC": 0.001200000000,
-      "valueUSD": 116.400000000000,
-      "height": null,
-      "difficulty": null,
-      "powerUnit": null,
-      "powerMultLog10": null,
-      "powerPPS": null,
-      "dailyPPS": null,
-      "dailyPPSUSD": null,
-      "dailyPPSBTC": null
+      "acceptOutgoing": false,
+      "valueBTC": 1.0,
+      "valueUSD": 60000.0
     }
   ]
 }
 ```
 
-## backendQueryUserBalance
-Function returns user balance, requested and paid values for one or all available coins
+---
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [optional] targetLogin:string - various user login (only for admin session id)
-* coin:string
+### backendQueryFoundBlocks
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-* balances: array of balance objects with fields 'coin', 'balance', 'requested', 'paid' and 'queued'. Field with name 'queued' contains unconfirmed user balance
+Returns blocks found by the pool, paginated by height.
 
-### curl example:
-```
-curl -X POST -d '{"id": "7ee12d4f88c54b2a9c850f5d744c1b27cfd5bdf30892e25b197e4c0921b1c9038d17b34e8537f078919b995eab3aae5dab43a944359e40fcffd1171dfceed019"}' http://localhost:18880/api/backendQueryUserBalance
-curl -X POST -d '{"id": "7ee12d4f88c54b2a9c850f5d744c1b27cfd5bdf30892e25b197e4c0921b1c9038d17b34e8537f078919b995eab3aae5dab43a944359e40fcffd1171dfceed019", "coin": "XPM.testnet"}' http://localhost:18880/api/backendQueryUserBalance
-```
+- **Auth**: none
 
-### response examples:
-```
-{
-   "status":"ok",
-   "balances":[
-      {
-         "coin":"XPM.testnet",
-         "balance":"29.31",
-         "requested":"0.00",
-         "paid":"3286.21",
-         "queued": "0"
-      }
-   ]
-}
-```
-```
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `coin` | string | yes | | Coin name |
+| `heightFrom` | int64 | no | `-1` | Start height (-1 = latest) |
+| `hashFrom` | string | no | `""` | Start hash (for pagination) |
+| `count` | uint | no | `20` | Number of blocks to return |
+
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `blocks` | array | Array of block objects |
+
+Each block:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `height` | int | Block height |
+| `hash` | string | Block hash |
+| `time` | int | Unix timestamp |
+| `confirmations` | int | Current confirmations (-1 = orphan) |
+| `generatedCoins` | string | Block reward (decimal string) |
+| `foundBy` | string | User who found the block |
+| `mergedBlocks` | array | `[{coin, height, hash}]` (merged mining) |
+
+---
+
+### backendQueryPoolStats
+
+Returns current pool-wide statistics.
+
+- **Auth**: none
+
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `coin` | string | no | `""` | Coin name (empty = all coins) |
+
+**Response**:
+
+```json
 {
   "status": "ok",
-  "balances": [
+  "currentTime": 1700000000,
+  "stats": [
     {
-      "coin": "BTC.regtest",
-      "balance": "0.09613028",
-      "requested": "0",
-      "paid": "0",
-      "queued": "0.04577632"
-    },
-    {
-      "coin": "XPM",
-      "balance": "0",
-      "requested": "0",
-      "paid": "0",
-      "queued": "0"
+      "coin": "BTC",
+      "powerUnit": "Gh/s",
+      "powerMultLog10": 9,
+      "clients": 42,
+      "workers": 100,
+      "shareRate": 15.5,
+      "shareWork": "12345678",
+      "power": 1500,
+      "lastShareTime": 1700000000
     }
   ]
 }
 ```
 
-## backendQueryFoundBlocks:
-Function returns blocks found by pool, authorization not required.
+---
 
-### arguments:
-* coin:string
-* heightFrom:integer (default: -1) - search blocks from this height
-* hashFrom:string (default: "") - search blocks from this hash. You need use this 2 arguments for implement page by page loading. With default (or omitted) values search starts from last found block.
-* count:integer (default: 20) - requested blocks count
-With default arguments function returns last 20 blocks found by pool
+### backendQueryPoolStatsHistory
 
-### return values:
-* status:string - can be one of common status values:
-* blocks: array of block objects with fields:
-  * height:integer
-  * hash:string
-  * time:integer (unix time format)
-  * confirmations:integer - block confirmations number. -1: means orphan; -2: no data
-  * generatedCoins:string - usually first coinbase output value
-  * foundBy:string - name (or login) of block founder
-  * mergedBlocks:array (optional, present when block was found via merged mining) - other blocks found by the same share:
-    * coin:string - coin name
-    * height:integer
-    * hash:string
+Returns pool statistics history.
 
-### curl example:
-```
-curl -X POST -d '{"coin": "XPM.testnet", "count": 3}' http://localhost:18880/api/backendQueryFoundBlocks
-```
+- **Auth**: none
 
-### response examples:
-```
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `coin` | string | no | `""` | Coin name |
+| `timeFrom` | int64 | no | now - 86400 | Start time (Unix) |
+| `timeTo` | int64 | no | now | End time (Unix) |
+| `groupByInterval` | int64 | no | `3600` | Aggregation interval (seconds) |
+
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `powerUnit` | string | e.g. "Gh/s" |
+| `powerMultLog10` | int | Power multiplier log10 |
+| `currentTime` | int | Server time |
+| `stats` | array | `[{name, time, shareRate, shareWork, power}]` |
+
+---
+
+### backendPoolLuck
+
+Calculates pool luck for specified time intervals.
+
+- **Auth**: none
+
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `coin` | string | yes | Coin name |
+| `intervals` | array | yes | Array of Unix timestamps (must be strictly increasing) |
+
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `luck` | array | Array of doubles (luck values per interval) |
+
+---
+
+### instanceEnumerateAll
+
+Lists all mining protocol instances.
+
+- **Auth**: none
+
+**Response**:
+
+```json
 {
-   "status":"ok",
-   "blocks":[
-      {
-         "height":2466264,
-         "hash":"e1d91b43b41ecad70f057b1d7953f8f53ad6c8b9afd7ff78a4bb9f7a8f39526d",
-         "time":1595533509,
-         "confirmations":107,
-         "generatedCoins":"29.32",
-         "foundBy":"user"
-      },
-      {
-         "height":2466263,
-         "hash":"478546502f05c2622bb597b8d7faee6fe74527738d987a5e225a38f258ceb619",
-         "time":1595533507,
-         "confirmations":108,
-         "generatedCoins":"29.32",
-         "foundBy":"user"
-      },
-      {
-         "height":2466262,
-         "hash":"c38c1918a136003cc9cd75599acb31bd3dec7b89142792401953a16de879c2e5",
-         "time":1595533504,
-         "confirmations":109,
-         "generatedCoins":"29.32",
-         "foundBy":"user"
-      }
-   ]
+  "status": "ok",
+  "instances": [
+    {
+      "protocol": "stratum",
+      "type": "BTC",
+      "port": 3456,
+      "backends": ["BTC"],
+      "shareDiff": 65536
+    },
+    {
+      "protocol": "zmq",
+      "type": "XPM",
+      "port": 6666,
+      "backends": ["XPM"]
+    }
+  ]
 }
 ```
 
-## backendQueryPayouts
-Returns sent payouts for user (time and transaction id for each)
+`shareDiff` is only present for stratum instances.
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [optional] targetLogin:string - various user login (only for admin session id)
-* [required] coin:string
-* [optional] timeFrom:integer (milliseconds since epoch, default: 0) - search payouts from this time point. You need use this argument for implement page by page loading
-* [optional] count:integer (default: 20) - requested payouts count
+---
 
-### return values:
-* status:string - can be one of common status values:
-* payouts: array of payouts objects with fields:
-  * time:integer - payout time in milliseconds since epoch
-  * txid:string
-  * value:string
-  * valueBTC:string
-  * valueUSD:string
-  * status:integer (Initialized: 0, TxCreated: 1, TxSent: 2, TxConfirmed: 3, TxRejected: 4)
+## User backend queries
 
-### curl example:
-```
-curl -X POST -d '{"id": "8fa732ed14193de6c50b419dcfa1480a3ff6b96208e68a9c1496974a31cc51c035cd3e3708cfca1e50d6a80f2ff77cc4005fea23fa442d6b2dedefdad21d8857", "coin": "XPM.testnet", "count": 3}'
-```
+Endpoints requiring user session for per-user data.
 
-### response examples:
-```
-{
-   "status":"ok",
-   "payouts":[
-      {
-         "time":1595534238,
-         "txid":"7b026ff4c4088fa94770f3351a07c2af3f593c7f6ffd48bc66da803372f15540",
-         "value":"117.29",
-         "valueBTC":"0.00123456",
-         "valueUSD":"123.45"
-      },
-      {
-         "time":1595533997,
-         "txid":"0b331e1f7fde583fd643103e4777ae2f307aca4ec7bde412f0ab05e84ba43a80",
-         "value":"117.31",
-         "valueBTC":"0.00123458",
-         "valueUSD":"123.47"
-      },
-      {
-         "time":1595533637,
-         "txid":"e4a2ec354f3abcf0b08f5e78b10dc08b525e22d5399db627606f0c36c7881fa6",
-         "value":"117.31",
-         "valueBTC":"0.00123458",
-         "valueUSD":"123.47"
-      }
-   ]
-}
-```
+### backendQueryUserBalance
 
-## backendQueryPoolStats
-Returns pool statistic for each coin
+Returns user balance across one or all coins.
 
-### arguments:
-* [optional] coin:string (default="")
+- **Auth**: session
 
-### return values:
-* status:string - can be one of common status values
-* powerUnit:string - pool power unit (hash/s for BTC, chains per day (cpd) for XPM, etc..)
-* powerMultLog10:integer - multiplier for pool hashrate, real power is power*(10^powerMultLog10)
-* stats: array of stat objects with fields:
-  * coin:string
-  * clients:integer - number of client
-  * workers:integer - number of workers
-  * shareRate:float - shares per second
-  * shareWork:float - aggregated work for last N minutes (frontend better to use 'power' field value)
-  * power:integer - usually hashrate, depends on coin type
-  * lastShareTime:integer - time of last received shared by pool
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user (admin only) |
+| `coin` | string | no | `""` | Coin name (empty = all coins) |
 
-### curl example:
-```
-curl -X POST -d '{"coin": "BTC.testnet"}' http://localhost:18880/api/backendQueryPoolStats
-```
-```
-curl -X POST -d '{}' http://localhost:18880/api/backendQueryPoolStats
-```
+**Response**:
 
-### response examples:
-```
-{
-   "status":"ok",
-   "stats":[
-      {
-         "coin":"BTC.testnet",
-         "powerUnit":"hash",
-         "powerMultLog10":6,
-         "clients":1,
-         "workers":1,
-         "shareRate":0.024,
-         "shareWork":0.800,
-         "power":10,
-         "lastShareTime":1598655660
-      }
-   ]
-}
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `balances` | array | `[{coin, balance, requested, paid, queued}]` — all money as decimal strings |
 
-## backendQueryPoolStatsHistory
-Return history pool hashrate on selected time interval
+---
 
-### arguments:
-* [required] coin:string
-* [optional] timeFrom:integer (default=0) begin of time interval, unix time
-* [optional] timeTo:integer (default=UINT64_MAX) end of time interval, unix time
-* [optional] groupByInterval:integer (default=3600) grid size
+### backendQueryUserStats
 
-### return values:
-* status:string - can be one of common status values
-* powerUnit:string - pool power unit (hash/s for BTC, chains per day (cpd) for XPM, etc..)
-* powerMultLog10:integer - multiplier for pool hashrate, real power is power*(10^powerMultLog10)
-* stats: array of stat objects with fields:
-  * name:string - not user
-  * time:integer - end of time interval (time-groupByInterval, time]
-  * shareRate:float - shares per second
-  * shareWork:float - aggregated work in interval (time-groupByInterval, time]
-  * power:integer - usually hashrate, depends on coin type
+Returns current worker statistics for a user.
 
-### curl example:
-```
-curl -X POST -d '{"coin": "BTC.testnet"}' http://localhost:18880/api/backendQueryPoolStatsHistory
-```
+- **Auth**: session
 
-### response examples:
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user |
+| `coin` | string | no | `""` | Coin name |
+| `offset` | uint64 | no | `0` | Pagination offset |
+| `size` | uint64 | no | `4096` | Page size |
+| `sortBy` | string | no | `"name"` | Sort: `name`, `averagePower`, `sharesPerSecond`, `lastShareTime` |
+| `sortDescending` | bool | no | `false` | Sort direction |
 
-```
-{
-   "status":"ok",
-   "powerUnit":"hash",
-   "powerMultLog10":6,
-   "stats":[
-      {
-         "name":"",
-         "time":1598191200,
-         "shareRate":0.004,
-         "shareWork":4.000,
-         "power":4
-      },
-      {
-         "name":"",
-         "time":1598194800,
-         "shareRate":0.016,
-         "shareWork":14.250,
-         "power":17
-      },
-      {
-         "name":"",
-         "time":1598198400,
-         "shareRate":0.017,
-         "shareWork":15.500,
-         "power":18
-      }
-   ]
-}
-```
+**Response**:
 
-## backendQueryUserStats
-Returns user statistic (aggregate and for each worker)
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `powerUnit` | string | e.g. "Gh/s" |
+| `powerMultLog10` | int | |
+| `currentTime` | int | Server time |
+| `total` | object | Aggregate: `{clients, workers, shareRate, shareWork, power, lastShareTime}` |
+| `workers` | array | `[{name, shareRate, shareWork, power, lastShareTime}]` |
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [optional] targetLogin:string - various user login (only for admin session id)
-* [required] coin:string
-* [optional] offset:integer (default=0) - first row offset
-* [optional] size:integer (default=4096) - rows count in result
-* [optional] sortBy:string (default="name) - column for sorting, can be:
-  * name
-  * averagePower
-  * sharesPerSecond
-  * lastShareTime
-* [optional] sortDescending:boolean (default=false) - enable descending sort
+---
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_column_name - invalid sortBy value
-* powerUnit:string - pool power unit (hash/s for BTC, chains per day (cpd) for XPM, etc..)
-* powerMultLog10:integer - multiplier for pool hashrate, real power is power*(10^powerMultLog10)
-* total: object with these fields:
-  * clients:integer - everytime 1
-  * workers:integer - number of connections for current user in last N minutes
-  * shareRate:float - shares per second
-  * shareWork:float - aggregated work for last N minutes
-  * power:integer - usually hashrate, depends on coin type
-  * lastShareTime:integer - time of last received shared by user
-* workers: array of objects with these fields:
-  * name:string - worker name
-  * shareRate:float - shares per second
-  * shareWork:float - aggregated work for last N minutes
-  * power:integer - usually hashrate, depends on coin type
-  * lastShareTime:integer - time of last received shared by worker
+### backendQueryUserStatsHistory
 
-### curl example:
-```
-curl -X POST -d '{"id": "ae860bab2faca258c790563a5f97640e55c3c8f23df3fbfde07ed46e201beebbcd04f5b536c5aaf07969c55b09c569c46f37bcfb896c6931be2f9cc4bc6372f8", "coin": "BTC.testnet"}' http://localhost:18880/api/backendQueryUserStats
-```
+Returns historical statistics for a user.
 
-### response examples:
-```
-{
-   "status":"ok",
-   "powerUnit":"hash",
-   "powerMultLog10":6,
-   "total":{
-      "clients":1,
-      "workers":1,
-      "shareRate":0.052,
-      "shareWork":4.400,
-      "power":22,
-      "lastShareTime":1598655660
-   },
-   "workers":[
-      {
-         "name":"cpu",
-         "shareRate":0.052,
-         "shareWork":4.400,
-         "power":22,
-         "lastShareTime":1598655660
-      }
-   ]
-}
-```
+- **Auth**: session
 
-## backendQueryUserStatsHistory
-## backendQueryWorkerStatsHistory
-Return history user or worker hashrate on selected time interval
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user |
+| `coin` | string | no | `""` | Coin name |
+| `timeFrom` | int64 | no | now - 86400 | Start time (Unix) |
+| `timeTo` | int64 | no | now | End time (Unix) |
+| `groupByInterval` | int64 | no | `3600` | Aggregation interval (seconds) |
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [optional] targetLogin:string - various user login (only for admin session id)
-* [required] coin:string
-* [required] workerId:string - worker name (only for backendQueryWorkerStatsHistory)
-* [optional] timeFrom:integer (default=0) begin of time interval, unix time
-* [optional] timeTo:integer (default=UINT64_MAX) end of time interval, unix time
-* [optional] groupByInterval:integer (default=3600) grid size
+**Response**:
 
-### return values:
-* status:string - can be one of common status values
-* powerUnit:string - pool power unit (hash/s for BTC, chains per day (cpd) for XPM, etc..)
-* powerMultLog10:integer - multiplier for pool hashrate, real power is power*(10^powerMultLog10)
-* stats: array of objects with these fields:
-  * name:string - not used
-  * time:integer - end of time interval (time-groupByInterval, time]
-  * shareRate:float - shares per second
-  * shareWork:float - aggregated work in interval (time-groupByInterval, time]
-  * power:integer - usually hashrate, depends on coin type
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `powerUnit` | string | |
+| `powerMultLog10` | int | |
+| `currentTime` | int | |
+| `stats` | array | `[{name, time, shareRate, shareWork, power}]` |
 
-### response exapmles:
-```
-{
-   "status":"ok",
-   "powerUnit":"hash",
-   "powerMultLog10":6,
-   "stats":[
-      {
-         "name":"",
-         "time":1598191200,
-         "shareRate":0.003,
-         "shareWork":2.750,
-         "power":3
-      },
-      {
-         "name":"",
-         "time":1598194800,
-         "shareRate":0.009,
-         "shareWork":8.000,
-         "power":9
-      },
-      {
-         "name":"",
-         "time":1598198400,
-         "shareRate":0.021,
-         "shareWork":19.250,
-         "power":22
-      }
-   ]
-}
-```
+---
 
-## backendQueryPPLNSPayouts
-Returns PPLNS payout history for user
+### backendQueryWorkerStatsHistory
 
-### arguments:
-* [required] id:string - user session id
-* [required] coin:string
-* [optional] targetLogin:string - target user login (only for admin session id)
-* [optional] timeFrom:integer (default=0) - search payouts from this time point (unix time)
-* [optional] hashFrom:string (default="") - search payouts from this block hash (for pagination)
-* [optional] count:integer (default=20) - requested payouts count
+Returns historical statistics for a specific worker.
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * invalid_coin: coin does not exist
-* payouts: array of objects with fields:
-  * startTime:integer - round start time (unix time)
-  * endTime:integer - round end time (unix time)
-  * hash:string - block hash
-  * height:integer - block height
-  * value:string - payout value in coin
-  * valueBTC:string - payout value in BTC
-  * valueUSD:string - payout value in USD
+- **Auth**: session
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "count": 10}' http://localhost:18880/api/backendQueryPPLNSPayouts
-```
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user |
+| `coin` | string | yes | | Coin name |
+| `workerId` | string | yes | | Worker name |
+| `timeFrom` | int64 | no | now - 86400 | Start time (Unix) |
+| `timeTo` | int64 | no | now | End time (Unix) |
+| `groupByInterval` | int64 | no | `3600` | Aggregation interval (seconds) |
 
-## backendQueryPPLNSAcc
-Returns accumulated PPLNS payouts grouped by time interval
+**Response**: same format as `backendQueryUserStatsHistory`
 
-### arguments:
-* [required] id:string - user session id
-* [required] coin:string
-* [required] timeFrom:integer - begin of time interval (unix time)
-* [required] timeTo:integer - end of time interval (unix time)
-* [required] groupByInterval:integer - grouping interval in seconds
-* [optional] targetLogin:string - target user login (only for admin session id)
+---
 
-Constraints: timeTo > timeFrom, groupByInterval > 0, (timeTo - timeFrom) must be divisible by groupByInterval, max 3200 intervals.
+### backendQueryPayouts
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * invalid_coin: coin does not exist
-  * invalid_interval: interval constraints violated
-* payouts: array of objects with fields:
-  * timeLabel:integer - end of interval (unix time)
-  * value:string - total payout in coin
-  * valueBTC:string - total payout in BTC
-  * valueUSD:string - total payout in USD
+Returns payout transaction history for a user.
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "timeFrom": 1700000000, "timeTo": 1700086400, "groupByInterval": 3600}' http://localhost:18880/api/backendQueryPPLNSAcc
-```
+- **Auth**: session
 
-## backendQueryPPSPayouts
-Returns PPS payout history for user
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user |
+| `coin` | string | yes | | Coin name |
+| `timeFrom` | int64 | no | `0` | Start time (Unix) |
+| `count` | uint | no | `20` | Number of payouts |
 
-### arguments:
-* [required] id:string - user session id
-* [required] coin:string
-* [optional] targetLogin:string - target user login (only for admin session id)
-* [optional] timeFrom:integer (default=0) - search payouts from this time point (unix time)
-* [optional] count:integer (default=20) - requested payouts count
+**Response**:
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * invalid_coin: coin does not exist
-* payouts: array of objects with fields:
-  * startTime:integer - PPS interval start time (unix time)
-  * endTime:integer - PPS interval end time (unix time)
-  * value:string - payout value in coin
-  * valueBTC:string - payout value in BTC
-  * valueUSD:string - payout value in USD
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `payouts` | array | Payout objects |
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "count": 10}' http://localhost:18880/api/backendQueryPPSPayouts
-```
+Each payout:
 
-## backendQueryPPSPayoutsAcc
-Returns accumulated PPS payouts grouped by time interval
+| Field | Type | Description |
+|-------|------|-------------|
+| `time` | int | Unix timestamp |
+| `txid` | string | Transaction ID |
+| `value` | string | Amount (decimal string) |
+| `valueBTC` | string | BTC equivalent |
+| `valueUSD` | string | USD equivalent |
+| `status` | int | 0=Initialized, 1=TxCreated, 2=TxSent, 3=TxConfirmed, 4=TxRejected |
 
-### arguments:
-* [required] id:string - user session id
-* [required] coin:string
-* [required] timeFrom:integer - begin of time interval (unix time)
-* [required] timeTo:integer - end of time interval (unix time)
-* [required] groupByInterval:integer - grouping interval in seconds
-* [optional] targetLogin:string - target user login (only for admin session id)
+---
 
-Constraints: timeTo > timeFrom, groupByInterval > 0, (timeTo - timeFrom) must be divisible by groupByInterval, max 3200 intervals.
+### backendManualPayout
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id
-  * invalid_coin: coin does not exist
-  * invalid_interval: interval constraints violated
-* payouts: array of objects with fields:
-  * timeLabel:integer - end of interval (unix time)
-  * value:string - total payout in coin
-  * valueBTC:string - total payout in BTC
-  * valueUSD:string - total payout in USD
+Triggers an immediate payout for a user.
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "timeFrom": 1700000000, "timeTo": 1700086400, "groupByInterval": 3600}' http://localhost:18880/api/backendQueryPPSPayoutsAcc
-```
+- **Auth**: session (write access required)
 
-## backendQueryProfitSwitchCoeff
-Function returns current profit switcher coefficients, works for admin and observer only
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user (admin only) |
+| `coin` | string | yes | | Coin name |
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
+**Response**: `status`
 
-### return values:
-array of objects with these fields:
-* name:string - unique coin id
-* profitSwitchCoeff:double - current profit switcher coefficient
+---
 
-### curl example:
-```curl -X POST -d '{"id": "bfb3a5e00e52ed152497dd487c7c70571a067ec3c8bc8f4b8c2f17f2f603d9e39ab87a33f8e5533af38879abf94e8c3ab03356b96b8adf8378b1beb46fcbdb32"}' http://localhost:18880/api/backendUpdateProfitSwitchCoeff```
+### backendQueryPPLNSPayouts
 
-### response exapmle:
-```
-[
-   {
-      "name":"BTC",
-      "profitSwitchCoeff":1.000
-   },
-   {
-      "name":"DGB.sha256",
-      "profitSwitchCoeff":1.000
-   },
-   {
-      "name":"BTC.regtest",
-      "profitSwitchCoeff":0.000
-   },
-   {
-      "name":"LTC.testnet",
-      "profitSwitchCoeff":0.000
-   }
-]
-```
+Returns PPLNS payout records per round.
 
-## backendUpdateProfitSwitchCoeff
-Function updates profit switcher coefficients, works for admin only
+- **Auth**: session
 
-### arguments:
-* [required] id:string - unique identifier of operation generated by another api function
-* [required] coin:string
-* [required] profitSwitchCoeff:double - new profit switcher coefficient
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user |
+| `coin` | string | yes | | Coin name |
+| `timeFrom` | int64 | no | `0` | Start time (Unix) |
+| `hashFrom` | string | no | `""` | Start hash (pagination) |
+| `count` | uint | no | `20` | Number of records |
 
-### return values:
-* status:string - can be one of common status values
+**Response**:
 
-### curl example:
-```
-curl -X POST -d '{"id": "bfb3a5e00e52ed152497dd487c7c70571a067ec3c8bc8f4b8c2f17f2f603d9e39ab87a33f8e5533af38879abf94e8c3ab03356b96b8adf8378b1beb46fcbdb32", "coin": "BTC", "profitSwitchCoeff": 0.9}' http://localhost:18880/api/backendUpdateProfitSwitchCoeff
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `payouts` | array | `[{startTime, endTime, hash, height, value, valueBTC, valueUSD}]` |
 
-### response exapmle:
-```
-{"status": "ok"}
-```
+---
 
-## backendGetConfig
-Returns backend configuration (PPS and payouts) for specified coin. Access: admin and observer only.
+### backendQueryPPLNSAcc
 
-### arguments:
-* [required] id:string - admin or observer session id
-* [required] coin:string
+Returns accumulated PPLNS payouts grouped by time intervals.
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id or insufficient permissions
-  * invalid_coin: coin does not exist
-* pps: object with fields:
-  * enabled:boolean - whether PPS mode is enabled
-  * poolFee:double - pool fee percentage
-  * saturationFunction:string - saturation function name ("none", "tanh", "clamp", "cubic", "softsign", "norm", "atan", "exp")
-  * saturationB0:double - saturation balance scale parameter
-  * saturationANegative:double - saturation amplitude for negative balance
-  * saturationAPositive:double - saturation amplitude for positive balance
-  * saturationFunctions:[string] - list of all supported saturation function names
-* payouts: object with fields:
-  * instantPayoutsEnabled:boolean - whether instant payouts are enabled
-  * regularPayoutsEnabled:boolean - whether regular payouts are enabled
-  * instantMinimalPayout:string - minimal payout amount for instant payouts
-  * instantPayoutInterval:integer - instant payout check interval in minutes
-  * regularMinimalPayout:string - minimal payout amount for regular payouts
-  * regularPayoutInterval:integer - regular payout interval in hours
-  * regularPayoutDayOffset:integer - regular payout day offset in hours
-* swap: object with fields:
-  * acceptIncoming:boolean - whether this coin accepts incoming auto-exchange
-  * acceptOutgoing:boolean - whether this coin allows outgoing auto-exchange
+- **Auth**: session
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "coin": "BTC"}' http://localhost:18880/api/backendGetConfig
-```
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `targetLogin` | string | no | Target user |
+| `coin` | string | yes | Coin name |
+| `timeFrom` | int64 | yes | Start time (Unix) |
+| `timeTo` | int64 | yes | End time (Unix) |
+| `groupByInterval` | int64 | yes | Aggregation interval (seconds) |
 
-### response examples:
-```
+Constraint: `(timeTo - timeFrom)` must be divisible by `groupByInterval`. Max 3200 intervals.
+
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `accumulated` | array | `[{time, accumulated}]` — accumulated as decimal string |
+
+---
+
+### backendQueryPPSPayouts
+
+Returns PPS payout records.
+
+- **Auth**: session
+
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | no | `""` | Target user |
+| `coin` | string | yes | | Coin name |
+| `timeFrom` | int64 | no | `0` | Start time (Unix) |
+| `count` | uint | no | `20` | Number of records |
+
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `payouts` | array | `[{startTime, endTime, value, valueBTC, valueUSD}]` |
+
+---
+
+### backendQueryPPSPayoutsAcc
+
+Returns accumulated PPS payouts grouped by time intervals.
+
+- **Auth**: session
+
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `targetLogin` | string | no | Target user |
+| `coin` | string | yes | Coin name |
+| `timeFrom` | int64 | yes | Start time (Unix) |
+| `timeTo` | int64 | yes | End time (Unix) |
+| `groupByInterval` | int64 | yes | Aggregation interval (seconds) |
+
+Constraint: `(timeTo - timeFrom)` must be divisible by `groupByInterval`. Max 3200 intervals.
+
+**Response**: same format as `backendQueryPPLNSAcc`
+
+---
+
+## Admin endpoints
+
+### backendGetConfig
+
+Returns backend configuration for a coin.
+
+- **Auth**: admin or observer
+
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `coin` | string | yes | Coin name |
+
+**Response**:
+
+```json
 {
   "status": "ok",
   "pps": {
-    "enabled": true,
-    "poolFee": 4.0,
-    "saturationFunction": "tanh",
-    "saturationB0": 3.0,
-    "saturationANegative": 0.5,
-    "saturationAPositive": 0.3,
-    "saturationFunctions": ["none", "tanh", "clamp", "cubic", "softsign", "norm", "atan", "exp"]
+    "enabled": false,
+    "poolFee": 2.0,
+    "saturationFunction": "None",
+    "saturationB0": 0.0,
+    "saturationANegative": 0.0,
+    "saturationAPositive": 0.0,
+    "saturationFunctions": ["None", "Tangent", "Clamp", "Cubic", "Softsign", "Norm", "Atan", "Exp"]
   },
   "payouts": {
     "instantPayoutsEnabled": true,
     "regularPayoutsEnabled": true,
-    "instantMinimalPayout": "0.01000000",
-    "instantPayoutInterval": 1,
-    "regularMinimalPayout": "0.00050000",
-    "regularPayoutInterval": 24,
+    "instantMinimalPayout": "0.001",
+    "instantPayoutInterval": 3600000,
+    "regularMinimalPayout": "0.01",
+    "regularPayoutInterval": 86400000,
     "regularPayoutDayOffset": 0
   },
   "swap": {
-    "acceptIncoming": true,
-    "acceptOutgoing": true
+    "acceptIncoming": false,
+    "acceptOutgoing": false
   }
 }
 ```
 
-## backendGetPPSState
-Returns current PPS balance state for specified coin. Access: admin and observer only.
+Note: payout intervals are in milliseconds.
 
-### arguments:
-* [required] id:string - admin or observer session id
-* [required] coin:string
+---
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id or insufficient permissions
-  * invalid_coin: coin does not exist
-* state: object with fields:
-  * time:integer - timestamp of last state update (unix time)
-  * balance:object - current PPS pool balance:
-    * value:string - formatted balance
-    * inBlocks:double - balance expressed in block rewards
-  * refBalance:object - reference balance (not affected by payouts):
-    * value:string - formatted balance
-    * inBlocks:double - balance expressed in block rewards
-    * sqLambda:double - statistical deviation metric (balance / sqrt(totalBlocksFound))
-  * minRefBalance:object - minimum reference balance snapshot:
-    * time:integer - unix time
-    * value:string - formatted balance
-    * inBlocks:double
-    * sqLambda:double
-  * maxRefBalance:object - maximum reference balance snapshot:
-    * time:integer - unix time
-    * value:string - formatted balance
-    * inBlocks:double
-    * sqLambda:double
-  * totalBlocksFound:double - fractional count of blocks found (PPS portion only)
-  * orphanBlocks:double - fractional count of orphaned blocks
-  * lastSaturateCoeff:double - last applied saturation coefficient (1.0 = no correction)
-  * lastBaseBlockReward:string - base block reward without tx fees (formatted)
-  * lastAverageTxFee:string - average transaction fee per block (formatted)
+### backendUpdateConfig
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "coin": "BTC"}' http://localhost:18880/api/backendGetPPSState
-```
+Updates backend configuration for a coin.
 
-### response examples:
-```
+- **Auth**: admin
+
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `coin` | string | yes | Coin name |
+| `pps` | object | no | PPS settings (all fields optional) |
+| `payouts` | object | no | Payout settings (all fields optional) |
+| `swap` | object | no | Swap settings (all fields optional) |
+
+At least one of `pps`, `payouts`, `swap` must be present.
+
+**pps** fields: `enabled`(bool), `poolFee`(double), `saturationFunction`(string), `saturationB0`(double), `saturationANegative`(double), `saturationAPositive`(double)
+
+**payouts** fields: `instantPayoutsEnabled`(bool), `regularPayoutsEnabled`(bool), `instantMinimalPayout`(string), `instantPayoutInterval`(int64 ms), `regularMinimalPayout`(string), `regularPayoutInterval`(int64 ms), `regularPayoutDayOffset`(int64 ms, default 0)
+
+**swap** fields: `acceptIncoming`(bool), `acceptOutgoing`(bool)
+
+**Response**: `status`
+
+---
+
+### backendGetPPSState
+
+Returns the current PPS pool state.
+
+- **Auth**: admin or observer
+
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `coin` | string | yes | Coin name |
+
+**Response**:
+
+```json
 {
   "status": "ok",
-  "state": {
+  "ppsState": {
     "time": 1700000000,
-    "balance": {
-      "value": "0.12345678",
-      "inBlocks": 0.020
-    },
-    "refBalance": {
-      "value": "0.15000000",
-      "inBlocks": 0.024,
-      "sqLambda": 0.145
-    },
-    "minRefBalance": {
-      "time": 1699990000,
-      "value": "-0.05000000",
-      "inBlocks": -0.008,
-      "sqLambda": -0.042
-    },
-    "maxRefBalance": {
-      "time": 1699995000,
-      "value": "0.20000000",
-      "inBlocks": 0.032,
-      "sqLambda": 0.170
-    },
-    "totalBlocksFound": 3.500,
-    "orphanBlocks": 0.000,
-    "lastSaturateCoeff": 0.9800,
+    "balance": { "value": "1.23456789", "inBlocks": 0.5 },
+    "refBalance": { "value": "2.00000000", "inBlocks": 0.8, "sqLambda": 0.1 },
+    "minRefBalance": { "time": 1699900000, "value": "1.5", "inBlocks": 0.6, "sqLambda": 0.05 },
+    "maxRefBalance": { "time": 1699950000, "value": "2.5", "inBlocks": 1.0, "sqLambda": 0.15 },
+    "totalBlocksFound": 10.5,
+    "orphanBlocks": 0.2,
+    "lastSaturateCoeff": 1.0,
     "lastBaseBlockReward": "6.25000000",
-    "lastAverageTxFee": "0.01500000"
+    "lastAverageTxFee": "0.00123456"
   }
 }
 ```
 
-## backendQueryPPSHistory
-Returns PPS balance state history for specified coin and time range. Access: admin and observer only.
+---
 
-### arguments:
-* [required] id:string - admin or observer session id
-* [required] coin:string
-* [required] timeFrom:integer - begin of time interval (unix time)
-* [required] timeTo:integer - end of time interval (unix time)
+### backendQueryPPSHistory
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id or insufficient permissions
-  * invalid_coin: coin does not exist
-* history: array of state objects (same fields as backendGetPPSState state object)
+Returns historical PPS pool state snapshots.
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "timeFrom": 1700000000, "timeTo": 1700086400}' http://localhost:18880/api/backendQueryPPSHistory
-```
+- **Auth**: admin or observer
 
-### response examples:
-```
-{
-  "status": "ok",
-  "history": [
-    {
-      "time": 1700000000,
-      "balance": { "value": "0.10000000", "inBlocks": 0.016 },
-      "refBalance": { "value": "0.12000000", "inBlocks": 0.019, "sqLambda": 0.100 },
-      "minRefBalance": { "time": 1699990000, "value": "-0.05000000", "inBlocks": -0.008, "sqLambda": -0.042 },
-      "maxRefBalance": { "time": 1699995000, "value": "0.15000000", "inBlocks": 0.024, "sqLambda": 0.130 },
-      "totalBlocksFound": 2.500,
-      "orphanBlocks": 0.000,
-      "lastSaturateCoeff": 1.0000,
-      "lastBaseBlockReward": "6.25000000",
-      "lastAverageTxFee": "0.01200000"
-    },
-    {
-      "time": 1700003600,
-      "balance": { "value": "0.12345678", "inBlocks": 0.020 },
-      "refBalance": { "value": "0.15000000", "inBlocks": 0.024, "sqLambda": 0.145 },
-      "minRefBalance": { "time": 1699990000, "value": "-0.05000000", "inBlocks": -0.008, "sqLambda": -0.042 },
-      "maxRefBalance": { "time": 1700002000, "value": "0.20000000", "inBlocks": 0.032, "sqLambda": 0.170 },
-      "totalBlocksFound": 3.500,
-      "orphanBlocks": 0.000,
-      "lastSaturateCoeff": 0.9800,
-      "lastBaseBlockReward": "6.25000000",
-      "lastAverageTxFee": "0.01500000"
-    }
-  ]
-}
-```
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+| `coin` | string | yes | Coin name |
+| `timeFrom` | int64 | yes | Start time (Unix) |
+| `timeTo` | int64 | yes | End time (Unix) |
 
-## backendUpdateConfig
-Update backend configuration for specified coin. At least one of pps/payouts sub-objects must be provided. Access: admin only.
+**Response**:
 
-### arguments:
-* [required] id:string - admin session id
-* [required] coin:string
-* [optional] pps:object - PPS configuration:
-  * [required] enabled:boolean - enable or disable PPS mode
-  * [required] poolFee:double - pool fee percentage
-  * [optional] saturationFunction:string (default="") - saturation function name, empty string means "none"
-  * [optional] saturationB0:double (default=0.0) - saturation balance scale; required and must be > 0 when saturation function is not "none"
-  * [optional] saturationANegative:double (default=0.0) - saturation amplitude for negative balance; must be in [0, 1]
-  * [optional] saturationAPositive:double (default=0.0) - saturation amplitude for positive balance; must be in [0, 1]
-* [optional] payouts:object - payouts configuration:
-  * [required] instantPayoutsEnabled:boolean - enable or disable instant payouts
-  * [required] regularPayoutsEnabled:boolean - enable or disable regular payouts
-  * [required] instantMinimalPayout:string - minimal payout amount for instant payouts
-  * [required] instantPayoutInterval:integer - instant payout check interval in minutes (must be > 0)
-  * [required] regularMinimalPayout:string - minimal payout amount for regular payouts
-  * [required] regularPayoutInterval:integer - regular payout interval in hours (must be > 0; must divide 24 or be a multiple of 24)
-  * [optional] regularPayoutDayOffset:integer (default=0) - regular payout day offset in hours (must be in [0, 24))
-* [optional] swap:object - auto-exchange configuration:
-  * [required] acceptIncoming:boolean - whether this coin accepts incoming auto-exchange
-  * [required] acceptOutgoing:boolean - whether this coin allows outgoing auto-exchange
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `history` | array | Array of `ppsState` objects (same format as `backendGetPPSState`) |
 
-### return values:
-* status:string - can be one of common status values or:
-  * unknown_id: invalid session id or insufficient permissions
-  * invalid_coin: coin does not exist
-  * invalid_pool_fee: pool fee out of [0, 100] range
-  * invalid_saturation_function: unknown saturation function name
-  * invalid_saturation_params: B0 <= 0, or A values out of [0, 1] range
-  * invalid_payout_interval: interval is zero or negative
-  * invalid_regular_payout_interval: interval does not divide 24 and is not a multiple of 24
-  * invalid_regular_payout_day_offset: offset >= 24 hours
-  * users_threshold_conflict: a user has non-zero instant payout threshold below the new instantMinimalPayout (regardless of current payout mode); use userAdjustInstantPayoutThreshold first
+---
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "pps": {"enabled": true, "poolFee": 4.0, "saturationFunction": "tanh", "saturationB0": 3.0, "saturationANegative": 0.5, "saturationAPositive": 0.3}}' http://localhost:18880/api/backendUpdateConfig
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "payouts": {"instantPayoutsEnabled": true, "regularPayoutsEnabled": true, "instantMinimalPayout": "0.01", "instantPayoutInterval": 1, "regularMinimalPayout": "0.0005", "regularPayoutInterval": 24, "regularPayoutDayOffset": 0}}' http://localhost:18880/api/backendUpdateConfig
-curl -X POST -d '{"id": "...session...", "coin": "BTC", "swap": {"acceptIncoming": true, "acceptOutgoing": true}}' http://localhost:18880/api/backendUpdateConfig
-```
+### backendQueryProfitSwitchCoeff
 
-### response examples:
-```
-{"status": "ok"}
-```
+Returns profit switching coefficients for all coins.
 
-## backendPoolLuck
-Returns pool luck values for specified time intervals. No authentication required.
+- **Auth**: admin or observer
 
-### arguments:
-* [required] coin:string
-* [required] intervals:[integer] - array of time intervals in seconds, must be strictly increasing
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
 
-### return values:
-* status:string - can be one of common status values or:
-  * invalid_coin: coin does not exist
-* luck:[double] - array of luck values corresponding to each interval (1.0 = expected, <1.0 = lucky)
+**Response**:
 
-### curl example:
-```
-curl -X POST -d '{"coin": "BTC", "intervals": [3600, 86400, 604800]}' http://localhost:18880/api/backendPoolLuck
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `coins` | array | `[{name, profitSwitchCoeff}]` |
 
-### response examples:
-```
-{
-  "status": "ok",
-  "luck": [1.25, 0.98, 1.02]
-}
-```
+---
 
-# Other API functions
+### backendUpdateProfitSwitchCoeff
 
-## instanceEnumerateAll
-Function returns information about all instances (stratum/other ports, configuration)
+Updates the profit switching coefficient for a coin.
 
-### arguments:
-none
+- **Auth**: admin
 
-### return values:
-* status:string - "ok"
-* instances:array - array of objects with these fields:
-  * protocol:string - usual 'stratum'
-  * type:string - protocol implementation, usual a coin name
-  * port:integer
-  * backends:[string] - array of available backends for mining using this instance
-  * shareDiff:float - only for BTC-like stratum instances, minimal share difficulty
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `coin` | string | no | `""` | Coin name |
+| `profitSwitchCoeff` | double | yes | | New coefficient |
 
-### curl example:
-```
-curl -X POST -d '{}' http://localhost:18880/api/instanceEnumerateAll
-```
+**Response**: `status`
 
-### response exapmle:
-```
-{
-   "status":"ok",
-   "instances":[
-      {
-         "protocol":"stratum",
-         "type":"BTC",
-         "port":3456,
-         "backends":[
-            "BTC"
-         ],
-         "shareDiff":32768.000000
-      },
-      {
-         "protocol":"stratum",
-         "type":"LTC",
-         "port":3460,
-         "backends":[
-            "LTC.testnet"
-         ],
-         "shareDiff":0.000010
-      }
-   ]
-}
-```
+---
 
-## complexMiningStatsGetInfo
-Returns complex mining statistics information. Access: admin only.
+### complexMiningStatsGetInfo
 
-### arguments:
-* [required] id:string - admin session id
+Queries complex mining statistics engine.
 
-### return values:
-* Response format depends on ComplexMiningStats implementation
+- **Auth**: session
 
-### curl example:
-```
-curl -X POST -d '{"id": "...session..."}' http://localhost:18880/api/complexMiningStatsGetInfo
-```
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `id` | string | yes | Session ID |
+
+**Response**: varies by implementation
+
+---
+
+## Endpoint summary
+
+| # | Endpoint | Auth |
+|---|----------|------|
+| 1 | userCreate | none/session |
+| 2 | userResendEmail | none |
+| 3 | userAction | none |
+| 4 | userLogin | none |
+| 5 | userLogout | none |
+| 6 | userQueryMonitoringSession | session |
+| 7 | userChangeEmail | — (not implemented) |
+| 8 | userChangePasswordInitiate | none |
+| 9 | userChangePasswordForce | none |
+| 10 | userGetCredentials | session |
+| 11 | userUpdateCredentials | session |
+| 12 | userGetSettings | session |
+| 13 | userUpdateSettings | session |
+| 14 | userEnumerateAll | admin/observer |
+| 15 | userEnumerateFeePlan | session |
+| 16 | userCreateFeePlan | session |
+| 17 | userQueryFeePlan | session |
+| 18 | userUpdateFeePlan | session |
+| 19 | userDeleteFeePlan | session |
+| 20 | userChangeFeePlan | session |
+| 21 | userRenewFeePlanReferralId | session |
+| 22 | userActivate2faInitiate | session |
+| 23 | userDeactivate2faInitiate | session |
+| 24 | userAdjustInstantPayoutThreshold | admin |
+| 25 | backendManualPayout | session (write) |
+| 26 | backendQueryCoins | none |
+| 27 | backendQueryFoundBlocks | none |
+| 28 | backendQueryPayouts | session |
+| 29 | backendQueryPoolBalance | — (not implemented) |
+| 30 | backendQueryPoolStats | none |
+| 31 | backendQueryPoolStatsHistory | none |
+| 32 | backendQueryProfitSwitchCoeff | admin/observer |
+| 33 | backendQueryUserBalance | session |
+| 34 | backendQueryUserStats | session |
+| 35 | backendQueryUserStatsHistory | session |
+| 36 | backendQueryWorkerStatsHistory | session |
+| 37 | backendQueryPPLNSPayouts | session |
+| 38 | backendQueryPPLNSAcc | session |
+| 39 | backendQueryPPSPayouts | session |
+| 40 | backendQueryPPSPayoutsAcc | session |
+| 41 | backendUpdateProfitSwitchCoeff | admin |
+| 42 | backendGetConfig | admin/observer |
+| 43 | backendGetPPSState | admin/observer |
+| 44 | backendQueryPPSHistory | admin/observer |
+| 45 | backendUpdateConfig | admin |
+| 46 | backendPoolLuck | none |
+| 47 | instanceEnumerateAll | none |
+| 48 | complexMiningStatsGetInfo | session |

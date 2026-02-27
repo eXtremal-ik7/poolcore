@@ -14,6 +14,7 @@
     "poolDeactivate2faLinkPrefix": "/actions/deactivate2fa?id=",
     "adminPasswordHash": "",
     "observerPasswordHash": "",
+    "coinGeckoApiKey": "",
     "smtpEnabled": false,
     "smtpServer": "smtp.gmail.com:465",
     "smtpLogin": "user",
@@ -27,14 +28,13 @@
     {
       "name": "BTC",
       "getWorkNodes": [
-        {"type": "bitcoinrpc", "address": "localhost:8332", "login": "user", "password": "password", "wallet": ""}
+        {"type": "bitcoinrpc", "address": "localhost:8332", "login": "user", "password": "password", "wallet": "", "longPollEnabled": true}
       ],
       "RPCNodes": [
         {"type": "bitcoinrpc", "address": "localhost:8332", "login": "user", "password": "password", "wallet": ""}
       ],
       "requiredConfirmations": 100,
       "defaultPayoutThreshold": "0.01",
-      "keepRoundTime": 3,
       "keepStatsTime": 2,
       "confirmationsCheckInterval": 7,
       "balanceCheckInterval": 3,
@@ -45,7 +45,8 @@
         {"address": "1JR4WrV8jxv7uaKKc5hwkMKGHqsAowBC3u", "weight": 1}
       ],
       "coinbaseMsg": "BTC!",
-      "profitSwitchCoeff": 1.0
+      "profitSwitchCoeff": 1.0,
+      "ppsPayoutInterval": 5
     },
     {
       "name": "XPM",
@@ -57,7 +58,6 @@
       ],
       "requiredConfirmations": 12,
       "defaultPayoutThreshold": "4",
-      "keepRoundTime": 3,
       "keepStatsTime": 2,
       "confirmationsCheckInterval": 7,
       "balanceCheckInterval": 3,
