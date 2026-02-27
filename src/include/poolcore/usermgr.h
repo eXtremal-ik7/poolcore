@@ -31,7 +31,7 @@ public:
     std::string Name;
     std::string EMail;
     std::string TwoFactor;
-    int64_t RegistrationDate;
+    Timestamp RegistrationDate;
     bool IsActive;
     bool IsReadOnly;
     bool HasTwoFactor;
@@ -404,7 +404,7 @@ public:
       adminRecord.Login = name;
       adminRecord.PasswordHash = BaseBlob<256>::fromHexLE(hash.c_str());
       adminRecord.Name = name;
-      adminRecord.RegistrationDate = 0;
+      adminRecord.RegistrationDate = Timestamp(0);
       adminRecord.IsActive = true;
       adminRecord.IsReadOnly = isReadOnly;
       UsersCache_.insert(std::make_pair(name, adminRecord));

@@ -210,7 +210,7 @@ struct UsersRecord {
   std::string TwoFactorAuthData;
   std::string ParentUser;
   BaseBlob<256> PasswordHash;
-  int64_t RegistrationDate;
+  Timestamp RegistrationDate;
   bool IsActive;
   bool IsReadOnly = false;
   bool IsSuperUser = false;
@@ -288,7 +288,7 @@ struct UserActionRecord {
   BaseBlob<512> Id;
   std::string Login;
   uint32_t Type;
-  uint64_t CreationDate;
+  Timestamp CreationDate;
   std::string TwoFactorKey;
 
   UserActionRecord() {}
@@ -303,7 +303,7 @@ struct UserSessionRecord {
 
   BaseBlob<512> Id;
   std::string Login;
-  uint64_t LastAccessTime;
+  Timestamp LastAccessTime;
   bool Dirty = false;
   bool IsReadOnly = false;
   bool IsPermanent = false;
@@ -314,7 +314,7 @@ struct UserSessionRecord {
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;
 
-  void updateLastAccessTime(uint64_t time) {
+  void updateLastAccessTime(Timestamp time) {
     LastAccessTime = time;
     Dirty = true;
   }
@@ -448,8 +448,8 @@ struct FoundBlockRecord {
 
 struct PoolBalanceRecord {
   enum { CurrentRecordVersion = 1 };
-  
-  int64_t Time;
+
+  Timestamp Time;
   UInt<384> Balance;
   UInt<384> Immature;
   UInt<384> Users;
@@ -457,7 +457,7 @@ struct PoolBalanceRecord {
   UInt<384> ConfirmationWait;
   UInt<384> Net;
 
-  std::string getPartitionId() const { return partByTime(Time); }
+  std::string getPartitionId() const { return partByTime(Time.toUnixTime()); }
   bool deserializeValue(const void *data, size_t size);
   void serializeKey(xmstream &stream) const;
   void serializeValue(xmstream &stream) const;

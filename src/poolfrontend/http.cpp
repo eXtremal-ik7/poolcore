@@ -621,7 +621,7 @@ void PoolHttpConnection::onUserGetCredentials(rapidjson::Document &document)
       result.addString("login", tokenInfo.Login);
       result.addString("name", credentials.Name);
       result.addString("email", credentials.EMail);
-      result.addInt("registrationDate", credentials.RegistrationDate);
+      result.addInt("registrationDate", credentials.RegistrationDate.toUnixTime());
       result.addBoolean("isActive", credentials.IsActive);
       // We return readonly flag if user or session has it
       result.addBoolean("isReadOnly", tokenInfo.IsReadOnly | credentials.IsReadOnly);
@@ -901,7 +901,7 @@ void PoolHttpConnection::onUserEnumerateAll(rapidjson::Document &document)
               userObject.addString("login", user.Credentials.Login);
               userObject.addString("name", user.Credentials.Name);
               userObject.addString("email", user.Credentials.EMail);
-              userObject.addInt("registrationDate", user.Credentials.RegistrationDate);
+              userObject.addInt("registrationDate", user.Credentials.RegistrationDate.toUnixTime());
               userObject.addBoolean("isActive", user.Credentials.IsActive);
               userObject.addBoolean("isReadOnly", user.Credentials.IsReadOnly);
               userObject.addString("feePlanId", user.Credentials.FeePlan);

@@ -442,14 +442,14 @@ void UserManager::userManagerCleanup()
   for (;;) {
     size_t usersDeletedCount = 0;
     size_t updatedSessions = 0;
-    time_t currentTime = time(nullptr);
+    Timestamp currentTime = Timestamp::now();
     std::vector<BaseBlob<512>> sessionIdForDelete;
     std::vector<BaseBlob<512>> actionIdForDelete;
     kvdb<rocksdbBase>::Batch sessionBatch;
     kvdb<rocksdbBase>::Batch actionBatch;
 
     for (const auto &session: SessionsCache_) {
-      if (!session.second.IsPermanent && (currentTime - session.second.LastAccessTime >= SessionLifeTime_)) {
+      if (!session.second.IsPermanent && (currentTime - session.second.LastAccessTime >= std::chrono::seconds(SessionLifeTime_))) {
         sessionIdForDelete.push_back(session.second.Id);
         LoginSessionMap_.erase(session.second.Login);
         sessionBatch.deleteRow(session.second);
@@ -460,7 +460,7 @@ void UserManager::userManagerCleanup()
     }
 
     for (const auto &action: ActionsCache_) {
-      if (currentTime - action.second.CreationDate >= ActionLifeTime_) {
+      if (currentTime - action.second.CreationDate >= std::chrono::seconds(ActionLifeTime_)) {
         actionIdForDelete.push_back(action.second.Id);
         LoginActionMap_.erase(action.second.Login);
         actionBatch.deleteRow(action.second);
@@ -624,7 +624,7 @@ void UserManager::changePasswordInitiateImpl(const std::string &login, Task::Def
   makeRandom(actionRecord.Id);
   actionRecord.Login = login;
   actionRecord.Type = UserActionRecord::UserChangePassword;
-  actionRecord.CreationDate = time(nullptr);
+  actionRecord.CreationDate = Timestamp::now();
 
   // Send email
   std::string emailSendError;
@@ -763,7 +763,7 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
   makeRandom(actionRecord.Id);
   actionRecord.Login = credentials.Login;
   actionRecord.Type = UserActionRecord::UserActivate;
-  actionRecord.CreationDate = time(nullptr);
+  actionRecord.CreationDate = Timestamp::now();
 
   UsersRecord userRecord;
   userRecord.Login = credentials.Login;
@@ -771,7 +771,7 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
   userRecord.Name = credentials.Name;
   userRecord.TwoFactorAuthData.clear();
   userRecord.PasswordHash = generateHash(credentials.Login, credentials.Password);
-  userRecord.RegistrationDate = time(nullptr);
+  userRecord.RegistrationDate = Timestamp::now();
   userRecord.IsActive = credentials.IsActive;
   userRecord.IsReadOnly = credentials.IsReadOnly;
   userRecord.FeePlanId = feePlan;
@@ -895,7 +895,7 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
   makeRandom(actionRecord.Id);
   actionRecord.Login = credentials.Login;
   actionRecord.Type = UserActionRecord::UserActivate;
-  actionRecord.CreationDate = time(nullptr);
+  actionRecord.CreationDate = Timestamp::now();
 
   // Send email
   if (SMTP.Enabled) {
@@ -999,7 +999,7 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
   UserSessionRecord session;
   makeRandom(session.Id);
   session.Login = credentials.Login;
-  session.LastAccessTime = time(nullptr);
+  session.LastAccessTime = Timestamp::now();
   session.IsReadOnly = isReadOnly;
   sessionAdd(session);
   callback(session.Id.getHexLE(), "ok", isReadOnly);
@@ -1049,7 +1049,7 @@ void UserManager::queryMonitoringSessionImpl(const std::string &sessionId, const
   UserSessionRecord session;
   makeRandom(session.Id);
   session.Login = tokenInfo.Login;
-  session.LastAccessTime = time(nullptr);
+  session.LastAccessTime = Timestamp::now();
   session.IsReadOnly = true;
   session.IsPermanent = true;
   sessionAdd(session);
@@ -1499,7 +1499,7 @@ void UserManager::activate2faInitiateImpl(const std::string &sessionId, const st
   actionRecord.Login = tokenInfo.Login;
   actionRecord.Type = UserActionRecord::UserTwoFactorActivate;
   actionRecord.TwoFactorKey = keyBase32;
-  actionRecord.CreationDate = time(nullptr);
+  actionRecord.CreationDate = Timestamp::now();
 
   // Send email
   std::string emailSendError;
@@ -1548,7 +1548,7 @@ void UserManager::deactivate2faInitiateImpl(const std::string &sessionId, const 
   makeRandom(actionRecord.Id);
   actionRecord.Login = tokenInfo.Login;
   actionRecord.Type = UserActionRecord::UserTwoFactorDeactivate;
-  actionRecord.CreationDate = time(nullptr);
+  actionRecord.CreationDate = Timestamp::now();
 
   // Send email
   std::string emailSendError;
@@ -1581,7 +1581,7 @@ bool UserManager::checkPassword(const std::string &login, const std::string &pas
 bool UserManager::validateSession(const std::string &id, const std::string &targetLogin, UserWithAccessRights &result, bool needWriteAccess)
 {
   result.IsReadOnly = false;
-  time_t currentTime = time(nullptr);
+  Timestamp currentTime = Timestamp::now();
   {
     decltype (SessionsCache_)::accessor accessor;
     if (SessionsCache_.find(accessor, BaseBlob<512>::fromHexLE(id.c_str()))) {

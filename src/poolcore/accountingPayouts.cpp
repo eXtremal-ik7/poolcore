@@ -412,7 +412,7 @@ void CPayoutProcessor::checkBalance()
 
   {
     PoolBalanceRecord pb;
-    pb.Time = time(0);
+    pb.Time = Timestamp::now();
     pb.Balance = balance;
     pb.Immature = immature;
     pb.Users = userBalance;

@@ -120,6 +120,75 @@ bool PoolBalanceRecord2::deserializeValue(const void *data, size_t size)
   return !stream.eof();
 }
 
+// UsersRecord2
+
+bool UsersRecord2::deserializeValue(const void *data, size_t size)
+{
+  xmstream stream(const_cast<void*>(data), size);
+  uint32_t version;
+  dbIoUnserialize(stream, version);
+  if (version >= 1) {
+    dbIoUnserialize(stream, Login);
+    dbIoUnserialize(stream, EMail);
+    dbIoUnserialize(stream, Name);
+    dbIoUnserialize(stream, ParentUser);
+    dbIoUnserialize(stream, TwoFactorAuthData);
+    dbIoUnserialize(stream, PasswordHash);
+    dbIoUnserialize(stream, RegistrationDate);
+    dbIoUnserialize(stream, IsActive);
+    dbIoUnserialize(stream, IsReadOnly);
+    dbIoUnserialize(stream, IsSuperUser);
+    if (stream.remaining()) {
+      dbIoUnserialize(stream, FeePlanId);
+    }
+    if (stream.remaining()) {
+      dbIoUnserialize(stream, MonitoringSessionId);
+    }
+  }
+
+  return !stream.eof();
+}
+
+// UserActionRecord2
+
+bool UserActionRecord2::deserializeValue(const void *data, size_t size)
+{
+  xmstream stream(const_cast<void*>(data), size);
+  uint32_t version;
+  dbIoUnserialize(stream, version);
+  if (version >= 1) {
+    dbIoUnserialize(stream, Id);
+    dbIoUnserialize(stream, Login);
+    dbIoUnserialize(stream, Type);
+    dbIoUnserialize(stream, CreationDate);
+    if (stream.remaining()) {
+      dbIoUnserialize(stream, TwoFactorKey);
+    }
+  }
+
+  return !stream.eof();
+}
+
+// UserSessionRecord2
+
+bool UserSessionRecord2::deserializeValue(const void *data, size_t size)
+{
+  xmstream stream(const_cast<void*>(data), size);
+  uint32_t version;
+  dbIoUnserialize(stream, version);
+  if (version >= 1) {
+    dbIoUnserialize(stream, Id);
+    dbIoUnserialize(stream, Login);
+    dbIoUnserialize(stream, LastAccessTime);
+    if (stream.remaining())
+      dbIoUnserialize(stream, IsReadOnly);
+    if (stream.remaining())
+      dbIoUnserialize(stream, IsPermanent);
+  }
+
+  return !stream.eof();
+}
+
 // UserSettingsRecord2
 
 bool UserSettingsRecord2::deserializeValue(const void *data, size_t size)

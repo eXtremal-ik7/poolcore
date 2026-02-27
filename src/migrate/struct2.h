@@ -105,6 +105,52 @@ struct PoolBalanceRecord2 {
   bool deserializeValue(const void *data, size_t size);
 };
 
+struct UsersRecord2 {
+  enum { CurrentRecordVersion = 1 };
+
+  std::string Login;
+  std::string EMail;
+  std::string Name;
+  std::string TwoFactorAuthData;
+  std::string ParentUser;
+  BaseBlob<256> PasswordHash;
+  int64_t RegistrationDate;
+  bool IsActive;
+  bool IsReadOnly = false;
+  bool IsSuperUser = false;
+  std::string FeePlanId;
+  std::string MonitoringSessionId;
+
+  UsersRecord2() {}
+  bool deserializeValue(const void *data, size_t size);
+};
+
+struct UserActionRecord2 {
+  enum { CurrentRecordVersion = 1 };
+
+  BaseBlob<512> Id;
+  std::string Login;
+  uint32_t Type;
+  uint64_t CreationDate;
+  std::string TwoFactorKey;
+
+  UserActionRecord2() {}
+  bool deserializeValue(const void *data, size_t size);
+};
+
+struct UserSessionRecord2 {
+  enum { CurrentRecordVersion = 1 };
+
+  BaseBlob<512> Id;
+  std::string Login;
+  uint64_t LastAccessTime;
+  bool IsReadOnly = false;
+  bool IsPermanent = false;
+
+  UserSessionRecord2() {}
+  bool deserializeValue(const void *data, size_t size);
+};
+
 // Old sub-structures for MiningRound2
 
 struct UserShareValue2 {

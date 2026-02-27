@@ -196,9 +196,13 @@ static bool migrateStats(const std::filesystem::path &srcCoinPath, const std::fi
     newRecord.Data.PrimePOWTarget = oldRecord.PrimePOWTarget;
     newRecord.Data.PrimePOWSharesNum = oldRecord.PrimePOWShareCount;
 
-    xmstream stream;
-    newRecord.serializeValue(stream);
-    batch.Put(it->key(), rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
+    xmstream keyStream;
+    newRecord.serializeKey(keyStream);
+    xmstream valStream;
+    newRecord.serializeValue(valStream);
+    batch.Put(
+      rocksdb::Slice(keyStream.data<const char>(), keyStream.sizeOf()),
+      rocksdb::Slice(valStream.data<const char>(), valStream.sizeOf()));
     return true;
   }, threads, [&cutoff](const std::string &partition) {
     return partition >= cutoff;
@@ -336,9 +340,13 @@ static bool migratePayouts(const std::filesystem::path &srcCoinPath,
       }
     }
 
-    xmstream stream;
-    newRecord.serializeValue(stream);
-    batch.Put(it->key(), rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
+    xmstream keyStream;
+    newRecord.serializeKey(keyStream);
+    xmstream valStream;
+    newRecord.serializeValue(valStream);
+    batch.Put(
+      rocksdb::Slice(keyStream.data<const char>(), keyStream.sizeOf()),
+      rocksdb::Slice(valStream.data<const char>(), valStream.sizeOf()));
     return true;
   }, threads);
 
@@ -361,7 +369,7 @@ static bool migratePoolBalance(const std::filesystem::path &srcCoinPath, const s
     }
 
     PoolBalanceRecord newRecord;
-    newRecord.Time = oldRecord.Time;
+    newRecord.Time = Timestamp::fromUnixTime(oldRecord.Time);
     newRecord.Balance = safeFromRational(oldRecord.BalanceWithFractional);
     newRecord.Balance /= static_cast<uint64_t>(old2.ExtraMultiplier);
     newRecord.Immature = safeFromRational(oldRecord.Immature);
@@ -370,9 +378,13 @@ static bool migratePoolBalance(const std::filesystem::path &srcCoinPath, const s
     newRecord.ConfirmationWait = safeFromRational(oldRecord.ConfirmationWait);
     newRecord.Net = safeFromRational(oldRecord.Net);
 
-    xmstream stream;
-    newRecord.serializeValue(stream);
-    batch.Put(it->key(), rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
+    xmstream keyStream;
+    newRecord.serializeKey(keyStream);
+    xmstream valStream;
+    newRecord.serializeValue(valStream);
+    batch.Put(
+      rocksdb::Slice(keyStream.data<const char>(), keyStream.sizeOf()),
+      rocksdb::Slice(valStream.data<const char>(), valStream.sizeOf()));
     return true;
   }, threads);
 }
@@ -1641,9 +1653,69 @@ static bool migrateUserSettings(const std::filesystem::path &srcPath, const std:
           oldRecord.Login, oldRecord.Coin, oldRecord.Address,
           FormatMoney(newRecord.Payout.InstantPayoutThreshold, coinInfo.FractionalPartSize));
 
-    xmstream stream;
-    newRecord.serializeValue(stream);
-    batch.Put(it->key(), rocksdb::Slice(stream.data<const char>(), stream.sizeOf()));
+    xmstream keyStream;
+    newRecord.serializeKey(keyStream);
+    xmstream valStream;
+    newRecord.serializeValue(valStream);
+    batch.Put(
+      rocksdb::Slice(keyStream.data<const char>(), keyStream.sizeOf()),
+      rocksdb::Slice(valStream.data<const char>(), valStream.sizeOf()));
+    return true;
+  });
+}
+
+static bool migrateUserActions(const std::filesystem::path &srcPath,
+                              const std::filesystem::path &dstPath)
+{
+  return migrateDatabase(srcPath, dstPath, "useractions", "useractions", [](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+    UserActionRecord2 oldRecord;
+    if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
+      CLOG_F(ERROR, "Can't deserialize useractions record, database corrupted");
+      return false;
+    }
+
+    UserActionRecord newRecord;
+    newRecord.Id = oldRecord.Id;
+    newRecord.Login = oldRecord.Login;
+    newRecord.Type = oldRecord.Type;
+    newRecord.CreationDate = Timestamp::fromUnixTime(oldRecord.CreationDate);
+    newRecord.TwoFactorKey = oldRecord.TwoFactorKey;
+
+    xmstream keyStream;
+    newRecord.serializeKey(keyStream);
+    xmstream valStream;
+    newRecord.serializeValue(valStream);
+    batch.Put(
+      rocksdb::Slice(keyStream.data<const char>(), keyStream.sizeOf()),
+      rocksdb::Slice(valStream.data<const char>(), valStream.sizeOf()));
+    return true;
+  });
+}
+
+static bool migrateUserSessions(const std::filesystem::path &srcPath,
+                                const std::filesystem::path &dstPath)
+{
+  return migrateDatabase(srcPath, dstPath, "usersessions", "usersessions", [](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
+    UserSessionRecord2 oldRecord;
+    if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
+      CLOG_F(ERROR, "Can't deserialize usersessions record, database corrupted");
+      return false;
+    }
+
+    UserSessionRecord newRecord;
+    newRecord.Id = oldRecord.Id;
+    newRecord.Login = oldRecord.Login;
+    newRecord.LastAccessTime = Timestamp::fromUnixTime(oldRecord.LastAccessTime);
+    newRecord.IsReadOnly = oldRecord.IsReadOnly;
+    newRecord.IsPermanent = oldRecord.IsPermanent;
+
+    xmstream keyStream;
+    newRecord.serializeKey(keyStream);
+    xmstream valStream;
+    newRecord.serializeValue(valStream);
+    batch.Put(
+      rocksdb::Slice(keyStream.data<const char>(), keyStream.sizeOf()),
+      rocksdb::Slice(valStream.data<const char>(), valStream.sizeOf()));
     return true;
   });
 }
@@ -1657,7 +1729,7 @@ static bool migrateUsers(const std::filesystem::path &srcPath,
   unsigned activeCount = 0;
 
   bool result = migrateDatabase(srcPath, dstPath, "users", "users", [&](rocksdb::Iterator *it, rocksdb::WriteBatch &batch) -> bool {
-    UsersRecord oldRecord;
+    UsersRecord2 oldRecord;
     if (!oldRecord.deserializeValue(it->value().data(), it->value().size())) {
       CLOG_F(ERROR, "Can't deserialize users record, database corrupted");
       return false;
@@ -1671,7 +1743,28 @@ static bool migrateUsers(const std::filesystem::path &srcPath,
       return true;
 
     activeCount++;
-    batch.Put(it->key(), it->value());
+
+    UsersRecord newRecord;
+    newRecord.Login = oldRecord.Login;
+    newRecord.EMail = oldRecord.EMail;
+    newRecord.Name = oldRecord.Name;
+    newRecord.TwoFactorAuthData = oldRecord.TwoFactorAuthData;
+    newRecord.ParentUser = oldRecord.ParentUser;
+    newRecord.PasswordHash = oldRecord.PasswordHash;
+    newRecord.RegistrationDate = Timestamp::fromUnixTime(oldRecord.RegistrationDate);
+    newRecord.IsActive = oldRecord.IsActive;
+    newRecord.IsReadOnly = oldRecord.IsReadOnly;
+    newRecord.IsSuperUser = oldRecord.IsSuperUser;
+    newRecord.FeePlanId = oldRecord.FeePlanId;
+    newRecord.MonitoringSessionId = oldRecord.MonitoringSessionId;
+
+    xmstream keyStream;
+    newRecord.serializeKey(keyStream);
+    xmstream valStream;
+    newRecord.serializeValue(valStream);
+    batch.Put(
+      rocksdb::Slice(keyStream.data<const char>(), keyStream.sizeOf()),
+      rocksdb::Slice(valStream.data<const char>(), valStream.sizeOf()));
     return true;
   });
 
@@ -1711,12 +1804,11 @@ bool migrateV3(const std::filesystem::path &srcPath, const std::filesystem::path
   if (!migrateUsers(srcPath, dstPath, activeUsers))
     return false;
 
-  // Copy non-coin databases (no format changes, just rewrite with zstd compression)
-  static const char *copyDirs[] = {"useractions", "usersessions"};
-  for (const char *dir : copyDirs) {
-    if (!copyDatabase(srcPath, dstPath, dir, threads))
-      return false;
-  }
+  // Migrate useractions and usersessions (CreationDate/LastAccessTime changed from int64_t to Timestamp)
+  if (!migrateUserActions(srcPath, dstPath))
+    return false;
+  if (!migrateUserSessions(srcPath, dstPath))
+    return false;
 
   // Create empty userfeeplan (old data is incompatible, start fresh)
   {
