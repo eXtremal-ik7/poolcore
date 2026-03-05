@@ -367,7 +367,7 @@ TEST(IdlTool, DiagInvalidJson) {
   const char *json = "not json";
   ScalarDefaults d;
   ParseError error;
-  EXPECT_FALSE(d.parse(json, strlen(json), error));
+  EXPECT_FALSE(d.parseVerbose(json, strlen(json), error));
   EXPECT_EQ(error.row, 1);
   EXPECT_EQ(error.col, 1);
   EXPECT_NE(error.message.find("expected '{'"), std::string::npos);
@@ -377,7 +377,7 @@ TEST(IdlTool, DiagUnterminatedString) {
   const char *json = R"({"value":"hello)";
   Inner inner;
   ParseError error;
-  EXPECT_FALSE(inner.parse(json, strlen(json), error));
+  EXPECT_FALSE(inner.parseVerbose(json, strlen(json), error));
   EXPECT_NE(error.message.find("field 'value'"), std::string::npos);
   EXPECT_NE(error.message.find("unterminated string"), std::string::npos);
 }
@@ -386,7 +386,7 @@ TEST(IdlTool, DiagMissingColon) {
   const char *json = R"({"value" "x"})";
   Inner inner;
   ParseError error;
-  EXPECT_FALSE(inner.parse(json, strlen(json), error));
+  EXPECT_FALSE(inner.parseVerbose(json, strlen(json), error));
   EXPECT_NE(error.message.find("expected ':'"), std::string::npos);
 }
 
@@ -394,7 +394,7 @@ TEST(IdlTool, DiagMissingRequired) {
   const char *json = R"({"fieldString":"hi"})";
   ScalarTypes t;
   ParseError error;
-  EXPECT_FALSE(t.parse(json, strlen(json), error));
+  EXPECT_FALSE(t.parseVerbose(json, strlen(json), error));
   EXPECT_NE(error.message.find("missing required field"), std::string::npos);
 }
 
@@ -402,7 +402,7 @@ TEST(IdlTool, DiagInvalidEnum) {
   const char *json = R"({"color":"pink"})";
   WithEnum we;
   ParseError error;
-  EXPECT_FALSE(we.parse(json, strlen(json), error));
+  EXPECT_FALSE(we.parseVerbose(json, strlen(json), error));
   EXPECT_NE(error.message.find("invalid enum value 'pink'"), std::string::npos);
 }
 
@@ -410,7 +410,7 @@ TEST(IdlTool, DiagWrongTypeString) {
   const char *json = R"({"value":42,"count":1})";
   Inner inner;
   ParseError error;
-  EXPECT_FALSE(inner.parse(json, strlen(json), error));
+  EXPECT_FALSE(inner.parseVerbose(json, strlen(json), error));
   EXPECT_NE(error.message.find("field 'value'"), std::string::npos);
   // Scanner reports "expected string, got '4'" — field context prepended
   EXPECT_NE(error.message.find("expected string"), std::string::npos);
@@ -420,7 +420,7 @@ TEST(IdlTool, DiagWrongTypeBool) {
   const char *json = R"({"fieldString":"x","fieldBool":"notbool","fieldInt32":1,"fieldUint32":1,"fieldInt64":1,"fieldUint64":1,"fieldDouble":1.0})";
   ScalarTypes t;
   ParseError error;
-  EXPECT_FALSE(t.parse(json, strlen(json), error));
+  EXPECT_FALSE(t.parseVerbose(json, strlen(json), error));
   EXPECT_NE(error.message.find("field 'fieldBool'"), std::string::npos);
   EXPECT_NE(error.message.find("expected boolean"), std::string::npos);
 }
@@ -429,7 +429,7 @@ TEST(IdlTool, DiagNestedError) {
   const char *json = R"({"label":"test","child":{"value":42,"count":5}})";
   Outer o;
   ParseError error;
-  EXPECT_FALSE(o.parse(json, strlen(json), error));
+  EXPECT_FALSE(o.parseVerbose(json, strlen(json), error));
   // Error should be from the nested struct — "value" expects string but got 42
   EXPECT_NE(error.message.find("expected string"), std::string::npos);
 }
@@ -438,7 +438,7 @@ TEST(IdlTool, DiagArrayElementError) {
   const char *json = R"({"strings":["a",42,"c"],"numbers":[],"doubles":[],"items":[]})";
   ArrayFields af;
   ParseError error;
-  EXPECT_FALSE(af.parse(json, strlen(json), error));
+  EXPECT_FALSE(af.parseVerbose(json, strlen(json), error));
   EXPECT_NE(error.message.find("expected string"), std::string::npos);
 }
 
@@ -450,7 +450,7 @@ TEST(IdlTool, DiagMultilinePosition) {
     "}";
   Inner inner;
   ParseError error;
-  EXPECT_FALSE(inner.parse(json, strlen(json), error));
+  EXPECT_FALSE(inner.parseVerbose(json, strlen(json), error));
   EXPECT_EQ(error.row, 3);
   EXPECT_NE(error.message.find("field 'count'"), std::string::npos);
 }
@@ -460,6 +460,6 @@ TEST(IdlTool, DiagValidJsonNoDiagError) {
   const char *json = R"({"value":"x","count":1})";
   Inner inner;
   ParseError error;
-  ASSERT_TRUE(inner.parse(json, strlen(json), error));
+  ASSERT_TRUE(inner.parseVerbose(json, strlen(json), error));
   EXPECT_TRUE(error.message.empty());
 }

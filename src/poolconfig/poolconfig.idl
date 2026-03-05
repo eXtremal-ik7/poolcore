@@ -4,6 +4,7 @@
 // Syntax:
 //   field: type;              — required (error if missing)
 //   field: type = default;    — optional with default value
+//   field: type?;             — optional (may be absent, no default)
 //   [type]                    — array of type
 
 // ============================================================================
@@ -21,7 +22,6 @@ struct PoolFrontendConfig {
 // ============================================================================
 
 struct FrontendSettings {
-  isMaster: bool;
   httpPort: uint32;
   workerThreadsNum: uint32 = 0;
   httpThreadsNum: uint32 = 0;
@@ -81,8 +81,8 @@ struct CoinConfig {
   profitSwitchCoeff: double = 0.0;
   ppsPayoutInterval: uint32 = 5;
   // ZEC specific
-  pool_zaddr: string = "";
-  pool_taddr: string = "";
+  poolZAddr: string = "";
+  poolTAddr: string = "";
 }
 
 // ============================================================================
@@ -94,6 +94,16 @@ struct InstanceConfig {
   type: string;
   protocol: string;
   backends: [string];
-  port: uint32 = 0;
-  shareDiff: double = 0.0;     // stratum only, accepts uint64 or double in JSON
+  port: uint32;
+  shareDiff: double;
+  versionMask: string?;
+  profitSwitcherEnabled: bool = false;
+  resetWorkOnBlockChange: [string]?;
+  primaryBackends: [string]?;
+  secondaryBackends: [string]?;
+  fixedExtraNonceSize: uint32?;
+  mutableExtraNonceSize: uint32?;
+  // ZMQ-specific
+  zmqWorkerPort: uint32?;
+  zmqHostName: string?;
 }

@@ -46,7 +46,6 @@ static void processSigUsr()
 }
 
 struct PoolContext {
-  bool IsMaster;
   std::filesystem::path DatabasePath;
   uint16_t HttpPort;
 
@@ -111,27 +110,20 @@ int main(int argc, char *argv[])
   configData.resize(configFd.size());
   configFd.read(configData.data(), 0, configData.size());
   configFd.close();
-  rapidjson::Document document;
-  document.Parse<rapidjson::kParseCommentsFlag>(configData.c_str());
-  if (document.HasParseError()) {
-    std::cerr << std::format("Config file {} is not valid JSON\n", argv[1]);
-    return 1;
-  }
-
   CPoolFrontendConfig config;
   {
-    std::string error;
-    if (!config.load(document, error)) {
-      std::cerr << std::format("Config file {} contains error:\n{}\n", argv[1], error);
+    ParseError error;
+    if (!config.parseVerbose(configData.data(), configData.size(), error)) {
+      std::cerr << std::format("Config file {} parse error at line {}:{}: {}\n", argv[1], error.row, error.col, error.message);
       return 1;
     }
   }
 
   {
-    if (config.DbPath.starts_with("~/") || config.DbPath.starts_with("~\\"))
-      poolContext.DatabasePath = userHomeDir() / (config.DbPath.data()+2);
+    if (config.Poolfrontend.DbPath.starts_with("~/") || config.Poolfrontend.DbPath.starts_with("~\\"))
+      poolContext.DatabasePath = userHomeDir() / (config.Poolfrontend.DbPath.data()+2);
     else
-      poolContext.DatabasePath = config.DbPath;
+      poolContext.DatabasePath = config.Poolfrontend.DbPath;
 
     {
       char logFileName[64];
@@ -161,10 +153,9 @@ int main(int argc, char *argv[])
     }
 
     // Analyze config
-    poolContext.IsMaster = config.IsMaster;
-    poolContext.HttpPort = config.HttpPort;
-    workerThreadsNum = config.WorkerThreadsNum;
-    httpThreadsNum = config.HttpThreadsNum;
+    poolContext.HttpPort = config.Poolfrontend.HttpPort;
+    workerThreadsNum = config.Poolfrontend.WorkerThreadsNum;
+    httpThreadsNum = config.Poolfrontend.HttpThreadsNum;
     if (workerThreadsNum == 0)
       workerThreadsNum = std::thread::hardware_concurrency() ? std::thread::hardware_concurrency() / 4 : 2;
     if (httpThreadsNum == 0)
@@ -184,39 +175,39 @@ int main(int argc, char *argv[])
     poolContext.UserMgr.reset(new UserManager(poolContext.DatabasePath));
 
     // Base config
-    poolContext.UserMgr->setBaseCfg(config.PoolName,
-                                    config.PoolHostProtocol,
-                                    config.PoolHostAddress,
-                                    config.PoolActivateLinkPrefix,
-                                    config.PoolChangePasswordLinkPrefix,
-                                    config.PoolActivate2faLinkPrefix,
-                                    config.PoolDeactivate2faLinkPrefix);
+    poolContext.UserMgr->setBaseCfg(config.Poolfrontend.PoolName,
+                                    config.Poolfrontend.PoolHostProtocol,
+                                    config.Poolfrontend.PoolHostAddress,
+                                    config.Poolfrontend.PoolActivateLinkPrefix,
+                                    config.Poolfrontend.PoolChangePasswordLinkPrefix,
+                                    config.Poolfrontend.PoolActivate2faLinkPrefix,
+                                    config.Poolfrontend.PoolDeactivate2faLinkPrefix);
 
     // Admin & observer passwords
-    if (!config.AdminPasswordHash.empty())
-      poolContext.UserMgr->addSpecialUser(UserManager::ESpecialUserAdmin, config.AdminPasswordHash);
-    if (!config.ObserverPasswordHash.empty())
-      poolContext.UserMgr->addSpecialUser(UserManager::ESpecialUserObserver, config.ObserverPasswordHash);
+    if (!config.Poolfrontend.AdminPasswordHash.empty())
+      poolContext.UserMgr->addSpecialUser(UserManager::ESpecialUserAdmin, config.Poolfrontend.AdminPasswordHash);
+    if (!config.Poolfrontend.ObserverPasswordHash.empty())
+      poolContext.UserMgr->addSpecialUser(UserManager::ESpecialUserObserver, config.Poolfrontend.ObserverPasswordHash);
 
     // SMTP config
-    if (config.SmtpEnabled) {
+    if (config.Poolfrontend.SmtpEnabled) {
       // Build HostAddress for server
       HostAddress smtpAddress;
-      char *colonPos = (char*)strchr(config.SmtpServer.c_str(), ':');
+      char *colonPos = (char*)strchr(config.Poolfrontend.SmtpServer.c_str(), ':');
       if (colonPos == nullptr) {
-        CLOG_F(ERROR, "Invalid server {}\nIt must have address:port format", config.SmtpServer);
+        CLOG_F(ERROR, "Invalid server {}\nIt must have address:port format", config.Poolfrontend.SmtpServer);
         return 1;
       }
 
       *colonPos = 0;
-      hostent *host = gethostbyname(config.SmtpServer.c_str());
+      hostent *host = gethostbyname(config.Poolfrontend.SmtpServer.c_str());
       if (!host) {
-        CLOG_F(ERROR, "Cannot retrieve address of {} (gethostbyname failed)", config.SmtpServer);
+        CLOG_F(ERROR, "Cannot retrieve address of {} (gethostbyname failed)", config.Poolfrontend.SmtpServer);
       }
 
       u_long addr = host->h_addr ? *reinterpret_cast<u_long*>(host->h_addr) : 0;
       if (!addr) {
-        CLOG_F(ERROR, "Cannot retrieve address of {} (gethostbyname returns 0)", config.SmtpServer);
+        CLOG_F(ERROR, "Cannot retrieve address of {} (gethostbyname returns 0)", config.Poolfrontend.SmtpServer);
         return 1;
       }
 
@@ -225,7 +216,7 @@ int main(int argc, char *argv[])
       smtpAddress.port = htons(atoi(colonPos + 1));
 
       // Enable SMTP
-      poolContext.UserMgr->enableSMTP(smtpAddress, config.SmtpLogin, config.SmtpPassword, config.SmtpSenderAddress, config.SmtpUseSmtps, config.SmtpUseStartTls);
+      poolContext.UserMgr->enableSMTP(smtpAddress, config.Poolfrontend.SmtpLogin, config.Poolfrontend.SmtpPassword, config.Poolfrontend.SmtpSenderAddress, config.Poolfrontend.SmtpUseSmtps, config.Poolfrontend.SmtpUseStartTLS);
     }
 
     // Lookup information for all coins
@@ -252,7 +243,7 @@ int main(int argc, char *argv[])
     }
 
     // Initialize price fetcher
-    poolContext.PriceFetcher.reset(new CPriceFetcher(monitorBase, poolContext.CoinList, config.CoinGeckoApiKey));
+    poolContext.PriceFetcher.reset(new CPriceFetcher(monitorBase, poolContext.CoinList, config.Poolfrontend.CoinGeckoApiKey));
 
     // Initialize all backends
     std::map<std::string, StatisticServer*> knownAlgo;
@@ -263,7 +254,6 @@ int main(int argc, char *argv[])
       CCoinInfo &coinInfo = poolContext.CoinList[coinIdx];
 
       // Inherited pool config parameters
-      backendConfig.isMaster = poolContext.IsMaster;
       backendConfig.dbPath = poolContext.DatabasePath / coinInfo.Name;
 
       // Backend parameters
@@ -292,10 +282,10 @@ int main(int argc, char *argv[])
         backendConfig.MiningAddresses.add(CMiningAddress(addr.Address, addr.PrivateKey), addr.Weight);
       }
 
-      backendConfig.PPSPayoutInterval = std::chrono::minutes(coinConfig.PPSPayoutInterval);
+      backendConfig.PPSPayoutInterval = std::chrono::minutes(coinConfig.PpsPayoutInterval);
       backendConfig.CoinBaseMsg = coinConfig.CoinbaseMsg;
       if (backendConfig.CoinBaseMsg.empty())
-        backendConfig.CoinBaseMsg = config.PoolName;
+        backendConfig.CoinBaseMsg = config.Poolfrontend.PoolName;
 
       // ZEC specific
       backendConfig.poolZAddr = coinConfig.PoolZAddr;

@@ -100,7 +100,7 @@ void PoolBackend::backendMain()
     _accounting->payoutProcessor().checkBalance();
   }, std::chrono::microseconds(_cfg.BalanceCheckInterval), true);
 
-  CLOG_F(INFO, "<info>: Pool backend for '{}' started, mode is {}, tid={}", CoinInfo_.Name, _cfg.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
+  CLOG_F(INFO, "<info>: Pool backend for '{}' started, tid={}", CoinInfo_.Name, GetGlobalThreadId());
   checkConsistency(_accounting.get(), CoinInfo_);
   asyncLoop(_base);
 }

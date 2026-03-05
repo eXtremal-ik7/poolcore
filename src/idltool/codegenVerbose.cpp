@@ -1,17 +1,21 @@
-#include "codegenDiag.h"
+#include "codegenVerbose.h"
 #include "codegenCommon.h"
 #include <format>
 
-// --- DiagJsonScanner code for generated headers ---
+// --- ParseError code for generated headers ---
 
-const char *diagJsonScannerCode = R"(
+const char *parseErrorCode = R"(
 struct ParseError {
   int row = 0;
   int col = 0;
   std::string message;
 };
+)";
 
-struct DiagJsonScanner {
+// --- VerboseJsonScanner code for generated source files ---
+
+const char *verboseJsonScannerCode = R"(
+struct VerboseJsonScanner {
   const char *p;
   const char *end;
   const char *begin;
@@ -33,8 +37,14 @@ struct DiagJsonScanner {
   }
 
   void skipWhitespace() {
-    while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n'))
-      p++;
+    while (p < end) {
+      if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') { p++; continue; }
+      if (p + 1 < end && p[0] == '/') {
+        if (p[1] == '/') { p += 2; while (p < end && *p != '\n') p++; continue; }
+        if (p[1] == '*') { p += 2; while (p + 1 < end && !(p[0] == '*' && p[1] == '/')) p++; if (p + 1 < end) p += 2; continue; }
+      }
+      break;
+    }
   }
 
   bool expectChar(char c) {
@@ -237,35 +247,18 @@ struct DiagJsonScanner {
 };
 )";
 
-// --- Diagnostic parse field generation ---
+// --- Verbose parse field generation ---
 
-// Helper: name of the expected type for error messages
-static const char *scalarExpectedType(EScalarType t)
-{
-  switch (t) {
-    case EScalarType::String: return "string";
-    case EScalarType::Bool:   return "boolean";
-    case EScalarType::Int32:  return "integer";
-    case EScalarType::Uint32: return "integer";
-    case EScalarType::Int64:  return "integer";
-    case EScalarType::Uint64: return "integer";
-    case EScalarType::Double: return "number";
-  }
-  return "value";
-}
-
-static void generateDiagParseScalar(std::string &out, const CFieldDef &f,
-                                     const std::unordered_set<std::string> &enumNames,
-                                     int foundBit, int ind,
-                                     const std::string &fieldContext)
+static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int foundBit, int ind, const std::string &fieldContext, bool pascalCase)
 {
   std::string in = indent(ind);
+  std::string cn = fieldCppName(f.Name, pascalCase);
 
   if (isEnum(f.Type.RefName, enumNames)) {
     out += std::format("{}{{ const char *eStr; size_t eLen;\n", in);
     out += std::format("{}  if (!s.readString(eStr, eLen)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n",
                        in, fieldContext);
-    out += std::format("{}  if (!parseE{}(eStr, eLen, {})) {{\n", in, f.Type.RefName, f.Name);
+    out += std::format("{}  if (!parseE{}(eStr, eLen, {})) {{\n", in, f.Type.RefName, cn);
     out += std::format("{}    s.error->message = \"field '{}': invalid enum value '\" + std::string(eStr, eLen) + \"'\";\n",
                        in, fieldContext);
     out += std::format("{}    return false;\n", in);
@@ -287,7 +280,7 @@ static void generateDiagParseScalar(std::string &out, const CFieldDef &f,
     case EScalarType::Double: readMethod = "readDouble"; break;
   }
 
-  out += std::format("{}if (!s.{}({})) {{\n", in, readMethod, f.Name);
+  out += std::format("{}if (!s.{}({})) {{\n", in, readMethod, cn);
   out += std::format("{}  s.error->message = \"field '{}': \" + s.error->message;\n", in, fieldContext);
   out += std::format("{}  return false;\n", in);
   out += std::format("{}}}\n", in);
@@ -295,22 +288,21 @@ static void generateDiagParseScalar(std::string &out, const CFieldDef &f,
     out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
 }
 
-void generateDiagParseField(std::string &out, const CFieldDef &f,
-                            const std::unordered_set<std::string> &enumNames,
-                            int foundBit, int ind)
+void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int foundBit, int ind, bool pascalCase)
 {
   std::string in = indent(ind);
-  std::string ctx = f.Name; // field context for error messages
+  std::string ctx = f.Name; // field context for error messages (original IDL name)
+  std::string cn = fieldCppName(f.Name, pascalCase);
 
   switch (f.Kind) {
     case EFieldKind::Required:
     case EFieldKind::Optional: {
       if (isStructRef(f, enumNames)) {
-        out += std::format("{}if (!{}.parseDiagImpl(s)) return false;\n", in, f.Name);
+        out += std::format("{}if (!{}.parseVerboseImpl(s)) return false;\n", in, cn);
         if (foundBit >= 0)
           out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
       } else {
-        generateDiagParseScalar(out, f, enumNames, foundBit, ind, ctx);
+        generateVerboseParseScalar(out, f, enumNames, foundBit, ind, ctx, pascalCase);
       }
       break;
     }
@@ -318,14 +310,14 @@ void generateDiagParseField(std::string &out, const CFieldDef &f,
     case EFieldKind::OptionalObject: {
       out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
       if (isStructRef(f, enumNames)) {
-        out += std::format("{}else if (!{}.emplace().parseDiagImpl(s)) return false;\n", in, f.Name);
+        out += std::format("{}else if (!{}.emplace().parseVerboseImpl(s)) return false;\n", in, cn);
       } else {
         out += std::format("{}else {{\n", in);
-        out += std::format("{}  {}.emplace();\n", in, f.Name);
+        out += std::format("{}  {}.emplace();\n", in, cn);
         CFieldDef tmp = f;
-        tmp.Name = std::format("(*{})", f.Name);
+        tmp.Name = std::format("(*{})", cn);
         tmp.Kind = EFieldKind::Required;
-        generateDiagParseScalar(out, tmp, enumNames, -1, ind + 1, ctx);
+        generateVerboseParseScalar(out, tmp, enumNames, -1, ind + 1, ctx, false);
         out += std::format("{}}}\n", in);
       }
       break;
@@ -338,14 +330,14 @@ void generateDiagParseField(std::string &out, const CFieldDef &f,
       out += std::format("{}  for (;;) {{\n", in);
 
       if (isStructRef(f, enumNames)) {
-        out += std::format("{}    if (!{}.emplace_back().parseDiagImpl(s)) return false;\n", in, f.Name);
+        out += std::format("{}    if (!{}.emplace_back().parseVerboseImpl(s)) return false;\n", in, cn);
       } else if (isEnum(f.Type.RefName, enumNames)) {
         out += std::format("{}    {{\n", in);
         out += std::format("{}      const char *eStr; size_t eLen;\n", in);
-        out += std::format("{}      {}.emplace_back();\n", in, f.Name);
+        out += std::format("{}      {}.emplace_back();\n", in, cn);
         out += std::format("{}      if (!s.readString(eStr, eLen)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n",
                            in, ctx);
-        out += std::format("{}      if (!parseE{}(eStr, eLen, {}.back())) {{\n", in, f.Type.RefName, f.Name);
+        out += std::format("{}      if (!parseE{}(eStr, eLen, {}.back())) {{\n", in, f.Type.RefName, cn);
         out += std::format("{}        s.error->message = \"field '{}': invalid enum value '\" + std::string(eStr, eLen) + \"' in array\";\n", in, ctx);
         out += std::format("{}        return false;\n", in);
         out += std::format("{}      }}\n", in);
@@ -364,10 +356,10 @@ void generateDiagParseField(std::string &out, const CFieldDef &f,
         }
         if (f.Type.Scalar == EScalarType::String) {
           out += std::format("{}    {{ std::string tmp; if (!s.{}(tmp)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }} "
-                             "{}.push_back(std::move(tmp)); }}\n", in, readMethod, ctx, f.Name);
+                             "{}.push_back(std::move(tmp)); }}\n", in, readMethod, ctx, cn);
         } else {
           out += std::format("{}    {{ {} tmp; if (!s.{}(tmp)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }} "
-                             "{}.push_back(tmp); }}\n", in, cppType, readMethod, ctx, f.Name);
+                             "{}.push_back(tmp); }}\n", in, cppType, readMethod, ctx, cn);
         }
       }
 
@@ -385,11 +377,11 @@ void generateDiagParseField(std::string &out, const CFieldDef &f,
     case EFieldKind::OptionalArray: {
       out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
       out += std::format("{}else {{\n", in);
-      out += std::format("{}  {}.emplace();\n", in, f.Name);
+      out += std::format("{}  {}.emplace();\n", in, cn);
       CFieldDef tmp = f;
-      tmp.Name = std::format("(*{})", f.Name);
+      tmp.Name = std::format("(*{})", cn);
       tmp.Kind = EFieldKind::Array;
-      generateDiagParseField(out, tmp, enumNames, -1, ind + 1);
+      generateVerboseParseField(out, tmp, enumNames, -1, ind + 1, false);
       out += std::format("{}}}\n", in);
       break;
     }

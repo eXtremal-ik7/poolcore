@@ -441,7 +441,7 @@ void StatisticServer::statisticServerMain()
   TaskHandler_.start();
   Statistics_->start();
 
-  CLOG_F(INFO, "<info>: Pool backend for '{}' started, mode is {}, tid={}", CoinInfo_.Name, Cfg_.isMaster ? "MASTER" : "SLAVE", GetGlobalThreadId());
+  CLOG_F(INFO, "<info>: Pool backend for '{}' started, tid={}", CoinInfo_.Name, GetGlobalThreadId());
   asyncLoop(Base_);
 }
 

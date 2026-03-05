@@ -8,7 +8,7 @@ FLEX_TARGET(IdlLexer lexer.l ${CMAKE_CURRENT_BINARY_DIR}/lexer.cpp
 ADD_FLEX_BISON_DEPENDENCY(IdlLexer IdlParser)
 
 add_executable(idltool
-  main.cpp ast.cpp codegen.cpp codegenCommon.cpp codegenDiag.cpp
+  main.cpp ast.cpp codegen.cpp codegenCommon.cpp codegenVerbose.cpp
   ${FLEX_IdlLexer_OUTPUTS} ${BISON_IdlParser_OUTPUTS})
 target_include_directories(idltool PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})

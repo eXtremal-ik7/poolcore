@@ -10,8 +10,9 @@
 
 std::string indent(int level);
 std::string cppScalarType(EScalarType t);
-std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::string> &enumNames);
+std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::string> &enumNames, const std::string &structPrefix = "");
 std::string cppDefault(const CFieldDef &f, const std::unordered_set<std::string> &enumNames);
+std::string fieldCppName(const std::string &name, bool pascalCase);
 
 bool isEnum(const std::string &refName, const std::unordered_set<std::string> &enumNames);
 bool isStructRef(const CFieldDef &f, const std::unordered_set<std::string> &enumNames);
@@ -29,7 +30,8 @@ std::optional<CPerfectHash> findPerfectHash(const std::vector<std::string> &keys
 
 // --- Enum generation ---
 
-void generateEnumParsers(std::string &out, const CIdlFile &file);
+void generateEnumDeclarations(std::string &out, const CIdlFile &file);
+void generateEnumDefinitions(std::string &out, const CIdlFile &file);
 
 // --- Serialize generation ---
 
@@ -41,10 +43,9 @@ void emitSerializeArrayElem(std::string &code, const CFieldDef &f,
                             const std::string &valueName,
                             const std::unordered_set<std::string> &enumNames,
                             int ind);
-void generateSerializeField(std::string &code, const CFieldDef &f,
-                            const std::unordered_set<std::string> &enumNames,
-                            int ind, bool &first);
+void generateSerializeField(std::string &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase = false);
 
 // --- Scanner code strings ---
 
 extern const char *jsonScannerCode;
+extern const char *jsonHelperCode;

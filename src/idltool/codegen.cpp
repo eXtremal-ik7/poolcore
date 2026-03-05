@@ -1,6 +1,6 @@
 #include "codegen.h"
 #include "codegenCommon.h"
-#include "codegenDiag.h"
+#include "codegenVerbose.h"
 #include <cstdio>
 #include <cstdint>
 #include <format>
@@ -9,16 +9,15 @@
 
 // --- Minimal parse generation ---
 
-static void generateParseScalar(std::string &out, const CFieldDef &f,
-                                 const std::unordered_set<std::string> &enumNames,
-                                 int foundBit, int ind)
+static void generateParseScalar(std::string &out, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int foundBit, int ind, bool pascalCase)
 {
   std::string in = indent(ind);
+  std::string cn = fieldCppName(f.Name, pascalCase);
 
   if (isEnum(f.Type.RefName, enumNames)) {
     out += std::format("{}if (!([&]() {{ const char *eStr; size_t eLen; "
                        "return s.readString(eStr, eLen) && parseE{}(eStr, eLen, {}); }}())) valid = false;\n",
-                       in, f.Type.RefName, f.Name);
+                       in, f.Type.RefName, cn);
     if (foundBit >= 0)
       out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
     return;
@@ -35,26 +34,25 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
     case EScalarType::Double: readMethod = "readDouble"; break;
   }
 
-  out += std::format("{}if (!s.{}({})) valid = false;\n", in, readMethod, f.Name);
+  out += std::format("{}if (!s.{}({})) valid = false;\n", in, readMethod, cn);
   if (foundBit >= 0)
     out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
 }
 
-static void generateParseField(std::string &out, const CFieldDef &f,
-                                const std::unordered_set<std::string> &enumNames,
-                                int foundBit, int ind)
+static void generateParseField(std::string &out, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int foundBit, int ind, bool pascalCase)
 {
   std::string in = indent(ind);
+  std::string cn = fieldCppName(f.Name, pascalCase);
 
   switch (f.Kind) {
     case EFieldKind::Required:
     case EFieldKind::Optional: {
       if (isStructRef(f, enumNames)) {
-        out += std::format("{}if (!{}.parseImpl(s)) valid = false;\n", in, f.Name);
+        out += std::format("{}if (!{}.parseImpl(s)) valid = false;\n", in, cn);
         if (foundBit >= 0)
           out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
       } else {
-        generateParseScalar(out, f, enumNames, foundBit, ind);
+        generateParseScalar(out, f, enumNames, foundBit, ind, pascalCase);
       }
       break;
     }
@@ -62,14 +60,14 @@ static void generateParseField(std::string &out, const CFieldDef &f,
     case EFieldKind::OptionalObject: {
       out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
       if (isStructRef(f, enumNames)) {
-        out += std::format("{}else if (!{}.emplace().parseImpl(s)) valid = false;\n", in, f.Name);
+        out += std::format("{}else if (!{}.emplace().parseImpl(s)) valid = false;\n", in, cn);
       } else {
         out += std::format("{}else {{\n", in);
-        out += std::format("{}  {}.emplace();\n", in, f.Name);
+        out += std::format("{}  {}.emplace();\n", in, cn);
         CFieldDef tmp = f;
-        tmp.Name = std::format("(*{})", f.Name);
+        tmp.Name = std::format("(*{})", cn);
         tmp.Kind = EFieldKind::Required;
-        generateParseScalar(out, tmp, enumNames, -1, ind + 1);
+        generateParseScalar(out, tmp, enumNames, -1, ind + 1, false);
         out += std::format("{}}}\n", in);
       }
       break;
@@ -82,13 +80,13 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       out += std::format("{}  for (;;) {{\n", in);
 
       if (isStructRef(f, enumNames)) {
-        out += std::format("{}    if (!{}.emplace_back().parseImpl(s)) {{ valid = false; break; }}\n", in, f.Name);
+        out += std::format("{}    if (!{}.emplace_back().parseImpl(s)) {{ valid = false; break; }}\n", in, cn);
       } else if (isEnum(f.Type.RefName, enumNames)) {
         out += std::format("{}    {{\n", in);
         out += std::format("{}      const char *eStr; size_t eLen;\n", in);
-        out += std::format("{}      {}.emplace_back();\n", in, f.Name);
+        out += std::format("{}      {}.emplace_back();\n", in, cn);
         out += std::format("{}      if (!s.readString(eStr, eLen) || !parseE{}(eStr, eLen, {}.back())) "
-                           "{{ valid = false; break; }}\n", in, f.Type.RefName, f.Name);
+                           "{{ valid = false; break; }}\n", in, f.Type.RefName, cn);
         out += std::format("{}    }}\n", in);
       } else {
         const char *cppType = nullptr;
@@ -104,10 +102,10 @@ static void generateParseField(std::string &out, const CFieldDef &f,
         }
         if (f.Type.Scalar == EScalarType::String) {
           out += std::format("{}    {{ std::string tmp; if (!s.{}(tmp)) {{ valid = false; break; }} "
-                             "{}.push_back(std::move(tmp)); }}\n", in, readMethod, f.Name);
+                             "{}.push_back(std::move(tmp)); }}\n", in, readMethod, cn);
         } else {
           out += std::format("{}    {{ {} tmp; if (!s.{}(tmp)) {{ valid = false; break; }} "
-                             "{}.push_back(tmp); }}\n", in, cppType, readMethod, f.Name);
+                             "{}.push_back(tmp); }}\n", in, cppType, readMethod, cn);
         }
       }
 
@@ -125,24 +123,56 @@ static void generateParseField(std::string &out, const CFieldDef &f,
     case EFieldKind::OptionalArray: {
       out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
       out += std::format("{}else {{\n", in);
-      out += std::format("{}  {}.emplace();\n", in, f.Name);
+      out += std::format("{}  {}.emplace();\n", in, cn);
       CFieldDef tmp = f;
-      tmp.Name = std::format("(*{})", f.Name);
+      tmp.Name = std::format("(*{})", cn);
       tmp.Kind = EFieldKind::Array;
-      generateParseField(out, tmp, enumNames, -1, ind + 1);
+      generateParseField(out, tmp, enumNames, -1, ind + 1, false);
       out += std::format("{}}}\n", in);
       break;
     }
   }
 }
 
-// --- Struct generation ---
+// --- Struct declaration (header) ---
 
-static void generateStruct(std::string &out, const CStructDef &s,
-                            const std::unordered_set<std::string> &enumNames,
-                            bool diagMode)
+static void generateStructDecl(std::string &out, const CStructDef &s, const std::unordered_set<std::string> &enumNames, const CCodegenOptions &opts)
 {
-  // Collect field names for perfect hash
+  std::string sn = opts.StructPrefix + s.Name;
+  out += std::format("struct {} {{\n", sn);
+
+  // Fields
+  for (auto &f : s.Fields) {
+    std::string type = cppFieldType(f, enumNames, opts.StructPrefix);
+    std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+    std::string def = cppDefault(f, enumNames);
+    if (!def.empty())
+      out += std::format("  {} {} = {};\n", type, cn, def);
+    else
+      out += std::format("  {} {};\n", type, cn);
+  }
+  out += "\n";
+
+  // Method declarations
+  out += "  bool parse(const char *buf, size_t bufSize);\n";
+  out += "  bool parseImpl(JsonScanner &s);\n";
+  if (opts.VerboseMode) {
+    out += "  bool parseVerbose(const char *buf, size_t bufSize, ParseError &error);\n";
+    out += "  bool parseVerboseImpl(VerboseJsonScanner &s);\n";
+  }
+  out += "  std::string serialize() const;\n";
+  out += "  void serializeImpl(std::string &out) const;\n";
+
+  out += "};\n\n";
+}
+
+// --- Struct implementation (source) ---
+
+static void generateStructImpl(std::string &out, const CStructDef &s, const std::unordered_set<std::string> &enumNames, const CCodegenOptions &opts)
+{
+  std::string sn = opts.StructPrefix + s.Name;
+
+  // Compute perfect hash (uses original IDL field names for JSON key matching)
   std::vector<std::string> fieldNames;
   for (auto &f : s.Fields)
     fieldNames.push_back(f.Name);
@@ -154,7 +184,7 @@ static void generateStruct(std::string &out, const CStructDef &s,
     ph = CPerfectHash{0, 31, (uint32_t)(fieldNames.size() * 4)};
   }
 
-  // Count required fields (Required scalars/structs + Array are required)
+  // Count required fields
   auto isRequired = [](EFieldKind k) {
     return k == EFieldKind::Required || k == EFieldKind::Array;
   };
@@ -178,48 +208,34 @@ static void generateStruct(std::string &out, const CStructDef &s,
     if (isRequired(s.Fields[i].Kind))
       fieldBitMap[i] = bitIndex++;
 
-  // --- Struct declaration ---
-  out += std::format("struct {} {{\n", s.Name);
+  // --- parse() ---
+  out += std::format("bool {}::parse(const char *buf, size_t bufSize) {{\n", sn);
+  out += "  JsonScanner s{buf, buf + bufSize};\n";
+  out += "  return parseImpl(s);\n";
+  out += "}\n\n";
 
-  // Fields
-  for (auto &f : s.Fields) {
-    std::string type = cppFieldType(f, enumNames);
-    std::string def = cppDefault(f, enumNames);
-    if (!def.empty())
-      out += std::format("  {} {} = {};\n", type, f.Name, def);
-    else
-      out += std::format("  {} {};\n", type, f.Name);
-  }
-  out += "\n";
-
-  // parse()
-  out += "  bool parse(const char *buf, size_t bufSize) {\n";
-  out += "    JsonScanner s{buf, buf + bufSize};\n";
-  out += "    return parseImpl(s);\n";
-  out += "  }\n\n";
-
-  // parseImpl()
-  out += "  bool parseImpl(JsonScanner &s) {\n";
-  out += "    if (!s.expectChar('{')) return false;\n";
-  out += "    bool valid = true;\n";
+  // --- parseImpl() ---
+  out += std::format("bool {}::parseImpl(JsonScanner &s) {{\n", sn);
+  out += "  if (!s.expectChar('{')) return false;\n";
+  out += "  bool valid = true;\n";
   if (requiredCount > 0)
-    out += "    uint64_t found = 0;\n";
-  out += "    s.skipWhitespace();\n";
-  out += "    if (s.p < s.end && *s.p != '}') {\n";
-  out += "      for (;;) {\n";
-  out += "        const char *key;\n";
-  out += "        size_t keyLen;\n";
+    out += "  uint64_t found = 0;\n";
+  out += "  s.skipWhitespace();\n";
+  out += "  if (s.p < s.end && *s.p != '}') {\n";
+  out += "    for (;;) {\n";
+  out += "      const char *key;\n";
+  out += "      size_t keyLen;\n";
 
   if (s.Fields.empty()) {
-    out += "        if (!s.readString(key, keyLen)) return false;\n";
-    out += "        if (!s.expectChar(':')) return false;\n";
-    out += "        s.skipValue();\n";
+    out += "      if (!s.readString(key, keyLen)) return false;\n";
+    out += "      if (!s.expectChar(':')) return false;\n";
+    out += "      s.skipValue();\n";
   } else {
-    out += "        uint32_t keyHash;\n";
-    out += std::format("        if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
+    out += "      uint32_t keyHash;\n";
+    out += std::format("      if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
                        ph->Seed, ph->Mult);
-    out += "        if (!s.expectChar(':')) return false;\n";
-    out += std::format("        switch (keyHash % {}) {{\n", ph->Mod);
+    out += "      if (!s.expectChar(':')) return false;\n";
+    out += std::format("      switch (keyHash % {}) {{\n", ph->Mod);
 
     for (uint32_t h = 0; h < ph->Mod; h++) {
       auto it = hashToIndex.find(h);
@@ -232,64 +248,64 @@ static void generateStruct(std::string &out, const CStructDef &s,
       if (bitIt != fieldBitMap.end())
         foundBit = bitIt->second;
 
-      out += std::format("          case {}:\n", h);
-      out += std::format("            if (keyLen == {} && memcmp(key, \"{}\", {}) == 0) {{\n",
+      out += std::format("        case {}:\n", h);
+      out += std::format("          if (keyLen == {} && memcmp(key, \"{}\", {}) == 0) {{\n",
                          f.Name.size(), f.Name, f.Name.size());
-      generateParseField(out, f, enumNames, foundBit, 7);
-      out += "            } else { s.skipValue(); }\n";
-      out += "            break;\n";
+      generateParseField(out, f, enumNames, foundBit, 6, opts.PascalCaseFields);
+      out += "          } else { s.skipValue(); }\n";
+      out += "          break;\n";
     }
 
-    out += "          default:\n";
-    out += "            s.skipValue();\n";
-    out += "            break;\n";
-    out += "        }\n";
+    out += "        default:\n";
+    out += "          s.skipValue();\n";
+    out += "          break;\n";
+    out += "      }\n";
   }
 
-  out += "        s.skipWhitespace();\n";
-  out += "        if (s.p < s.end && *s.p == ',') { s.p++; continue; }\n";
-  out += "        break;\n";
-  out += "      }\n";
+  out += "      s.skipWhitespace();\n";
+  out += "      if (s.p < s.end && *s.p == ',') { s.p++; continue; }\n";
+  out += "      break;\n";
   out += "    }\n";
-  out += "    if (!s.expectChar('}')) return false;\n";
+  out += "  }\n";
+  out += "  if (!s.expectChar('}')) return false;\n";
 
   if (requiredCount > 0) {
     uint64_t mask = ((uint64_t)1 << requiredCount) - 1;
-    out += std::format("    return valid && (found & 0x{:x}) == 0x{:x};\n", mask, mask);
+    out += std::format("  return valid && (found & 0x{:x}) == 0x{:x};\n", mask, mask);
   } else {
-    out += "    return valid;\n";
+    out += "  return valid;\n";
   }
-  out += "  }\n\n";
+  out += "}\n\n";
 
-  // Diagnostic parse (when enabled)
-  if (diagMode) {
-    // parse() with ParseError
-    out += "  bool parse(const char *buf, size_t bufSize, ParseError &error) {\n";
-    out += "    DiagJsonScanner s{buf, buf + bufSize, buf, &error};\n";
-    out += "    return parseDiagImpl(s);\n";
-    out += "  }\n\n";
+  // --- Verbose parse (when enabled) ---
+  if (opts.VerboseMode) {
+    // parseVerbose() with ParseError
+    out += std::format("bool {}::parseVerbose(const char *buf, size_t bufSize, ParseError &error) {{\n", sn);
+    out += "  VerboseJsonScanner s{buf, buf + bufSize, buf, &error};\n";
+    out += "  return parseVerboseImpl(s);\n";
+    out += "}\n\n";
 
-    // parseDiagImpl()
-    out += "  bool parseDiagImpl(DiagJsonScanner &s) {\n";
-    out += "    if (!s.expectChar('{')) return false;\n";
+    // parseVerboseImpl()
+    out += std::format("bool {}::parseVerboseImpl(VerboseJsonScanner &s) {{\n", sn);
+    out += "  if (!s.expectChar('{')) return false;\n";
     if (requiredCount > 0)
-      out += "    uint64_t found = 0;\n";
-    out += "    s.skipWhitespace();\n";
-    out += "    if (s.p < s.end && *s.p != '}') {\n";
-    out += "      for (;;) {\n";
-    out += "        const char *key;\n";
-    out += "        size_t keyLen;\n";
+      out += "  uint64_t found = 0;\n";
+    out += "  s.skipWhitespace();\n";
+    out += "  if (s.p < s.end && *s.p != '}') {\n";
+    out += "    for (;;) {\n";
+    out += "      const char *key;\n";
+    out += "      size_t keyLen;\n";
 
     if (s.Fields.empty()) {
-      out += "        if (!s.readString(key, keyLen)) return false;\n";
-      out += "        if (!s.expectChar(':')) return false;\n";
-      out += "        s.skipValue();\n";
+      out += "      if (!s.readString(key, keyLen)) return false;\n";
+      out += "      if (!s.expectChar(':')) return false;\n";
+      out += "      s.skipValue();\n";
     } else {
-      out += "        uint32_t keyHash;\n";
-      out += std::format("        if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
+      out += "      uint32_t keyHash;\n";
+      out += std::format("      if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
                          ph->Seed, ph->Mult);
-      out += "        if (!s.expectChar(':')) return false;\n";
-      out += std::format("        switch (keyHash % {}) {{\n", ph->Mod);
+      out += "      if (!s.expectChar(':')) return false;\n";
+      out += std::format("      switch (keyHash % {}) {{\n", ph->Mod);
 
       for (uint32_t h = 0; h < ph->Mod; h++) {
         auto it = hashToIndex.find(h);
@@ -302,114 +318,137 @@ static void generateStruct(std::string &out, const CStructDef &s,
         if (bitIt != fieldBitMap.end())
           foundBit = bitIt->second;
 
-        out += std::format("          case {}:\n", h);
-        out += std::format("            if (keyLen == {} && memcmp(key, \"{}\", {}) == 0) {{\n",
+        out += std::format("        case {}:\n", h);
+        out += std::format("          if (keyLen == {} && memcmp(key, \"{}\", {}) == 0) {{\n",
                            f.Name.size(), f.Name, f.Name.size());
 
-        // Diagnostic parse: same structure but with error context
-        std::string diagFieldCode;
-        generateDiagParseField(diagFieldCode, f, enumNames, foundBit, 7);
-        out += diagFieldCode;
+        std::string verboseFieldCode;
+        generateVerboseParseField(verboseFieldCode, f, enumNames, foundBit, 6, opts.PascalCaseFields);
+        out += verboseFieldCode;
 
-        out += "            } else { s.skipValue(); }\n";
-        out += "            break;\n";
+        out += "          } else { s.skipValue(); }\n";
+        out += "          break;\n";
       }
 
-      out += "          default:\n";
-      out += "            s.skipValue();\n";
-      out += "            break;\n";
-      out += "        }\n";
+      out += "        default:\n";
+      out += "          s.skipValue();\n";
+      out += "          break;\n";
+      out += "      }\n";
     }
 
-    out += "        s.skipWhitespace();\n";
-    out += "        if (s.p < s.end && *s.p == ',') { s.p++; continue; }\n";
-    out += "        break;\n";
-    out += "      }\n";
+    out += "      s.skipWhitespace();\n";
+    out += "      if (s.p < s.end && *s.p == ',') { s.p++; continue; }\n";
+    out += "      break;\n";
     out += "    }\n";
-    out += "    if (!s.expectChar('}')) return false;\n";
+    out += "  }\n";
+    out += "  if (!s.expectChar('}')) return false;\n";
 
     if (requiredCount > 0) {
       uint64_t mask = ((uint64_t)1 << requiredCount) - 1;
-      out += std::format("    if ((found & 0x{:x}) != 0x{:x}) {{\n", mask, mask);
-      // Report first missing required field
+      out += std::format("  if ((found & 0x{:x}) != 0x{:x}) {{\n", mask, mask);
       for (size_t i = 0; i < s.Fields.size(); i++) {
         auto bitIt2 = fieldBitMap.find(i);
         if (bitIt2 != fieldBitMap.end()) {
-          out += std::format("      if (!(found & ((uint64_t)1 << {}))) "
+          out += std::format("    if (!(found & ((uint64_t)1 << {}))) "
                              "{{ s.setError(\"missing required field '{}'\"); return false; }}\n",
                              bitIt2->second, s.Fields[i].Name);
         }
       }
-      out += "    }\n";
+      out += "  }\n";
     }
 
-    out += "    return true;\n";
-    out += "  }\n\n";
+    out += "  return true;\n";
+    out += "}\n\n";
   }
 
-  // serialize()
-  out += "  std::string serialize() const {\n";
-  out += "    std::string out;\n";
-  out += "    serializeImpl(out);\n";
-  out += "    return out;\n";
-  out += "  }\n\n";
+  // --- serialize() ---
+  out += std::format("std::string {}::serialize() const {{\n", sn);
+  out += "  std::string out;\n";
+  out += "  serializeImpl(out);\n";
+  out += "  return out;\n";
+  out += "}\n\n";
 
-  // serializeImpl()
-  out += "  void serializeImpl(std::string &out) const {\n";
-  out += "    out += '{';\n";
+  // --- serializeImpl() ---
+  out += std::format("void {}::serializeImpl(std::string &out) const {{\n", sn);
+  out += "  out += '{';\n";
   bool first = true;
   for (auto &f : s.Fields)
-    generateSerializeField(out, f, enumNames, 2, first);
-  out += "    out += '}';\n";
-  out += "  }\n";
-
-  out += "};\n\n";
+    generateSerializeField(out, f, enumNames, 1, first, opts.PascalCaseFields);
+  out += "  out += '}';\n";
+  out += "}\n\n";
 }
 
 // --- Main entry point ---
 
-std::string generateCode(const CIdlFile &file, const CCodegenOptions &opts)
+CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName, const CCodegenOptions &opts)
 {
-  std::string out;
-
-  out += "// Generated by idltool — do not edit\n";
-  out += "#pragma once\n\n";
-  out += "#include <string>\n";
-  out += "#include <vector>\n";
-  out += "#include <optional>\n";
-  out += "#include <cstdint>\n";
-  out += "#include <cstring>\n";
-  out += "#include <cstdlib>\n";
-  out += "#include <ctime>\n\n";
-
-  if (opts.Standalone)
-    out += jsonScannerCode;
-
-  if (opts.DiagMode)
-    out += diagJsonScannerCode;
-
-  out += "\n";
+  CCodegenResult result;
+  auto &header = result.Header;
+  auto &source = result.Source;
 
   // Collect enum names
   std::unordered_set<std::string> enumNames;
   for (auto &e : file.Enums)
     enumNames.insert(e.Name);
 
-  // Generate enums
-  generateEnumParsers(out, file);
+  // === Header ===
+  header += "// Generated by idltool — do not edit\n";
+  header += "#pragma once\n\n";
+  header += "#include <string>\n";
+  header += "#include <vector>\n";
+  header += "#include <optional>\n";
+  header += "#include <cstdint>\n";
+  header += "#include <ctime>\n\n";
 
-  // Forward declarations
+  // Forward declarations for scanners
+  header += "struct JsonScanner;\n";
+  if (opts.VerboseMode) {
+    header += parseErrorCode;
+    header += "struct VerboseJsonScanner;\n";
+  }
+  header += "\n";
+
+  // Enum declarations
+  generateEnumDeclarations(header, file);
+
+  // Struct forward declarations
   for (auto &s : file.Structs) {
     if (s.IsMixin) continue;
-    out += std::format("struct {};\n", s.Name);
+    header += std::format("struct {};\n", opts.StructPrefix + s.Name);
   }
-  out += "\n";
+  header += "\n";
 
-  // Generate structs (topologically sorted)
+  // Struct declarations (fields + method declarations only)
   for (auto &s : file.Structs) {
     if (s.IsMixin) continue;
-    generateStruct(out, s, enumNames, opts.DiagMode);
+    generateStructDecl(header, s, enumNames, opts);
   }
 
-  return out;
+  // === Source ===
+  source += "// Generated by idltool — do not edit\n";
+  source += std::format("#include \"{}\"\n", headerName);
+  source += "#include <cstring>\n";
+  source += "#include <cstdlib>\n\n";
+
+  // Scanner definitions
+  if (opts.Standalone)
+    source += jsonScannerCode;
+
+  if (opts.VerboseMode)
+    source += verboseJsonScannerCode;
+
+  // JSON write helpers
+  source += jsonHelperCode;
+  source += "\n";
+
+  // Enum definitions
+  generateEnumDefinitions(source, file);
+
+  // Struct implementations
+  for (auto &s : file.Structs) {
+    if (s.IsMixin) continue;
+    generateStructImpl(source, s, enumNames, opts);
+  }
+
+  return result;
 }

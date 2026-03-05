@@ -1,5 +1,5 @@
-// Pool HTTP API schema
-// IDL for JSON request/response code generation
+// Pool configuration and HTTP API schema
+// IDL for JSON parser/serializer code generation
 //
 // Syntax:
 //   field: type;              — required (error if missing)

@@ -69,17 +69,7 @@ private:
   std::vector<size_t> ValueIndexes;
 };
 
-struct CNodeConfig {
-  std::string Type;
-  std::string Address;
-  std::string Login;
-  std::string Password;
-  std::string Wallet;
-  bool LongPollEnabled;
-};
-
 struct PoolBackendConfig {
-  bool isMaster;
   std::filesystem::path dbPath;
   std::chrono::seconds ShareLogFlushInterval = std::chrono::seconds(3);
   uint64_t ShareLogFileSizeLimit = 4194304;

@@ -1,6 +1,5 @@
 {
   "poolfrontend": {
-    "isMaster": true,
     "dbPath": "~/pooldb",
     "httpPort": 18880,
     "workerThreadsNum": 0,
@@ -87,8 +86,8 @@
       "protocol": "zmq",
       "port": 6666,
       "shareDiff": 7,
-      "workerPort": 60000,
-      "hostName": "localhost",
+      "zmqWorkerPort": 60000,
+      "zmqHostName": "localhost",
       "backends": ["XPM"]
     }
   ]
