@@ -33,10 +33,10 @@
 extern "C" int mallctl(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
 #endif
 
-static int interrupted = 0;
-static int sigusrReceived = 0;
-static void sigIntHandler(int) { interrupted = 1; }
-static void sigUsrHandler(int) { sigusrReceived = 1; }
+static std::atomic<sig_atomic_t> interrupted = 0;
+static std::atomic<sig_atomic_t> sigusrReceived = 0;
+static void sigIntHandler(int) { interrupted.store(1, std::memory_order_relaxed); }
+static void sigUsrHandler(int) { sigusrReceived.store(1, std::memory_order_relaxed); }
 
 static void processSigUsr()
 {
