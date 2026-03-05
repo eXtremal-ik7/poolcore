@@ -1,0 +1,99 @@
+// Pool configuration schema (pool.cfg.json)
+// IDL for config file parsing with detailed error reporting
+//
+// Syntax:
+//   field: type;              — required (error if missing)
+//   field: type = default;    — optional with default value
+//   [type]                    — array of type
+
+// ============================================================================
+// Root config
+// ============================================================================
+
+struct PoolFrontendConfig {
+  poolfrontend: FrontendSettings;
+  coins: [CoinConfig];
+  instances: [InstanceConfig];
+}
+
+// ============================================================================
+// Frontend settings
+// ============================================================================
+
+struct FrontendSettings {
+  isMaster: bool;
+  httpPort: uint32;
+  workerThreadsNum: uint32 = 0;
+  httpThreadsNum: uint32 = 0;
+  adminPasswordHash: string = "";
+  observerPasswordHash: string = "";
+  dbPath: string;
+  poolName: string;
+  poolHostProtocol: string;
+  poolHostAddress: string;
+  poolActivateLinkPrefix: string;
+  poolChangePasswordLinkPrefix: string;
+  poolActivate2faLinkPrefix: string;
+  poolDeactivate2faLinkPrefix: string;
+  coinGeckoApiKey: string = "";
+  smtpEnabled: bool;
+  smtpServer: string;
+  smtpLogin: string;
+  smtpPassword: string;
+  smtpSenderAddress: string;
+  smtpUseSmtps: bool = false;
+  smtpUseStartTLS: bool = true;
+}
+
+// ============================================================================
+// Coin configuration
+// ============================================================================
+
+struct NodeConfig {
+  type: string;
+  address: string;
+  login: string = "";
+  password: string = "";
+  wallet: string = "";
+  longPollEnabled: bool = true;
+}
+
+struct MiningAddressConfig {
+  address: string;
+  privateKey: string = "";
+  weight: uint32;
+}
+
+struct CoinConfig {
+  name: string;
+  getWorkNodes: [NodeConfig];
+  RPCNodes: [NodeConfig];
+  requiredConfirmations: uint32;
+  defaultPayoutThreshold: string;
+  keepStatsTime: uint32;
+  confirmationsCheckInterval: uint32;
+  balanceCheckInterval: uint32;
+  statisticCheckInterval: uint32;
+  shareTarget: uint32;
+  stratumWorkLifeTime: uint32 = 0;
+  miningAddresses: [MiningAddressConfig];
+  coinbaseMsg: string = "";
+  profitSwitchCoeff: double = 0.0;
+  ppsPayoutInterval: uint32 = 5;
+  // ZEC specific
+  pool_zaddr: string = "";
+  pool_taddr: string = "";
+}
+
+// ============================================================================
+// Instance configuration
+// ============================================================================
+
+struct InstanceConfig {
+  name: string;
+  type: string;
+  protocol: string;
+  backends: [string];
+  port: uint32 = 0;
+  shareDiff: double = 0.0;     // stratum only, accepts uint64 or double in JSON
+}

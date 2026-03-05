@@ -1,0 +1,786 @@
+// Pool HTTP API schema
+// IDL for JSON request/response code generation
+//
+// Syntax:
+//   field: type;              — required (error if missing)
+//   field: type = default;    — optional with default value
+//   field: type?;             — optional sub-object (may be absent)
+//   [type]                    — array of type
+//   mixin Name;               — inline all fields from another struct
+//   enum Name : type { ... }  — enumeration with allowed values
+
+// ============================================================================
+// Common types
+// ============================================================================
+
+mixin Credentials {
+  login: string = "";
+  password: string = "";
+  name: string = "";
+  email: string = "";
+  totp: string = "";
+  isActive: bool = false;
+  isReadOnly: bool = false;
+  feePlanId: string = "";
+  referralId: string = "";
+}
+
+mixin SessionTarget {
+  id: string;                    // session ID
+  targetLogin: string = "";
+}
+
+mixin SessionTargetCoin {
+  id: string;
+  targetLogin: string = "";
+  coin: string = "";
+}
+
+mixin TimeRange {
+  timeFrom: int64;
+  timeTo: int64;
+  groupByInterval: int64;
+}
+
+// timeFrom/timeTo with runtime defaults (currentTime - 24h, currentTime)
+mixin TimeRangeDefault {
+  timeFrom: int64 = @(now - 86400);
+  timeTo: int64 = @now;
+  groupByInterval: int64 = 3600;
+}
+
+struct UserFeePair {
+  userId: string;
+  percentage: double;
+}
+
+struct CoinFeeConfig {
+  coinName: string;
+  config: [UserFeePair];
+}
+
+struct ModeFeeConfig {
+  default: [UserFeePair];
+  coinSpecific: [CoinFeeConfig];
+}
+
+struct StatusResponse {
+  status: string;
+}
+
+// ============================================================================
+// Enums for sortBy fields
+// ============================================================================
+
+enum UserSortColumn : string {
+  login,
+  workersNum,
+  averagePower,
+  sharesPerSecond,
+  lastShareTime
+}
+
+enum WorkerSortColumn : string {
+  name,
+  averagePower,
+  sharesPerSecond,
+  lastShareTime
+}
+
+// ============================================================================
+// User management
+// ============================================================================
+
+// --- userAction ---
+struct UserActionRequest {
+  actionId: string;
+  newPassword: string = "";
+  totp: string = "";
+}
+
+// --- userCreate ---
+struct UserCreateRequest {
+  id: string = "";
+  mixin Credentials;
+}
+
+// --- userResendEmail ---
+struct UserResendEmailRequest {
+  mixin Credentials;
+}
+
+// --- userLogin ---
+struct UserLoginRequest {
+  mixin Credentials;
+}
+struct UserLoginResponse {
+  status: string;
+  sessionid: string;
+  isReadOnly: bool;
+}
+
+// --- userLogout ---
+struct UserLogoutRequest {
+  id: string;
+}
+
+// --- userQueryMonitoringSession ---
+struct UserQueryMonitoringSessionRequest {
+  mixin SessionTarget;
+}
+struct UserQueryMonitoringSessionResponse {
+  status: string;
+  sessionid: string;
+}
+
+// --- userChangePasswordInitiate ---
+struct UserChangePasswordInitiateRequest {
+  login: string;
+}
+
+// --- userChangePasswordForce ---
+struct UserChangePasswordForceRequest {
+  id: string;
+  login: string;
+  newPassword: string;
+}
+
+// --- userGetCredentials ---
+struct UserGetCredentialsRequest {
+  mixin SessionTarget;
+}
+struct UserGetCredentialsResponse {
+  status: string;
+  login: string;
+  name: string;
+  email: string;
+  registrationDate: int64;
+  isActive: bool;
+  isReadOnly: bool;
+  has2fa: bool;
+}
+
+// --- userGetSettings ---
+struct PayoutSettings {
+  mode: string;
+  address: string;
+  instantPayoutThreshold: string;
+}
+
+struct MiningSettings {
+  mode: string;
+}
+
+struct AutoExchangeSettings {
+  payoutCoinName: string;
+}
+
+struct CoinSettings {
+  name: string;
+  payout: PayoutSettings;
+  mining: MiningSettings;
+  autoExchange: AutoExchangeSettings;
+}
+
+struct UserGetSettingsRequest {
+  mixin SessionTarget;
+}
+struct UserGetSettingsResponse {
+  status: string;
+  coins: [CoinSettings];
+}
+
+// --- userUpdateCredentials ---
+struct UserUpdateCredentialsRequest {
+  mixin SessionTarget;
+  mixin Credentials;
+}
+
+// --- userUpdateSettings ---
+struct UserUpdateSettingsRequest {
+  id: string;
+  targetLogin: string = "";
+  coin: string;
+  totp: string = "";
+  payout: PayoutSettings?;
+  mining: MiningSettings?;
+  autoExchange: AutoExchangeSettings?;
+}
+
+// --- userEnumerateAll ---
+struct UserEnumerateAllRequest {
+  id: string;
+  coin: string = "sha256";
+  offset: uint64 = 0;
+  size: uint64 = 100;
+  sortBy: UserSortColumn = "averagePower";
+  sortDescending: bool = true;
+}
+
+struct UserWithStats {
+  login: string;
+  name: string;
+  email: string;
+  registrationDate: int64;
+  isActive: bool;
+  isReadOnly: bool;
+  feePlanId: string;
+  workers: int64;
+  shareRate: double;
+  power: int64;
+  lastShareTime: int64;
+}
+
+struct UserEnumerateAllResponse {
+  status: string;
+  users: [UserWithStats];
+}
+
+// --- userEnumerateFeePlan ---
+struct UserEnumerateFeePlanRequest {
+  id: string;
+}
+struct UserEnumerateFeePlanResponse {
+  status: string;
+  plans: [string];
+}
+
+// --- userCreateFeePlan ---
+struct UserCreateFeePlanRequest {
+  id: string;
+  feePlanId: string;
+}
+
+// --- userQueryFeePlan ---
+struct UserQueryFeePlanRequest {
+  id: string;
+  feePlanId: string;
+  mode: string;
+}
+struct UserQueryFeePlanResponse {
+  status: string;
+  feePlanId: string;
+  mode: string;
+  referralId: string;     // nullable
+  mixin ModeFeeConfig;
+}
+
+// --- userUpdateFeePlan ---
+struct UserUpdateFeePlanRequest {
+  id: string;
+  feePlanId: string;
+  mode: string;
+  mixin ModeFeeConfig;
+}
+
+// --- userDeleteFeePlan ---
+struct UserDeleteFeePlanRequest {
+  id: string;
+  feePlanId: string;
+}
+
+// --- userChangeFeePlan ---
+struct UserChangeFeePlanRequest {
+  id: string;
+  targetLogin: string;
+  feePlanId: string;
+}
+
+// --- userRenewFeePlanReferralId ---
+struct UserRenewFeePlanReferralIdRequest {
+  id: string;
+  feePlanId: string;
+}
+struct UserRenewFeePlanReferralIdResponse {
+  status: string;
+  referralId: string;
+}
+
+// --- userActivate2faInitiate ---
+struct UserActivate2faInitiateRequest {
+  sessionId: string;
+  targetLogin: string = "";
+}
+struct UserActivate2faInitiateResponse {
+  status: string;
+  key: string;
+}
+
+// --- userDeactivate2faInitiate ---
+struct UserDeactivate2faInitiateRequest {
+  sessionId: string;
+  targetLogin: string = "";
+}
+
+// --- userAdjustInstantPayoutThreshold ---
+struct UserAdjustInstantPayoutThresholdRequest {
+  id: string;
+  coin: string;
+  threshold: string;
+}
+
+// ============================================================================
+// Backend queries
+// ============================================================================
+
+// --- backendManualPayout ---
+struct BackendManualPayoutRequest {
+  id: string;
+  targetLogin: string = "";
+  coin: string;
+}
+
+// --- backendQueryUserBalance ---
+struct BackendQueryUserBalanceRequest {
+  mixin SessionTargetCoin;
+}
+
+struct BalanceEntry {
+  coin: string;
+  balance: string;
+  requested: string;
+  paid: string;
+  queued: string;
+}
+
+struct BackendQueryUserBalanceResponse {
+  status: string;
+  balances: [BalanceEntry];
+}
+
+// --- backendQueryUserStats ---
+struct BackendQueryUserStatsRequest {
+  mixin SessionTargetCoin;
+  offset: uint64 = 0;
+  size: uint64 = 4096;
+  sortBy: WorkerSortColumn = "name";
+  sortDescending: bool = false;
+}
+
+struct StatsTotal {
+  clients: int64;
+  workers: int64;
+  shareRate: double;
+  shareWork: string;
+  power: int64;
+  lastShareTime: int64;
+}
+
+struct WorkerStats {
+  name: string;
+  shareRate: double;
+  shareWork: string;
+  power: int64;
+  lastShareTime: int64;
+}
+
+struct BackendQueryUserStatsResponse {
+  status: string;
+  powerUnit: string;
+  powerMultLog10: int64;
+  currentTime: int64;
+  total: StatsTotal;
+  workers: [WorkerStats];
+}
+
+// --- backendQueryUserStatsHistory ---
+struct BackendQueryUserStatsHistoryRequest {
+  id: string;
+  targetLogin: string = "";
+  coin: string = "";
+  mixin TimeRangeDefault;
+}
+
+struct StatsHistoryEntry {
+  name: string;
+  time: int64;
+  shareRate: double;
+  shareWork: string;
+  power: int64;
+}
+
+struct StatsHistoryResponse {
+  status: string;
+  powerUnit: string;
+  powerMultLog10: int64;
+  currentTime: int64;
+  stats: [StatsHistoryEntry];
+}
+
+// --- backendQueryWorkerStatsHistory ---
+struct BackendQueryWorkerStatsHistoryRequest {
+  id: string;
+  targetLogin: string = "";
+  coin: string;
+  workerId: string;
+  mixin TimeRangeDefault;
+}
+
+// --- backendQueryCoins ---
+struct BackendQueryCoinsRequest {
+  id: string = "";
+}
+
+struct CoinInfo {
+  name: string;
+  fullName: string;
+  algorithm: string;
+  ppsAvailable: bool;
+  pplnsFee: double;
+  ppsFee: double;
+  minimalRegularPayout: string;
+  minimalInstantPayout: string;
+  acceptIncoming: bool;
+  acceptOutgoing: bool;
+  valueBTC: double;           // nullable
+  valueUSD: double;           // nullable
+  height: int64;              // nullable (placeholder)
+  difficulty: double;         // nullable (placeholder)
+  powerUnit: string;          // nullable (placeholder)
+  powerMultLog10: int64;      // nullable (placeholder)
+  powerPPS: int64;            // nullable (placeholder)
+  dailyPPS: string;           // nullable (placeholder)
+  dailyPPSUSD: string;        // nullable (placeholder)
+  dailyPPSBTC: string;        // nullable (placeholder)
+}
+
+struct BackendQueryCoinsResponse {
+  status: string;
+  coins: [CoinInfo];
+}
+
+// --- backendQueryFoundBlocks ---
+struct BackendQueryFoundBlocksRequest {
+  coin: string;
+  heightFrom: int64 = -1;
+  hashFrom: string = "";
+  count: uint32 = 20;
+}
+
+struct MergedBlockInfo {
+  coin: string;
+  height: int64;
+  hash: string;
+}
+
+struct FoundBlock {
+  height: int64;
+  hash: string;
+  time: int64;
+  confirmations: int64;
+  generatedCoins: string;
+  foundBy: string;
+  mergedBlocks: [MergedBlockInfo]?;
+}
+
+struct BackendQueryFoundBlocksResponse {
+  status: string;
+  blocks: [FoundBlock];
+}
+
+// --- backendQueryPayouts ---
+struct BackendQueryPayoutsRequest {
+  id: string;
+  targetLogin: string = "";
+  coin: string = "";
+  timeFrom: int64 = 0;
+  count: uint32 = 20;
+}
+
+struct PayoutRecord {
+  time: int64;
+  txid: string;
+  value: string;
+  valueBTC: string;
+  valueUSD: string;
+  status: int64;
+}
+
+struct BackendQueryPayoutsResponse {
+  status: string;
+  payouts: [PayoutRecord];
+}
+
+// --- backendQueryPoolStats ---
+struct BackendQueryPoolStatsRequest {
+  coin: string = "";
+}
+
+struct PoolStatsEntry {
+  coin: string;
+  powerUnit: string;
+  powerMultLog10: int64;
+  clients: int64;
+  workers: int64;
+  shareRate: double;
+  shareWork: string;
+  power: int64;
+  lastShareTime: int64;
+}
+
+struct BackendQueryPoolStatsResponse {
+  status: string;
+  currentTime: int64;
+  stats: [PoolStatsEntry];
+}
+
+// --- backendQueryPoolStatsHistory ---
+struct BackendQueryPoolStatsHistoryRequest {
+  coin: string = "";
+  mixin TimeRangeDefault;
+}
+
+// --- backendQueryProfitSwitchCoeff ---
+struct BackendQueryProfitSwitchCoeffRequest {
+  id: string;
+}
+
+struct ProfitSwitchCoinEntry {
+  name: string;
+  profitSwitchCoeff: double;
+}
+
+struct BackendQueryProfitSwitchCoeffResponse {
+  status: string;
+  coins: [ProfitSwitchCoinEntry];
+}
+
+// --- backendQueryPPLNSPayouts ---
+struct BackendQueryPPLNSPayoutsRequest {
+  id: string;
+  targetLogin: string = "";
+  coin: string;
+  timeFrom: int64 = 0;
+  hashFrom: string = "";
+  count: uint32 = 20;
+}
+
+struct PPLNSPayoutEntry {
+  startTime: int64;
+  endTime: int64;
+  hash: string;
+  height: int64;
+  value: string;
+  valueBTC: string;
+  valueUSD: string;
+}
+
+struct BackendQueryPPLNSPayoutsResponse {
+  status: string;
+  payouts: [PPLNSPayoutEntry];
+}
+
+// --- backendQueryPPLNSAcc ---
+struct BackendQueryPPLNSAccRequest {
+  id: string;
+  targetLogin: string = "";
+  coin: string;
+  mixin TimeRange;
+}
+
+struct AccumulatedPayoutEntry {
+  timeLabel: int64;
+  value: string;
+  valueBTC: string;
+  valueUSD: string;
+}
+
+struct BackendQueryPPLNSAccResponse {
+  status: string;
+  payouts: [AccumulatedPayoutEntry];
+}
+
+// --- backendQueryPPSPayouts ---
+struct BackendQueryPPSPayoutsRequest {
+  id: string;
+  targetLogin: string = "";
+  coin: string;
+  timeFrom: int64 = 0;
+  count: uint32 = 20;
+}
+
+struct PPSPayoutEntry {
+  startTime: int64;
+  endTime: int64;
+  value: string;
+  valueBTC: string;
+  valueUSD: string;
+}
+
+struct BackendQueryPPSPayoutsResponse {
+  status: string;
+  payouts: [PPSPayoutEntry];
+}
+
+// --- backendQueryPPSPayoutsAcc ---
+struct BackendQueryPPSPayoutsAccRequest {
+  id: string;
+  targetLogin: string = "";
+  coin: string;
+  mixin TimeRange;
+}
+
+// --- backendUpdateProfitSwitchCoeff ---
+struct BackendUpdateProfitSwitchCoeffRequest {
+  id: string;
+  coin: string = "";
+  profitSwitchCoeff: double;
+}
+
+// --- backendGetConfig ---
+struct BackendGetConfigRequest {
+  id: string;
+  coin: string;
+}
+
+struct PPSConfig {
+  enabled: bool;
+  poolFee: double;
+  saturationFunction: string;
+  saturationB0: double;
+  saturationANegative: double;
+  saturationAPositive: double;
+  saturationFunctions: [string];
+}
+
+struct PayoutsConfig {
+  instantPayoutsEnabled: bool;
+  regularPayoutsEnabled: bool;
+  instantMinimalPayout: string;
+  instantPayoutInterval: int64;
+  regularMinimalPayout: string;
+  regularPayoutInterval: int64;
+  regularPayoutDayOffset: int64;
+}
+
+struct SwapConfig {
+  acceptIncoming: bool;
+  acceptOutgoing: bool;
+}
+
+struct BackendGetConfigResponse {
+  status: string;
+  pps: PPSConfig;
+  payouts: PayoutsConfig;
+  swap: SwapConfig;
+}
+
+// --- backendUpdateConfig ---
+struct PPSConfigUpdate {
+  enabled: bool;
+  poolFee: double;
+  saturationFunction: string = "";
+  saturationB0: double = 0.0;
+  saturationANegative: double = 0.0;
+  saturationAPositive: double = 0.0;
+}
+
+struct PayoutsConfigUpdate {
+  instantPayoutsEnabled: bool;
+  regularPayoutsEnabled: bool;
+  instantMinimalPayout: string;
+  instantPayoutInterval: int64;
+  regularMinimalPayout: string;
+  regularPayoutInterval: int64;
+  regularPayoutDayOffset: int64 = 0;
+}
+
+struct BackendUpdateConfigRequest {
+  id: string;
+  coin: string;
+  pps: PPSConfigUpdate?;
+  payouts: PayoutsConfigUpdate?;
+  swap: SwapConfig?;
+}
+
+// --- backendGetPPSState ---
+struct BackendGetPPSStateRequest {
+  id: string;
+  coin: string;
+}
+
+struct PPSBalanceInfo {
+  value: string;
+  inBlocks: double;
+}
+
+struct PPSBalanceWithSqLambda {
+  value: string;
+  inBlocks: double;
+  sqLambda: double;
+}
+
+struct PPSBalanceSnapshot {
+  time: int64;
+  value: string;
+  inBlocks: double;
+  sqLambda: double;
+}
+
+struct PPSState {
+  time: int64;
+  balance: PPSBalanceInfo;
+  refBalance: PPSBalanceWithSqLambda;
+  minRefBalance: PPSBalanceSnapshot;
+  maxRefBalance: PPSBalanceSnapshot;
+  totalBlocksFound: double;
+  orphanBlocks: double;
+  lastSaturateCoeff: double;
+  lastBaseBlockReward: string;
+  lastAverageTxFee: string;
+}
+
+struct BackendGetPPSStateResponse {
+  status: string;
+  state: PPSState;
+}
+
+// --- backendQueryPPSHistory ---
+struct BackendQueryPPSHistoryRequest {
+  id: string;
+  coin: string;
+  timeFrom: int64;
+  timeTo: int64;
+}
+struct BackendQueryPPSHistoryResponse {
+  status: string;
+  history: [PPSState];
+}
+
+// --- backendPoolLuck ---
+struct BackendPoolLuckRequest {
+  coin: string;
+  intervals: [int64];
+}
+struct BackendPoolLuckResponse {
+  status: string;
+  luck: [double];
+}
+
+// ============================================================================
+// Instance queries
+// ============================================================================
+
+// --- instanceEnumerateAll ---
+struct InstanceInfo {
+  protocol: string;
+  type: string;
+  port: int64;
+  backends: [string];
+  shareDiff: double?;           // only for protocol == "stratum"
+}
+
+struct InstanceEnumerateAllResponse {
+  status: string;
+  instances: [InstanceInfo];
+}
+
+// ============================================================================
+// Complex mining stats
+// ============================================================================
+
+// --- complexMiningStatsGetInfo ---
+// Response is opaque (forwarded from ComplexMiningStats engine)
+struct ComplexMiningStatsGetInfoRequest {
+  id: string;
+}

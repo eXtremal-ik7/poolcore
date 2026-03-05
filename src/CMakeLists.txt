@@ -135,6 +135,9 @@ function(target_link_whole_archive TARGET)
   endif()
 endfunction()
 
+# IDL code generator
+add_subdirectory(idltool)
+
 # Executables
 add_subdirectory(poolfrontend)
 add_subdirectory(migrate)

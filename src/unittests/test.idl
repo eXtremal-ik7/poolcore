@@ -1,0 +1,177 @@
+// Test IDL — all supported constructs and types
+// Used for testing the code generator
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum Color : string {
+  red,
+  green,
+  blue
+}
+
+enum Priority : string {
+  low,
+  medium,
+  high,
+  critical
+}
+
+// ============================================================================
+// Mixins
+// ============================================================================
+
+mixin Identifiable {
+  id: string;
+  name: string = "";
+}
+
+mixin Timestamped {
+  createdAt: int64;
+  updatedAt: int64 = 0;
+}
+
+// ============================================================================
+// Basic struct — all scalar types
+// ============================================================================
+
+struct ScalarTypes {
+  fieldString: string;
+  fieldBool: bool;
+  fieldInt32: int32;
+  fieldUint32: uint32;
+  fieldInt64: int64;
+  fieldUint64: uint64;
+  fieldDouble: double;
+}
+
+// ============================================================================
+// Optional scalars with defaults
+// ============================================================================
+
+struct ScalarDefaults {
+  fieldString: string = "hello";
+  fieldBool: bool = true;
+  fieldInt32: int32 = -1;
+  fieldUint32: uint32 = 42;
+  fieldInt64: int64 = 0;
+  fieldUint64: uint64 = 100;
+  fieldDouble: double = 3.14;
+}
+
+// ============================================================================
+// Mixed required and optional
+// ============================================================================
+
+struct MixedFields {
+  required1: string;
+  optional1: string = "";
+  required2: int64;
+  optional2: int64 = -1;
+  required3: bool;
+  optional3: bool = false;
+}
+
+// ============================================================================
+// Nested structs
+// ============================================================================
+
+struct Inner {
+  value: string;
+  count: int64;
+}
+
+struct Outer {
+  label: string;
+  child: Inner;
+}
+
+// ============================================================================
+// Optional sub-objects
+// ============================================================================
+
+struct OptionalChildren {
+  name: string;
+  first: Inner?;
+  second: Inner?;
+}
+
+// ============================================================================
+// Arrays
+// ============================================================================
+
+struct ArrayFields {
+  strings: [string];
+  numbers: [int64];
+  doubles: [double];
+  items: [Inner];
+}
+
+// ============================================================================
+// Optional arrays
+// ============================================================================
+
+struct OptionalArrays {
+  label: string;
+  tags: [string]?;
+  items: [Inner]?;
+}
+
+// ============================================================================
+// Enum fields
+// ============================================================================
+
+struct WithEnum {
+  color: Color;
+  priority: Priority = "medium";
+}
+
+// ============================================================================
+// Mixin usage
+// ============================================================================
+
+struct WithMixin {
+  mixin Identifiable;
+  value: double;
+}
+
+struct WithMultipleMixins {
+  mixin Identifiable;
+  mixin Timestamped;
+  payload: string;
+}
+
+// ============================================================================
+// Deep nesting
+// ============================================================================
+
+struct Level2 {
+  value: int64;
+}
+
+struct Level1 {
+  nested: Level2;
+  items: [Level2];
+}
+
+struct Level0 {
+  child: Level1;
+  label: string = "";
+}
+
+// ============================================================================
+// Everything combined
+// ============================================================================
+
+struct Combined {
+  mixin Identifiable;
+  mixin Timestamped;
+  priority: Priority = "low";
+  active: bool;
+  score: double = 0.0;
+  metadata: Inner?;
+  tags: [string]?;
+  children: [Inner];
+  nested: Outer;
+}
