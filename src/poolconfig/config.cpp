@@ -1,4 +1,4 @@
-#include "config.h"
+#include "poolconfig/config.h"
 #include <optional>
 
 static inline void setErrorDescription(EErrorType error, EErrorType *errorAcc, const std::string &place, const char *name, const char *requiredType, std::string &errorDescription)
@@ -36,6 +36,20 @@ static inline void jsonParseString(const rapidjson::Value &value, const char *na
       setErrorDescription(ETypeMismatch, validAcc, place, name, "string", errorDescription);
   } else {
     out = defaultValue;
+  }
+}
+
+static inline void jsonParseStringOptional(const rapidjson::Value &value, const char *name, std::optional<std::string> &out, EErrorType *validAcc, const std::string &place, std::string &errorDescription) {
+  if (*validAcc != EOk)
+    return;
+
+  if (value.HasMember(name)) {
+    if (value[name].IsString())
+      out = value[name].GetString();
+    else
+      setErrorDescription(ETypeMismatch, validAcc, place, name, "string", errorDescription);
+  } else {
+    out.reset();
   }
 }
 
@@ -95,17 +109,45 @@ static inline void jsonParseUInt(const rapidjson::Value &value, const char *name
   }
 }
 
-static inline void jsonParseDouble(const rapidjson::Value &value, const char *name, double *out, EErrorType *validAcc, const std::string &place, std::string &errorDescription) {
+static inline void jsonParseUIntOptional(const rapidjson::Value &value, const char *name, std::optional<unsigned> &out, EErrorType *validAcc, const std::string &place, std::string &errorDescription) {
   if (*validAcc != EOk)
     return;
 
   if (value.HasMember(name)) {
-    if (value[name].IsFloat())
+    if (value[name].IsUint())
+      out = value[name].GetUint();
+    else
+      setErrorDescription(ETypeMismatch, validAcc, place, name, "unsigned integer", errorDescription);
+  } else {
+    out.reset();
+  }
+}
+
+static inline void jsonParseNumber(const rapidjson::Value &value, const char *name, double *out, EErrorType *validAcc, const std::string &place, std::string &errorDescription) {
+  if (*validAcc != EOk)
+    return;
+
+  if (value.HasMember(name)) {
+    if (value[name].IsNumber())
       *out = value[name].GetDouble();
     else
-      setErrorDescription(ETypeMismatch, validAcc, place, name, "floating point number (like 1.0)", errorDescription);
+      setErrorDescription(ETypeMismatch, validAcc, place, name, "number", errorDescription);
   } else {
-    setErrorDescription(ENotExists, validAcc, place, name, "floating point number (like 1.0)", errorDescription);
+    setErrorDescription(ENotExists, validAcc, place, name, "number", errorDescription);
+  }
+}
+
+static inline void jsonParseNumber(const rapidjson::Value &value, const char *name, double *out, double defaultValue, EErrorType *validAcc, const std::string &place, std::string &errorDescription) {
+  if (*validAcc != EOk)
+    return;
+
+  if (value.HasMember(name)) {
+    if (value[name].IsNumber())
+      *out = value[name].GetDouble();
+    else
+      setErrorDescription(ETypeMismatch, validAcc, place, name, "number", errorDescription);
+  } else {
+    *out = defaultValue;
   }
 }
 
@@ -146,30 +188,50 @@ static inline void jsonParseStringArray(const rapidjson::Value &value, const cha
   }
 }
 
+static inline void jsonParseStringArrayOptional(const rapidjson::Value &value, const char *name, std::optional<std::vector<std::string>> &out, EErrorType *validAcc, const std::string &place, std::string &errorDescription) {
+  if (*validAcc != EOk)
+    return;
 
-void CInstanceConfig::load(rapidjson::Document &document, const rapidjson::Value &value, std::string &errorDescription, EErrorType *error)
+  if (value.HasMember(name)) {
+    if (value[name].IsArray()) {
+      out.emplace();
+      rapidjson::Value::ConstArray array = value[name].GetArray();
+      for (rapidjson::SizeType i = 0; i < array.Size(); i++) {
+        if (!array[i].IsString()) {
+          setErrorDescription(ETypeMismatch, validAcc, place, name, "array of string", errorDescription);
+          break;
+        }
+
+        out.value().emplace_back(array[i].GetString());
+      }
+    } else {
+      setErrorDescription(ETypeMismatch, validAcc, place, name, "array of string", errorDescription);
+    }
+  } else {
+    out.reset();
+  }
+}
+
+
+void CInstanceConfig::load(const rapidjson::Value &value, std::string &errorDescription, EErrorType *error)
 {
-  InstanceConfig = rapidjson::Value(value, document.GetAllocator());
-
   jsonParseString(value, "name", Name, error, "instances", errorDescription);
 
   std::string localPath = (std::string)"instances" + " -> " + Name;
   jsonParseString(value, "type", Type, error, localPath, errorDescription);
   jsonParseString(value, "protocol", Protocol, error, localPath, errorDescription);
   jsonParseStringArray(value, "backends", Backends, error, localPath, errorDescription);
-  jsonParseUInt(value, "port", &Port, 0, error, localPath, errorDescription);
-
-  if (Protocol == "stratum") {
-    if (value.HasMember("shareDiff")) {
-      if (value["shareDiff"].IsUint64()) {
-        StratumShareDiff = static_cast<double>(value["shareDiff"].GetUint64());
-      } else if (value["shareDiff"].IsDouble()) {
-        StratumShareDiff = value["shareDiff"].GetDouble();
-      } else {
-        StratumShareDiff = 0.0;
-      }
-    }
-  }
+  jsonParseUInt(value, "port", &Port, error, localPath, errorDescription);
+  jsonParseNumber(value, "shareDiff", &ShareDiff, error, localPath, errorDescription);
+  jsonParseStringOptional(value, "versionMask", VersionMask, error, localPath, errorDescription);
+  jsonParseBoolean(value, "profitSwitcherEnabled", &ProfitSwitcherEnabled, false, error, localPath, errorDescription);
+  jsonParseStringArrayOptional(value, "resetWorkOnBlockChange", ResetWorkOnBlockChange, error, localPath, errorDescription);
+  jsonParseStringArrayOptional(value, "primaryBackends", PrimaryBackends, error, localPath, errorDescription);
+  jsonParseStringArrayOptional(value, "secondaryBackends", SecondaryBackends, error, localPath, errorDescription);
+  jsonParseUIntOptional(value, "fixedExtraNonceSize", FixedExtraNonceSize, error, localPath, errorDescription);
+  jsonParseUIntOptional(value, "mutableExtraNonceSize", MutableExtraNonceSize, error, localPath, errorDescription);
+  jsonParseUIntOptional(value, "workerPort", ZmqWorkerPort, error, localPath, errorDescription);
+  jsonParseStringOptional(value, "hostName", ZmqHostName, error, localPath, errorDescription);
 }
 
 
@@ -229,7 +291,7 @@ void CCoinConfig::load(const rapidjson::Value &value, std::string &errorDescript
   jsonParseUInt(value, "balanceCheckInterval", &BalanceCheckInterval, error, localPath, errorDescription);
   jsonParseUInt(value, "statisticCheckInterval", &StatisticCheckInterval, error, localPath, errorDescription);
   jsonParseUInt(value, "shareTarget", &ShareTarget, error, localPath, errorDescription);
-  jsonParseUInt(value, "stratumWorkLifeTime", &StratumWorkLifeTime, 0, error, localPath, errorDescription); 
+  jsonParseUInt(value, "stratumWorkLifeTime", &StratumWorkLifeTime, 0, error, localPath, errorDescription);
   if (!value.HasMember("miningAddresses") || !value["miningAddresses"].IsArray()) {
     setErrorDescription(ETypeMismatch, error, localPath, "miningAddress", "array of objects", errorDescription);
     return;
@@ -324,7 +386,7 @@ bool CPoolFrontendConfig::load(rapidjson::Document &document, std::string &error
     auto array = document["instances"].GetArray();
     Instances.resize(array.Size());
     for (rapidjson::SizeType i = 0, ie = array.Size(); i != ie; ++i)
-      Instances[i].load(document, array[i], errorDescription, &error);
+      Instances[i].load(array[i], errorDescription, &error);
   }
 
   return error == EOk;

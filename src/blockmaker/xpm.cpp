@@ -473,10 +473,10 @@ bool Proto::checkConsensus(const Proto::BlockHeader &header,
   return true;
 }
 
-void Zmq::initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg)
+void Zmq::initializeMiningConfig(MiningConfig &cfg, const CInstanceConfig &instanceCfg)
 {
-  if (instanceCfg.HasMember("minShareLength") && instanceCfg["minShareLength"].IsUint())
-    cfg.MinShareLength = instanceCfg["minShareLength"].GetUint();
+  if (instanceCfg.ShareDiff > 0)
+    cfg.MinShareLength = static_cast<unsigned>(instanceCfg.ShareDiff);
 }
 
 void Zmq::initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum)

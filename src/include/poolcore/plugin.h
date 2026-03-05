@@ -1,4 +1,5 @@
 #pragma once
+#include "poolconfig/config.h"
 #include "poolcore/backendData.h"
 #include "poolcore/complexMiningStats.h"
 #include "poolcore/poolCore.h"
@@ -33,11 +34,9 @@ using FCreatePoolInstance = std::function<CPoolInstance*(asyncBase*,
                                                          CThreadPool&,
                                                          StatisticServer*,
                                                          ComplexMiningStats*,
-                                                         const std::string&,
-                                                         const std::string&,
+                                                         const CInstanceConfig&,
                                                          unsigned,
                                                          unsigned,
-                                                         rapidjson::Value&,
                                                          CPriceFetcher*,
                                                          const std::filesystem::path&)>;
 

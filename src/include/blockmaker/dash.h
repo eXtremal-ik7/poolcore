@@ -145,8 +145,7 @@ public:
         return BTC::Stratum::decodeStratumMessage(msg, in, size);
     }
 
-    static void miningConfigInitialize(CMiningConfig &miningCfg,
-                                       rapidjson::Value &instanceCfg) {
+    static void miningConfigInitialize(CMiningConfig &miningCfg, const CInstanceConfig &instanceCfg) {
         BTC::Stratum::miningConfigInitialize(miningCfg, instanceCfg);
     }
 

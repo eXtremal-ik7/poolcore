@@ -1,6 +1,7 @@
 #pragma once
 
 #include "poolcommon/uint.h"
+#include "poolconfig/config.h"
 #include "stratumWork.h"
 #include "poolcommon/utils.h"
 #include "poolinstances/stratumMsg.h"
@@ -111,12 +112,10 @@ public:
     return EStratumStatusOk;
   }
 
-  static void miningConfigInitialize(CMiningConfig &miningCfg, rapidjson::Value &instanceCfg) {
-    // default values
-    miningCfg.FixedExtraNonceSize = 3;
-
-    if (instanceCfg.HasMember("fixedExtraNonceSize") && instanceCfg["fixedExtraNonceSize"].IsUint())
-      miningCfg.FixedExtraNonceSize = instanceCfg["fixedExtraNonceSize"].GetUint();
+  static void miningConfigInitialize(CMiningConfig &miningCfg, const CInstanceConfig &instanceCfg) {
+    miningCfg.FixedExtraNonceSize = instanceCfg.FixedExtraNonceSize.value_or(3);
+    miningCfg.MutableExtraNonceSize = 0;
+    miningCfg.TxNumLimit = 0;
   }
 
   static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) {

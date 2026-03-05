@@ -2694,8 +2694,7 @@ void PoolHttpConnection::onInstanceEnumerateAll(rapidjson::Document&)
           for (const auto &backend: instance.Backends)
             backends.addString(backend);
         }
-        if (instance.Protocol == "stratum")
-          instanceObject.addDouble("shareDiff", instance.StratumShareDiff);
+        instanceObject.addDouble("shareDiff", instance.ShareDiff);
       }
     }
   }

@@ -308,7 +308,7 @@ public:
     return EStratumStatusOk;
   }
 
-  static void miningConfigInitialize(CMiningConfig &miningCfg, rapidjson::Value &instanceCfg) { BTC::Stratum::miningConfigInitialize(miningCfg, instanceCfg); }
+  static void miningConfigInitialize(CMiningConfig &miningCfg, const CInstanceConfig &instanceCfg) { BTC::Stratum::miningConfigInitialize(miningCfg, instanceCfg); }
 
   static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) {
     // Set fixed part of extra nonce

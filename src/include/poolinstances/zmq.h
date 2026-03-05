@@ -1,16 +1,17 @@
 #pragma once
 
 #include "common.h"
+#include "poolconfig/config.h"
 #include "poolcore/backend.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/poolInstance.h"
 #include "poolcore/thread.h"
 #include "poolcore/usermgr.h"
 #include "poolcore/shareAccumulator.h"
-#include "blockmaker/merkleTree.h"
 #include <asyncio/socket.h>
 #include <asyncioextras/zmtp.h>
 #include "blockmaker/protocol.pb.h"
+#include <cmath>
 
 static constexpr unsigned REQUIRED_MINER_VERSION = 1061;
 
@@ -44,7 +45,7 @@ public:
               ComplexMiningStats *miningStats,
               unsigned instanceId,
               unsigned instancesNum,
-              rapidjson::Value &config,
+              const CInstanceConfig &config,
               const std::filesystem::path &logsPath)
       : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic, miningStats)
   {
@@ -79,17 +80,18 @@ public:
       }, this);
     }
 
-    if (!(config.HasMember("port") && config["port"].IsInt() &&
-          config.HasMember("workerPort") && config["workerPort"].IsInt() &&
-          config.HasMember("hostName") && config["hostName"].IsString())) {
-      CLOG_FC(LogChannel_, ERROR, "instance {}: can't read 'port', 'workerPort', 'hostName' values from config", "XPM/zmq");
+    if (config.ShareDiff != std::floor(config.ShareDiff)) {
+      CLOG_FC(LogChannel_, ERROR, "instance {}: shareDiff must be an integer for zmq protocol", Name_);
+      exit(1);
+    }
+    if (!config.ZmqWorkerPort.has_value() || !config.ZmqHostName.has_value()) {
+      CLOG_FC(LogChannel_, ERROR, "instance {}: 'workerPort' and 'hostName' are required for zmq protocol", Name_);
       exit(1);
     }
 
-    ListenPort_ = config["port"].GetInt();
-    WorkerPort_ = config["workerPort"].GetInt();
-    HostName_ = config["hostName"].GetString();
-
+    ListenPort_ = config.Port;
+    WorkerPort_ = config.ZmqWorkerPort.value();
+    HostName_ = config.ZmqHostName.value();
     X::Zmq::initializeMiningConfig(MiningCfg_, config);
 
     auto logPath = (logsPath / ("zmq." + std::to_string(ListenPort_)) / "log-%Y-%m.log").generic_string();

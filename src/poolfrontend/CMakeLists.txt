@@ -1,5 +1,4 @@
 add_executable(poolfrontend
-  config.cpp
   main.cpp
   http.cpp
   ${GETOPT_SOURCES}

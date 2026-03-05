@@ -85,6 +85,7 @@ add_library(loguru STATIC ${CMAKE_CURRENT_SOURCE_DIR}/loguru/loguru.cpp)
 add_subdirectory(blockmaker)
 add_subdirectory(poolcommon)
 add_subdirectory(poolcore)
+add_subdirectory(poolconfig)
 add_subdirectory(poolinstances)
 
 # Common libraries for all executables

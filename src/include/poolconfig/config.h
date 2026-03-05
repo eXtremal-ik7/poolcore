@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 #include "poolcore/backendData.h"
@@ -12,16 +13,26 @@ enum EErrorType {
 };
 
 struct CInstanceConfig {
+  // Common fields
   std::string Name;
   std::string Type;
   std::string Protocol;
   std::vector<std::string> Backends;
-  unsigned Port;
-  double StratumShareDiff;
+  unsigned Port = 0;
+  double ShareDiff = 0;
+  std::optional<std::string> VersionMask;
+  bool ProfitSwitcherEnabled = false;
+  std::optional<std::vector<std::string>> ResetWorkOnBlockChange;
+  std::optional<std::vector<std::string>> PrimaryBackends;
+  std::optional<std::vector<std::string>> SecondaryBackends;
+  std::optional<unsigned> FixedExtraNonceSize;
+  std::optional<unsigned> MutableExtraNonceSize;
 
-  rapidjson::Value InstanceConfig;
+  // ZMQ-specific
+  std::optional<unsigned> ZmqWorkerPort;
+  std::optional<std::string> ZmqHostName;
 
-  void load(rapidjson::Document &document, const rapidjson::Value &value, std::string &errorPlace, EErrorType *error);
+  void load(const rapidjson::Value &value, std::string &errorDescription, EErrorType *error);
 };
 
 void loadNodeConfig(CNodeConfig &config, const rapidjson::Value &value, const std::string &path, std::string &errorDescription, EErrorType *error);

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "config.h"
+#include "poolconfig/config.h"
 #include "poolcore/backend.h"
 #include "poolcore/complexMiningStats.h"
 #include <p2putils/HttpRequestParse.h>

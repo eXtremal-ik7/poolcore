@@ -86,9 +86,9 @@
       "type": "XPM",
       "protocol": "zmq",
       "port": 6666,
+      "shareDiff": 7,
       "workerPort": 60000,
       "hostName": "localhost",
-      "minShareLength": 7,
       "backends": ["XPM"]
     }
   ]

@@ -4,6 +4,7 @@
 #include "poolcommon/uint.h"
 #include "sha256.h"
 #include "poolcommon/baseBlob.h"
+#include "poolconfig/config.h"
 
 struct CCoinInfo;
 struct PoolBackendConfig;
@@ -438,16 +439,10 @@ public:
     return EStratumStatusOk;
   }
 
-  static void miningConfigInitialize(CMiningConfig &miningCfg, rapidjson::Value &instanceCfg) {
-    // default values
-    miningCfg.FixedExtraNonceSize = 4;
-    miningCfg.MutableExtraNonceSize = 4;
+  static void miningConfigInitialize(CMiningConfig &miningCfg, const CInstanceConfig &instanceCfg) {
+    miningCfg.FixedExtraNonceSize = instanceCfg.FixedExtraNonceSize.value_or(4);
+    miningCfg.MutableExtraNonceSize = instanceCfg.MutableExtraNonceSize.value_or(4);
     miningCfg.TxNumLimit = 0;
-
-    if (instanceCfg.HasMember("fixedExtraNonceSize") && instanceCfg["fixedExtraNonceSize"].IsUint())
-      miningCfg.FixedExtraNonceSize = instanceCfg["fixedExtraNonceSize"].GetUint();
-    if (instanceCfg.HasMember("mutableExtraNonceSize") && instanceCfg["mutableExtraNonceSize"].IsUint())
-      miningCfg.MutableExtraNonceSize = instanceCfg["mutableExtraNonceSize"].GetUint();
   }
 
   static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) {

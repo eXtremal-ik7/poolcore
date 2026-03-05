@@ -190,7 +190,7 @@ public:
 
 public:
   static void initialize() { DivisionChecker_.init(131072 + 1024, 2048/32); }
-  static void initializeMiningConfig(MiningConfig &cfg, rapidjson::Value &instanceCfg);
+  static void initializeMiningConfig(MiningConfig &cfg, const CInstanceConfig &instanceCfg);
   static void initializeThreadConfig(ThreadConfig &cfg, unsigned threadId, unsigned threadsNum);
   static void resetThreadConfig(ThreadConfig &cfg);
 

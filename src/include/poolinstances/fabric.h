@@ -1,8 +1,8 @@
 #pragma once
 
+#include "poolconfig/config.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/poolInstance.h"
-#include "rapidjson/document.h"
 #include <functional>
 #include <unordered_map>
 
@@ -11,7 +11,8 @@ class CPriceFetcher;
 class StatisticServer;
 class UserManager;
 
-class PoolInstanceFabric {
+class CInstanceFabric {
+
 public:
   static CPoolInstance *get(asyncBase *base,
                             UserManager &userMgr,
@@ -19,28 +20,25 @@ public:
                             CThreadPool &pool,
                             StatisticServer *algoMetaStatistic,
                             ComplexMiningStats *miningStats,
-                            const std::string &type,
-                            const std::string &protocol,
+                            const CInstanceConfig &instanceConfig,
                             unsigned instanceId,
                             unsigned instancesNum,
-                            rapidjson::Value &config,
                             CPriceFetcher *priceFetcher,
                             const std::filesystem::path &logsPath);
 
 private:
-  using NewPoolInstanceFunction = std::function<CPoolInstance*(
+  using NewFunction = std::function<CPoolInstance*(
     asyncBase*,
     UserManager&,
     const std::vector<PoolBackend*>&,
     CThreadPool&,
     StatisticServer*,
     ComplexMiningStats*,
+    const CInstanceConfig&,
     unsigned,
     unsigned,
-    rapidjson::Value&,
     CPriceFetcher*,
     const std::filesystem::path&)>;
 
-private:
-  static std::unordered_map<std::string, NewPoolInstanceFunction> FabricData_;
+  static std::unordered_map<std::string, NewFunction> FabricData_;
 };

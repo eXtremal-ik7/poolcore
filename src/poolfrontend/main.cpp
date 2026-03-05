@@ -1,4 +1,4 @@
-#include "config.h"
+#include "poolconfig/config.h"
 #include "http.h"
 
 #include "poolcore/bitcoinRPCClient.h"
@@ -22,6 +22,8 @@
 #include <stdlib.h>
 #include <time.h>
 
+#include <format>
+#include <iostream>
 #include <thread>
 #if !defined(OS_WINDOWS)
 #include <netdb.h>
@@ -101,7 +103,7 @@ int main(int argc, char *argv[])
   // Parse config
   FileDescriptor configFd;
   if (!configFd.open(argv[1])) {
-    CLOG_F(ERROR, "Can't open config file {}", argv[1]);
+    std::cerr << std::format("Can't open config file {}\n", argv[1]);
     return 1;
   }
 
@@ -112,7 +114,7 @@ int main(int argc, char *argv[])
   rapidjson::Document document;
   document.Parse<rapidjson::kParseCommentsFlag>(configData.c_str());
   if (document.HasParseError()) {
-    CLOG_F(ERROR, "Config file {} is not valid JSON", argv[1]);
+    std::cerr << std::format("Config file {} is not valid JSON\n", argv[1]);
     return 1;
   }
 
@@ -120,8 +122,7 @@ int main(int argc, char *argv[])
   {
     std::string error;
     if (!config.load(document, error)) {
-      CLOG_F(ERROR, "Config file {} contains error", argv[1]);
-      CLOG_F(ERROR, "{}", error);
+      std::cerr << std::format("Config file {} contains error:\n{}\n", argv[1], error);
       return 1;
     }
   }
@@ -389,23 +390,20 @@ int main(int argc, char *argv[])
     // Initialize workers
     poolContext.ThreadPool.reset(new CThreadPool(workerThreadsNum));
 
-    // Initialize instances
-    poolContext.Instances.resize(config.Instances.size());
-    for (size_t instIdx = 0, instIdxE = config.Instances.size(); instIdx != instIdxE; ++instIdx) {
-      CInstanceConfig &instanceConfig = config.Instances[instIdx];
+    // Resolve linked backends for an instance config
+    auto resolveLinkedBackends = [&poolContext](const std::string &instanceName,
+                                                const std::vector<std::string> &backendNames) -> std::vector<PoolBackend*>
+    {
       std::vector<PoolBackend*> linkedBackends;
-
-      // Get linked backends
-      for (const auto &linkedCoinName: instanceConfig.Backends) {
-        auto It = std::lower_bound(poolContext.Backends.begin(), poolContext.Backends.end(), linkedCoinName, [](const auto &backend, const std::string &name) { return backend->getCoinInfo().Name < name; });
+      for (const auto &linkedCoinName: backendNames) {
+        auto It = std::lower_bound(poolContext.Backends.begin(), poolContext.Backends.end(), linkedCoinName,
+          [](const auto &backend, const std::string &name) { return backend->getCoinInfo().Name < name; });
         if (It == poolContext.Backends.end() || (*It)->getCoinInfo().Name != linkedCoinName) {
-          CLOG_F(ERROR, "Instance {} linked with non-existent coin {}", instanceConfig.Name, linkedCoinName);
-          return 1;
+          CLOG_F(ERROR, "Instance {} linked with non-existent coin {}", instanceName, linkedCoinName);
+          exit(1);
         }
-
         linkedBackends.push_back(It->get());
       }
-
 
       // Validate that all linked backends use the same algorithm
       std::string algo;
@@ -415,27 +413,32 @@ int main(int argc, char *argv[])
                 "Linked backends with different algorithms ({} and {}) to one instance {}",
                 algo,
                 linkedBackend->getCoinInfo().Algorithm,
-                instanceConfig.Name);
-          return 1;
+                instanceName);
+          exit(1);
         }
-
         algo = linkedBackend->getCoinInfo().Algorithm;
       }
+      return linkedBackends;
+    };
 
-      auto logsPath = poolContext.DatabasePath / "logs";
+    auto logsPath = poolContext.DatabasePath / "logs";
+
+    // Initialize instances
+    for (size_t instIdx = 0, instIdxE = config.Instances.size(); instIdx != instIdxE; ++instIdx) {
+      const auto &instanceConfig = config.Instances[instIdx];
+      auto linkedBackends = resolveLinkedBackends(instanceConfig.Name, instanceConfig.Backends);
       StatisticServer *algoMetaStatistic = linkedBackends[0]->getAlgoMetaStatistic();
-      CPoolInstance *instance = PoolInstanceFabric::get(
+
+      CPoolInstance *instance = CInstanceFabric::get(
         monitorBase,
         *poolContext.UserMgr,
         linkedBackends,
         *poolContext.ThreadPool,
         algoMetaStatistic,
         poolContext.MiningStats.get(),
-        instanceConfig.Type,
-        instanceConfig.Protocol,
+        instanceConfig,
         static_cast<unsigned>(instIdx),
         static_cast<unsigned>(instIdxE),
-        instanceConfig.InstanceConfig,
         poolContext.PriceFetcher.get(),
         logsPath);
       if (!instance) {
@@ -448,11 +451,9 @@ int main(int argc, char *argv[])
             *poolContext.ThreadPool,
             algoMetaStatistic,
             poolContext.MiningStats.get(),
-            instanceConfig.Type,
-            instanceConfig.Protocol,
+            instanceConfig,
             static_cast<unsigned>(instIdx),
             static_cast<unsigned>(instIdxE),
-            instanceConfig.InstanceConfig,
             poolContext.PriceFetcher.get(),
             logsPath);
           if (instance)
@@ -461,7 +462,7 @@ int main(int argc, char *argv[])
 
         if (!instance) {
           CLOG_F(ERROR,
-                "Can't create instance with type '{}' and prorotol '{}'",
+                "Can't create instance with type '{}' and protocol '{}'",
                 instanceConfig.Type,
                 instanceConfig.Protocol);
           return 1;
@@ -470,9 +471,8 @@ int main(int argc, char *argv[])
 
       for (PoolBackend *linkedBackend: linkedBackends)
         linkedBackend->getClientDispatcher().connectWith(instance);
-
       instance->start();
-      poolContext.Instances[instIdx].reset(instance);
+      poolContext.Instances.emplace_back(instance);
     }
   }
 

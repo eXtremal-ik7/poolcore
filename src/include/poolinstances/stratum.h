@@ -4,17 +4,14 @@
 #include "stratumMsg.h"
 #include "stratumWorkStorage.h"
 #include "poolcommon/debug.h"
-namespace jp {
-#include "poolcommon/jsonConfigParser.h"
-}
 #include "poolcommon/jsonSerializer.h"
+#include "poolconfig/config.h"
 #include "poolcore/backend.h"
 #include "poolcore/blockTemplate.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/poolInstance.h"
 #include "poolcore/shareAccumulator.h"
 #include <openssl/rand.h>
-#include <rapidjson/writer.h>
 #include <unordered_map>
 
 static constexpr unsigned UncheckedSendCount = 32;
@@ -63,45 +60,26 @@ public:
                   ComplexMiningStats *miningStats,
                   unsigned instanceId,
                   unsigned instancesNum,
-                  rapidjson::Value &config,
+                  const CInstanceConfig &config,
                   CPriceFetcher *priceFetcher,
                   const std::filesystem::path &logsPath)
       : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic, miningStats),
         CurrentThreadId_(0),
         PriceFetcher_(priceFetcher)
   {
-    // Parse config
-    jp::EErrorType acc = jp::EOk;
-    std::string cfgError;
-    unsigned port;
-    std::optional<std::string> versionMask;
-    std::optional<std::vector<std::string>> workResetBackendNames;
-    std::optional<std::vector<std::string>> primaryBackendNames;
-    std::optional<std::vector<std::string>> secondaryBackendNames;
-
-    jp::jsonParseUnsignedInt(config, "port", &port, &acc, "", cfgError);
-    jp::jsonParseDouble(config, "shareDiff", &ConstantShareDiff_, &acc, "", cfgError);
-    jp::jsonParseStringOptional(config, "versionMask", versionMask, &acc, "", cfgError);
-    jp::jsonParseBoolean(config, "profitSwitcherEnabled", &ProfitSwitcherEnabled_, std::make_pair(true, false), &acc, "", cfgError);
-    jp::jsonParseStringArrayOptional(config, "resetWorkOnBlockChange", workResetBackendNames, &acc, "", cfgError);
-    jp::jsonParseStringArrayOptional(config, "primaryBackends", primaryBackendNames, &acc, "", cfgError);
-    jp::jsonParseStringArrayOptional(config, "secondaryBackends", secondaryBackendNames, &acc, "", cfgError);
-    if (acc != jp::EOk) {
-      CLOG_FC(LogChannel_, ERROR, "{}: can't load stratum config", Name_);
-      CLOG_FC(LogChannel_, ERROR, "{}", cfgError);
-      exit(1);
-    }
+    ConstantShareDiff_ = config.ShareDiff;
+    ProfitSwitcherEnabled_ = config.ProfitSwitcherEnabled;
 
     Name_ += ".";
-    Name_ += std::to_string(port);
-    if (versionMask.has_value()) {
+    Name_ += std::to_string(config.Port);
+    if (config.VersionMask.has_value()) {
       // BTC ASIC boost
-      if (versionMask.value().size() != 8) {
+      if (config.VersionMask.value().size() != 8) {
         CLOG_FC(LogChannel_, ERROR, "versionMask must be 8-byte hex value");
         exit(1);
       }
 
-      VersionMask_ = readHexBE<uint32_t>(versionMask.value().c_str(), 4);
+      VersionMask_ = readHexBE<uint32_t>(config.VersionMask.value().c_str(), 4);
     }
 
     bool hasRtt = false;
@@ -115,14 +93,14 @@ public:
     std::vector<size_t> primaryBackends;
     std::vector<size_t> secondaryBackends;
 
-    buildBackendList(linkedBackends, workResetBackendNames, backendsMap, false, [](const PoolBackend *backend) -> bool {
+    buildBackendList(linkedBackends, config.ResetWorkOnBlockChange, backendsMap, false, [](const PoolBackend *backend) -> bool {
       return backend->getCoinInfo().ResetWorkOnBlockChange;
     }, workResetBackends, "resetWorkOnBlockChange");
     if (X::Stratum::MergedMiningSupport) {
-      buildBackendList(linkedBackends, primaryBackendNames, backendsMap, false, [](const PoolBackend *backend) -> bool {
+      buildBackendList(linkedBackends, config.PrimaryBackends, backendsMap, false, [](const PoolBackend *backend) -> bool {
         return backend->getCoinInfo().CanBePrimaryCoin;
       }, primaryBackends, "primaryBackends");
-      buildBackendList(linkedBackends, secondaryBackendNames, backendsMap, false, [](const PoolBackend *backend) -> bool {
+      buildBackendList(linkedBackends, config.SecondaryBackends, backendsMap, false, [](const PoolBackend *backend) -> bool {
         return backend->getCoinInfo().CanBeSecondaryCoin;
       }, secondaryBackends, "secondaryBackends");
     } else {
@@ -173,10 +151,10 @@ public:
     }
 
     HasRtt_ = hasRtt;
-    ListenPort_ = port;
+    ListenPort_ = config.Port;
     X::Stratum::miningConfigInitialize(MiningCfg_, config);
 
-    auto logPath = (logsPath / ("stratum." + std::to_string(port)) / "log-%Y-%m.log").generic_string();
+    auto logPath = (logsPath / ("stratum." + std::to_string(config.Port)) / "log-%Y-%m.log").generic_string();
     LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
   }
 
@@ -205,7 +183,7 @@ public:
   }
 
   void buildBackendList(const std::vector<PoolBackend*> &linkedBackends,
-                        std::optional<std::vector<std::string>> &backendNamesList,
+                        const std::optional<std::vector<std::string>> &backendNamesList,
                         const std::unordered_map<std::string, size_t> &backendsMap,
                         bool needCheck,
                         std::function<bool(const PoolBackend*)> fn,
