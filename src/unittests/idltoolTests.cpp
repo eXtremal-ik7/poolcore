@@ -168,12 +168,19 @@ TEST(IdlTool, ParseDeepNesting) {
   EXPECT_EQ(l0.child.items[1].value, 2);
 }
 
-TEST(IdlTool, ParseUnknownFieldsIgnored) {
-  const char *json = R"({"value":"x","count":1,"extra":"ignored","nested":{"a":1}})";
+TEST(IdlTool, ParseUnknownFieldRejected) {
+  const char *json = R"({"value":"x","count":1,"extra":"bad"})";
   Inner inner;
-  ASSERT_TRUE(inner.parse(json, strlen(json)));
-  EXPECT_EQ(inner.value, "x");
-  EXPECT_EQ(inner.count, 1);
+  EXPECT_FALSE(inner.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, DiagUnknownField) {
+  const char *json = R"({"value":"x","count":1,"extra":"bad"})";
+  Inner inner;
+  ParseError error;
+  EXPECT_FALSE(inner.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("unknown field"), std::string::npos);
+  EXPECT_NE(error.message.find("extra"), std::string::npos);
 }
 
 TEST(IdlTool, ParseEmptyObject) {

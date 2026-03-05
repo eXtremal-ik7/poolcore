@@ -229,7 +229,7 @@ static void generateStructImpl(std::string &out, const CStructDef &s, const std:
   if (s.Fields.empty()) {
     out += "      if (!s.readString(key, keyLen)) return false;\n";
     out += "      if (!s.expectChar(':')) return false;\n";
-    out += "      s.skipValue();\n";
+    out += "      return false;\n";
   } else {
     out += "      uint32_t keyHash;\n";
     out += std::format("      if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
@@ -252,13 +252,12 @@ static void generateStructImpl(std::string &out, const CStructDef &s, const std:
       out += std::format("          if (keyLen == {} && memcmp(key, \"{}\", {}) == 0) {{\n",
                          f.Name.size(), f.Name, f.Name.size());
       generateParseField(out, f, enumNames, foundBit, 6, opts.PascalCaseFields);
-      out += "          } else { s.skipValue(); }\n";
+      out += "          } else { return false; }\n";
       out += "          break;\n";
     }
 
     out += "        default:\n";
-    out += "          s.skipValue();\n";
-    out += "          break;\n";
+    out += "          return false;\n";
     out += "      }\n";
   }
 
@@ -299,7 +298,8 @@ static void generateStructImpl(std::string &out, const CStructDef &s, const std:
     if (s.Fields.empty()) {
       out += "      if (!s.readString(key, keyLen)) return false;\n";
       out += "      if (!s.expectChar(':')) return false;\n";
-      out += "      s.skipValue();\n";
+      out += "      s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\");\n";
+      out += "      return false;\n";
     } else {
       out += "      uint32_t keyHash;\n";
       out += std::format("      if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
@@ -326,13 +326,13 @@ static void generateStructImpl(std::string &out, const CStructDef &s, const std:
         generateVerboseParseField(verboseFieldCode, f, enumNames, foundBit, 6, opts.PascalCaseFields);
         out += verboseFieldCode;
 
-        out += "          } else { s.skipValue(); }\n";
+        out += "          } else { s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\"); return false; }\n";
         out += "          break;\n";
       }
 
       out += "        default:\n";
-      out += "          s.skipValue();\n";
-      out += "          break;\n";
+      out += "          s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\");\n";
+      out += "          return false;\n";
       out += "      }\n";
     }
 
