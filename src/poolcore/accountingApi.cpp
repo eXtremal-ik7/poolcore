@@ -482,9 +482,9 @@ std::vector<CPPSState> CAccountingApi::queryPPSHistory(int64_t timeFrom, int64_t
   return result;
 }
 
-const char *CAccountingApi::updateBackendSettings(const std::optional<CBackendSettings::PPS> &pps,
-                                                  const std::optional<CBackendSettings::Payouts> &payouts,
-                                                  const std::optional<CBackendSettings::Swap> &swap)
+const char *CAccountingApi::updateBackendSettings(const std::optional<CBackendPPS> &pps,
+                                                  const std::optional<CBackendPayouts> &payouts,
+                                                  const std::optional<CBackendSwap> &swap)
 {
   CBackendSettings settings = State_.BackendSettings.load(std::memory_order_relaxed);
 
@@ -506,7 +506,7 @@ const char *CAccountingApi::updateBackendSettings(const std::optional<CBackendSe
       CoinInfo_.Name,
       static_cast<int>(pps->Enabled),
       pps->PoolFee,
-      CBackendSettings::PPS::saturationFunctionName(pps->SaturationFunction),
+      ESaturationFunctionToString(pps->SaturationFunction),
       pps->SaturationB0,
       pps->SaturationANegative,
       pps->SaturationAPositive);

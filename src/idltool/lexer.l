@@ -21,6 +21,14 @@
 "true"                  { return TOK_TRUE; }
 "false"                 { return TOK_FALSE; }
 "now"                   { return TOK_NOW; }
+"include"               { return TOK_INCLUDE; }
+"extern"                { return TOK_EXTERN; }
+"type"                  { return TOK_TYPE; }
+"context"               { return TOK_CONTEXT; }
+
+"chrono::seconds"       { yylval->strVal = strdup("chrono::seconds"); return TOK_CHRONO_SECONDS; }
+"chrono::minutes"       { yylval->strVal = strdup("chrono::minutes"); return TOK_CHRONO_MINUTES; }
+"chrono::hours"         { yylval->strVal = strdup("chrono::hours"); return TOK_CHRONO_HOURS; }
 
 [a-zA-Z_][a-zA-Z0-9_]* {
   yylval->strVal = strdup(yytext);

@@ -1,3 +1,5 @@
+include "poolcommon/types.idl";
+
 // Pool configuration and HTTP API schema
 // IDL for JSON parser/serializer code generation
 //
@@ -59,7 +61,7 @@ struct CoinFeeConfig {
   config: [UserFeePair];
 }
 
-struct ModeFeeConfig {
+mixin ModeFeeConfig {
   default: [UserFeePair];
   coinSpecific: [CoinFeeConfig];
 }
@@ -100,7 +102,17 @@ struct UserActionRequest {
 
 // --- userCreate ---
 struct UserCreateRequest {
-  id: string = "";
+  login: string;
+  password: string;
+  name: string = "";
+  email: string = "";
+  totp: string = "";
+  referralId: string = "";
+}
+
+// --- userCreateForce ---
+struct UserCreateForceRequest {
+  id: string;
   mixin Credentials;
 }
 
@@ -162,13 +174,13 @@ struct UserGetCredentialsResponse {
 
 // --- userGetSettings ---
 struct PayoutSettings {
-  mode: string;
+  mode: PayoutMode;
   address: string;
   instantPayoutThreshold: string;
 }
 
 struct MiningSettings {
-  mode: string;
+  mode: MiningMode;
 }
 
 struct AutoExchangeSettings {
@@ -180,6 +192,8 @@ struct CoinSettings {
   payout: PayoutSettings;
   mining: MiningSettings;
   autoExchange: AutoExchangeSettings;
+  pplnsFee: double;
+  ppsFee: double;
 }
 
 struct UserGetSettingsRequest {
@@ -255,12 +269,12 @@ struct UserCreateFeePlanRequest {
 struct UserQueryFeePlanRequest {
   id: string;
   feePlanId: string;
-  mode: string;
+  mode: MiningMode;
 }
 struct UserQueryFeePlanResponse {
   status: string;
   feePlanId: string;
-  mode: string;
+  mode: MiningMode;
   referralId: string;     // nullable
   mixin ModeFeeConfig;
 }
@@ -269,7 +283,7 @@ struct UserQueryFeePlanResponse {
 struct UserUpdateFeePlanRequest {
   id: string;
   feePlanId: string;
-  mode: string;
+  mode: MiningMode;
   mixin ModeFeeConfig;
 }
 
@@ -298,7 +312,7 @@ struct UserRenewFeePlanReferralIdResponse {
 
 // --- userActivate2faInitiate ---
 struct UserActivate2faInitiateRequest {
-  sessionId: string;
+  id: string;
   targetLogin: string = "";
 }
 struct UserActivate2faInitiateResponse {
@@ -308,7 +322,7 @@ struct UserActivate2faInitiateResponse {
 
 // --- userDeactivate2faInitiate ---
 struct UserDeactivate2faInitiateRequest {
-  sessionId: string;
+  id: string;
   targetLogin: string = "";
 }
 
@@ -418,10 +432,9 @@ struct BackendQueryWorkerStatsHistoryRequest {
 
 // --- backendQueryCoins ---
 struct BackendQueryCoinsRequest {
-  id: string = "";
 }
 
-struct CoinInfo {
+struct HttpCoinInfo {
   name: string;
   fullName: string;
   algorithm: string;
@@ -446,7 +459,7 @@ struct CoinInfo {
 
 struct BackendQueryCoinsResponse {
   status: string;
-  coins: [CoinInfo];
+  coins: [HttpCoinInfo];
 }
 
 // --- backendQueryFoundBlocks ---
@@ -457,7 +470,7 @@ struct BackendQueryFoundBlocksRequest {
   count: uint32 = 20;
 }
 
-struct MergedBlockInfo {
+struct HttpMergedBlockInfo {
   coin: string;
   height: int64;
   hash: string;
@@ -470,7 +483,7 @@ struct FoundBlock {
   confirmations: int64;
   generatedCoins: string;
   foundBy: string;
-  mergedBlocks: [MergedBlockInfo]?;
+  mergedBlocks: [HttpMergedBlockInfo]?;
 }
 
 struct BackendQueryFoundBlocksResponse {
@@ -636,21 +649,11 @@ struct BackendGetConfigRequest {
 struct PPSConfig {
   enabled: bool;
   poolFee: double;
-  saturationFunction: string;
+  saturationFunction: SaturationFunction;
   saturationB0: double;
   saturationANegative: double;
   saturationAPositive: double;
   saturationFunctions: [string];
-}
-
-struct PayoutsConfig {
-  instantPayoutsEnabled: bool;
-  regularPayoutsEnabled: bool;
-  instantMinimalPayout: string;
-  instantPayoutInterval: int64;
-  regularMinimalPayout: string;
-  regularPayoutInterval: int64;
-  regularPayoutDayOffset: int64;
 }
 
 struct SwapConfig {
@@ -661,7 +664,7 @@ struct SwapConfig {
 struct BackendGetConfigResponse {
   status: string;
   pps: PPSConfig;
-  payouts: PayoutsConfig;
+  payouts: BackendPayouts;
   swap: SwapConfig;
 }
 
@@ -669,27 +672,17 @@ struct BackendGetConfigResponse {
 struct PPSConfigUpdate {
   enabled: bool;
   poolFee: double;
-  saturationFunction: string = "";
+  saturationFunction: SaturationFunction = "none";
   saturationB0: double = 0.0;
   saturationANegative: double = 0.0;
   saturationAPositive: double = 0.0;
-}
-
-struct PayoutsConfigUpdate {
-  instantPayoutsEnabled: bool;
-  regularPayoutsEnabled: bool;
-  instantMinimalPayout: string;
-  instantPayoutInterval: int64;
-  regularMinimalPayout: string;
-  regularPayoutInterval: int64;
-  regularPayoutDayOffset: int64 = 0;
 }
 
 struct BackendUpdateConfigRequest {
   id: string;
   coin: string;
   pps: PPSConfigUpdate?;
-  payouts: PayoutsConfigUpdate?;
+  payouts: BackendPayouts? context(coin);
   swap: SwapConfig?;
 }
 
@@ -710,19 +703,19 @@ struct PPSBalanceWithSqLambda {
   sqLambda: double;
 }
 
-struct PPSBalanceSnapshot {
+struct HttpPPSBalanceSnapshot {
   time: int64;
   value: string;
   inBlocks: double;
   sqLambda: double;
 }
 
-struct PPSState {
+struct HttpPPSState {
   time: int64;
   balance: PPSBalanceInfo;
   refBalance: PPSBalanceWithSqLambda;
-  minRefBalance: PPSBalanceSnapshot;
-  maxRefBalance: PPSBalanceSnapshot;
+  minRefBalance: HttpPPSBalanceSnapshot;
+  maxRefBalance: HttpPPSBalanceSnapshot;
   totalBlocksFound: double;
   orphanBlocks: double;
   lastSaturateCoeff: double;
@@ -732,7 +725,7 @@ struct PPSState {
 
 struct BackendGetPPSStateResponse {
   status: string;
-  state: PPSState;
+  state: HttpPPSState;
 }
 
 // --- backendQueryPPSHistory ---
@@ -744,7 +737,7 @@ struct BackendQueryPPSHistoryRequest {
 }
 struct BackendQueryPPSHistoryResponse {
   status: string;
-  history: [PPSState];
+  history: [HttpPPSState];
 }
 
 // --- backendPoolLuck ---

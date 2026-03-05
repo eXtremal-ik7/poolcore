@@ -16,7 +16,10 @@ enum class EScalarType {
   Uint32,
   Int64,
   Uint64,
-  Double
+  Double,
+  Seconds,
+  Minutes,
+  Hours
 };
 
 // How a field is declared
@@ -39,6 +42,7 @@ enum class ETypeShape {
 // Type of a field — scalar or reference to struct/enum
 struct CFieldType {
   bool IsScalar = false;
+  bool IsExtern = false;
   EScalarType Scalar = EScalarType::String;
   std::string RefName; // non-empty if referencing struct/enum
   ETypeShape Shape = ETypeShape::Plain;
@@ -69,6 +73,8 @@ struct CFieldDef {
   CFieldType Type;
   EFieldKind Kind = EFieldKind::Required;
   CDefaultValue Default;
+  int Tag = 0;  // 0 = no tag, 1..63 = tagged field for schema()
+  std::string ContextField; // "coin" from context(coin), empty = no context
   int Line = 0;
 };
 
@@ -80,6 +86,8 @@ struct CMixinRef {
 struct CStructDef {
   std::string Name;
   bool IsMixin = false;
+  bool IsImported = false;
+  bool HasTaggedSchema = false;
   std::vector<std::variant<CMixinRef, CFieldDef>> Members;
   // After mixin resolution — flat list of fields
   std::vector<CFieldDef> Fields;
@@ -90,16 +98,35 @@ struct CEnumDef {
   std::string Name;
   std::string BaseType; // "string"
   std::vector<std::string> Values;
+  bool IsImported = false;
   int Line = 0;
 };
 
+struct CIncludeDirective {
+  std::string Path;
+  int Line = 0;
+};
+
+struct CExternTypeDef {
+  std::string Name;         // "money"
+  std::string JsonWireType; // "string"
+  std::string IncludePath;  // "poolcommon/money.h"
+  int Line = 0;
+  bool IsImported = false;
+};
+
 struct CIdlFile {
+  std::vector<CIncludeDirective> Includes;
   std::vector<CStructDef> Structs; // includes mixins
   std::vector<CEnumDef> Enums;
+  std::vector<CExternTypeDef> ExternTypes;
 };
 
 // Parse IDL from file, returns false on error
 bool parseIdlFile(const char *filename, CIdlFile &out);
+
+// Process include directives: parse included files, merge imported types
+bool processIncludes(CIdlFile &file, const std::vector<std::string> &includePaths);
 
 // Post-process AST: resolve mixins, validate types, topological sort
 bool resolveAst(CIdlFile &file);

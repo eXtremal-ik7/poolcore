@@ -1,7 +1,6 @@
 #pragma once
 
 #include "backendData.h"
-#include "rapidjson/document.h"
 #include <functional>
 
 class PoolBackend;
@@ -15,5 +14,5 @@ public:
   virtual void onShare(double, double, const std::vector<PoolBackend*>&, const std::vector<bool>&, const BaseBlob<256>&) {}
 
   // Asynchronous API
-  virtual void query(const rapidjson::Document&, std::function<void(const char*, size_t)> callback) { callback("{}", 2); }
+  virtual void query(const char *, size_t, std::function<void(const char*, size_t)> callback) { callback("{}", 2); }
 };

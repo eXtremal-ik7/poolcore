@@ -1,0 +1,55 @@
+extern type money : string include "poolcommon/money.h";
+
+enum MiningMode : string {
+  pplns,
+  pps
+}
+
+enum PayoutMode : string {
+  disabled,
+  regular,
+  instant
+}
+
+enum SaturationFunction : string {
+  none,
+  tanh,
+  clamp,
+  cubic,
+  softsign,
+  norm,
+  atan,
+  exp
+}
+
+struct SettingsMining {
+  miningMode: MiningMode = "pplns" @1;
+}
+
+struct SettingsAutoExchange {
+  payoutCoinName: string = "" @1;
+}
+
+struct BackendPPS {
+  enabled: bool = false @1;
+  poolFee: double = 4.0 @2;
+  saturationFunction: SaturationFunction = "none" @3;
+  saturationB0: double = 0.0 @4;
+  saturationANegative: double = 0.0 @5;
+  saturationAPositive: double = 0.0 @6;
+}
+
+struct BackendSwap {
+  acceptIncoming: bool = false @1;
+  acceptOutgoing: bool = false @2;
+}
+
+struct BackendPayouts {
+  instantPayoutsEnabled: bool = true @1;
+  regularPayoutsEnabled: bool = true @2;
+  instantMinimalPayout: money @3;
+  instantPayoutInterval: chrono::minutes = 1 @4;
+  regularMinimalPayout: money @5;
+  regularPayoutInterval: chrono::hours = 24 @6;
+  regularPayoutDayOffset: chrono::hours = 0 @7;
+}

@@ -3,6 +3,7 @@
 #include "poolconfig/config.h"
 #include "poolcore/backend.h"
 #include "poolcore/complexMiningStats.h"
+#include "poolapi.idl.h"
 #include <p2putils/HttpRequestParse.h>
 
 class CPriceFetcher;
@@ -32,123 +33,246 @@ private:
   size_t startChunk(xmstream &stream);
   void finishChunk(xmstream &stream, size_t offset);
 
-  void onUserAction(rapidjson::Document &document);
-  void onUserCreate(rapidjson::Document &document);
-  void onUserResendEmail(rapidjson::Document &document);
-  void onUserLogin(rapidjson::Document &document);
-  void onUserLogout(rapidjson::Document &document);
-  void onUserQueryMonitoringSession(rapidjson::Document &document);
-  void onUserChangeEmail(rapidjson::Document &document);
-  void onUserChangePasswordInitiate(rapidjson::Document &document);
-  void onUserChangePasswordForce(rapidjson::Document &document);
-  void onUserGetCredentials(rapidjson::Document &document);
-  void onUserGetSettings(rapidjson::Document &document);
-  void onUserUpdateCredentials(rapidjson::Document &document);
-  void onUserUpdateSettings(rapidjson::Document &document);
-  void onUserEnumerateAll(rapidjson::Document &document);
-  void onUserEnumerateFeePlan(rapidjson::Document &document);
-  void onUserCreateFeePlan(rapidjson::Document &document);
-  void onUserQueryFeePlan(rapidjson::Document &document);
-  void onUserUpdateFeePlan(rapidjson::Document &document);
-  void onUserDeleteFeePlan(rapidjson::Document &document);
-  void onUserChangeFeePlan(rapidjson::Document &document);
-  void onUserRenewFeePlanReferralId(rapidjson::Document &document);
-  void onUserActivate2faInitiate(rapidjson::Document &document);
-  void onUserDeactivate2faInitiate(rapidjson::Document &document);
-  void onUserAdjustInstantPayoutThreshold(rapidjson::Document &document);
+  UserManager &userManager();
+  PoolBackend *backend(const std::string &coin);
+  StatisticDb *statistic(const std::string &coin);
 
-  void onBackendManualPayout(rapidjson::Document &document);
-  void onBackendQueryUserBalance(rapidjson::Document &document);
-  void onBackendQueryUserStats(rapidjson::Document &document);
-  void onBackendQueryUserStatsHistory(rapidjson::Document &document);
-  void onBackendQueryWorkerStatsHistory(rapidjson::Document &document);
-  void onBackendQueryCoins(rapidjson::Document &document);
-  void onBackendQueryFoundBlocks(rapidjson::Document &document);
-  void onBackendQueryPayouts(rapidjson::Document &document);
-  void onBackendQueryPoolBalance(rapidjson::Document &document);
-  void onBackendQueryPoolStats(rapidjson::Document &document);
-  void onBackendQueryPoolStatsHistory(rapidjson::Document &document);
-  void onBackendQueryProfitSwitchCoeff(rapidjson::Document &document);
-  void onBackendQueryPPLNSPayouts(rapidjson::Document &document);
-  void onBackendQueryPPLNSAcc(rapidjson::Document &document);
-  void onBackendQueryPPSPayouts(rapidjson::Document &document);
-  void onBackendQueryPPSPayoutsAcc(rapidjson::Document &document);
-  void onBackendUpdateProfitSwitchCoeff(rapidjson::Document &document);
-  void onBackendGetConfig(rapidjson::Document &document);
-  void onBackendGetPPSState(rapidjson::Document &document);
-  void onBackendQueryPPSHistory(rapidjson::Document &document);
-  void onBackendUpdateConfig(rapidjson::Document &document);
-  void onBackendPoolLuck(rapidjson::Document &document);
+  // Plain (no session/backend validation)
+  void onUserAction(const CUserActionRequest &request);
+  void onUserCreate(const CUserCreateRequest &request);
+  void onUserResendEmail(const CUserResendEmailRequest &request);
+  void onUserLogin(const CUserLoginRequest &request);
+  void onUserChangeEmail();
+  void onUserChangePasswordInitiate(const CUserChangePasswordInitiateRequest &request);
+  void onUserChangePasswordForce(const CUserChangePasswordForceRequest &request);
+  void onBackendQueryCoins(const CBackendQueryCoinsRequest &request);
+  void onBackendQueryPoolStats(const CBackendQueryPoolStatsRequest &request);
+  void onBackendQueryPoolStatsHistory(const CBackendQueryPoolStatsHistoryRequest &request, StatisticDb &statistic);
+  void onBackendQueryPoolBalance();
+  void onInstanceEnumerateAll();
 
-  void onInstanceEnumerateAll(rapidjson::Document &document);
+  // WithSession
+  void onUserLogout(const CUserLogoutRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserQueryMonitoringSession(const CUserQueryMonitoringSessionRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserGetCredentials(const CUserGetCredentialsRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserGetSettings(const CUserGetSettingsRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserUpdateCredentials(const CUserUpdateCredentialsRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserUpdateSettings(const CUserUpdateSettingsRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserEnumerateAll(const CUserEnumerateAllRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic);
+  void onUserEnumerateFeePlan(const CUserEnumerateFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserQueryFeePlan(const CUserQueryFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserCreateForce(const CUserCreateForceRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserCreateFeePlan(const CUserCreateFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserUpdateFeePlan(const CUserUpdateFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserDeleteFeePlan(const CUserDeleteFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserChangeFeePlan(const CUserChangeFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserRenewFeePlanReferralId(const CUserRenewFeePlanReferralIdRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserActivate2faInitiate(const CUserActivate2faInitiateRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onUserDeactivate2faInitiate(const CUserDeactivate2faInitiateRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onBackendQueryUserBalance(const CBackendQueryUserBalanceRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onBackendQueryUserStats(const CBackendQueryUserStatsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic);
+  void onBackendQueryUserStatsHistory(const CBackendQueryUserStatsHistoryRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic);
+  void onBackendQueryWorkerStatsHistory(const CBackendQueryWorkerStatsHistoryRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic);
+  void onBackendQueryProfitSwitchCoeff(const CBackendQueryProfitSwitchCoeffRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
+  void onComplexMiningStatsGetInfo(const CComplexMiningStatsGetInfoRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
 
-  void onComplexMiningStatsGetInfo(rapidjson::Document &document);
+  // WithBackend
+  void onBackendPoolLuck(const CBackendPoolLuckRequest &request, PoolBackend &backend);
+  void onBackendQueryFoundBlocks(const CBackendQueryFoundBlocksRequest &request, PoolBackend &backend);
+
+  // WithSessionAndBackend
+  void onBackendManualPayout(const CBackendManualPayoutRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onBackendQueryPayouts(const CBackendQueryPayoutsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onBackendQueryPPLNSPayouts(const CBackendQueryPPLNSPayoutsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onBackendQueryPPLNSAcc(const CBackendQueryPPLNSAccRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onBackendQueryPPSPayouts(const CBackendQueryPPSPayoutsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onBackendQueryPPSPayoutsAcc(const CBackendQueryPPSPayoutsAccRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onBackendGetConfig(const CBackendGetConfigRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onBackendGetPPSState(const CBackendGetPPSStateRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onBackendQueryPPSHistory(const CBackendQueryPPSHistoryRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onBackendUpdateConfig(const CBackendUpdateConfigRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onBackendUpdateProfitSwitchCoeff(const CBackendUpdateProfitSwitchCoeffRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
+  void onUserAdjustInstantPayoutThreshold(const CUserAdjustInstantPayoutThresholdRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
 
   void queryStatsHistory(StatisticDb *statistic, const std::string &login, const std::string &worker, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, int64_t currentTime);
   void replyWithStatus(const char *status);
 
-private:
-  enum FunctionTy {
-    fnUnknown = 0,
-    fnApi,
-    // User manager functions
-    fnUserAction,
-    fnUserCreate,
-    fnUserResendEmail,
-    fnUserLogin,
-    fnUserLogout,
-    fnUserQueryMonitoringSession,
-    fnUserChangeEmail,
-    fnUserChangePasswordInitiate,
-    fnUserChangePasswordForce,
-    fnUserGetCredentials,
-    fnUserGetSettings,
-    fnUserUpdateCredentials,
-    fnUserUpdateSettings,
-    fnUserEnumerateAll,
-    fnUserEnumerateFeePlan,
-    fnUserCreateFeePlan,
-    fnUserQueryFeePlan,
-    fnUserUpdateFeePlan,
-    fnUserDeleteFeePlan,
-    fnUserChangeFeePlan,
-    fnUserRenewFeePlanReferralId,
-    fnUserActivate2faInitiate,
-    fnUserDeactivate2faInitiate,
-    fnUserAdjustInstantPayoutThreshold,
+  template<typename> struct HandlerTraits;
+  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&)> {
+    using Request = T;
+    static constexpr bool NeedSession = false, NeedBackend = false, NeedStatistic = false;
+  };
+  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, const UserManager::UserWithAccessRights&)> {
+    using Request = T;
+    static constexpr bool NeedSession = true, NeedBackend = false, NeedStatistic = false;
+  };
+  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, PoolBackend&)> {
+    using Request = T;
+    static constexpr bool NeedSession = false, NeedBackend = true, NeedStatistic = false;
+  };
+  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, StatisticDb&)> {
+    using Request = T;
+    static constexpr bool NeedSession = false, NeedBackend = false, NeedStatistic = true;
+  };
+  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, const UserManager::UserWithAccessRights&, PoolBackend&)> {
+    using Request = T;
+    static constexpr bool NeedSession = true, NeedBackend = true, NeedStatistic = false;
+  };
+  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, const UserManager::UserWithAccessRights&, StatisticDb&)> {
+    using Request = T;
+    static constexpr bool NeedSession = true, NeedBackend = false, NeedStatistic = true;
+  };
 
+  template<auto Fn>
+  void dispatch() {
+    using Traits = HandlerTraits<decltype(Fn)>;
+    using T = typename Traits::Request;
+
+    T req;
+    if constexpr (!Traits::NeedSession && !Traits::NeedBackend && !Traits::NeedStatistic) {
+      const char *data = !Context.Request.empty() ? Context.Request.c_str() : "{}";
+      size_t size = !Context.Request.empty() ? Context.Request.size() : 2;
+      if (!req.parse(data, size)) {
+        replyWithStatus("json_format_error");
+        return;
+      }
+    } else {
+      if (!req.parse(Context.Request.c_str(), Context.Request.size())) {
+        replyWithStatus("json_format_error");
+        return;
+      }
+    }
+
+    [[maybe_unused]] UserManager::UserWithAccessRights tokenInfo;
+    if constexpr (Traits::NeedSession) {
+      std::string targetLogin;
+      if constexpr (requires { req.TargetLogin; })
+        targetLogin = req.TargetLogin;
+      if (!userManager().validateSession(req.Id, targetLogin, tokenInfo, Context.Function->IsWrite)) {
+        replyWithStatus("unknown_id");
+        return;
+      }
+      if (Context.Function->IsSuperUser) {
+        if (Context.Function->IsWrite) {
+          if (tokenInfo.Login != "admin") {
+            replyWithStatus("unknown_id");
+            return;
+          }
+        } else {
+          if (tokenInfo.Login != "admin" && tokenInfo.Login != "observer") {
+            replyWithStatus("unknown_id");
+            return;
+          }
+        }
+      }
+    }
+
+    [[maybe_unused]] PoolBackend *b = nullptr;
+    if constexpr (Traits::NeedBackend) {
+      b = backend(req.Coin);
+      if (!b) {
+        replyWithStatus("invalid_coin");
+        return;
+      }
+    }
+
+    [[maybe_unused]] StatisticDb *st = nullptr;
+    if constexpr (Traits::NeedStatistic) {
+      st = statistic(req.Coin);
+      if (!st) {
+        replyWithStatus("invalid_coin");
+        return;
+      }
+    }
+
+    if constexpr (Traits::NeedSession && Traits::NeedBackend)
+      (this->*Fn)(req, tokenInfo, *b);
+    else if constexpr (Traits::NeedSession && Traits::NeedStatistic)
+      (this->*Fn)(req, tokenInfo, *st);
+    else if constexpr (Traits::NeedSession)
+      (this->*Fn)(req, tokenInfo);
+    else if constexpr (Traits::NeedBackend)
+      (this->*Fn)(req, *b);
+    else if constexpr (Traits::NeedStatistic)
+      (this->*Fn)(req, *st);
+    else
+      (this->*Fn)(req);
+  }
+
+private:
+  enum ParseState {
+    psUnknown = 0,
+    psApi,
+    psResolved,
+  };
+
+  enum FunctionTy {
     // Backend functions
+    fnBackendGetConfig,
+    fnBackendGetPPSState,
     fnBackendManualPayout,
+    fnBackendPoolLuck,
     fnBackendQueryCoins,
-    fnBackendQueryUserBalance,
-    fnBackendQueryUserStats,
-    fnBackendQueryUserStatsHistory,
-    fnBackendQueryWorkerStatsHistory,
     fnBackendQueryFoundBlocks,
     fnBackendQueryPayouts,
     fnBackendQueryPoolBalance,
     fnBackendQueryPoolStats,
     fnBackendQueryPoolStatsHistory,
-    fnBackendQueryProfitSwitchCoeff,
-    fnBackendQueryPPLNSPayouts,
     fnBackendQueryPPLNSAcc,
+    fnBackendQueryPPLNSPayouts,
+    fnBackendQueryPPSHistory,
     fnBackendQueryPPSPayouts,
     fnBackendQueryPPSPayoutsAcc,
-    fnBackendUpdateProfitSwitchCoeff,
-    fnBackendGetConfig,
-    fnBackendGetPPSState,
-    fnBackendQueryPPSHistory,
+    fnBackendQueryProfitSwitchCoeff,
+    fnBackendQueryUserBalance,
+    fnBackendQueryUserStats,
+    fnBackendQueryUserStatsHistory,
+    fnBackendQueryWorkerStatsHistory,
     fnBackendUpdateConfig,
-    fnBackendPoolLuck,
+    fnBackendUpdateProfitSwitchCoeff,
+
+    // Complex mining stats functions
+    fnComplexMiningStatsGetInfo,
 
     // Instance functions
     fnInstanceEnumerateAll,
 
-    // Complex mining stats functions
-    fnComplexMiningStatsGetInfo
+    // User manager functions
+    fnUserAction,
+    fnUserActivate2faInitiate,
+    fnUserAdjustInstantPayoutThreshold,
+    fnUserChangeEmail,
+    fnUserChangeFeePlan,
+    fnUserChangePasswordForce,
+    fnUserChangePasswordInitiate,
+    fnUserCreate,
+    fnUserCreateFeePlan,
+    fnUserCreateForce,
+    fnUserDeactivate2faInitiate,
+    fnUserDeleteFeePlan,
+    fnUserEnumerateAll,
+    fnUserEnumerateFeePlan,
+    fnUserGetCredentials,
+    fnUserGetSettings,
+    fnUserLogin,
+    fnUserLogout,
+    fnUserQueryFeePlan,
+    fnUserQueryMonitoringSession,
+    fnUserRenewFeePlanReferralId,
+    fnUserResendEmail,
+    fnUserUpdateCredentials,
+    fnUserUpdateFeePlan,
+    fnUserUpdateSettings,
   };
 
-  static std::unordered_map<std::string, std::pair<int, PoolHttpConnection::FunctionTy>> FunctionNameMap_;
+  struct FunctionInfo {
+    FunctionTy Type;
+    bool HasSession;
+    bool IsWrite;
+    bool IsSuperUser;
+  };
+
+  static std::unordered_map<std::string, FunctionInfo> FunctionNameMap_;
 
   PoolHttpServer &Server_;
   aioObject *Socket_;
@@ -160,7 +284,8 @@ private:
 
   struct {
     int method = hmUnknown;
-    FunctionTy function = fnUnknown;
+    ParseState parseState = psUnknown;
+    const FunctionInfo *Function = nullptr;
     std::string Request;
   } Context;
 };

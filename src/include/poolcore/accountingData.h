@@ -7,88 +7,14 @@
 
 inline std::string ppsMetaUserId() { return "pps.meta\x01"; }
 
-enum class ESaturationFunction : uint32_t {
-  None = 0,
-  Tangent,
-  Clamp,
-  Cubic,
-  Softsign,
-  Norm,
-  Atan,
-  Exp,
-};
+double saturateCoeff(const CBackendPPS &pps, double balanceInBlocks);
 
 struct CBackendSettings {
 
 public:
-  struct PPS {
-
-  public:
-    static bool parseSaturationFunction(const std::string &name, ESaturationFunction *out);
-    static const char *saturationFunctionName(ESaturationFunction value);
-    static const std::vector<const char*> &saturationFunctionNames();
-    double saturateCoeff(double balanceInBlocks) const;
-
-    bool Enabled = false;
-    double PoolFee = 4.0;
-    ESaturationFunction SaturationFunction = ESaturationFunction::None;
-    double SaturationB0 = 0.0;
-    double SaturationANegative = 0.0;
-    double SaturationAPositive = 0.0;
-
-    static constexpr auto schema() {
-      return std::make_tuple(
-        field<1, &PPS::Enabled>(),
-        field<2, &PPS::PoolFee>(),
-        field<3, &PPS::SaturationFunction>(),
-        field<4, &PPS::SaturationB0>(),
-        field<5, &PPS::SaturationANegative>(),
-        field<6, &PPS::SaturationAPositive>()
-      );
-    }
-  };
-
-  struct Payouts {
-
-  public:
-    bool InstantPayoutsEnabled = true;
-    bool RegularPayoutsEnabled = true;
-    // Instant payouts: transaction fee is deducted from user's balance
-    UInt<384> InstantMinimalPayout;
-    std::chrono::minutes InstantPayoutInterval = std::chrono::minutes(1);
-    // Regular payouts: transaction fee is deducted from pool's balance
-    UInt<384> RegularMinimalPayout;
-    std::chrono::hours RegularPayoutInterval = std::chrono::hours(24);
-    std::chrono::hours RegularPayoutDayOffset = std::chrono::hours(0);
-
-    static constexpr auto schema() {
-      return std::make_tuple(
-        field<1, &Payouts::InstantPayoutsEnabled>(),
-        field<2, &Payouts::RegularPayoutsEnabled>(),
-        field<3, &Payouts::InstantMinimalPayout>(),
-        field<4, &Payouts::InstantPayoutInterval>(),
-        field<5, &Payouts::RegularMinimalPayout>(),
-        field<6, &Payouts::RegularPayoutInterval>(),
-        field<7, &Payouts::RegularPayoutDayOffset>()
-      );
-    }
-  };
-
-  struct Swap {
-    bool AcceptIncoming = false;
-    bool AcceptOutgoing = false;
-
-    static constexpr auto schema() {
-      return std::make_tuple(
-        field<1, &Swap::AcceptIncoming>(),
-        field<2, &Swap::AcceptOutgoing>()
-      );
-    }
-  };
-
-  PPS PPSConfig;
-  Payouts PayoutConfig;
-  Swap SwapConfig;
+  CBackendPPS PPSConfig;
+  CBackendPayouts PayoutConfig;
+  CBackendSwap SwapConfig;
 
   static constexpr auto schema() {
     return std::make_tuple(

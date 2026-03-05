@@ -324,26 +324,6 @@ struct CSettingsPayout {
   }
 };
 
-struct CSettingsMining {
-  EMiningMode MiningMode = EMiningMode::PPLNS;
-
-  static constexpr auto schema() {
-    return std::make_tuple(
-      field<1, &CSettingsMining::MiningMode>()
-    );
-  }
-};
-
-struct CSettingsAutoExchange {
-  std::string PayoutCoinName;
-
-  static constexpr auto schema() {
-    return std::make_tuple(
-      field<1, &CSettingsAutoExchange::PayoutCoinName>()
-    );
-  }
-};
-
 struct UserSettingsRecord : CSerializable<UserSettingsRecord> {
   std::string Login;
   std::string Coin;

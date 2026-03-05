@@ -167,9 +167,9 @@ public:
     TaskHandler_.push([callback = std::move(callback)](AccountingDb *a) { callback(a->api().queryPPSState()); });
   }
   void updateBackendSettings(
-    std::optional<CBackendSettings::PPS> pps,
-    std::optional<CBackendSettings::Payouts> payouts,
-    std::optional<CBackendSettings::Swap> swap,
+    std::optional<CBackendPPS> pps,
+    std::optional<CBackendPayouts> payouts,
+    std::optional<CBackendSwap> swap,
     DefaultCb cb)
   {
     TaskHandler_.push([

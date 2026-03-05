@@ -3,12 +3,15 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
+#include <filesystem>
 
 static void usage()
 {
   fprintf(stderr,
     "Usage: idltool [options] <input.idl>\n"
     "  -o <file>           output header file (default: <input>.idl.h)\n"
+    "  -I <dir>            add include search path (repeatable)\n"
     "  --dump-ast          dump AST and exit\n"
     "  --parser-verbose    generate verbose parser with detailed errors\n"
     "  --struct-prefix P   prefix for generated struct names (e.g., C)\n"
@@ -24,10 +27,13 @@ int main(int argc, char **argv)
   bool verboseMode = false;
   const char *structPrefix = "";
   bool pascalCase = false;
+  std::vector<std::string> includePaths;
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
       outputFile = argv[++i];
+    } else if (strcmp(argv[i], "-I") == 0 && i + 1 < argc) {
+      includePaths.push_back(argv[++i]);
     } else if (strcmp(argv[i], "--dump-ast") == 0) {
       dumpAstMode = true;
     } else if (strcmp(argv[i], "--parser-verbose") == 0) {
@@ -53,6 +59,17 @@ int main(int argc, char **argv)
   // Parse
   CIdlFile file;
   if (!parseIdlFile(inputFile, file))
+    return 1;
+
+  // Add input file's directory as implicit first include path
+  {
+    auto inputDir = std::filesystem::path(inputFile).parent_path().string();
+    if (!inputDir.empty())
+      includePaths.insert(includePaths.begin(), inputDir);
+  }
+
+  // Process includes
+  if (!processIncludes(file, includePaths))
     return 1;
 
   // Resolve

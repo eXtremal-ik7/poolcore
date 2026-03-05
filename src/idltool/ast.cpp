@@ -1,9 +1,11 @@
 #include "ast.h"
 #include "parser.h"
 #include "lexer.h"
+#include <climits>
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
+#include <filesystem>
 
 std::optional<EScalarType> parseScalarType(const std::string &name)
 {
@@ -14,19 +16,25 @@ std::optional<EScalarType> parseScalarType(const std::string &name)
   if (name == "int64")  return EScalarType::Int64;
   if (name == "uint64") return EScalarType::Uint64;
   if (name == "double") return EScalarType::Double;
+  if (name == "chrono::seconds") return EScalarType::Seconds;
+  if (name == "chrono::minutes") return EScalarType::Minutes;
+  if (name == "chrono::hours")   return EScalarType::Hours;
   return std::nullopt;
 }
 
 const char *scalarTypeName(EScalarType t)
 {
   switch (t) {
-    case EScalarType::String: return "string";
-    case EScalarType::Bool:   return "bool";
-    case EScalarType::Int32:  return "int32";
-    case EScalarType::Uint32: return "uint32";
-    case EScalarType::Int64:  return "int64";
-    case EScalarType::Uint64: return "uint64";
-    case EScalarType::Double: return "double";
+    case EScalarType::String:  return "string";
+    case EScalarType::Bool:    return "bool";
+    case EScalarType::Int32:   return "int32";
+    case EScalarType::Uint32:  return "uint32";
+    case EScalarType::Int64:   return "int64";
+    case EScalarType::Uint64:  return "uint64";
+    case EScalarType::Double:  return "double";
+    case EScalarType::Seconds: return "chrono::seconds";
+    case EScalarType::Minutes: return "chrono::minutes";
+    case EScalarType::Hours:   return "chrono::hours";
   }
   return "unknown";
 }
@@ -48,6 +56,70 @@ bool parseIdlFile(const char *filename, CIdlFile &out)
   yylex_destroy(scanner);
   fclose(f);
   return result == 0;
+}
+
+// --- Include processing ---
+
+static bool processIncludesImpl(CIdlFile &file, const std::vector<std::string> &includePaths,
+                                 std::unordered_set<std::string> &visited)
+{
+  for (auto &inc : file.Includes) {
+    // Try each include path
+    std::filesystem::path resolved;
+    bool found = false;
+    for (auto &dir : includePaths) {
+      auto candidate = std::filesystem::path(dir) / inc.Path;
+      if (std::filesystem::exists(candidate)) {
+        resolved = std::filesystem::canonical(candidate);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      fprintf(stderr, "line %d: cannot find included file '%s'\n", inc.Line, inc.Path.c_str());
+      return false;
+    }
+
+    std::string resolvedStr = resolved.string();
+    if (!visited.insert(resolvedStr).second)
+      continue; // already included — skip
+
+    // Parse included file
+    CIdlFile included;
+    if (!parseIdlFile(resolvedStr.c_str(), included))
+      return false;
+
+    // Build include paths for the included file: its directory + original paths
+    std::vector<std::string> childPaths;
+    childPaths.push_back(resolved.parent_path().string());
+    for (auto &p : includePaths)
+      childPaths.push_back(p);
+
+    // Recursively process includes
+    if (!processIncludesImpl(included, childPaths, visited))
+      return false;
+
+    // Merge imported types
+    for (auto &e : included.Enums) {
+      e.IsImported = true;
+      file.Enums.push_back(std::move(e));
+    }
+    for (auto &s : included.Structs) {
+      s.IsImported = true;
+      file.Structs.push_back(std::move(s));
+    }
+    for (auto &ext : included.ExternTypes) {
+      ext.IsImported = true;
+      file.ExternTypes.push_back(std::move(ext));
+    }
+  }
+  return true;
+}
+
+bool processIncludes(CIdlFile &file, const std::vector<std::string> &includePaths)
+{
+  std::unordered_set<std::string> visited;
+  return processIncludesImpl(file, includePaths, visited);
 }
 
 // --- Resolve AST ---
@@ -112,9 +184,10 @@ static bool resolveMixins(CIdlFile &file)
 
 static bool validateTypes(CIdlFile &file)
 {
-  // Build indices
+  // Build indices (include both local and imported)
   std::unordered_set<std::string> structNames;
   std::unordered_set<std::string> enumNames;
+  std::unordered_set<std::string> externNames;
   std::unordered_map<std::string, CEnumDef *> enumIndex;
 
   for (auto &s : file.Structs)
@@ -124,20 +197,42 @@ static bool validateTypes(CIdlFile &file)
     enumNames.insert(e.Name);
     enumIndex[e.Name] = &e;
   }
+  for (auto &ext : file.ExternTypes)
+    externNames.insert(ext.Name);
 
   for (auto &s : file.Structs) {
-    if (s.IsMixin) continue;
+    if (s.IsMixin || s.IsImported) continue;
+
+    // Build field name set for context validation
+    std::unordered_set<std::string> fieldNameSet;
+    for (auto &f : s.Fields)
+      fieldNameSet.insert(f.Name);
+
     for (auto &f : s.Fields) {
       if (!f.Type.IsScalar && !f.Type.RefName.empty()) {
-        bool found = structNames.count(f.Type.RefName) || enumNames.count(f.Type.RefName);
-        if (!found) {
-          fprintf(stderr, "line %d: unknown type '%s' for field '%s'\n",
-                  f.Line, f.Type.RefName.c_str(), f.Name.c_str());
-          return false;
+        // Check extern types first
+        if (externNames.count(f.Type.RefName)) {
+          f.Type.IsExtern = true;
+        } else {
+          bool found = structNames.count(f.Type.RefName) || enumNames.count(f.Type.RefName);
+          if (!found) {
+            fprintf(stderr, "line %d: unknown type '%s' for field '%s'\n",
+                    f.Line, f.Type.RefName.c_str(), f.Name.c_str());
+            return false;
+          }
+          // Mark if it's an enum
+          if (enumNames.count(f.Type.RefName)) {
+            f.Type.IsScalar = true; // enums are parsed as strings
+          }
         }
-        // Mark if it's an enum
-        if (enumNames.count(f.Type.RefName)) {
-          f.Type.IsScalar = true; // enums are parsed as strings
+      }
+
+      // Validate context(X) annotation
+      if (!f.ContextField.empty()) {
+        if (!fieldNameSet.count(f.ContextField)) {
+          fprintf(stderr, "line %d: context field '%s' not found in struct '%s'\n",
+                  f.Line, f.ContextField.c_str(), s.Name.c_str());
+          return false;
         }
       }
 
@@ -157,6 +252,31 @@ static bool validateTypes(CIdlFile &file)
         }
       }
     }
+
+    // Validate tags
+    bool anyTag = false, anyNoTag = false;
+    for (auto &f : s.Fields) {
+      if (f.Tag != 0) anyTag = true;
+      else anyNoTag = true;
+    }
+    if (anyTag && anyNoTag) {
+      fprintf(stderr, "struct '%s': mixing tagged and untagged fields is not allowed\n", s.Name.c_str());
+      return false;
+    }
+    if (anyTag) {
+      std::unordered_set<int> usedTags;
+      for (auto &f : s.Fields) {
+        if (f.Tag < 1 || f.Tag > 63) {
+          fprintf(stderr, "line %d: tag @%d out of range 1..63\n", f.Line, f.Tag);
+          return false;
+        }
+        if (!usedTags.insert(f.Tag).second) {
+          fprintf(stderr, "line %d: duplicate tag @%d in struct '%s'\n", f.Line, f.Tag, s.Name.c_str());
+          return false;
+        }
+      }
+      s.HasTaggedSchema = true;
+    }
   }
   return true;
 }
@@ -167,18 +287,30 @@ static bool topologicalSort(CIdlFile &file)
   std::unordered_map<std::string, std::unordered_set<std::string>> deps;
   std::unordered_map<std::string, CStructDef *> structIndex;
   std::unordered_set<std::string> enumNames;
+  std::unordered_set<std::string> externNames;
+  std::unordered_set<std::string> importedNames;
 
   for (auto &e : file.Enums)
     enumNames.insert(e.Name);
+  for (auto &ext : file.ExternTypes)
+    externNames.insert(ext.Name);
 
+  // First pass: collect imported names
+  for (auto &s : file.Structs) {
+    if (!s.IsMixin && s.IsImported)
+      importedNames.insert(s.Name);
+  }
+
+  // Second pass: build dependency graph for local structs
   std::vector<CStructDef *> nonMixins;
   for (auto &s : file.Structs) {
-    if (s.IsMixin) continue;
+    if (s.IsMixin || s.IsImported) continue;
     structIndex[s.Name] = &s;
     nonMixins.push_back(&s);
     deps[s.Name]; // ensure entry exists
     for (auto &f : s.Fields) {
-      if (!f.Type.RefName.empty() && !enumNames.count(f.Type.RefName)) {
+      if (!f.Type.RefName.empty() && !enumNames.count(f.Type.RefName) &&
+          !importedNames.count(f.Type.RefName) && !externNames.count(f.Type.RefName)) {
         deps[s.Name].insert(f.Type.RefName);
       }
     }
@@ -226,8 +358,11 @@ static bool topologicalSort(CIdlFile &file)
     return false;
   }
 
-  // Reorder Structs: mixins first (unchanged), then sorted non-mixins
+  // Reorder Structs: imported first, then mixins, then sorted non-mixins
   std::vector<CStructDef> sorted;
+  for (auto &s : file.Structs)
+    if (s.IsImported)
+      sorted.push_back(std::move(s));
   for (auto &s : file.Structs)
     if (s.IsMixin)
       sorted.push_back(std::move(s));
@@ -245,6 +380,9 @@ bool resolveAst(CIdlFile &file)
 
 void dumpAst(const CIdlFile &file)
 {
+  for (auto &ext : file.ExternTypes) {
+    printf("extern type %s : %s include \"%s\";\n", ext.Name.c_str(), ext.JsonWireType.c_str(), ext.IncludePath.c_str());
+  }
   for (auto &e : file.Enums) {
     printf("enum %s : %s { ", e.Name.c_str(), e.BaseType.c_str());
     for (size_t i = 0; i < e.Values.size(); i++) {
@@ -280,6 +418,10 @@ void dumpAst(const CIdlFile &file)
           default: break;
         }
       }
+      if (f.Tag > 0)
+        printf(" @%d", f.Tag);
+      if (!f.ContextField.empty())
+        printf(" context(%s)", f.ContextField.c_str());
       printf(";\n");
     }
     printf("}\n");

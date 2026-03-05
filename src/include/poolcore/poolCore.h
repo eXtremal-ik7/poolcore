@@ -1,6 +1,7 @@
 #pragma once
 
 #include "poolcommon/uint.h"
+#include "poolcommon/types.h"
 #include "workTypes.h"
 #include "p2putils/xmstream.h"
 #include "poolcore/thread.h"
@@ -16,48 +17,6 @@ namespace loguru { class LogChannel; }
 class CPreparedQuery;
 class CNetworkClientDispatcher;
 struct asyncBase;
-
-enum class EMiningMode : unsigned {
-  PPLNS = 0,
-  PPS,
-  Count
-};
-
-inline const char *miningModeName(EMiningMode mode)
-{
-  static const char *names[] = {"pplns", "pps"};
-  unsigned index = static_cast<unsigned>(mode);
-  return index < std::size(names) ? names[index] : "unknown";
-}
-
-inline bool parseMiningMode(const std::string &name, EMiningMode &mode)
-{
-  if (name == "pplns") { mode = EMiningMode::PPLNS; return true; }
-  if (name == "pps") { mode = EMiningMode::PPS; return true; }
-  return false;
-}
-
-enum class EPayoutMode : unsigned {
-  Disabled = 0,
-  Regular,
-  Instant,
-  Count
-};
-
-inline const char *payoutModeName(EPayoutMode mode)
-{
-  static const char *names[] = {"disabled", "regular", "instant"};
-  unsigned index = static_cast<unsigned>(mode);
-  return index < std::size(names) ? names[index] : "unknown";
-}
-
-inline bool parsePayoutMode(const std::string &name, EPayoutMode &mode)
-{
-  if (name == "disabled") { mode = EPayoutMode::Disabled; return true; }
-  if (name == "regular") { mode = EPayoutMode::Regular; return true; }
-  if (name == "instant") { mode = EPayoutMode::Instant; return true; }
-  return false;
-}
 
 struct CCoinInfoOld2 {
   int64_t ExtraMultiplier = 100;

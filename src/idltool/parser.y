@@ -1,6 +1,11 @@
 %code requires {
   #include "ast.h"
   typedef void *yyscan_t;
+
+  struct CFieldAnnotation {
+    int Tag;
+    char *ContextField;
+  };
 }
 
 %code {
@@ -24,29 +29,39 @@
   CStructDef *structDef;
   CFieldDef *fieldDef;
   CEnumDef *enumDef;
+  CIncludeDirective *includeDef;
+  CExternTypeDef *externDef;
   CFieldType *fieldType;
   CDefaultValue *defaultVal;
+  CFieldAnnotation *annotation;
   std::vector<std::variant<CMixinRef, CFieldDef>> *memberList;
   std::vector<CFieldDef> *fieldList;
   std::vector<std::string> *stringList;
 }
 
-%token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW
+%token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW TOK_INCLUDE
+%token TOK_EXTERN TOK_TYPE TOK_CONTEXT
 %token <strVal> TOK_IDENTIFIER TOK_STRING_LITERAL
+%token <strVal> TOK_CHRONO_SECONDS TOK_CHRONO_MINUTES TOK_CHRONO_HOURS
 %token <intVal> TOK_INT_LITERAL
 %token <floatVal> TOK_FLOAT_LITERAL
 
 %type <structDef> struct_def mixin_def
 %type <enumDef> enum_def
+%type <includeDef> include_directive
+%type <externDef> extern_def
 %type <fieldDef> field
 %type <fieldType> type_spec
 %type <defaultVal> default_value
+%type <annotation> field_annotations
+%type <strVal> type_name field_name
 %type <memberList> member_list
 %type <fieldList> mixin_field_list
 %type <stringList> enum_values
 
 %destructor { free($$); } <strVal>
-%destructor { delete $$; } <structDef> <enumDef> <fieldDef> <fieldType> <defaultVal> <memberList> <fieldList> <stringList>
+%destructor { delete $$; } <structDef> <enumDef> <includeDef> <externDef> <fieldDef> <fieldType> <defaultVal> <memberList> <fieldList> <stringList>
+%destructor { if ($$->ContextField) free($$->ContextField); delete $$; } <annotation>
 
 %%
 
@@ -67,6 +82,36 @@ definition:
   | enum_def {
       file->Enums.push_back(std::move(*$1));
       delete $1;
+    }
+  | include_directive {
+      file->Includes.push_back(std::move(*$1));
+      delete $1;
+    }
+  | extern_def {
+      file->ExternTypes.push_back(std::move(*$1));
+      delete $1;
+    }
+  ;
+
+include_directive:
+    TOK_INCLUDE TOK_STRING_LITERAL ';' {
+      $$ = new CIncludeDirective();
+      $$->Path = $2;
+      $$->Line = @1.first_line;
+      free($2);
+    }
+  ;
+
+extern_def:
+    TOK_EXTERN TOK_TYPE TOK_IDENTIFIER ':' TOK_IDENTIFIER TOK_INCLUDE TOK_STRING_LITERAL ';' {
+      $$ = new CExternTypeDef();
+      $$->Name = $3;
+      $$->JsonWireType = $5;
+      $$->IncludePath = $7;
+      $$->Line = @1.first_line;
+      free($3);
+      free($5);
+      free($7);
     }
   ;
 
@@ -138,11 +183,37 @@ mixin_field_list:
     }
   ;
 
+field_annotations:
+    /* empty */ {
+      $$ = new CFieldAnnotation();
+      $$->Tag = 0;
+      $$->ContextField = nullptr;
+    }
+  | field_annotations '@' TOK_INT_LITERAL {
+      $$ = $1;
+      $$->Tag = (int)$3;
+    }
+  | field_annotations TOK_CONTEXT '(' type_name ')' {
+      $$ = $1;
+      if ($$->ContextField) free($$->ContextField);
+      $$->ContextField = $4;
+    }
+  ;
+
+field_name:
+    TOK_IDENTIFIER { $$ = $1; }
+  | TOK_TYPE       { $$ = strdup("type"); }
+  | TOK_CONTEXT    { $$ = strdup("context"); }
+  | TOK_EXTERN     { $$ = strdup("extern"); }
+  ;
+
 field:
-    TOK_IDENTIFIER ':' type_spec ';' {
+    field_name ':' type_spec field_annotations ';' {
       $$ = new CFieldDef();
       $$->Name = $1;
       $$->Type = *$3;
+      $$->Tag = $4->Tag;
+      if ($4->ContextField) { $$->ContextField = $4->ContextField; $4->ContextField = nullptr; }
       $$->Line = @1.first_line;
       switch ($3->Shape) {
         case ETypeShape::Plain:          $$->Kind = EFieldKind::Required; break;
@@ -152,22 +223,33 @@ field:
       }
       free($1);
       delete $3;
+      delete $4;
     }
-  | TOK_IDENTIFIER ':' type_spec '=' default_value ';' {
+  | field_name ':' type_spec '=' default_value field_annotations ';' {
       $$ = new CFieldDef();
       $$->Name = $1;
       $$->Type = *$3;
       $$->Default = *$5;
+      $$->Tag = $6->Tag;
+      if ($6->ContextField) { $$->ContextField = $6->ContextField; $6->ContextField = nullptr; }
       $$->Kind = EFieldKind::Optional;
       $$->Line = @1.first_line;
       free($1);
       delete $3;
       delete $5;
+      delete $6;
     }
   ;
 
+type_name:
+    TOK_IDENTIFIER      { $$ = $1; }
+  | TOK_CHRONO_SECONDS  { $$ = $1; }
+  | TOK_CHRONO_MINUTES  { $$ = $1; }
+  | TOK_CHRONO_HOURS    { $$ = $1; }
+  ;
+
 type_spec:
-    TOK_IDENTIFIER {
+    type_name {
       $$ = new CFieldType();
       $$->Shape = ETypeShape::Plain;
       auto scalar = parseScalarType($1);
@@ -179,7 +261,7 @@ type_spec:
       }
       free($1);
     }
-  | TOK_IDENTIFIER '?' {
+  | type_name '?' {
       $$ = new CFieldType();
       $$->Shape = ETypeShape::OptionalObject;
       auto scalar = parseScalarType($1);
@@ -191,7 +273,7 @@ type_spec:
       }
       free($1);
     }
-  | '[' TOK_IDENTIFIER ']' {
+  | '[' type_name ']' {
       $$ = new CFieldType();
       $$->Shape = ETypeShape::Array;
       auto scalar = parseScalarType($2);
@@ -203,7 +285,7 @@ type_spec:
       }
       free($2);
     }
-  | '[' TOK_IDENTIFIER ']' '?' {
+  | '[' type_name ']' '?' {
       $$ = new CFieldType();
       $$->Shape = ETypeShape::OptionalArray;
       auto scalar = parseScalarType($2);

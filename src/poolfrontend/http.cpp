@@ -5,181 +5,73 @@
 #include "asyncio/coroutine.h"
 #include "asyncio/socket.h"
 #include "loguru.hpp"
-#include "rapidjson/document.h"
 #include "poolcommon/jsonSerializer.h"
 #include <cmath>
 
-std::unordered_map<std::string, std::pair<int, PoolHttpConnection::FunctionTy>> PoolHttpConnection::FunctionNameMap_ = {
-  // User manager functions
-  {"userAction", {hmPost, fnUserAction}},
-  {"userCreate", {hmPost, fnUserCreate}},
-  {"userResendEmail", {hmPost, fnUserResendEmail}},
-  {"userLogin", {hmPost, fnUserLogin}},
-  {"userLogout", {hmPost, fnUserLogout}},
-  {"userQueryMonitoringSession", {hmPost, fnUserQueryMonitoringSession}},
-  {"userChangeEmail", {hmPost, fnUserChangeEmail}},
-  {"userChangePasswordForce", {hmPost, fnUserChangePasswordForce}},
-  {"userChangePasswordInitiate", {hmPost, fnUserChangePasswordInitiate}},
-  {"userGetCredentials", {hmPost, fnUserGetCredentials}},
-  {"userGetSettings", {hmPost, fnUserGetSettings}},
-  {"userUpdateCredentials", {hmPost, fnUserUpdateCredentials}},
-  {"userUpdateSettings", {hmPost, fnUserUpdateSettings}},
-  {"userEnumerateAll", {hmPost, fnUserEnumerateAll}},
-  {"userEnumerateFeePlan", {hmPost, fnUserEnumerateFeePlan}},
-  {"userCreateFeePlan", {hmPost, fnUserCreateFeePlan}},
-  {"userQueryFeePlan", {hmPost, fnUserQueryFeePlan}},
-  {"userUpdateFeePlan", {hmPost, fnUserUpdateFeePlan}},
-  {"userDeleteFeePlan", {hmPost, fnUserDeleteFeePlan}},
-  {"userChangeFeePlan", {hmPost, fnUserChangeFeePlan}},
-  {"userRenewFeePlanReferralId", {hmPost, fnUserRenewFeePlanReferralId}},
-  {"userActivate2faInitiate", {hmPost, fnUserActivate2faInitiate}},
-  {"userDeactivate2faInitiate", {hmPost, fnUserDeactivate2faInitiate}},
-  {"userAdjustInstantPayoutThreshold", {hmPost, fnUserAdjustInstantPayoutThreshold}},
-  // Backend functions
-  {"backendManualPayout", {hmPost, fnBackendManualPayout}},
-  {"backendQueryCoins", {hmPost, fnBackendQueryCoins}},
-  {"backendQueryFoundBlocks", {hmPost, fnBackendQueryFoundBlocks}},
-  {"backendQueryPayouts", {hmPost, fnBackendQueryPayouts}},
-  {"backendQueryPoolBalance", {hmPost, fnBackendQueryPoolBalance}},
-  {"backendQueryPoolStats", {hmPost, fnBackendQueryPoolStats}},
-  {"backendQueryPoolStatsHistory", {hmPost, fnBackendQueryPoolStatsHistory}},
-  {"backendQueryProfitSwitchCoeff", {hmPost, fnBackendQueryProfitSwitchCoeff}},
-  {"backendQueryUserBalance", {hmPost, fnBackendQueryUserBalance}},
-  {"backendQueryUserStats", {hmPost, fnBackendQueryUserStats}},
-  {"backendQueryUserStatsHistory", {hmPost, fnBackendQueryUserStatsHistory}},
-  {"backendQueryWorkerStatsHistory", {hmPost, fnBackendQueryWorkerStatsHistory}},
-  {"backendQueryPPLNSPayouts", {hmPost, fnBackendQueryPPLNSPayouts}},
-  {"backendQueryPPLNSAcc", {hmPost, fnBackendQueryPPLNSAcc}},
-  {"backendQueryPPSPayouts", {hmPost, fnBackendQueryPPSPayouts}},
-  {"backendQueryPPSPayoutsAcc", {hmPost, fnBackendQueryPPSPayoutsAcc}},
-  {"backendUpdateProfitSwitchCoeff", {hmPost, fnBackendUpdateProfitSwitchCoeff}},
-  {"backendGetConfig", {hmPost, fnBackendGetConfig}},
-  {"backendGetPPSState", {hmPost, fnBackendGetPPSState}},
-  {"backendQueryPPSHistory", {hmPost, fnBackendQueryPPSHistory}},
-  {"backendUpdateConfig", {hmPost, fnBackendUpdateConfig}},
-  {"backendPoolLuck", {hmPost, fnBackendPoolLuck}},
-  // Instance functions
-  {"instanceEnumerateAll", {hmPost, fnInstanceEnumerateAll}},
-  // Complex mining stats functions
-  {"complexMiningStatsGetInfo", {hmPost, fnComplexMiningStatsGetInfo}}
+std::unordered_map<std::string, PoolHttpConnection::FunctionInfo> PoolHttpConnection::FunctionNameMap_ = {
+  // Public (no session)
+  {"backendQueryCoins",                {fnBackendQueryCoins,                false, false, false}},
+  {"backendPoolLuck",                  {fnBackendPoolLuck,                  false, false, false}},
+  {"backendQueryFoundBlocks",          {fnBackendQueryFoundBlocks,          false, false, false}},
+  {"backendQueryPoolBalance",          {fnBackendQueryPoolBalance,          false, false, false}},
+  {"backendQueryPoolStats",            {fnBackendQueryPoolStats,            false, false, false}},
+  {"backendQueryPoolStatsHistory",     {fnBackendQueryPoolStatsHistory,     false, false, false}},
+  {"instanceEnumerateAll",             {fnInstanceEnumerateAll,             false, false, false}},
+  {"userAction",                       {fnUserAction,                       false, false, false}},
+  {"userChangeEmail",                  {fnUserChangeEmail,                  false, false, false}},
+  {"userChangePasswordForce",          {fnUserChangePasswordForce,          false, false, false}},
+  {"userChangePasswordInitiate",       {fnUserChangePasswordInitiate,       false, false, false}},
+  {"userCreate",                       {fnUserCreate,                       false, false, false}},
+  {"userLogin",                        {fnUserLogin,                        false, false, false}},
+  {"userResendEmail",                  {fnUserResendEmail,                  false, false, false}},
+
+  // Session, Read
+  {"backendQueryPayouts",              {fnBackendQueryPayouts,              true,  false, false}},
+  {"backendQueryPPLNSAcc",             {fnBackendQueryPPLNSAcc,             true,  false, false}},
+  {"backendQueryPPLNSPayouts",         {fnBackendQueryPPLNSPayouts,         true,  false, false}},
+  {"backendQueryPPSPayouts",           {fnBackendQueryPPSPayouts,           true,  false, false}},
+  {"backendQueryPPSPayoutsAcc",        {fnBackendQueryPPSPayoutsAcc,        true,  false, false}},
+  {"backendQueryUserBalance",          {fnBackendQueryUserBalance,          true,  false, false}},
+  {"backendQueryUserStats",            {fnBackendQueryUserStats,            true,  false, false}},
+  {"backendQueryUserStatsHistory",     {fnBackendQueryUserStatsHistory,     true,  false, false}},
+  {"backendQueryWorkerStatsHistory",   {fnBackendQueryWorkerStatsHistory,   true,  false, false}},
+  {"userEnumerateAll",                 {fnUserEnumerateAll,                 true,  false, false}},
+  {"userEnumerateFeePlan",             {fnUserEnumerateFeePlan,             true,  false, false}},
+  {"userGetCredentials",               {fnUserGetCredentials,               true,  false, false}},
+  {"userGetSettings",                  {fnUserGetSettings,                  true,  false, false}},
+  {"userLogout",                       {fnUserLogout,                       true,  false, false}},
+  {"userQueryFeePlan",                 {fnUserQueryFeePlan,                 true,  false, false}},
+  {"userQueryMonitoringSession",       {fnUserQueryMonitoringSession,       true,  false, false}},
+
+  // Session, Write
+  {"backendManualPayout",              {fnBackendManualPayout,              true,  true,  false}},
+  {"userActivate2faInitiate",          {fnUserActivate2faInitiate,          true,  true,  false}},
+  {"userDeactivate2faInitiate",        {fnUserDeactivate2faInitiate,        true,  true,  false}},
+  {"userUpdateCredentials",            {fnUserUpdateCredentials,            true,  true,  false}},
+  {"userUpdateSettings",               {fnUserUpdateSettings,               true,  true,  false}},
+
+  // SuperUser, Read (admin + observer)
+  {"backendGetConfig",                 {fnBackendGetConfig,                 true,  false, true}},
+  {"backendGetPPSState",               {fnBackendGetPPSState,               true,  false, true}},
+  {"backendQueryPPSHistory",           {fnBackendQueryPPSHistory,           true,  false, true}},
+  {"backendQueryProfitSwitchCoeff",    {fnBackendQueryProfitSwitchCoeff,    true,  false, true}},
+  {"complexMiningStatsGetInfo",        {fnComplexMiningStatsGetInfo,        true,  false, true}},
+
+  // SuperUser, Write (admin only)
+  {"backendUpdateConfig",              {fnBackendUpdateConfig,              true,  true,  true}},
+  {"backendUpdateProfitSwitchCoeff",   {fnBackendUpdateProfitSwitchCoeff,   true,  true,  true}},
+  {"userAdjustInstantPayoutThreshold", {fnUserAdjustInstantPayoutThreshold, true,  true,  true}},
+  {"userChangeFeePlan",                {fnUserChangeFeePlan,                true,  true,  true}},
+  {"userCreateFeePlan",                {fnUserCreateFeePlan,                true,  true,  true}},
+  {"userCreateForce",                  {fnUserCreateForce,                  true,  true,  true}},
+  {"userDeleteFeePlan",                {fnUserDeleteFeePlan,                true,  true,  true}},
+  {"userRenewFeePlanReferralId",       {fnUserRenewFeePlanReferralId,       true,  true,  true}},
+  {"userUpdateFeePlan",                {fnUserUpdateFeePlan,                true,  true,  true}},
 };
 
 static inline bool rawcmp(Raw data, const char *operand) {
   size_t opSize = strlen(operand);
   return data.size == opSize && memcmp(data.data, operand, opSize) == 0;
-}
-
-static inline void jsonParseString(rapidjson::Value &document, const char *name, std::string &out, bool *validAcc) {
-  if (document.HasMember(name) && document[name].IsString())
-    out = document[name].GetString();
-  else
-    *validAcc = false;
-}
-
-static inline void jsonParseString(rapidjson::Value &document, const char *name, std::string &out, const std::string &defaultValue, bool *validAcc) {
-  if (document.HasMember(name)) {
-    if (document[name].IsString())
-      out = document[name].GetString();
-    else
-      *validAcc = false;
-  } else {
-    out = defaultValue;
-  }
-}
-
-static inline void jsonParseInt64(rapidjson::Value &document, const char *name, int64_t *out, bool *validAcc) {
-  if (document.HasMember(name) && document[name].IsInt64())
-    *out = document[name].GetInt64();
-  else
-    *validAcc = false;
-}
-
-
-static inline void jsonParseInt64(rapidjson::Value &document, const char *name, int64_t *out, int64_t defaultValue, bool *validAcc) {
-  if (document.HasMember(name)) {
-    if (document[name].IsInt64())
-      *out = document[name].GetInt64();
-    else
-      *validAcc = false;
-  } else {
-    *out = defaultValue;
-  }
-}
-
-
-static inline void jsonParseUInt64(rapidjson::Value &document, const char *name, uint64_t *out, int64_t defaultValue, bool *validAcc) {
-  if (document.HasMember(name)) {
-    if (document[name].IsUint64())
-      *out = document[name].GetUint64();
-    else
-      *validAcc = false;
-  } else {
-    *out = defaultValue;
-  }
-}
-
-static inline void jsonParseUInt(rapidjson::Value &document, const char *name, unsigned *out, unsigned defaultValue, bool *validAcc) {
-  if (document.HasMember(name)) {
-    if (document[name].IsUint())
-      *out = document[name].GetUint();
-    else
-      *validAcc = false;
-  } else {
-    *out = defaultValue;
-  }
-}
-
-static inline void jsonParseBoolean(rapidjson::Value &document, const char *name, bool *out, bool *validAcc) {
-  if (document.HasMember(name) && document[name].IsBool())
-    *out = document[name].GetBool();
-  else
-    *validAcc = false;
-}
-
-static inline void jsonParseBoolean(rapidjson::Value &document, const char *name, bool *out, bool defaultValue, bool *validAcc) {
-  if (document.HasMember(name)) {
-    if (document[name].IsBool())
-      *out = document[name].GetBool();
-    else
-      *validAcc = false;
-  } else {
-    *out = defaultValue;
-  }
-}
-
-static inline void jsonParseNumber(rapidjson::Value &document, const char *name, double *out, bool *validAcc) {
-  if (document.HasMember(name)) {
-    if (document[name].IsNumber())
-      *out = document[name].GetDouble();
-    else
-      *validAcc = false;
-  } else {
-    *validAcc = false;
-  }
-}
-
-static inline void jsonParseNumber(rapidjson::Value &document, const char *name, double *out, double defaultValue, bool *validAcc) {
-  if (document.HasMember(name)) {
-    if (document[name].IsNumber())
-      *out = document[name].GetDouble();
-    else
-      *validAcc = false;
-  } else {
-    *out = defaultValue;
-  }
-}
-
-static inline void parseUserCredentials(rapidjson::Value &document, UserManager::Credentials &credentials, bool *validAcc)
-{
-  jsonParseString(document, "login", credentials.Login, "", validAcc);
-  jsonParseString(document, "password", credentials.Password, "", validAcc);
-  jsonParseString(document, "name", credentials.Name, "", validAcc);
-  jsonParseString(document, "email", credentials.EMail, "", validAcc);
-  jsonParseString(document, "totp", credentials.TwoFactor, "", validAcc);
-  jsonParseBoolean(document, "isActive", &credentials.IsActive, false, validAcc);
-  jsonParseBoolean(document, "isReadOnly", &credentials.IsReadOnly, false, validAcc);
-  jsonParseString(document, "feePlanId", credentials.FeePlan, "", validAcc);
-  jsonParseString(document, "referralId", credentials.ReferralId, "", validAcc);
 }
 
 static void addUserFeeConfig(xmstream &stream, const std::vector<UserFeePair> &config)
@@ -219,23 +111,29 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
 {
   if (component->type == httpRequestDtMethod) {
     Context.method = component->method;
-    Context.function = fnUnknown;
+    Context.parseState = psUnknown;
+    Context.Function = nullptr;
     return 1;
   }
 
   if (component->type == httpRequestDtUriPathElement) {
-    // Wait 'api'
-    if (Context.function == fnUnknown && rawcmp(component->data, "api")) {
-      Context.function = fnApi;
-    } else if (Context.function == fnApi) {
-      std::string functionName(component->data.data, component->data.data + component->data.size);
-      auto It = FunctionNameMap_.find(functionName);
-      if (It == FunctionNameMap_.end() || It->second.first != Context.method) {
+    if (Context.parseState == psUnknown && rawcmp(component->data, "api")) {
+      Context.parseState = psApi;
+    } else if (Context.parseState == psApi) {
+      if (Context.method != hmPost) {
         reply404();
         return 0;
       }
 
-      Context.function = It->second.second;
+      std::string functionName(component->data.data, component->data.data + component->data.size);
+      auto It = FunctionNameMap_.find(functionName);
+      if (It == FunctionNameMap_.end()) {
+        reply404();
+        return 0;
+      }
+
+      Context.Function = &It->second;
+      Context.parseState = psResolved;
       return 1;
     } else {
       reply404();
@@ -246,62 +144,68 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
     return 1;
   } else if (component->type == httpRequestDtDataLast) {
     Context.Request.append(component->data.data, component->data.data + component->data.size);
-    rapidjson::Document document;
-    document.Parse(!Context.Request.empty() ? Context.Request.c_str() : "{}");
-    if (document.HasParseError() || !document.IsObject()) {
-      replyWithStatus("invalid_json");
-      return 1;
+
+    if (!Context.Function) {
+      reply404();
+      return 0;
     }
 
-    switch (Context.function) {
-      case fnUserAction: onUserAction(document); break;
-      case fnUserCreate: onUserCreate(document); break;
-      case fnUserResendEmail: onUserResendEmail(document); break;
-      case fnUserLogin: onUserLogin(document); break;
-      case fnUserLogout: onUserLogout(document); break;
-      case fnUserQueryMonitoringSession: onUserQueryMonitoringSession(document); break;
-      case fnUserChangeEmail: onUserChangeEmail(document); break;
-      case fnUserChangePasswordInitiate: onUserChangePasswordInitiate(document); break;
-      case fnUserChangePasswordForce: onUserChangePasswordForce(document); break;
-      case fnUserGetCredentials: onUserGetCredentials(document); break;
-      case fnUserGetSettings: onUserGetSettings(document); break;
-      case fnUserUpdateCredentials: onUserUpdateCredentials(document); break;
-      case fnUserUpdateSettings: onUserUpdateSettings(document); break;
-      case fnUserEnumerateAll: onUserEnumerateAll(document); break;
-      case fnUserEnumerateFeePlan: onUserEnumerateFeePlan(document); break;
-      case fnUserCreateFeePlan: onUserCreateFeePlan(document); break;
-      case fnUserQueryFeePlan: onUserQueryFeePlan(document); break;
-      case fnUserUpdateFeePlan: onUserUpdateFeePlan(document); break;
-      case fnUserDeleteFeePlan: onUserDeleteFeePlan(document); break;
-      case fnUserChangeFeePlan: onUserChangeFeePlan(document); break;
-      case fnUserRenewFeePlanReferralId: onUserRenewFeePlanReferralId(document); break;
-      case fnUserActivate2faInitiate: onUserActivate2faInitiate(document); break;
-      case fnUserDeactivate2faInitiate: onUserDeactivate2faInitiate(document); break;
-      case fnUserAdjustInstantPayoutThreshold: onUserAdjustInstantPayoutThreshold(document); break;
-      case fnBackendManualPayout: onBackendManualPayout(document); break;
-      case fnBackendQueryUserBalance: onBackendQueryUserBalance(document); break;
-      case fnBackendQueryUserStats: onBackendQueryUserStats(document); break;
-      case fnBackendQueryUserStatsHistory: onBackendQueryUserStatsHistory(document); break;
-      case fnBackendQueryWorkerStatsHistory: onBackendQueryWorkerStatsHistory(document); break;
-      case fnBackendQueryCoins : onBackendQueryCoins(document); break;
-      case fnBackendQueryFoundBlocks: onBackendQueryFoundBlocks(document); break;
-      case fnBackendQueryPayouts: onBackendQueryPayouts(document); break;
-      case fnBackendQueryPoolBalance: onBackendQueryPoolBalance(document); break;
-      case fnBackendQueryPoolStats: onBackendQueryPoolStats(document); break;
-      case fnBackendQueryPoolStatsHistory : onBackendQueryPoolStatsHistory(document); break;
-      case fnBackendQueryProfitSwitchCoeff : onBackendQueryProfitSwitchCoeff(document); break;
-      case fnBackendQueryPPLNSPayouts : onBackendQueryPPLNSPayouts(document); break;
-      case fnBackendQueryPPLNSAcc : onBackendQueryPPLNSAcc(document); break;
-      case fnBackendQueryPPSPayouts : onBackendQueryPPSPayouts(document); break;
-      case fnBackendQueryPPSPayoutsAcc : onBackendQueryPPSPayoutsAcc(document); break;
-      case fnBackendUpdateProfitSwitchCoeff : onBackendUpdateProfitSwitchCoeff(document); break;
-      case fnBackendGetConfig : onBackendGetConfig(document); break;
-      case fnBackendGetPPSState : onBackendGetPPSState(document); break;
-      case fnBackendQueryPPSHistory : onBackendQueryPPSHistory(document); break;
-      case fnBackendUpdateConfig : onBackendUpdateConfig(document); break;
-      case fnBackendPoolLuck : onBackendPoolLuck(document); break;
-      case fnInstanceEnumerateAll : onInstanceEnumerateAll(document); break;
-      case fnComplexMiningStatsGetInfo : onComplexMiningStatsGetInfo(document); break;
+    switch (Context.Function->Type) {
+      // Plain
+      case fnBackendQueryCoins: dispatch<&PoolHttpConnection::onBackendQueryCoins>(); break;
+      case fnBackendQueryPoolBalance: onBackendQueryPoolBalance(); break;
+      case fnBackendQueryPoolStats: dispatch<&PoolHttpConnection::onBackendQueryPoolStats>(); break;
+      case fnInstanceEnumerateAll: onInstanceEnumerateAll(); break;
+      case fnUserAction: dispatch<&PoolHttpConnection::onUserAction>(); break;
+      case fnUserChangeEmail: onUserChangeEmail(); break;
+      case fnUserChangePasswordForce: dispatch<&PoolHttpConnection::onUserChangePasswordForce>(); break;
+      case fnUserChangePasswordInitiate: dispatch<&PoolHttpConnection::onUserChangePasswordInitiate>(); break;
+      case fnUserCreate: dispatch<&PoolHttpConnection::onUserCreate>(); break;
+      case fnUserLogin: dispatch<&PoolHttpConnection::onUserLogin>(); break;
+      case fnUserResendEmail: dispatch<&PoolHttpConnection::onUserResendEmail>(); break;
+      // Backend
+      case fnBackendPoolLuck: dispatch<&PoolHttpConnection::onBackendPoolLuck>(); break;
+      case fnBackendQueryFoundBlocks: dispatch<&PoolHttpConnection::onBackendQueryFoundBlocks>(); break;
+      // Statistic
+      case fnBackendQueryPoolStatsHistory: dispatch<&PoolHttpConnection::onBackendQueryPoolStatsHistory>(); break;
+      // Session
+      case fnBackendQueryProfitSwitchCoeff: dispatch<&PoolHttpConnection::onBackendQueryProfitSwitchCoeff>(); break;
+      case fnBackendQueryUserBalance: dispatch<&PoolHttpConnection::onBackendQueryUserBalance>(); break;
+      case fnComplexMiningStatsGetInfo: dispatch<&PoolHttpConnection::onComplexMiningStatsGetInfo>(); break;
+      case fnUserActivate2faInitiate: dispatch<&PoolHttpConnection::onUserActivate2faInitiate>(); break;
+      case fnUserChangeFeePlan: dispatch<&PoolHttpConnection::onUserChangeFeePlan>(); break;
+      case fnUserCreateFeePlan: dispatch<&PoolHttpConnection::onUserCreateFeePlan>(); break;
+      case fnUserCreateForce: dispatch<&PoolHttpConnection::onUserCreateForce>(); break;
+      case fnUserDeactivate2faInitiate: dispatch<&PoolHttpConnection::onUserDeactivate2faInitiate>(); break;
+      case fnUserDeleteFeePlan: dispatch<&PoolHttpConnection::onUserDeleteFeePlan>(); break;
+      case fnUserEnumerateFeePlan: dispatch<&PoolHttpConnection::onUserEnumerateFeePlan>(); break;
+      case fnUserGetCredentials: dispatch<&PoolHttpConnection::onUserGetCredentials>(); break;
+      case fnUserGetSettings: dispatch<&PoolHttpConnection::onUserGetSettings>(); break;
+      case fnUserLogout: dispatch<&PoolHttpConnection::onUserLogout>(); break;
+      case fnUserQueryFeePlan: dispatch<&PoolHttpConnection::onUserQueryFeePlan>(); break;
+      case fnUserQueryMonitoringSession: dispatch<&PoolHttpConnection::onUserQueryMonitoringSession>(); break;
+      case fnUserRenewFeePlanReferralId: dispatch<&PoolHttpConnection::onUserRenewFeePlanReferralId>(); break;
+      case fnUserUpdateCredentials: dispatch<&PoolHttpConnection::onUserUpdateCredentials>(); break;
+      case fnUserUpdateFeePlan: dispatch<&PoolHttpConnection::onUserUpdateFeePlan>(); break;
+      case fnUserUpdateSettings: dispatch<&PoolHttpConnection::onUserUpdateSettings>(); break;
+      // Session + Statistic
+      case fnBackendQueryUserStats: dispatch<&PoolHttpConnection::onBackendQueryUserStats>(); break;
+      case fnBackendQueryUserStatsHistory: dispatch<&PoolHttpConnection::onBackendQueryUserStatsHistory>(); break;
+      case fnBackendQueryWorkerStatsHistory: dispatch<&PoolHttpConnection::onBackendQueryWorkerStatsHistory>(); break;
+      case fnUserEnumerateAll: dispatch<&PoolHttpConnection::onUserEnumerateAll>(); break;
+      // Session + Backend
+      case fnBackendGetConfig: dispatch<&PoolHttpConnection::onBackendGetConfig>(); break;
+      case fnBackendGetPPSState: dispatch<&PoolHttpConnection::onBackendGetPPSState>(); break;
+      case fnBackendManualPayout: dispatch<&PoolHttpConnection::onBackendManualPayout>(); break;
+      case fnBackendQueryPayouts: dispatch<&PoolHttpConnection::onBackendQueryPayouts>(); break;
+      case fnBackendQueryPPLNSAcc: dispatch<&PoolHttpConnection::onBackendQueryPPLNSAcc>(); break;
+      case fnBackendQueryPPLNSPayouts: dispatch<&PoolHttpConnection::onBackendQueryPPLNSPayouts>(); break;
+      case fnBackendQueryPPSHistory: dispatch<&PoolHttpConnection::onBackendQueryPPSHistory>(); break;
+      case fnBackendQueryPPSPayouts: dispatch<&PoolHttpConnection::onBackendQueryPPSPayouts>(); break;
+      case fnBackendQueryPPSPayoutsAcc: dispatch<&PoolHttpConnection::onBackendQueryPPSPayoutsAcc>(); break;
+      case fnBackendUpdateConfig: dispatch<&PoolHttpConnection::onBackendUpdateConfig>(); break;
+      case fnBackendUpdateProfitSwitchCoeff: dispatch<&PoolHttpConnection::onBackendUpdateProfitSwitchCoeff>(); break;
+      case fnUserAdjustInstantPayoutThreshold: dispatch<&PoolHttpConnection::onUserAdjustInstantPayoutThreshold>(); break;
       default:
         reply404();
         return 0;
@@ -354,6 +258,10 @@ void PoolHttpConnection::onRead(AsyncOpStatus status, size_t bytesRead)
   }
 }
 
+UserManager &PoolHttpConnection::userManager() { return Server_.userManager(); }
+PoolBackend *PoolHttpConnection::backend(const std::string &coin) { return Server_.backend(coin); }
+StatisticDb *PoolHttpConnection::statistic(const std::string &coin) { return Server_.statisticDb(coin); }
+
 void PoolHttpConnection::reply200(xmstream &stream)
 {
   const char reply200[] = "HTTP/1.1 200 OK\r\nServer: bcnode\r\nTransfer-Encoding: chunked\r\n\r\n";
@@ -398,52 +306,54 @@ void PoolHttpConnection::close()
     deleteAioObject(Socket_);
 }
 
-void PoolHttpConnection::onUserAction(rapidjson::Document &document)
-{
-  std::string actionId;
-  std::string newPassword;
-  std::string totp;
-  bool validAcc = true;
-  jsonParseString(document, "actionId", actionId, &validAcc);
-  jsonParseString(document, "newPassword", newPassword, "", &validAcc);
-  jsonParseString(document, "totp", totp, "", &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
+template<typename T>
+static UserManager::Credentials credentialsFromRequest(const T &req) {
+  UserManager::Credentials c;
+  c.Login = req.Login;
+  c.Password = req.Password;
+  c.Name = req.Name;
+  c.EMail = req.Email;
+  c.TwoFactor = req.Totp;
+  c.IsActive = req.IsActive;
+  c.IsReadOnly = req.IsReadOnly;
+  c.FeePlan = req.FeePlanId;
+  c.ReferralId = req.ReferralId;
+  return c;
+}
 
+void PoolHttpConnection::onUserAction(const CUserActionRequest &request)
+{
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().userAction(actionId, newPassword, totp, [this](const char *status) {
+  Server_.userManager().userAction(request.ActionId, request.NewPassword, request.Totp, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserCreate(rapidjson::Document &document)
+void PoolHttpConnection::onUserCreate(const CUserCreateRequest &request)
 {
-  bool validAcc = true;
-  std::string sessionId;
   UserManager::Credentials credentials;
+  credentials.Login = request.Login;
+  credentials.Password = request.Password;
+  credentials.Name = request.Name;
+  credentials.EMail = request.Email;
+  credentials.TwoFactor = request.Totp;
+  credentials.ReferralId = request.ReferralId;
 
-  jsonParseString(document, "id", sessionId, "", &validAcc);
-  parseUserCredentials(document, credentials, &validAcc);
+  objectIncrementReference(aioObjectHandle(Socket_), 1);
+  Server_.userManager().userCreate("", std::move(credentials), [this](const char *status) {
+    replyWithStatus(status);
+    objectDecrementReference(aioObjectHandle(Socket_), 1);
+  });
+}
 
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
+void PoolHttpConnection::onUserCreateForce(const CUserCreateForceRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+{
+  UserManager::Credentials credentials = credentialsFromRequest(request);
 
   if (!credentials.FeePlan.empty() && !credentials.ReferralId.empty()) {
     replyWithStatus("request_format_error");
     return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!sessionId.empty()) {
-    if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false)) {
-      replyWithStatus("unknown_id");
-      return;
-    }
   }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
@@ -453,16 +363,9 @@ void PoolHttpConnection::onUserCreate(rapidjson::Document &document)
   });
 }
 
-void PoolHttpConnection::onUserResendEmail(rapidjson::Document &document)
+void PoolHttpConnection::onUserResendEmail(const CUserResendEmailRequest &request)
 {
-  bool validAcc = true;
-  UserManager::Credentials credentials;
-  parseUserCredentials(document, credentials, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
+  UserManager::Credentials credentials = credentialsFromRequest(request);
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().userResendEmail(std::move(credentials), [this](const char *status) {
@@ -471,16 +374,9 @@ void PoolHttpConnection::onUserResendEmail(rapidjson::Document &document)
   });
 }
 
-void PoolHttpConnection::onUserLogin(rapidjson::Document &document)
+void PoolHttpConnection::onUserLogin(const CUserLoginRequest &request)
 {
-  bool validAcc = true;
-  UserManager::Credentials credentials;
-  parseUserCredentials(document, credentials, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
+  UserManager::Credentials credentials = credentialsFromRequest(request);
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().userLogin(std::move(credentials), [this](const std::string &sessionId, const char *status, bool isReadOnly) {
@@ -501,37 +397,19 @@ void PoolHttpConnection::onUserLogin(rapidjson::Document &document)
   });
 }
 
-void PoolHttpConnection::onUserLogout(rapidjson::Document &document)
+void PoolHttpConnection::onUserLogout(const CUserLogoutRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().userLogout(sessionId, [this](const char *status) {
+  Server_.userManager().userLogout(request.Id, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserQueryMonitoringSession(rapidjson::Document &document)
+void PoolHttpConnection::onUserQueryMonitoringSession(const CUserQueryMonitoringSessionRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().userQueryMonitoringSession(sessionId, targetLogin, [this](const std::string &sessionId, const char *status) {
+  Server_.userManager().userQueryMonitoringSession(tokenInfo.Login, [this](const std::string &sessionId, const char *status) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -548,7 +426,7 @@ void PoolHttpConnection::onUserQueryMonitoringSession(rapidjson::Document &docum
   });
 }
 
-void PoolHttpConnection::onUserChangeEmail(rapidjson::Document&)
+void PoolHttpConnection::onUserChangeEmail()
 {
   xmstream stream;
   reply200(stream);
@@ -558,64 +436,33 @@ void PoolHttpConnection::onUserChangeEmail(rapidjson::Document&)
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onUserChangePasswordInitiate(rapidjson::Document &document)
+void PoolHttpConnection::onUserChangePasswordInitiate(const CUserChangePasswordInitiateRequest &request)
 {
-  bool validAcc = true;
-  std::string login;
-  jsonParseString(document, "login", login, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().userChangePasswordInitiate(login, [this](const char *status) {
+  Server_.userManager().userChangePasswordInitiate(request.Login, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserChangePasswordForce(rapidjson::Document &document)
+void PoolHttpConnection::onUserChangePasswordForce(const CUserChangePasswordForceRequest &request)
 {
-  bool validAcc = true;
-  std::string id;
-  std::string login;
-  std::string newPassword;
-  jsonParseString(document, "id", id, &validAcc);
-  jsonParseString(document, "login", login, &validAcc);
-  jsonParseString(document, "newPassword", newPassword, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().userChangePasswordForce(id, login, newPassword, [this](const char *status) {
+  Server_.userManager().userChangePasswordForce(request.Id, request.Login, request.NewPassword, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserGetCredentials(rapidjson::Document &document)
+void PoolHttpConnection::onUserGetCredentials(const CUserGetCredentialsRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   xmstream stream;
   reply200(stream);
   size_t offset = startChunk(stream);
 
-  UserManager::UserWithAccessRights tokenInfo;
-  UserManager::Credentials credentials;
-  if (Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
+  {
     JSON::Object result(stream);
+    UserManager::Credentials credentials;
     if (Server_.userManager().getUserCredentials(tokenInfo.Login, credentials)) {
       result.addString("status", "ok");
       result.addString("login", tokenInfo.Login);
@@ -629,26 +476,15 @@ void PoolHttpConnection::onUserGetCredentials(rapidjson::Document &document)
     } else {
       result.addString("status", "unknown_id");
     }
-  } else {
-    JSON::Object result(stream);
-    result.addString("status", "unknown_id");
   }
 
   finishChunk(stream, offset);
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onUserGetSettings(rapidjson::Document &document)
+void PoolHttpConnection::onUserGetSettings(const CUserGetSettingsRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
+  std::string feePlanId = Server_.userManager().getFeePlanId(tokenInfo.Login);
 
   xmstream stream;
   reply200(stream);
@@ -656,37 +492,44 @@ void PoolHttpConnection::onUserGetSettings(rapidjson::Document &document)
 
   {
     JSON::Object object(stream);
-    UserManager::UserWithAccessRights tokenInfo;
-    if (Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
-      object.addString("status", "ok");
-      object.addField("coins");
-      JSON::Array coins(stream);
-      for (const auto &coinInfo: Server_.userManager().coinInfo()) {
-        coins.addField();
-        JSON::Object coin(stream);
-        UserSettingsRecord settings;
-        coin.addString("name", coinInfo.Name.c_str());
-        Server_.userManager().getUserCoinSettings(tokenInfo.Login, coinInfo.Name, settings);
-        coin.addField("payout");
-        {
-          JSON::Object payout(stream);
-          payout.addString("mode", payoutModeName(settings.Payout.Mode));
-          payout.addString("address", settings.Payout.Address);
-          payout.addString("instantPayoutThreshold", FormatMoney(settings.Payout.InstantPayoutThreshold, coinInfo.FractionalPartSize));
-        }
-        coin.addField("mining");
-        {
-          JSON::Object mining(stream);
-          mining.addString("mode", miningModeName(settings.Mining.MiningMode));
-        }
-        coin.addField("autoExchange");
-        {
-          JSON::Object autoExchange(stream);
-          autoExchange.addString("payoutCoinName", settings.AutoExchange.PayoutCoinName);
-        }
+    object.addString("status", "ok");
+    object.addField("coins");
+    JSON::Array coins(stream);
+    for (const auto &coinInfo: Server_.userManager().coinInfo()) {
+      coins.addField();
+      JSON::Object coin(stream);
+      UserSettingsRecord settings;
+      coin.addString("name", coinInfo.Name.c_str());
+      Server_.userManager().getUserCoinSettings(tokenInfo.Login, coinInfo.Name, settings);
+      coin.addField("payout");
+      {
+        JSON::Object payout(stream);
+        payout.addString("mode", EPayoutModeToString(settings.Payout.Mode));
+        payout.addString("address", settings.Payout.Address);
+        payout.addString("instantPayoutThreshold", FormatMoney(settings.Payout.InstantPayoutThreshold, coinInfo.FractionalPartSize));
       }
-    } else {
-      object.addString("status", "unknown_id");
+      coin.addField("mining");
+      {
+        JSON::Object mining(stream);
+        mining.addString("mode", EMiningModeToString(settings.Mining.MiningMode));
+      }
+      coin.addField("autoExchange");
+      {
+        JSON::Object autoExchange(stream);
+        autoExchange.addString("payoutCoinName", settings.AutoExchange.PayoutCoinName);
+      }
+
+      // Per-user fee
+      PoolBackend *backend = Server_.backend(coinInfo.Name);
+      double pplnsFee = 0.0;
+      for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::Pplns, coinInfo.Name))
+        pplnsFee += fee.Percentage;
+      coin.addDouble("pplnsFee", pplnsFee);
+
+      double ppsFee = backend ? backend->accountingDb()->backendSettings().PPSConfig.PoolFee : 0.0;
+      for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::Pps, coinInfo.Name))
+        ppsFee += fee.Percentage;
+      coin.addDouble("ppsFee", ppsFee);
     }
   }
 
@@ -694,85 +537,20 @@ void PoolHttpConnection::onUserGetSettings(rapidjson::Document &document)
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onUserUpdateCredentials(rapidjson::Document &document)
+void PoolHttpConnection::onUserUpdateCredentials(const CUserUpdateCredentialsRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  UserManager::Credentials credentials;
-
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  parseUserCredentials(document, credentials, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
+  UserManager::Credentials credentials = credentialsFromRequest(request);
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().updateCredentials(sessionId, targetLogin, std::move(credentials), [this](const char *status) {
+  Server_.userManager().updateCredentials(tokenInfo.Login, std::move(credentials), [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserUpdateSettings(rapidjson::Document &document)
+void PoolHttpConnection::onUserUpdateSettings(const CUserUpdateSettingsRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  std::string totp;
-
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  jsonParseString(document, "totp", totp, "", &validAcc);
-
-  bool hasPayout = document.HasMember("payout");
-  CSettingsPayout settingsPayout;
-  std::string payoutMode;
-  std::string instantPayoutThreshold;
-  if (hasPayout) {
-    if (!document["payout"].IsObject()) {
-      validAcc = false;
-    } else {
-      rapidjson::Value &payoutValue = document["payout"];
-      jsonParseString(payoutValue, "mode", payoutMode, &validAcc);
-      jsonParseString(payoutValue, "address", settingsPayout.Address, &validAcc);
-      jsonParseString(payoutValue, "instantPayoutThreshold", instantPayoutThreshold, &validAcc);
-    }
-  }
-
-  bool hasMining = document.HasMember("mining");
-  std::string miningMode;
-  if (hasMining) {
-    if (!document["mining"].IsObject()) {
-      validAcc = false;
-    } else {
-      rapidjson::Value &miningValue = document["mining"];
-      jsonParseString(miningValue, "mode", miningMode, &validAcc);
-    }
-  }
-
-  bool hasAutoExchange = document.HasMember("autoExchange");
-  CSettingsAutoExchange settingsAutoExchange;
-  if (hasAutoExchange) {
-    if (!document["autoExchange"].IsObject()) {
-      validAcc = false;
-    } else {
-      rapidjson::Value &autoExchangeValue = document["autoExchange"];
-      jsonParseString(autoExchangeValue, "payoutCoinName", settingsAutoExchange.PayoutCoinName, &validAcc);
-    }
-  }
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  if (!hasPayout && !hasMining && !hasAutoExchange) {
+  if (!request.Payout.has_value() && !request.Mining.has_value() && !request.AutoExchange.has_value()) {
     replyWithStatus("json_format_error");
     return;
   }
@@ -781,13 +559,12 @@ void PoolHttpConnection::onUserUpdateSettings(rapidjson::Document &document)
   std::optional<CSettingsMining> mining;
   std::optional<CSettingsAutoExchange> autoExchange;
 
-  if (hasPayout) {
-    if (!parsePayoutMode(payoutMode, settingsPayout.Mode)) {
-      replyWithStatus("invalid_payout_mode");
-      return;
-    }
+  if (request.Payout.has_value()) {
+    CSettingsPayout settingsPayout;
+    settingsPayout.Mode = request.Payout->Mode;
+    settingsPayout.Address = request.Payout->Address;
 
-    auto It = Server_.userManager().coinIdxMap().find(coin);
+    auto It = Server_.userManager().coinIdxMap().find(request.Coin);
     if (It == Server_.userManager().coinIdxMap().end()) {
       replyWithStatus("invalid_coin");
       return;
@@ -795,7 +572,7 @@ void PoolHttpConnection::onUserUpdateSettings(rapidjson::Document &document)
 
     CCoinInfo &coinInfo = Server_.userManager().coinInfo()[It->second];
     if (!parseMoneyValue(
-          instantPayoutThreshold.c_str(),
+          request.Payout->InstantPayoutThreshold.c_str(),
           coinInfo.FractionalPartSize,
           &settingsPayout.InstantPayoutThreshold)) {
       replyWithStatus("request_format_error");
@@ -805,85 +582,47 @@ void PoolHttpConnection::onUserUpdateSettings(rapidjson::Document &document)
     payout = std::move(settingsPayout);
   }
 
-  if (hasMining) {
+  if (request.Mining.has_value()) {
     CSettingsMining settingsMining;
-    if (!parseMiningMode(miningMode, settingsMining.MiningMode)) {
-      replyWithStatus("invalid_mining_mode");
-      return;
-    }
-
+    settingsMining.MiningMode = request.Mining->Mode;
     mining = std::move(settingsMining);
   }
 
-  if (hasAutoExchange)
+  if (request.AutoExchange.has_value()) {
+    CSettingsAutoExchange settingsAutoExchange;
+    settingsAutoExchange.PayoutCoinName = request.AutoExchange->PayoutCoinName;
     autoExchange = std::move(settingsAutoExchange);
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, true)) {
-    replyWithStatus("unknown_id");
-    return;
   }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().updateSettings(
-    tokenInfo.Login, coin,
+    tokenInfo.Login, request.Coin,
     std::move(payout), std::move(mining), std::move(autoExchange),
-    totp,
+    request.Totp,
     [this](const char *status) {
       replyWithStatus(status);
       objectDecrementReference(aioObjectHandle(Socket_), 1);
     });
 }
 
-void PoolHttpConnection::onUserEnumerateAll(rapidjson::Document &document)
+void PoolHttpConnection::onUserEnumerateAll(const CUserEnumerateAllRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string coin;
-  uint64_t offset = 0;
-  uint64_t size = 0;
-  std::string sortBy;
-  bool sortDescending;
-
-  jsonParseString(document, "id", sessionId, &validAcc);
-  // TODO: remove sha256
-  jsonParseString(document, "coin", coin, "sha256", &validAcc);
-  jsonParseUInt64(document, "offset", &offset, 0, &validAcc);
-  jsonParseUInt64(document, "size", &size, 100, &validAcc);
-  jsonParseString(document, "sortBy", sortBy, "averagePower", &validAcc);
-  jsonParseBoolean(document, "sortDescending", &sortDescending, true, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  // sortBy convert
   StatisticDb::CredentialsWithStatistic::EColumns column;
-  if (sortBy == "login") {
-    column = StatisticDb::CredentialsWithStatistic::ELogin;
-  } else if (sortBy == "workersNum") {
-    column = StatisticDb::CredentialsWithStatistic::EWorkersNum;
-  } else if (sortBy == "averagePower") {
-    column = StatisticDb::CredentialsWithStatistic::EAveragePower;
-  } else if (sortBy == "sharesPerSecond") {
-    column = StatisticDb::CredentialsWithStatistic::ESharesPerSecond;
-  } else if (sortBy == "lastShareTime") {
-    column = StatisticDb::CredentialsWithStatistic::ELastShareTime;
-  } else {
-    replyWithStatus("unknown_column_name");
-    return;
+  switch (request.SortBy) {
+    case EUserSortColumn::Login: column = StatisticDb::CredentialsWithStatistic::ELogin; break;
+    case EUserSortColumn::WorkersNum: column = StatisticDb::CredentialsWithStatistic::EWorkersNum; break;
+    case EUserSortColumn::AveragePower: column = StatisticDb::CredentialsWithStatistic::EAveragePower; break;
+    case EUserSortColumn::SharesPerSecond: column = StatisticDb::CredentialsWithStatistic::ESharesPerSecond; break;
+    case EUserSortColumn::LastShareTime: column = StatisticDb::CredentialsWithStatistic::ELastShareTime; break;
   }
 
-  StatisticDb *statistic = Server_.statisticDb(coin);
-  if (!statistic) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
+  uint64_t offset = request.Offset;
+  uint64_t size = request.Size;
+  bool sortDescending = request.SortDescending;
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().enumerateUsers(sessionId, [this, statistic, offset, size, column, sortDescending](const char *status, std::vector<UserManager::Credentials> &allUsers) {
-    statistic->queryAllusersStats(std::move(allUsers), [this, status](const std::vector<StatisticDb::CredentialsWithStatistic> &result) {
+  Server_.userManager().enumerateUsers(tokenInfo.Login, [this, &statistic, offset, size, column, sortDescending](const char *status, std::vector<UserManager::Credentials> &allUsers) {
+    statistic.queryAllusersStats(std::move(allUsers), [this, status](const std::vector<StatisticDb::CredentialsWithStatistic> &result) {
       xmstream stream;
       reply200(stream);
       size_t offset = startChunk(stream);
@@ -922,85 +661,29 @@ void PoolHttpConnection::onUserEnumerateAll(rapidjson::Document &document)
   });
 }
 
-static void jsonParseUserFeeConfig(rapidjson::Value &value, const char *fieldName, std::vector<UserFeePair> &config, bool *validAcc)
+
+void PoolHttpConnection::onUserCreateFeePlan(const CUserCreateFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  if (!value.HasMember(fieldName) || !value[fieldName].IsArray()) {
-    *validAcc = false;
-    return;
-  }
-
-  rapidjson::Value::Array pairs = value[fieldName].GetArray();
-  for (rapidjson::SizeType i = 0, ie = pairs.Size(); i != ie; ++i) {
-    if (!pairs[i].IsObject()) {
-      *validAcc = false;
-      return;
-    }
-
-    config.emplace_back();
-    jsonParseString(pairs[i], "userId", config.back().UserId, validAcc);
-    jsonParseNumber(pairs[i], "percentage", &config.back().Percentage, validAcc);
-  }
-}
-
-static void jsonParseModeFeeConfig(rapidjson::Value &document, CModeFeeConfig &modeCfg, bool *validAcc)
-{
-  jsonParseUserFeeConfig(document, "default", modeCfg.Default, validAcc);
-  if (document.HasMember("coinSpecific") && document["coinSpecific"].IsArray()) {
-    rapidjson::Value::Array coinArray = document["coinSpecific"].GetArray();
-    for (rapidjson::SizeType i = 0, ie = coinArray.Size(); i != ie; ++i) {
-      if (!coinArray[i].IsObject()) {
-        *validAcc = false;
-        break;
-      }
-
-      modeCfg.CoinSpecific.emplace_back();
-      jsonParseString(coinArray[i], "coinName", modeCfg.CoinSpecific.back().CoinName, validAcc);
-      jsonParseUserFeeConfig(coinArray[i], "config", modeCfg.CoinSpecific.back().Config, validAcc);
-    }
-  }
-}
-
-void PoolHttpConnection::onUserCreateFeePlan(rapidjson::Document &document)
-{
-  bool validAcc = true;
-  std::string sessionId;
-  std::string feePlanId;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "feePlanId", feePlanId, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().createFeePlan(sessionId, feePlanId, [this](const char *status) {
+  Server_.userManager().createFeePlan(request.FeePlanId, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserUpdateFeePlan(rapidjson::Document &document)
+void PoolHttpConnection::onUserUpdateFeePlan(const CUserUpdateFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string feePlanId;
-  std::string modeName;
+  EMiningMode mode = request.Mode;
+
   CModeFeeConfig modeConfig;
-
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "feePlanId", feePlanId, &validAcc);
-  jsonParseString(document, "mode", modeName, &validAcc);
-  jsonParseModeFeeConfig(document, modeConfig, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  EMiningMode mode;
-  if (!parseMiningMode(modeName, mode)) {
-    replyWithStatus("invalid_mining_mode");
-    return;
+  for (const auto &p : request.Default)
+    modeConfig.Default.push_back({p.UserId, p.Percentage});
+  for (const auto &c : request.CoinSpecific) {
+    CUserFeeConfig ucfg;
+    ucfg.CoinName = c.CoinName;
+    for (const auto &p : c.Config)
+      ucfg.Config.push_back({p.UserId, p.Percentage});
+    modeConfig.CoinSpecific.push_back(std::move(ucfg));
   }
 
   // Check coin
@@ -1012,44 +695,26 @@ void PoolHttpConnection::onUserUpdateFeePlan(rapidjson::Document &document)
   }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().updateFeePlan(sessionId, feePlanId, mode, std::move(modeConfig), [this](const char *status) {
+  Server_.userManager().updateFeePlan(request.FeePlanId, mode, std::move(modeConfig), [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserDeleteFeePlan(rapidjson::Document &document)
+void PoolHttpConnection::onUserDeleteFeePlan(const CUserDeleteFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string feePlanId;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "feePlanId", feePlanId, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().deleteFeePlan(sessionId, feePlanId, [this](const char *status) {
+  Server_.userManager().deleteFeePlan(request.FeePlanId, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserEnumerateFeePlan(rapidjson::Document &document)
+void PoolHttpConnection::onUserEnumerateFeePlan(const CUserEnumerateFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   std::string status;
   std::vector<std::string> result;
-  if (Server_.userManager().enumerateFeePlan(sessionId, status, result)) {
+  if (Server_.userManager().enumerateFeePlan(tokenInfo.Login, status, result)) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -1072,30 +737,14 @@ void PoolHttpConnection::onUserEnumerateFeePlan(rapidjson::Document &document)
   }
 }
 
-void PoolHttpConnection::onUserQueryFeePlan(rapidjson::Document &document)
+void PoolHttpConnection::onUserQueryFeePlan(const CUserQueryFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string feePlanId;
-  std::string modeName;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "feePlanId", feePlanId, &validAcc);
-  jsonParseString(document, "mode", modeName, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  EMiningMode mode;
-  if (!parseMiningMode(modeName, mode)) {
-    replyWithStatus("invalid_mining_mode");
-    return;
-  }
+  EMiningMode mode = request.Mode;
 
   std::string status;
   CModeFeeConfig result;
   BaseBlob<256> referralId;
-  if (Server_.userManager().queryFeePlan(sessionId, feePlanId, mode, status, referralId, result)) {
+  if (Server_.userManager().queryFeePlan(tokenInfo.Login, request.FeePlanId, mode, status, referralId, result)) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -1103,8 +752,8 @@ void PoolHttpConnection::onUserQueryFeePlan(rapidjson::Document &document)
     {
       JSON::Object answer(stream);
       answer.addString("status", "ok");
-      answer.addString("feePlanId", feePlanId);
-      answer.addString("mode", miningModeName(mode));
+      answer.addString("feePlanId", request.FeePlanId);
+      answer.addString("mode", EMiningModeToString(mode));
       if (!referralId.isNull())
         answer.addString("referralId", referralId.getHexRaw());
       else
@@ -1119,41 +768,19 @@ void PoolHttpConnection::onUserQueryFeePlan(rapidjson::Document &document)
   }
 }
 
-void PoolHttpConnection::onUserChangeFeePlan(rapidjson::Document &document)
+void PoolHttpConnection::onUserChangeFeePlan(const CUserChangeFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  std::string feePlanId;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, &validAcc);
-  jsonParseString(document, "feePlanId", feePlanId, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().changeFeePlan(sessionId, targetLogin, feePlanId, [this](const char *status) {
+  Server_.userManager().changeFeePlan(tokenInfo.Login, request.FeePlanId, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserRenewFeePlanReferralId(rapidjson::Document &document)
+void PoolHttpConnection::onUserRenewFeePlanReferralId(const CUserRenewFeePlanReferralIdRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string feePlanId;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "feePlanId", feePlanId, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().renewFeePlanReferralId(sessionId, feePlanId, [this](const char *status, const std::string &referralId) {
+  Server_.userManager().renewFeePlanReferralId(request.FeePlanId, [this](const char *status, const std::string &referralId) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -1170,20 +797,10 @@ void PoolHttpConnection::onUserRenewFeePlanReferralId(rapidjson::Document &docum
   });
 }
 
-void PoolHttpConnection::onUserActivate2faInitiate(rapidjson::Document &document)
+void PoolHttpConnection::onUserActivate2faInitiate(const CUserActivate2faInitiateRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  jsonParseString(document, "sessionId", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().activate2faInitiate(sessionId, targetLogin, [this](const char *status, const char *key) {
+  Server_.userManager().activate2faInitiate(tokenInfo.Login, [this](const char *status, const char *key) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -1200,119 +817,41 @@ void PoolHttpConnection::onUserActivate2faInitiate(rapidjson::Document &document
   });
 }
 
-void PoolHttpConnection::onUserDeactivate2faInitiate(rapidjson::Document &document)
+void PoolHttpConnection::onUserDeactivate2faInitiate(const CUserDeactivate2faInitiateRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  jsonParseString(document, "sessionId", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().deactivate2faInitiate(sessionId, targetLogin, [this](const char *status) {
+  Server_.userManager().deactivate2faInitiate(tokenInfo.Login, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserAdjustInstantPayoutThreshold(rapidjson::Document &document)
+void PoolHttpConnection::onUserAdjustInstantPayoutThreshold(const CUserAdjustInstantPayoutThresholdRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string coin;
-  std::string threshold;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  jsonParseString(document, "threshold", threshold, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) || (tokenInfo.Login != "admin")) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
   UInt<384> minimalPayout;
-  unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
-  if (!parseMoneyValue(threshold.c_str(), fractionalPartSize, &minimalPayout)) {
+  unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
+  if (!parseMoneyValue(request.Threshold.c_str(), fractionalPartSize, &minimalPayout)) {
     replyWithStatus("request_format_error");
     return;
   }
 
-  Server_.userManager().adjustInstantMinimalPayout(coin, minimalPayout);
+  Server_.userManager().adjustInstantMinimalPayout(request.Coin, minimalPayout);
   replyWithStatus("ok");
 }
 
-void PoolHttpConnection::onBackendManualPayout(rapidjson::Document &document)
+void PoolHttpConnection::onBackendManualPayout(const CBackendManualPayoutRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  // id -> login
-  UserManager::UserWithAccessRights login;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, login, true)) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->manualPayout(login.Login, [this](const char *status) {
+  backend.accountingDb()->manualPayout(tokenInfo.Login, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onBackendQueryUserBalance(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryUserBalance(const CBackendQueryUserBalanceRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, "", &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  // id -> login
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  if (!coin.empty()) {
-    PoolBackend *backend = Server_.backend(coin);
+  if (!request.Coin.empty()) {
+    PoolBackend *backend = Server_.backend(request.Coin);
     if (!backend) {
       replyWithStatus("invalid_coin");
       return;
@@ -1386,59 +925,18 @@ void PoolHttpConnection::onBackendQueryUserBalance(rapidjson::Document &document
   }
 }
 
-void PoolHttpConnection::onBackendQueryUserStats(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryUserStats(const CBackendQueryUserStatsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  uint64_t offset = 0;
-  uint64_t size = 0;
-  std::string sortBy;
-  bool sortDescending;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, "", &validAcc);
-  jsonParseUInt64(document, "offset", &offset, 0, &validAcc);
-  jsonParseUInt64(document, "size", &size, 4096, &validAcc);
-  jsonParseString(document, "sortBy", sortBy, "name", &validAcc);
-  jsonParseBoolean(document, "sortDescending", &sortDescending, false, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  // sortBy convert
   StatisticDb::EStatsColumn column;
-  if (sortBy == "name") {
-    column = StatisticDb::EStatsColumnName;
-  } else if (sortBy == "averagePower") {
-    column = StatisticDb::EStatsColumnAveragePower;
-  } else if (sortBy == "sharesPerSecond") {
-    column = StatisticDb::EStatsColumnSharesPerSecond;
-  } else if (sortBy == "lastShareTime") {
-    column = StatisticDb::EStatsColumnLastShareTime;
-  } else {
-    replyWithStatus("unknown_column_name");
-    return;
-  }
-
-  // id -> login
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  StatisticDb *statistic = Server_.statisticDb(coin);
-  if (!statistic) {
-    replyWithStatus("invalid_coin");
-    return;
+  switch (request.SortBy) {
+    case EWorkerSortColumn::Name: column = StatisticDb::EStatsColumnName; break;
+    case EWorkerSortColumn::AveragePower: column = StatisticDb::EStatsColumnAveragePower; break;
+    case EWorkerSortColumn::SharesPerSecond: column = StatisticDb::EStatsColumnSharesPerSecond; break;
+    case EWorkerSortColumn::LastShareTime: column = StatisticDb::EStatsColumnLastShareTime; break;
   }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  statistic->queryUserStats(tokenInfo.Login, [this, statistic](const CStats &aggregate, const std::vector<CStats> &workers) {
+  statistic.queryUserStats(tokenInfo.Login, [this, &statistic](const CStats &aggregate, const std::vector<CStats> &workers) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -1446,8 +944,8 @@ void PoolHttpConnection::onBackendQueryUserStats(rapidjson::Document &document)
     {
       JSON::Object object(stream);
       object.addString("status", "ok");
-      object.addString("powerUnit", statistic->getCoinInfo().getPowerUnitName());
-      object.addInt("powerMultLog10", statistic->getCoinInfo().PowerMultLog10);
+      object.addString("powerUnit", statistic.getCoinInfo().getPowerUnitName());
+      object.addInt("powerMultLog10", statistic.getCoinInfo().PowerMultLog10);
       object.addInt("currentTime", time(nullptr));
       object.addField("total");
       {
@@ -1480,7 +978,7 @@ void PoolHttpConnection::onBackendQueryUserStats(rapidjson::Document &document)
     finishChunk(stream, offset);
     aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
-  }, offset, size, column, sortDescending);
+  }, request.Offset, request.Size, column, request.SortDescending);
 }
 
 void PoolHttpConnection::queryStatsHistory(StatisticDb *statistic, const std::string &login, const std::string &worker, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, int64_t currentTime)
@@ -1519,96 +1017,18 @@ void PoolHttpConnection::queryStatsHistory(StatisticDb *statistic, const std::st
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendQueryUserStatsHistory(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryUserStatsHistory(const CBackendQueryUserStatsHistoryRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic)
 {
-  bool validAcc = true;
-  int64_t currentTime = time(nullptr);
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  int64_t timeFrom;
-  int64_t timeTo;
-  int64_t groupByInterval;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, "", &validAcc);
-  jsonParseInt64(document, "timeFrom", &timeFrom, currentTime - 24*3600, &validAcc);
-  jsonParseInt64(document, "timeTo", &timeTo, currentTime, &validAcc);
-  jsonParseInt64(document, "groupByInterval", &groupByInterval, 3600, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  // id -> login
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  StatisticDb *statistic = Server_.statisticDb(coin);
-  if (!statistic) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  queryStatsHistory(statistic, tokenInfo.Login, "", timeFrom, timeTo, groupByInterval, currentTime);
+  queryStatsHistory(&statistic, tokenInfo.Login, "", request.TimeFrom, request.TimeTo, request.GroupByInterval, time(nullptr));
 }
 
-void PoolHttpConnection::onBackendQueryWorkerStatsHistory(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryWorkerStatsHistory(const CBackendQueryWorkerStatsHistoryRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic)
 {
-  bool validAcc = true;
-  int64_t currentTime = time(nullptr);
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  std::string workerId;
-  int64_t timeFrom;
-  int64_t timeTo;
-  int64_t groupByInterval;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  jsonParseString(document, "workerId", workerId, &validAcc);
-  jsonParseInt64(document, "timeFrom", &timeFrom, currentTime - 24*3600, &validAcc);
-  jsonParseInt64(document, "timeTo", &timeTo, currentTime, &validAcc);
-  jsonParseInt64(document, "groupByInterval", &groupByInterval, 3600, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  // id -> login
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  StatisticDb *statistic = Server_.statisticDb(coin);
-  if (!statistic) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  queryStatsHistory(statistic, tokenInfo.Login, workerId, timeFrom, timeTo, groupByInterval, currentTime);
+  queryStatsHistory(&statistic, tokenInfo.Login, request.WorkerId, request.TimeFrom, request.TimeTo, request.GroupByInterval, time(nullptr));
 }
 
-void PoolHttpConnection::onBackendQueryCoins(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryCoins(const CBackendQueryCoinsRequest &request)
 {
-  // Parse optional session id for user-specific fee calculation
-  bool validAcc = true;
-  std::string sessionId;
-  jsonParseString(document, "id", sessionId, "", &validAcc);
-
-  std::string feePlanId = "default";
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!sessionId.empty() && Server_.userManager().validateSession(sessionId, "", tokenInfo, false))
-    feePlanId = Server_.userManager().getFeePlanId(tokenInfo.Login);
-
   xmstream stream;
   reply200(stream);
   size_t offset = startChunk(stream);
@@ -1628,15 +1048,15 @@ void PoolHttpConnection::onBackendQueryCoins(rapidjson::Document &document)
         auto backendCfg = backend->accountingDb()->backendSettings();
         object.addBoolean("ppsAvailable", backendCfg.PPSConfig.Enabled);
 
-        // PPLNS fee: sum of user fee plan percentages
+        // PPLNS fee: sum of default fee plan percentages
         double pplnsFee = 0.0;
-        for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::PPLNS, info.Name))
+        for (const auto &fee : Server_.userManager().getFeeRecord("default", EMiningMode::Pplns, info.Name))
           pplnsFee += fee.Percentage;
         object.addDouble("pplnsFee", pplnsFee);
 
-        // PPS fee: pool PPS fee + user fee plan
+        // PPS fee: pool PPS fee + default fee plan
         double ppsFee = backendCfg.PPSConfig.PoolFee;
-        for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::PPS, info.Name))
+        for (const auto &fee : Server_.userManager().getFeeRecord("default", EMiningMode::Pps, info.Name))
           ppsFee += fee.Percentage;
         object.addDouble("ppsFee", ppsFee);
 
@@ -1684,32 +1104,12 @@ void PoolHttpConnection::onBackendQueryCoins(rapidjson::Document &document)
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendQueryFoundBlocks(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryFoundBlocks(const CBackendQueryFoundBlocksRequest &request, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string coin;
-  int64_t heightFrom;
-  std::string hashFrom;
-  uint32_t count;
-  jsonParseString(document, "coin", coin, &validAcc);
-  jsonParseInt64(document, "heightFrom", &heightFrom, -1, &validAcc);
-  jsonParseString(document, "hashFrom", hashFrom, "", &validAcc);
-  jsonParseUInt(document, "count", &count, 20, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  const CCoinInfo &coinInfo = backend->getCoinInfo();
+  const CCoinInfo &coinInfo = backend.getCoinInfo();
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->queryFoundBlocks(heightFrom, hashFrom, count, [this, &coinInfo](const std::vector<FoundBlockRecord> &blocks, const std::vector<CNetworkClient::GetBlockConfirmationsQuery> &confirmations) {
+  backend.accountingDb()->queryFoundBlocks(request.HeightFrom, request.HashFrom, request.Count, [this, &coinInfo](const std::vector<FoundBlockRecord> &blocks, const std::vector<CNetworkClient::GetBlockConfirmationsQuery> &confirmations) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -1751,40 +1151,11 @@ void PoolHttpConnection::onBackendQueryFoundBlocks(rapidjson::Document &document
   });
 }
 
-void PoolHttpConnection::onBackendQueryPayouts(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryPayouts(const CBackendQueryPayoutsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  int64_t timeFrom = 0;
-  unsigned count;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, "", &validAcc);
-  jsonParseInt64(document, "timeFrom", &timeFrom, 0, &validAcc);
-  jsonParseUInt(document, "count", &count, 20, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  // id -> login
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
   std::vector<PayoutDbRecord> records;
-  backend->queryPayouts(tokenInfo.Login, Timestamp(timeFrom), count, records);
-  unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
+  backend.queryPayouts(tokenInfo.Login, Timestamp(request.TimeFrom), request.Count, records);
+  unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
   double rateScale = std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
   xmstream stream;
   reply200(stream);
@@ -1819,7 +1190,7 @@ void PoolHttpConnection::onBackendQueryPayouts(rapidjson::Document &document)
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendQueryPoolBalance(rapidjson::Document&)
+void PoolHttpConnection::onBackendQueryPoolBalance()
 {
   xmstream stream;
   reply200(stream);
@@ -1829,18 +1200,10 @@ void PoolHttpConnection::onBackendQueryPoolBalance(rapidjson::Document&)
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendQueryPoolStats(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryPoolStats(const CBackendQueryPoolStatsRequest &request)
 {
-  bool validAcc = true;
-  std::string coin;
-  jsonParseString(document, "coin", coin, "", &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  if (!coin.empty()) {
-    StatisticDb *statistic = Server_.statisticDb(coin);
+  if (!request.Coin.empty()) {
+    StatisticDb *statistic = Server_.statisticDb(request.Coin);
     if (!statistic) {
       replyWithStatus("invalid_coin");
       return;
@@ -1924,50 +1287,13 @@ void PoolHttpConnection::onBackendQueryPoolStats(rapidjson::Document &document)
   }
 }
 
-void PoolHttpConnection::onBackendQueryPoolStatsHistory(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryPoolStatsHistory(const CBackendQueryPoolStatsHistoryRequest &request, StatisticDb &statistic)
 {
-  bool validAcc = true;
-  int64_t currentTime = time(nullptr);
-  std::string coin;
-  int64_t timeFrom;
-  int64_t timeTo;
-  int64_t groupByInterval;
-  jsonParseString(document, "coin", coin, "", &validAcc);
-  jsonParseInt64(document, "timeFrom", &timeFrom, currentTime - 24*3600, &validAcc);
-  jsonParseInt64(document, "timeTo", &timeTo, currentTime, &validAcc);
-  jsonParseInt64(document, "groupByInterval", &groupByInterval, 3600, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  StatisticDb *statistic = Server_.statisticDb(coin);
-  if (!statistic) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  queryStatsHistory(statistic, "", "", timeFrom, timeTo, groupByInterval, currentTime);
+  queryStatsHistory(&statistic, "", "", request.TimeFrom, request.TimeTo, request.GroupByInterval, time(nullptr));
 }
 
-void PoolHttpConnection::onBackendQueryProfitSwitchCoeff(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryProfitSwitchCoeff(const CBackendQueryProfitSwitchCoeffRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  jsonParseString(document, "id", sessionId, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) || (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
   xmstream stream;
   reply200(stream);
   size_t offset = startChunk(stream);
@@ -1993,40 +1319,10 @@ void PoolHttpConnection::onBackendQueryProfitSwitchCoeff(rapidjson::Document &do
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendQueryPPLNSPayouts(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryPPLNSPayouts(const CBackendQueryPPLNSPayoutsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  int64_t timeFrom;
-  std::string hashFrom;
-  uint32_t count;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  jsonParseInt64(document, "timeFrom", &timeFrom, 0, &validAcc);
-  jsonParseString(document, "hashFrom", hashFrom, "", &validAcc);
-  jsonParseUInt(document, "count", &count, 20, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->queryPPLNSPayouts(tokenInfo.Login, timeFrom, hashFrom, count, [this, backend](const std::vector<CPPLNSPayoutInfo>& result) {
+  backend.accountingDb()->queryPPLNSPayouts(tokenInfo.Login, request.TimeFrom, request.HashFrom, request.Count, [this, &backend](const std::vector<CPPLNSPayoutInfo>& result) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -2044,7 +1340,7 @@ void PoolHttpConnection::onBackendQueryPPLNSPayouts(rapidjson::Document &documen
             payoutObject.addInt("endTime", payout.RoundEndTime.toUnixTime());
             payoutObject.addString("hash", payout.BlockHash);
             payoutObject.addInt("height", payout.BlockHeight);
-            payoutObject.addString("value", FormatMoney(payout.Value, backend->getCoinInfo().FractionalPartSize));
+            payoutObject.addString("value", FormatMoney(payout.Value, backend.getCoinInfo().FractionalPartSize));
             payoutObject.addString("valueBTC", FormatMoney(payout.ValueBTC, 8));
             payoutObject.addString("valueUSD", FormatMoney(payout.ValueUSD, 8));
           }
@@ -2057,49 +1353,18 @@ void PoolHttpConnection::onBackendQueryPPLNSPayouts(rapidjson::Document &documen
   });
 }
 
-void PoolHttpConnection::onBackendQueryPPLNSAcc(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryPPLNSAcc(const CBackendQueryPPLNSAccRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  int64_t timeFrom;
-  int64_t timeTo;
-  int64_t groupByInterval;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  jsonParseInt64(document, "timeFrom", &timeFrom, &validAcc);
-  jsonParseInt64(document, "timeTo", &timeTo, &validAcc);
-  jsonParseInt64(document, "groupByInterval", &groupByInterval, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  // Check intervals
-  if (timeTo <= timeFrom ||
-      groupByInterval == 0 ||
-      (timeTo - timeFrom) % groupByInterval != 0 ||
-      (timeTo - timeFrom) / groupByInterval > 3200) {
+  if (request.TimeTo <= request.TimeFrom ||
+      request.GroupByInterval == 0 ||
+      (request.TimeTo - request.TimeFrom) % request.GroupByInterval != 0 ||
+      (request.TimeTo - request.TimeFrom) / request.GroupByInterval > 3200) {
     replyWithStatus("invalid_interval");
     return;
   }
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->queryPPLNSAcc(tokenInfo.Login, timeFrom, timeTo, groupByInterval, [this, backend](const std::vector<CPPLNSPayoutAcc>& result) {
+  backend.accountingDb()->queryPPLNSAcc(tokenInfo.Login, request.TimeFrom, request.TimeTo, request.GroupByInterval, [this, &backend](const std::vector<CPPLNSPayoutAcc>& result) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -2114,7 +1379,7 @@ void PoolHttpConnection::onBackendQueryPPLNSAcc(rapidjson::Document &document)
           {
             JSON::Object payoutObject(stream);
             payoutObject.addInt("timeLabel", payout.IntervalEnd);
-            payoutObject.addString("value", FormatMoney(payout.TotalCoin, backend->getCoinInfo().FractionalPartSize));
+            payoutObject.addString("value", FormatMoney(payout.TotalCoin, backend.getCoinInfo().FractionalPartSize));
             payoutObject.addString("valueBTC", FormatMoney(payout.TotalBTC, 8));
             payoutObject.addString("valueUSD", FormatMoney(payout.TotalUSD, 8));
           }
@@ -2127,37 +1392,9 @@ void PoolHttpConnection::onBackendQueryPPLNSAcc(rapidjson::Document &document)
   });
 }
 
-void PoolHttpConnection::onBackendQueryPPSPayouts(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryPPSPayouts(const CBackendQueryPPSPayoutsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  int64_t timeFrom;
-  uint32_t count;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  jsonParseInt64(document, "timeFrom", &timeFrom, 0, &validAcc);
-  jsonParseUInt(document, "count", &count, 20, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  auto result = backend->accountingDb()->api().queryPPSPayouts(tokenInfo.Login, timeFrom, count);
+  auto result = backend.accountingDb()->api().queryPPSPayouts(tokenInfo.Login, request.TimeFrom, request.Count);
 
   xmstream stream;
   reply200(stream);
@@ -2174,7 +1411,7 @@ void PoolHttpConnection::onBackendQueryPPSPayouts(rapidjson::Document &document)
           JSON::Object payoutObject(stream);
           payoutObject.addInt("startTime", payout.IntervalBegin.toUnixTime());
           payoutObject.addInt("endTime", payout.IntervalEnd.toUnixTime());
-          payoutObject.addString("value", FormatMoney(payout.Value, backend->getCoinInfo().FractionalPartSize));
+          payoutObject.addString("value", FormatMoney(payout.Value, backend.getCoinInfo().FractionalPartSize));
           payoutObject.addString("valueBTC", FormatMoney(payout.ValueBTC, 8));
           payoutObject.addString("valueUSD", FormatMoney(payout.ValueUSD, 8));
         }
@@ -2185,47 +1422,17 @@ void PoolHttpConnection::onBackendQueryPPSPayouts(rapidjson::Document &document)
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendQueryPPSPayoutsAcc(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryPPSPayoutsAcc(const CBackendQueryPPSPayoutsAccRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string targetLogin;
-  std::string coin;
-  int64_t timeFrom;
-  int64_t timeTo;
-  int64_t groupByInterval;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "targetLogin", targetLogin, "", &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  jsonParseInt64(document, "timeFrom", &timeFrom, &validAcc);
-  jsonParseInt64(document, "timeTo", &timeTo, &validAcc);
-  jsonParseInt64(document, "groupByInterval", &groupByInterval, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, targetLogin, tokenInfo, false)) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  if (timeTo <= timeFrom ||
-      groupByInterval == 0 ||
-      (timeTo - timeFrom) % groupByInterval != 0 ||
-      (timeTo - timeFrom) / groupByInterval > 3200) {
+  if (request.TimeTo <= request.TimeFrom ||
+      request.GroupByInterval == 0 ||
+      (request.TimeTo - request.TimeFrom) % request.GroupByInterval != 0 ||
+      (request.TimeTo - request.TimeFrom) / request.GroupByInterval > 3200) {
     replyWithStatus("invalid_interval");
     return;
   }
 
-  auto result = backend->accountingDb()->api().queryPPSPayoutsAcc(tokenInfo.Login, timeFrom, timeTo, groupByInterval);
+  auto result = backend.accountingDb()->api().queryPPSPayoutsAcc(tokenInfo.Login, request.TimeFrom, request.TimeTo, request.GroupByInterval);
 
   xmstream stream;
   reply200(stream);
@@ -2241,7 +1448,7 @@ void PoolHttpConnection::onBackendQueryPPSPayoutsAcc(rapidjson::Document &docume
         {
           JSON::Object payoutObject(stream);
           payoutObject.addInt("timeLabel", payout.IntervalEnd);
-          payoutObject.addString("value", FormatMoney(payout.TotalCoin, backend->getCoinInfo().FractionalPartSize));
+          payoutObject.addString("value", FormatMoney(payout.TotalCoin, backend.getCoinInfo().FractionalPartSize));
           payoutObject.addString("valueBTC", FormatMoney(payout.TotalBTC, 8));
           payoutObject.addString("valueUSD", FormatMoney(payout.TotalUSD, 8));
         }
@@ -2252,64 +1459,16 @@ void PoolHttpConnection::onBackendQueryPPSPayoutsAcc(rapidjson::Document &docume
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendUpdateProfitSwitchCoeff(rapidjson::Document &document)
+void PoolHttpConnection::onBackendUpdateProfitSwitchCoeff(const CBackendUpdateProfitSwitchCoeffRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string coin;
-  double profitSwitchCoeff = 0.0;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "coin", coin, "", &validAcc);
-  jsonParseNumber(document, "profitSwitchCoeff", &profitSwitchCoeff, &validAcc);
-
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) || (tokenInfo.Login != "admin")) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  backend->setProfitSwitchCoeff(profitSwitchCoeff);
+  backend.setProfitSwitchCoeff(request.ProfitSwitchCoeff);
   replyWithStatus("ok");
 }
 
-void PoolHttpConnection::onBackendGetConfig(rapidjson::Document &document)
+void PoolHttpConnection::onBackendGetConfig(const CBackendGetConfigRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string coin;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) ||
-      (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  CBackendSettings settings = backend->accountingDb()->backendSettings();
-  unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
+  CBackendSettings settings = backend.accountingDb()->backendSettings();
+  unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
 
   xmstream stream;
   reply200(stream);
@@ -2324,28 +1483,21 @@ void PoolHttpConnection::onBackendGetConfig(rapidjson::Document &document)
       pps.addDouble("poolFee", settings.PPSConfig.PoolFee);
       pps.addString(
         "saturationFunction",
-        CBackendSettings::PPS::saturationFunctionName(settings.PPSConfig.SaturationFunction));
+        ESaturationFunctionToString(settings.PPSConfig.SaturationFunction));
       pps.addDouble("saturationB0", settings.PPSConfig.SaturationB0);
       pps.addDouble("saturationANegative", settings.PPSConfig.SaturationANegative);
       pps.addDouble("saturationAPositive", settings.PPSConfig.SaturationAPositive);
       pps.addField("saturationFunctions");
       {
         JSON::Array arr(stream);
-        for (const char *name : CBackendSettings::PPS::saturationFunctionNames())
+        for (const char *name : ESaturationFunctionNames())
           arr.addString(name);
       }
     }
     response.addField("payouts");
-    {
-      JSON::Object payouts(stream);
-      payouts.addBoolean("instantPayoutsEnabled", settings.PayoutConfig.InstantPayoutsEnabled);
-      payouts.addBoolean("regularPayoutsEnabled", settings.PayoutConfig.RegularPayoutsEnabled);
-      payouts.addString("instantMinimalPayout", FormatMoney(settings.PayoutConfig.InstantMinimalPayout, fractionalPartSize));
-      payouts.addInt("instantPayoutInterval", settings.PayoutConfig.InstantPayoutInterval.count());
-      payouts.addString("regularMinimalPayout", FormatMoney(settings.PayoutConfig.RegularMinimalPayout, fractionalPartSize));
-      payouts.addInt("regularPayoutInterval", settings.PayoutConfig.RegularPayoutInterval.count());
-      payouts.addInt("regularPayoutDayOffset", settings.PayoutConfig.RegularPayoutDayOffset.count());
-    }
+    stream.write(settings.PayoutConfig.serialize([fractionalPartSize](const money_t &value) -> std::string {
+      return FormatMoney(value, fractionalPartSize);
+    }));
     response.addField("swap");
     {
       JSON::Object swap(stream);
@@ -2399,34 +1551,11 @@ static void serializePPSState(xmstream &stream, const CPPSState &pps, unsigned f
   obj.addString("lastAverageTxFee", FormatMoney(pps.LastAverageTxFee, fractionalPartSize));
 }
 
-void PoolHttpConnection::onBackendGetPPSState(rapidjson::Document &document)
+void PoolHttpConnection::onBackendGetPPSState(const CBackendGetPPSStateRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string coin;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) ||
-      (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
+  unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->queryPPSState([this, fractionalPartSize](const CPPSState &pps) {
+  backend.accountingDb()->queryPPSState([this, fractionalPartSize](const CPPSState &pps) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -2442,37 +1571,10 @@ void PoolHttpConnection::onBackendGetPPSState(rapidjson::Document &document)
   });
 }
 
-void PoolHttpConnection::onBackendQueryPPSHistory(rapidjson::Document &document)
+void PoolHttpConnection::onBackendQueryPPSHistory(const CBackendQueryPPSHistoryRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string coin;
-  int64_t timeFrom;
-  int64_t timeTo;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-  jsonParseInt64(document, "timeFrom", &timeFrom, &validAcc);
-  jsonParseInt64(document, "timeTo", &timeTo, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) ||
-      (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
-  auto result = backend->accountingDb()->api().queryPPSHistory(timeFrom, timeTo);
+  unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
+  auto result = backend.accountingDb()->api().queryPPSHistory(request.TimeFrom, request.TimeTo);
 
   xmstream stream;
   reply200(stream);
@@ -2493,121 +1595,48 @@ void PoolHttpConnection::onBackendQueryPPSHistory(rapidjson::Document &document)
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendUpdateConfig(rapidjson::Document &document)
+void PoolHttpConnection::onBackendUpdateConfig(const CBackendUpdateConfigRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  std::string coin;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  jsonParseString(document, "coin", coin, &validAcc);
-
-  bool hasPps = document.HasMember("pps");
-  CBackendSettings::PPS ppsCfg;
-  std::string saturationFunctionName;
-  if (hasPps) {
-    if (!document["pps"].IsObject()) {
-      validAcc = false;
-    } else {
-      rapidjson::Value &ppsValue = document["pps"];
-      jsonParseBoolean(ppsValue, "enabled", &ppsCfg.Enabled, &validAcc);
-      jsonParseNumber(ppsValue, "poolFee", &ppsCfg.PoolFee, &validAcc);
-      jsonParseString(ppsValue, "saturationFunction", saturationFunctionName, "", &validAcc);
-      jsonParseNumber(ppsValue, "saturationB0", &ppsCfg.SaturationB0, 0.0, &validAcc);
-      jsonParseNumber(ppsValue, "saturationANegative", &ppsCfg.SaturationANegative, 0.0, &validAcc);
-      jsonParseNumber(ppsValue, "saturationAPositive", &ppsCfg.SaturationAPositive, 0.0, &validAcc);
-    }
+  // Re-parse with resolver to convert money values using coin-specific fractional part size
+  CBackendUpdateConfigRequest resolvedRequest;
+  unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
+  if (!resolvedRequest.parse(Context.Request.c_str(), Context.Request.size(),
+    [fractionalPartSize](const std::string &, const std::string &raw, money_t &value) -> bool {
+      return parseMoneyValue(raw.c_str(), fractionalPartSize, &value);
+    })) {
+    replyWithStatus("request_format_error");
+    return;
   }
 
-  bool hasPayouts = document.HasMember("payouts");
-  CBackendSettings::Payouts payoutsCfg;
-  std::string instantMinimalPayout;
-  std::string regularMinimalPayout;
-  int64_t instantPayoutInterval = 0;
-  int64_t regularPayoutInterval = 0;
-  int64_t regularPayoutDayOffset = 0;
-  if (hasPayouts) {
-    if (!document["payouts"].IsObject()) {
-      validAcc = false;
-    } else {
-      rapidjson::Value &payoutsValue = document["payouts"];
-      jsonParseBoolean(payoutsValue, "instantPayoutsEnabled", &payoutsCfg.InstantPayoutsEnabled, &validAcc);
-      jsonParseBoolean(payoutsValue, "regularPayoutsEnabled", &payoutsCfg.RegularPayoutsEnabled, &validAcc);
-      jsonParseString(payoutsValue, "instantMinimalPayout", instantMinimalPayout, &validAcc);
-      jsonParseInt64(payoutsValue, "instantPayoutInterval", &instantPayoutInterval, &validAcc);
-      jsonParseString(payoutsValue, "regularMinimalPayout", regularMinimalPayout, &validAcc);
-      jsonParseInt64(payoutsValue, "regularPayoutInterval", &regularPayoutInterval, &validAcc);
-      jsonParseInt64(payoutsValue, "regularPayoutDayOffset", &regularPayoutDayOffset, 0, &validAcc);
-    }
-  }
-
-  bool hasSwap = document.HasMember("swap");
-  CBackendSettings::Swap swapCfg;
-  if (hasSwap) {
-    if (!document["swap"].IsObject()) {
-      validAcc = false;
-    } else {
-      rapidjson::Value &swapValue = document["swap"];
-      jsonParseBoolean(swapValue, "acceptIncoming", &swapCfg.AcceptIncoming, &validAcc);
-      jsonParseBoolean(swapValue, "acceptOutgoing", &swapCfg.AcceptOutgoing, &validAcc);
-    }
-  }
-
-  if (!validAcc) {
+  if (!resolvedRequest.Pps.has_value() && !resolvedRequest.Payouts.has_value() && !resolvedRequest.Swap.has_value()) {
     replyWithStatus("json_format_error");
     return;
   }
 
-  if (!hasPps && !hasPayouts && !hasSwap) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) || (tokenInfo.Login != "admin")) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  std::optional<CBackendSettings::PPS> pps;
-  std::optional<CBackendSettings::Payouts> payouts;
-  std::optional<CBackendSettings::Swap> swap;
-
-  if (hasPps) {
-    if (!CBackendSettings::PPS::parseSaturationFunction(saturationFunctionName, &ppsCfg.SaturationFunction)) {
-      replyWithStatus("invalid_saturation_function");
-      return;
-    }
-
+  std::optional<CBackendPPS> pps;
+  if (resolvedRequest.Pps.has_value()) {
+    CBackendPPS ppsCfg;
+    ppsCfg.Enabled = resolvedRequest.Pps->Enabled;
+    ppsCfg.PoolFee = resolvedRequest.Pps->PoolFee;
+    ppsCfg.SaturationFunction = resolvedRequest.Pps->SaturationFunction;
+    ppsCfg.SaturationB0 = resolvedRequest.Pps->SaturationB0;
+    ppsCfg.SaturationANegative = resolvedRequest.Pps->SaturationANegative;
+    ppsCfg.SaturationAPositive = resolvedRequest.Pps->SaturationAPositive;
     pps = std::move(ppsCfg);
   }
 
-  if (hasPayouts) {
-    unsigned fractionalPartSize = backend->getCoinInfo().FractionalPartSize;
-    if (!parseMoneyValue(instantMinimalPayout.c_str(), fractionalPartSize, &payoutsCfg.InstantMinimalPayout) ||
-        !parseMoneyValue(regularMinimalPayout.c_str(), fractionalPartSize, &payoutsCfg.RegularMinimalPayout)) {
-      replyWithStatus("request_format_error");
-      return;
-    }
-
-    payoutsCfg.InstantPayoutInterval = std::chrono::minutes(instantPayoutInterval);
-    payoutsCfg.RegularPayoutInterval = std::chrono::hours(regularPayoutInterval);
-    payoutsCfg.RegularPayoutDayOffset = std::chrono::hours(regularPayoutDayOffset);
-    payouts = std::move(payoutsCfg);
+  std::optional<CBackendSwap> swap;
+  if (resolvedRequest.Swap.has_value()) {
+    CBackendSwap swapCfg;
+    swapCfg.AcceptIncoming = resolvedRequest.Swap->AcceptIncoming;
+    swapCfg.AcceptOutgoing = resolvedRequest.Swap->AcceptOutgoing;
+    swap = std::move(swapCfg);
   }
 
-  if (hasSwap)
-    swap = std::move(swapCfg);
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->updateBackendSettings(
+  backend.accountingDb()->updateBackendSettings(
     std::move(pps),
-    std::move(payouts),
+    std::move(resolvedRequest.Payouts),
     std::move(swap),
     [this](const char *status) {
       replyWithStatus(status);
@@ -2615,42 +1644,19 @@ void PoolHttpConnection::onBackendUpdateConfig(rapidjson::Document &document)
     });
 }
 
-void PoolHttpConnection::onBackendPoolLuck(rapidjson::Document &document)
+void PoolHttpConnection::onBackendPoolLuck(const CBackendPoolLuckRequest &request, PoolBackend &backend)
 {
-  if (!document.HasMember("coin") || !document["coin"].IsString() ||
-      !document.HasMember("intervals") || !document["intervals"].IsArray()) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  std::string coin = document["coin"].GetString();
-  PoolBackend *backend = Server_.backend(coin);
-  if (!backend) {
-    replyWithStatus("invalid_coin");
-    return;
-  }
-
-  int64_t prevInterval = 0;
-  std::vector<int64_t> intervals;
-  rapidjson::Value::Array intervalsValue = document["intervals"].GetArray();
-  for (rapidjson::SizeType i = 0, ie = intervalsValue.Size(); i != ie; ++i) {
-    if (!intervalsValue[i].IsInt64()) {
+  // Validate ascending order
+  for (size_t i = 1; i < request.Intervals.size(); i++) {
+    if (request.Intervals[i] <= request.Intervals[i-1]) {
       replyWithStatus("json_format_error");
       return;
     }
-
-    int64_t interval = intervalsValue[i].GetInt64();
-    if (interval <= prevInterval) {
-      replyWithStatus("json_format_error");
-      return;
-    }
-
-    prevInterval = interval;
-    intervals.push_back(interval);
   }
 
+  std::vector<int64_t> intervals = request.Intervals;
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend->accountingDb()->poolLuck(std::move(intervals), [this](const std::vector<double> &result) {
+  backend.accountingDb()->poolLuck(std::move(intervals), [this](const std::vector<double> &result) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
@@ -2671,7 +1677,7 @@ void PoolHttpConnection::onBackendPoolLuck(rapidjson::Document &document)
   });
 }
 
-void PoolHttpConnection::onInstanceEnumerateAll(rapidjson::Document&)
+void PoolHttpConnection::onInstanceEnumerateAll()
 {
   xmstream stream;
   reply200(stream);
@@ -2703,24 +1709,12 @@ void PoolHttpConnection::onInstanceEnumerateAll(rapidjson::Document&)
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onComplexMiningStatsGetInfo(rapidjson::Document &document)
+void PoolHttpConnection::onComplexMiningStatsGetInfo(const CComplexMiningStatsGetInfoRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
 {
-  bool validAcc = true;
-  std::string sessionId;
-  jsonParseString(document, "id", sessionId, &validAcc);
-  if (!validAcc) {
-    replyWithStatus("json_format_error");
-    return;
-  }
-
-  UserManager::UserWithAccessRights tokenInfo;
-  if (!Server_.userManager().validateSession(sessionId, "", tokenInfo, false) || (tokenInfo.Login != "admin")) {
-    replyWithStatus("unknown_id");
-    return;
-  }
-
+  const char *data = Context.Request.c_str();
+  size_t size = Context.Request.size();
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.miningStats().query(document, [this](const char *data, size_t size) {
+  Server_.miningStats().query(data, size, [this](const char *data, size_t size) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);

@@ -66,68 +66,17 @@ bool CPPSState::deserializeValue(const void *data, size_t size)
   return !stream.eof();
 }
 
-// CBackendSettings::PPS methods
+// saturateCoeff — free function (was CBackendSettings::PPS::saturateCoeff)
 
-bool CBackendSettings::PPS::parseSaturationFunction(const std::string &name, ESaturationFunction *out)
+double saturateCoeff(const CBackendPPS &pps, double balanceInBlocks)
 {
-  struct { const char *name; ESaturationFunction value; } table[] = {
-    {"none",     ESaturationFunction::None},
-    {"tanh",     ESaturationFunction::Tangent},
-    {"clamp",    ESaturationFunction::Clamp},
-    {"cubic",    ESaturationFunction::Cubic},
-    {"softsign", ESaturationFunction::Softsign},
-    {"norm",     ESaturationFunction::Norm},
-    {"atan",     ESaturationFunction::Atan},
-    {"exp",      ESaturationFunction::Exp},
-  };
-
-  if (name.empty()) {
-    *out = ESaturationFunction::None;
-    return true;
-  }
-
-  for (const auto &entry : table) {
-    if (name == entry.name) {
-      *out = entry.value;
-      return true;
-    }
-  }
-
-  return false;
-}
-
-const char *CBackendSettings::PPS::saturationFunctionName(ESaturationFunction value)
-{
-  switch (value) {
-    case ESaturationFunction::None:     return "none";
-    case ESaturationFunction::Tangent:  return "tanh";
-    case ESaturationFunction::Clamp:    return "clamp";
-    case ESaturationFunction::Cubic:    return "cubic";
-    case ESaturationFunction::Softsign: return "softsign";
-    case ESaturationFunction::Norm:     return "norm";
-    case ESaturationFunction::Atan:     return "atan";
-    case ESaturationFunction::Exp:      return "exp";
-    default:                            return "unknown";
-  }
-}
-
-const std::vector<const char*> &CBackendSettings::PPS::saturationFunctionNames()
-{
-  static const std::vector<const char*> names = {
-    "none", "tanh", "clamp", "cubic", "softsign", "norm", "atan", "exp"
-  };
-  return names;
-}
-
-double CBackendSettings::PPS::saturateCoeff(double balanceInBlocks) const
-{
-  if (SaturationFunction == ESaturationFunction::None)
+  if (pps.SaturationFunction == ESaturationFunction::None)
     return 1.0;
 
-  double x = (SaturationB0 > 0.0) ? balanceInBlocks / SaturationB0 : 0.0;
+  double x = (pps.SaturationB0 > 0.0) ? balanceInBlocks / pps.SaturationB0 : 0.0;
   double s;
-  switch (SaturationFunction) {
-    case ESaturationFunction::Tangent:
+  switch (pps.SaturationFunction) {
+    case ESaturationFunction::Tanh:
       s = std::tanh(x);
       break;
     case ESaturationFunction::Clamp:
@@ -158,7 +107,7 @@ double CBackendSettings::PPS::saturateCoeff(double balanceInBlocks) const
       break;
   }
 
-  double a = (x >= 0.0) ? SaturationAPositive : SaturationANegative;
+  double a = (x >= 0.0) ? pps.SaturationAPositive : pps.SaturationANegative;
   return 1.0 + a * s;
 }
 

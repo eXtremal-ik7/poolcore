@@ -80,9 +80,9 @@ public:
   UserBalanceInfo queryBalance(const std::string &user);
   std::vector<double> poolLuck(const std::vector<int64_t> &intervals);
   CPPSState queryPPSState();
-  const char *updateBackendSettings(const std::optional<CBackendSettings::PPS> &pps,
-                                    const std::optional<CBackendSettings::Payouts> &payouts,
-                                    const std::optional<CBackendSettings::Swap> &swap);
+  const char *updateBackendSettings(const std::optional<CBackendPPS> &pps,
+                                    const std::optional<CBackendPayouts> &payouts,
+                                    const std::optional<CBackendSwap> &swap);
 
 private:
   asyncBase *Base_;

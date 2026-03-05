@@ -221,7 +221,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
   {
     // Fee plan
     FeePlan defaultPlan;
-    defaultPlan.Modes.resize(static_cast<size_t>(EMiningMode::Count));
+    defaultPlan.Modes.resize(static_cast<size_t>(EMiningModeCount));
     FeePlanCache_.insert(std::make_pair("default", std::move(defaultPlan)));
     std::unique_ptr<rocksdbBase::IteratorType> It(UserFeePlanDb_.iterator());
     for (It->seekFirst(); It->valid(); It->next()) {
@@ -312,7 +312,7 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
     EMiningMode mode = static_cast<EMiningMode>(i);
     const auto &modeCfg = record.Modes[i];
 
-    if (mode == EMiningMode::PPS) {
+    if (mode == EMiningMode::Pps) {
       // Find max PPS pool fee among coins not covered by coin-specific config
       std::unordered_set<std::string> coveredCoins;
       for (const auto &coinCfg : modeCfg.CoinSpecific)
@@ -366,7 +366,7 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
 
   CLOG_F(INFO, "UserManager: accepted fee plan {}", record.FeePlanId);
   for (size_t i = 0, ie = record.Modes.size(); i != ie; ++i) {
-    const char *modeName = miningModeName(static_cast<EMiningMode>(i));
+    const char *modeName = EMiningModeToString(static_cast<EMiningMode>(i));
     CLOG_F(INFO, " [{}] default: {}", modeName, feeConfigToString(record.Modes[i].Default));
     for (const auto &coinCfg: record.Modes[i].CoinSpecific)
       CLOG_F(INFO, " [{}] {}: {}", modeName, coinCfg.CoinName, feeConfigToString(coinCfg.Config));
@@ -1023,18 +1023,12 @@ void UserManager::logoutImpl(const BaseBlob<512> &sessionId, Task::DefaultCb cal
   callback("ok");
 }
 
-void UserManager::queryMonitoringSessionImpl(const std::string &sessionId, const std::string &targetLogin, UserQueryMonitoringSessionTask::Cb callback)
+void UserManager::queryMonitoringSessionImpl(const std::string &login, UserQueryMonitoringSessionTask::Cb callback)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, targetLogin, tokenInfo, false)) {
-    callback("", "unknown_id");
-    return;
-  }
-
   // Check user structure for existing session id
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
+    if (!UsersCache_.find(accessor, login)) {
       callback("", "unknown_login");
       return;
     }
@@ -1048,7 +1042,7 @@ void UserManager::queryMonitoringSessionImpl(const std::string &sessionId, const
   // We don't have monitoring session at this moment, need to create it
   UserSessionRecord session;
   makeRandom(session.Id);
-  session.Login = tokenInfo.Login;
+  session.Login = login;
   session.LastAccessTime = Timestamp::now();
   session.IsReadOnly = true;
   session.IsPermanent = true;
@@ -1058,7 +1052,7 @@ void UserManager::queryMonitoringSessionImpl(const std::string &sessionId, const
   UsersRecord record;
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
+    if (!UsersCache_.find(accessor, login)) {
       callback("", "unknown_login");
       return;
     }
@@ -1071,19 +1065,13 @@ void UserManager::queryMonitoringSessionImpl(const std::string &sessionId, const
   callback(session.Id.getHexLE(), "ok");
 }
 
-void UserManager::updateCredentialsImpl(const std::string &sessionId, const std::string &targetLogin, const Credentials &credentials, Task::DefaultCb callback)
+void UserManager::updateCredentialsImpl(const std::string &login, const Credentials &credentials, Task::DefaultCb callback)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, targetLogin, tokenInfo, true)) {
-    callback("unknown_id");
-    return;
-  }
-
   UsersRecord record;
 
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
+    if (!UsersCache_.find(accessor, login)) {
       callback("unknown_login");
       return;
     }
@@ -1143,7 +1131,7 @@ void UserManager::updateSettingsImpl(const std::string &login,
   }
 
   if (mining.has_value()) {
-    if (mining->MiningMode == EMiningMode::PPS &&
+    if (mining->MiningMode == EMiningMode::Pps &&
         !backendIt->second->accountingDb()->backendSettings().PPSConfig.Enabled) {
       callback("pps_not_available");
       return;
@@ -1225,16 +1213,11 @@ void UserManager::updateSettingsImpl(const std::string &login,
   callback("ok");
 }
 
-void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUsersTask::Cb callback)
+void UserManager::enumerateUsersImpl(const std::string &login, EnumerateUsersTask::Cb callback)
 {
   std::vector<Credentials> result;
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, "", tokenInfo, false)) {
-    callback("unknown_id", result);
-    return;
-  }
 
-  if (tokenInfo.Login == "admin" || tokenInfo.Login == "observer") {
+  if (login == "admin" || login == "observer") {
     for (const auto &record: UsersCache_) {
       Credentials &credentials = result.emplace_back();
       credentials.Login = record.second.Login;
@@ -1247,7 +1230,7 @@ void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUser
     }
   } else {
     std::unordered_set<std::string> linkedFeePlans;
-    collectLinkedFeePlans(tokenInfo.Login, linkedFeePlans);
+    collectLinkedFeePlans(login, linkedFeePlans);
     for (const auto &record: UsersCache_) {
       if (!linkedFeePlans.count(record.second.FeePlanId))
         continue;
@@ -1255,51 +1238,37 @@ void UserManager::enumerateUsersImpl(const std::string &sessionId, EnumerateUser
       Credentials &credentials = result.emplace_back();
       credentials.Login = record.second.Login;
       credentials.Name = record.second.Name;
-      credentials.EMail = record.second.EMail;
       credentials.RegistrationDate = record.second.RegistrationDate;
       credentials.IsActive = record.second.IsActive;
       credentials.IsReadOnly = record.second.IsReadOnly;
-      credentials.FeePlan = record.second.FeePlanId;
     }
   }
 
   callback("ok", result);
 }
 
-void UserManager::createFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback)
+void UserManager::createFeePlanImpl(const std::string &feePlanId, Task::DefaultCb callback)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
-    callback("unknown_id");
-    return;
-  }
-
   if (FeePlanCache_.count(feePlanId)) {
     callback("fee_plan_already_exists");
     return;
   }
 
   FeePlan plan;
-  plan.Modes.resize(static_cast<size_t>(EMiningMode::Count));
+  plan.Modes.resize(static_cast<size_t>(EMiningModeCount));
   FeePlanCache_.insert(std::make_pair(feePlanId, plan));
 
   UserFeePlanRecord record;
   record.FeePlanId = feePlanId;
-  record.Modes.resize(static_cast<size_t>(EMiningMode::Count));
+  record.Modes.resize(static_cast<size_t>(EMiningModeCount));
   UserFeePlanDb_.put(record);
 
   CLOG_F(INFO, "UserManager: created fee plan {}", feePlanId);
   callback("ok");
 }
 
-void UserManager::updateFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, EMiningMode mode, const CModeFeeConfig &config, Task::DefaultCb callback)
+void UserManager::updateFeePlanImpl(const std::string &feePlanId, EMiningMode mode, const CModeFeeConfig &config, Task::DefaultCb callback)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
-    callback("unknown_id");
-    return;
-  }
-
   // Read current plan from cache
   UserFeePlanRecord record;
   {
@@ -1328,14 +1297,8 @@ void UserManager::updateFeePlanImpl(const std::string &sessionId, const std::str
   callback(error.c_str());
 }
 
-void UserManager::deleteFeePlanImpl(const std::string &sessionId, const std::string &feePlanId, Task::DefaultCb callback)
+void UserManager::deleteFeePlanImpl(const std::string &feePlanId, Task::DefaultCb callback)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
-    callback("unknown_id");
-    return;
-  }
-
   if (feePlanId == "default") {
     callback("cant_delete_default_plan");
     return;
@@ -1386,14 +1349,8 @@ void UserManager::deleteFeePlanImpl(const std::string &sessionId, const std::str
   callback("ok");
 }
 
-void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::string &targetLogin, const std::string &newFeePlan, Task::DefaultCb callback)
+void UserManager::changeFeePlanImpl(const std::string &login, const std::string &newFeePlan, Task::DefaultCb callback)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, targetLogin, tokenInfo, true)) {
-    callback("unknown_id");
-    return;
-  }
-
   if (!FeePlanCache_.count(newFeePlan)) {
     callback("fee_plan_not_exists");
     return;
@@ -1402,7 +1359,7 @@ void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::str
   UsersRecord record;
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
+    if (!UsersCache_.find(accessor, login)) {
       callback("unknown_login");
       return;
     }
@@ -1415,22 +1372,15 @@ void UserManager::changeFeePlanImpl(const std::string &sessionId, const std::str
 
   // Notify all backends about user's fee plan change
   for (const auto &[coinName, backend] : Backends_)
-    backend->sendUserFeePlanChange(tokenInfo.Login, newFeePlan);
+    backend->sendUserFeePlanChange(login, newFeePlan);
 
   callback("ok");
 }
 
 void UserManager::renewFeePlanReferralIdImpl(
-  const std::string &sessionId,
   const std::string &feePlanId,
   RenewFeePlanReferralIdTask::Cb callback)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, "", tokenInfo, true) || tokenInfo.Login != "admin") {
-    callback("unknown_id", "");
-    return;
-  }
-
   decltype(FeePlanCache_)::accessor accessor;
   if (!FeePlanCache_.find(accessor, feePlanId)) {
     callback("unknown_fee_plan", "");
@@ -1456,16 +1406,10 @@ void UserManager::renewFeePlanReferralIdImpl(
   callback("ok", newId.getHexRaw());
 }
 
-void UserManager::activate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Activate2faInitiateTask::Cb callback)
+void UserManager::activate2faInitiateImpl(const std::string &login, Activate2faInitiateTask::Cb callback)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, targetLogin, tokenInfo, true)) {
-    callback("unknown_id", "");
-    return;
-  }
-
   // Don't allow special users
-  if (tokenInfo.Login == "admin" || tokenInfo.Login == "observer") {
+  if (login == "admin" || login == "observer") {
     callback("unknown_login", "");
     return;
   }
@@ -1474,7 +1418,7 @@ void UserManager::activate2faInitiateImpl(const std::string &sessionId, const st
   std::string emailAddress;
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
+    if (!UsersCache_.find(accessor, login)) {
       callback("unknown_login", "");
       return;
     }
@@ -1496,14 +1440,14 @@ void UserManager::activate2faInitiateImpl(const std::string &sessionId, const st
   // Create action
   UserActionRecord actionRecord;
   makeRandom(actionRecord.Id);
-  actionRecord.Login = tokenInfo.Login;
+  actionRecord.Login = login;
   actionRecord.Type = UserActionRecord::UserTwoFactorActivate;
   actionRecord.TwoFactorKey = keyBase32;
   actionRecord.CreationDate = Timestamp::now();
 
   // Send email
   std::string emailSendError;
-  if (SMTP.Enabled && !sendMail(tokenInfo.Login, emailAddress, "Activate two factor authentication at ", BaseCfg.Activate2faLinkPrefix, actionRecord.Id, "For enable two factor authentication", emailSendError)) {
+  if (SMTP.Enabled && !sendMail(login, emailAddress, "Activate two factor authentication at ", BaseCfg.Activate2faLinkPrefix, actionRecord.Id, "For enable two factor authentication", emailSendError)) {
     callback(emailSendError.c_str(), "");
     return;
   }
@@ -1512,16 +1456,10 @@ void UserManager::activate2faInitiateImpl(const std::string &sessionId, const st
   callback("ok", reinterpret_cast<const char*>(keyBase32));
 }
 
-void UserManager::deactivate2faInitiateImpl(const std::string &sessionId, const std::string &targetLogin, Task::DefaultCb callback)
+void UserManager::deactivate2faInitiateImpl(const std::string &login, Task::DefaultCb callback)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, targetLogin, tokenInfo, true)) {
-    callback("unknown_id");
-    return;
-  }
-
   // Don't allow special users
-  if (tokenInfo.Login == "admin" || tokenInfo.Login == "observer") {
+  if (login == "admin" || login == "observer") {
     callback("unknown_login");
     return;
   }
@@ -1530,7 +1468,7 @@ void UserManager::deactivate2faInitiateImpl(const std::string &sessionId, const 
   std::string emailAddress;
   {
     decltype (UsersCache_)::accessor accessor;
-    if (!UsersCache_.find(accessor, tokenInfo.Login)) {
+    if (!UsersCache_.find(accessor, login)) {
       callback("unknown_login");
       return;
     }
@@ -1546,13 +1484,13 @@ void UserManager::deactivate2faInitiateImpl(const std::string &sessionId, const 
   // Create action
   UserActionRecord actionRecord;
   makeRandom(actionRecord.Id);
-  actionRecord.Login = tokenInfo.Login;
+  actionRecord.Login = login;
   actionRecord.Type = UserActionRecord::UserTwoFactorDeactivate;
   actionRecord.CreationDate = Timestamp::now();
 
   // Send email
   std::string emailSendError;
-  if (SMTP.Enabled && !sendMail(tokenInfo.Login, emailAddress, "Deactivate two factor authentication at ", BaseCfg.Deactivate2faLinkPrefix, actionRecord.Id, "For drop two factor authentication", emailSendError)) {
+  if (SMTP.Enabled && !sendMail(login, emailAddress, "Deactivate two factor authentication at ", BaseCfg.Deactivate2faLinkPrefix, actionRecord.Id, "For drop two factor authentication", emailSendError)) {
     callback(emailSendError.c_str());
     return;
   }
@@ -1713,17 +1651,20 @@ std::string UserManager::getFeePlanId(const std::string &login)
 }
 
 bool UserManager::queryFeePlan(
-  const std::string &sessionId,
+  const std::string &login,
   const std::string &feePlanId,
   EMiningMode mode,
   std::string &status,
   BaseBlob<256> &referralIdOut,
   CModeFeeConfig &result)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, "", tokenInfo, false) || (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
-    status = "unknown_id";
-    return false;
+  if (login != "admin" && login != "observer") {
+    std::unordered_set<std::string> linkedPlans;
+    collectLinkedFeePlans(login, linkedPlans);
+    if (!linkedPlans.count(feePlanId)) {
+      status = "unknown_id";
+      return false;
+    }
   }
 
   decltype(FeePlanCache_)::const_accessor accessor;
@@ -1742,18 +1683,19 @@ bool UserManager::queryFeePlan(
   return true;
 }
 
-bool UserManager::enumerateFeePlan(const std::string &sessionId, std::string &status, std::vector<std::string> &result)
+bool UserManager::enumerateFeePlan(const std::string &login, std::string &status, std::vector<std::string> &result)
 {
-  UserWithAccessRights tokenInfo;
-  if (!validateSession(sessionId, "", tokenInfo, false) || (tokenInfo.Login != "admin" && tokenInfo.Login != "observer")) {
-    status = "unknown_id";
-    return false;
+  if (login == "admin" || login == "observer") {
+    for (const auto &entry: FeePlanCache_)
+      result.push_back(entry.first);
+  } else {
+    std::unordered_set<std::string> linkedPlans;
+    collectLinkedFeePlans(login, linkedPlans);
+    for (const auto &planId: linkedPlans)
+      result.push_back(planId);
   }
 
-  for (const auto &entry: FeePlanCache_)
-    result.push_back(entry.first);
   std::sort(result.begin(), result.end());
-
   status = "ok";
   return true;
 }

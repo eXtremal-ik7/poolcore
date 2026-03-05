@@ -102,7 +102,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   });
 
   std::thread feePlansThread([this]() {
-    for (unsigned m = 0; m < static_cast<unsigned>(EMiningMode::Count); ++m) {
+    for (unsigned m = 0; m < EMiningModeCount; ++m) {
       EMiningMode mode = static_cast<EMiningMode>(m);
       auto records = UserManager_.getAllFeeRecords(mode, CoinInfo_.Name);
       for (auto &[feePlanId, feeList] : records)
@@ -221,7 +221,7 @@ void AccountingDb::ppsPayout()
   UInt<384> totalPaid = UInt<384>::zero();
   for (auto &[userId, value] : State_.PPSPendingBalance) {
     totalPaid += value;
-    if (applyReward(userId, value, EMiningMode::PPS, rewardParams, batch, payoutHistoryBatch))
+    if (applyReward(userId, value, EMiningMode::Pps, rewardParams, batch, payoutHistoryBatch))
       payoutQueued = true;
     CLOG_F(INFO, " * {}: +{}", userId, FormatMoneyFull(value, CoinInfo_.FractionalPartSize));
   }
@@ -294,7 +294,7 @@ void AccountingDb::distributeBlockReward(MiningRound &R)
     // get fee plan for user
     auto feePlanIt = UserFeePlanIds_.find(record.UserId);
     const std::string &feePlanId = feePlanIt != UserFeePlanIds_.end() ? feePlanIt->second : defaultFeePlan;
-    auto cacheIt = FeePlanCache_.find({feePlanId, EMiningMode::PPLNS});
+    auto cacheIt = FeePlanCache_.find({feePlanId, EMiningMode::Pplns});
     const std::vector<::UserFeePair> &feeRecord = cacheIt != FeePlanCache_.end() ? cacheIt->second : emptyFeeRecord;
 
     UInt<384> feeValuesSum = UInt<384>::zero();
@@ -423,7 +423,7 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
   if (ppsEnabled) {
     double currentBalanceInBlocks =
       CPPSState::balanceInBlocks(State_.PPSState.ReferenceBalance, lastBaseBlockReward);
-    saturateCoeff = settings.PPSConfig.saturateCoeff(currentBalanceInBlocks);
+    saturateCoeff = ::saturateCoeff(settings.PPSConfig, currentBalanceInBlocks);
     if (FeeEstimationService_)
       averageTxFee = FeeEstimationService_->averageFee();
   }
@@ -431,14 +431,14 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
   result.AccountingBatch.LastAverageTxFee = averageTxFee;
 
   for (const auto &entry : batch.Entries) {
-    EMiningMode mode = EMiningMode::PPLNS;
+    EMiningMode mode = EMiningMode::Pplns;
     if (ppsEnabled) {
       auto settingsIt = UserSettings_.find(entry.UserId);
       if (settingsIt != UserSettings_.end())
         mode = settingsIt->second.Mining.MiningMode;
     }
 
-    if (mode == EMiningMode::PPLNS) {
+    if (mode == EMiningMode::Pplns) {
       // PPLNS: add shares to scores and user stats
       result.AccountingBatch.PPLNSScores.emplace_back(entry.UserId, entry.AcceptedWork);
       result.StatsBatch.Entries.push_back({entry.UserId, entry.AcceptedWork, entry.SharesNum, {}, {}});
@@ -463,7 +463,7 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
         auto feePlanIt = UserFeePlanIds_.find(entry.UserId);
         const std::string &feePlanId =
           feePlanIt != UserFeePlanIds_.end() ? feePlanIt->second : defaultFeePlan;
-        auto cacheIt = FeePlanCache_.find({feePlanId, EMiningMode::PPS});
+        auto cacheIt = FeePlanCache_.find({feePlanId, EMiningMode::Pps});
         const auto &feeRecord =
           cacheIt != FeePlanCache_.end() ? cacheIt->second : emptyFeeRecord;
 
@@ -515,12 +515,12 @@ void AccountingDb::onFeePlanUpdate(const std::string &feePlanId, EMiningMode mod
 {
   FeePlanCache_[{feePlanId, mode}] = feeRecord;
   CLOG_F(INFO, "AccountingDb {}: fee plan '{}' updated for mode {}, {} entries",
-    CoinInfo_.Name, feePlanId, miningModeName(mode), feeRecord.size());
+    CoinInfo_.Name, feePlanId, EMiningModeToString(mode), feeRecord.size());
 }
 
 void AccountingDb::onFeePlanDelete(const std::string &feePlanId)
 {
-  for (unsigned m = 0; m < static_cast<unsigned>(EMiningMode::Count); ++m)
+  for (unsigned m = 0; m < EMiningModeCount; ++m)
     FeePlanCache_.erase({feePlanId, static_cast<EMiningMode>(m)});
   CLOG_F(INFO, "AccountingDb {}: fee plan '{}' deleted", CoinInfo_.Name, feePlanId);
 }
@@ -718,7 +718,7 @@ AccountingDb::ERoundConfirmationResult AccountingDb::processRoundConfirmation(Mi
 
     kvdb<rocksdbBase>::Batch payoutHistoryBatch;
     for (auto I = R.Payouts.begin(), IE = R.Payouts.end(); I != IE; ++I)
-      applyReward(I->UserId, I->Value, EMiningMode::PPLNS, rewardParams, stateBatch, payoutHistoryBatch);
+      applyReward(I->UserId, I->Value, EMiningMode::Pplns, rewardParams, stateBatch, payoutHistoryBatch);
     if (!payoutHistoryBatch.empty())
       PPLNSPayoutsDb.writeBatch(payoutHistoryBatch);
 
@@ -862,7 +862,7 @@ bool AccountingDb::applyReward(const std::string &address,
   UserBalanceRecord &balance = It->second;
   balance.Balance += value;
 
-  if (mode == EMiningMode::PPS) {
+  if (mode == EMiningMode::Pps) {
     balance.PPSPaid += value;
 
     CPPSPayout record;

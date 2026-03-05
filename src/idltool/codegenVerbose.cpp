@@ -254,6 +254,18 @@ static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, con
   std::string in = indent(ind);
   std::string cn = fieldCppName(f.Name, pascalCase);
 
+  // Extern field: parse into _raw_ string
+  if (isExternField(f)) {
+    std::string rawCn = "_raw_" + cn;
+    out += std::format("{}if (!s.readStringValue({})) {{\n", in, rawCn);
+    out += std::format("{}  s.error->message = \"field '{}': \" + s.error->message;\n", in, fieldContext);
+    out += std::format("{}  return false;\n", in);
+    out += std::format("{}}}\n", in);
+    if (foundBit >= 0)
+      out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
+    return;
+  }
+
   if (isEnum(f.Type.RefName, enumNames)) {
     out += std::format("{}{{ const char *eStr; size_t eLen;\n", in);
     out += std::format("{}  if (!s.readString(eStr, eLen)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n",
@@ -269,6 +281,22 @@ static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, con
     return;
   }
 
+  // Chrono types: read as int64 then construct
+  if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
+      f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
+    std::string chronoType = cppScalarType(f.Type.Scalar);
+    out += std::format("{}{{ int64_t _t;\n", in);
+    out += std::format("{}  if (!s.readInt64(_t)) {{\n", in);
+    out += std::format("{}    s.error->message = \"field '{}': \" + s.error->message;\n", in, fieldContext);
+    out += std::format("{}    return false;\n", in);
+    out += std::format("{}  }}\n", in);
+    out += std::format("{}  {} = {}(_t);\n", in, cn, chronoType);
+    if (foundBit >= 0)
+      out += std::format("{}  found |= (uint64_t)1 << {};\n", in, foundBit);
+    out += std::format("{}}}\n", in);
+    return;
+  }
+
   const char *readMethod = nullptr;
   switch (f.Type.Scalar) {
     case EScalarType::String: readMethod = "readStringValue"; break;
@@ -278,6 +306,7 @@ static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, con
     case EScalarType::Int64:  readMethod = "readInt64"; break;
     case EScalarType::Uint64: readMethod = "readUInt64"; break;
     case EScalarType::Double: readMethod = "readDouble"; break;
+    default: break;
   }
 
   out += std::format("{}if (!s.{}({})) {{\n", in, readMethod, cn);
@@ -353,6 +382,7 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
           case EScalarType::Int64:  cppType = "int64_t"; readMethod = "readInt64"; break;
           case EScalarType::Uint64: cppType = "uint64_t"; readMethod = "readUInt64"; break;
           case EScalarType::Double: cppType = "double"; readMethod = "readDouble"; break;
+          default: cppType = "int64_t"; readMethod = "readInt64"; break;
         }
         if (f.Type.Scalar == EScalarType::String) {
           out += std::format("{}    {{ std::string tmp; if (!s.{}(tmp)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }} "

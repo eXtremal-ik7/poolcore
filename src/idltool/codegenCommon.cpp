@@ -15,13 +15,16 @@ std::string indent(int level)
 std::string cppScalarType(EScalarType t)
 {
   switch (t) {
-    case EScalarType::String: return "std::string";
-    case EScalarType::Bool:   return "bool";
-    case EScalarType::Int32:  return "int32_t";
-    case EScalarType::Uint32: return "uint32_t";
-    case EScalarType::Int64:  return "int64_t";
-    case EScalarType::Uint64: return "uint64_t";
-    case EScalarType::Double: return "double";
+    case EScalarType::String:  return "std::string";
+    case EScalarType::Bool:    return "bool";
+    case EScalarType::Int32:   return "int32_t";
+    case EScalarType::Uint32:  return "uint32_t";
+    case EScalarType::Int64:   return "int64_t";
+    case EScalarType::Uint64:  return "uint64_t";
+    case EScalarType::Double:  return "double";
+    case EScalarType::Seconds: return "std::chrono::seconds";
+    case EScalarType::Minutes: return "std::chrono::minutes";
+    case EScalarType::Hours:   return "std::chrono::hours";
   }
   return "void";
 }
@@ -37,7 +40,9 @@ std::string fieldCppName(const std::string &name, bool pascalCase)
 std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::string> &enumNames, const std::string &structPrefix)
 {
   std::string base;
-  if (!f.Type.RefName.empty()) {
+  if (f.Type.IsExtern) {
+    base = f.Type.RefName + "_t";
+  } else if (!f.Type.RefName.empty()) {
     if (enumNames.count(f.Type.RefName))
       base = "E" + f.Type.RefName;
     else
@@ -60,16 +65,25 @@ std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::strin
   return base;
 }
 
-std::string cppDefault(const CFieldDef &f, const std::unordered_set<std::string> &enumNames)
+static bool isChronoType(EScalarType t)
+{
+  return t == EScalarType::Seconds || t == EScalarType::Minutes || t == EScalarType::Hours;
+}
+
+std::string cppDefault(const CFieldDef &f, const std::unordered_set<std::string> &enumNames, bool pascalCase)
 {
   switch (f.Default.Kind) {
     case EDefaultKind::None: return "";
     case EDefaultKind::String: {
       if (!f.Type.RefName.empty() && enumNames.count(f.Type.RefName))
-        return std::format("E{}::{}", f.Type.RefName, f.Default.StringVal);
+        return std::format("E{}::{}", f.Type.RefName, fieldCppName(f.Default.StringVal, pascalCase));
       return std::format("\"{}\"", f.Default.StringVal);
     }
-    case EDefaultKind::Int: return std::to_string(f.Default.IntVal);
+    case EDefaultKind::Int: {
+      if (f.Type.IsScalar && isChronoType(f.Type.Scalar))
+        return std::format("{}({})", cppScalarType(f.Type.Scalar), f.Default.IntVal);
+      return std::to_string(f.Default.IntVal);
+    }
     case EDefaultKind::Float: {
       auto s = std::format("{}", f.Default.FloatVal);
       if (s.find('.') == std::string::npos && s.find('e') == std::string::npos)
@@ -91,7 +105,7 @@ bool isEnum(const std::string &refName, const std::unordered_set<std::string> &e
 
 bool isStructRef(const CFieldDef &f, const std::unordered_set<std::string> &enumNames)
 {
-  return !f.Type.RefName.empty() && !enumNames.count(f.Type.RefName);
+  return !f.Type.RefName.empty() && !f.Type.IsExtern && !enumNames.count(f.Type.RefName);
 }
 
 // --- Perfect hash ---
@@ -134,40 +148,55 @@ std::optional<CPerfectHash> findPerfectHash(const std::vector<std::string> &keys
 
 // --- Enum generation ---
 
-void generateEnumDeclarations(std::string &out, const CIdlFile &file)
+void generateEnumDeclarations(std::string &out, const CIdlFile &file, bool pascalCase)
 {
   for (auto &e : file.Enums) {
+    if (e.IsImported) continue;
     std::string enumType = "E" + e.Name;
 
     out += std::format("enum class {} {{\n", enumType);
     for (auto &v : e.Values)
-      out += std::format("  {},\n", v);
+      out += std::format("  {},\n", fieldCppName(v, pascalCase));
     out += "};\n\n";
+
+    // Count constant
+    out += std::format("inline constexpr unsigned {}Count = {};\n", enumType, e.Values.size());
 
     // Function declarations
     out += std::format("bool parse{}(const char *str, size_t len, {} &out);\n", enumType, enumType);
-    out += std::format("const char *{}ToString({} v);\n\n", enumType, enumType);
+    out += std::format("const char *{}ToString({} v);\n", enumType, enumType);
+    out += std::format("const std::vector<const char*> &{}Names();\n\n", enumType);
   }
 }
 
-void generateEnumDefinitions(std::string &out, const CIdlFile &file)
+void generateEnumDefinitions(std::string &out, const CIdlFile &file, bool pascalCase)
 {
   for (auto &e : file.Enums) {
+    if (e.IsImported) continue;
     std::string enumType = "E" + e.Name;
 
     // String -> enum
     out += std::format("bool parse{}(const char *str, size_t len, {} &out) {{\n", enumType, enumType);
     for (auto &v : e.Values)
       out += std::format("  if (len == {} && memcmp(str, \"{}\", {}) == 0) {{ out = {}::{}; return true; }}\n",
-                         v.size(), v, v.size(), enumType, v);
+                         v.size(), v, v.size(), enumType, fieldCppName(v, pascalCase));
     out += "  return false;\n}\n\n";
 
     // Enum -> string
     out += std::format("const char *{}ToString({} v) {{\n", enumType, enumType);
     out += "  switch (v) {\n";
     for (auto &v : e.Values)
-      out += std::format("    case {}::{}: return \"{}\";\n", enumType, v, v);
+      out += std::format("    case {}::{}: return \"{}\";\n", enumType, fieldCppName(v, pascalCase), v);
     out += "  }\n  return \"\";\n}\n\n";
+
+    // Names
+    out += std::format("const std::vector<const char*> &{}Names() {{\n", enumType);
+    out += "  static const std::vector<const char*> names = {";
+    for (size_t i = 0; i < e.Values.size(); i++) {
+      if (i) out += ", ";
+      out += std::format("\"{}\"", e.Values[i]);
+    }
+    out += "};\n  return names;\n}\n\n";
   }
 }
 
@@ -194,7 +223,14 @@ void emitSerializeValue(std::string &code, const CFieldDef &f,
       code += std::format("{}jsonWriteUInt(out, {});\n", in, valueName); break;
     case EScalarType::Double:
       code += std::format("{}jsonWriteDouble(out, {});\n", in, valueName); break;
+    case EScalarType::Seconds: case EScalarType::Minutes: case EScalarType::Hours:
+      code += std::format("{}jsonWriteInt(out, {}.count());\n", in, valueName); break;
   }
+}
+
+bool isExternField(const CFieldDef &f)
+{
+  return f.Type.IsExtern;
 }
 
 void emitSerializeArrayElem(std::string &code, const CFieldDef &f,
@@ -209,7 +245,7 @@ void emitSerializeArrayElem(std::string &code, const CFieldDef &f,
   emitSerializeValue(code, f, valueName, enumNames, ind);
 }
 
-void generateSerializeField(std::string &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase)
+void generateSerializeField(std::string &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase, int captureIdx, bool captureIsDeferred)
 {
   std::string in = indent(ind);
   std::string cn = fieldCppName(f.Name, pascalCase); // C++ field name
@@ -219,6 +255,16 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
     first = false;
     code += std::format("{}out += \"\\\"{}\\\":\";\n", in, jsonKey);
   };
+
+  // Extern field: serialize from _capture array or write ""
+  if (isExternField(f)) {
+    emitKey(f.Name);
+    if (captureIdx >= 0)
+      code += std::format("{}jsonWriteString(out, _capture[{}]);\n", in, captureIdx);
+    else
+      code += std::format("{}jsonWriteString(out, \"\");\n", in);
+    return;
+  }
 
   switch (f.Kind) {
     case EFieldKind::Required:
@@ -233,15 +279,25 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
     }
 
     case EFieldKind::OptionalObject: {
-      code += std::format("{}if ({}.has_value()) {{\n", in, cn);
-      std::string in2 = indent(ind + 1);
-      if (!first)
-        code += std::format("{}out += ',';\n", in2);
-      code += std::format("{}out += \"\\\"{}\\\":\";\n", in2, f.Name);
-      if (isStructRef(f, enumNames)) {
-        code += std::format("{}{}->serializeImpl(out);\n", in2, cn);
+      if (captureIsDeferred && captureIdx >= 0) {
+        // Context-threaded struct: use pre-serialized JSON from _capture
+        code += std::format("{}if (!_capture[{}].empty()) {{\n", in, captureIdx);
+        std::string in2 = indent(ind + 1);
+        if (!first)
+          code += std::format("{}out += ',';\n", in2);
+        code += std::format("{}out += \"\\\"{}\\\":\";\n", in2, f.Name);
+        code += std::format("{}out += _capture[{}];\n", in2, captureIdx);
       } else {
-        emitSerializeValue(code, f, std::format("*{}", cn), enumNames, ind + 1);
+        code += std::format("{}if ({}.has_value()) {{\n", in, cn);
+        std::string in2 = indent(ind + 1);
+        if (!first)
+          code += std::format("{}out += ',';\n", in2);
+        code += std::format("{}out += \"\\\"{}\\\":\";\n", in2, f.Name);
+        if (isStructRef(f, enumNames)) {
+          code += std::format("{}{}->serializeImpl(out);\n", in2, cn);
+        } else {
+          emitSerializeValue(code, f, std::format("*{}", cn), enumNames, ind + 1);
+        }
       }
       first = false;
       code += std::format("{}}}\n", in);
