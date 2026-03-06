@@ -66,26 +66,26 @@ struct DbIo<CoinSpecificFeeRecord> {
 };
 
 template<>
-struct DbIo<UserFeePair> {
-  static inline void serialize(xmstream &stream, const UserFeePair &data) {
+struct DbIo<CUserFeePair> {
+  static inline void serialize(xmstream &stream, const CUserFeePair &data) {
     dbIoSerialize(stream, data.UserId);
     dbIoSerialize(stream, data.Percentage);
   }
 
-  static inline void unserialize(xmstream &stream, UserFeePair &data) {
+  static inline void unserialize(xmstream &stream, CUserFeePair &data) {
     dbIoUnserialize(stream, data.UserId);
     dbIoUnserialize(stream, data.Percentage);
   }
 };
 
 template<>
-struct DbIo<CUserFeeConfig> {
-  static inline void serialize(xmstream &stream, const CUserFeeConfig &data) {
+struct DbIo<CCoinFeeConfig> {
+  static inline void serialize(xmstream &stream, const CCoinFeeConfig &data) {
     dbIoSerialize(stream, data.CoinName);
     dbIoSerialize(stream, data.Config);
   }
 
-  static inline void unserialize(xmstream &stream, CUserFeeConfig &data) {
+  static inline void unserialize(xmstream &stream, CCoinFeeConfig &data) {
     dbIoUnserialize(stream, data.CoinName);
     dbIoUnserialize(stream, data.Config);
   }

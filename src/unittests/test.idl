@@ -161,6 +161,23 @@ struct Level0 {
 }
 
 // ============================================================================
+// Context — mapped type with context
+// ============================================================================
+
+mapped type testVal("int64_t") : string context(uint32) include "testMappedTypes.h";
+
+struct CtxChild {
+  context testVal;
+  value: testVal;
+  label: string;
+}
+
+// Vector context: array of context-needing struct → vector<uint32_t>
+struct CtxVectorParent {
+  items: [CtxChild];
+}
+
+// ============================================================================
 // Everything combined
 // ============================================================================
 

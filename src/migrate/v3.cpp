@@ -516,7 +516,7 @@ static bool migrateAllFoundBlocks(
           continue;
         const FoundBlockRecord &otherRecord = partitions.at(other.Partition)[other.Index].Record;
         CMergedBlockInfo info;
-        info.CoinName = other.Partition.first;
+        info.Coin = other.Partition.first;
         info.Height = otherRecord.Height;
         info.Hash = otherRecord.Hash;
         block.Record.MergedBlocks.push_back(std::move(info));

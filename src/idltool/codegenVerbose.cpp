@@ -336,7 +336,8 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       break;
     }
 
-    case EFieldKind::OptionalObject: {
+    case EFieldKind::OptionalObject:
+    case EFieldKind::NullableObject: {
       out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
       if (isStructRef(f, enumNames)) {
         out += std::format("{}else if (!{}.emplace().parseVerboseImpl(s)) return false;\n", in, cn);
@@ -404,7 +405,8 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       break;
     }
 
-    case EFieldKind::OptionalArray: {
+    case EFieldKind::OptionalArray:
+    case EFieldKind::NullableArray: {
       out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
       out += std::format("{}else {{\n", in);
       out += std::format("{}  {}.emplace();\n", in, cn);

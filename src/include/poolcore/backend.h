@@ -57,7 +57,7 @@ private:
   void onWorkSummary(const CWorkSummaryBatch &batch);
   void onBlockFound(const CBlockFoundData &block, const std::vector<PoolBackend*> &shareBackends);
   void onUserSettingsUpdate(const UserSettingsRecord &settings);
-  void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<UserFeePair> &feeRecord);
+  void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<CUserFeePair> &feeRecord);
   void onFeePlanDelete(const std::string &feePlanId);
   void onUserFeePlanChange(const std::string &login, const std::string &feePlanId);
 
@@ -113,7 +113,7 @@ public:
   void sendUserSettingsUpdate(UserSettingsRecord settings) {
     TaskHandler_.push([settings = std::move(settings)](PoolBackend *b) { b->onUserSettingsUpdate(settings); });
   }
-  void sendFeePlanUpdate(std::string feePlanId, EMiningMode mode, std::vector<UserFeePair> feeRecord) {
+  void sendFeePlanUpdate(std::string feePlanId, EMiningMode mode, std::vector<CUserFeePair> feeRecord) {
     TaskHandler_.push([feePlanId = std::move(feePlanId), mode, feeRecord = std::move(feeRecord)](PoolBackend *b) { b->onFeePlanUpdate(feePlanId, mode, feeRecord); });
   }
   void sendFeePlanDelete(std::string feePlanId) {

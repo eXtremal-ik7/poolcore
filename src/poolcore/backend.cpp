@@ -127,7 +127,7 @@ void PoolBackend::onUserSettingsUpdate(const UserSettingsRecord &settings)
   _accounting->onUserSettingsUpdate(settings);
 }
 
-void PoolBackend::onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<UserFeePair> &feeRecord)
+void PoolBackend::onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<CUserFeePair> &feeRecord)
 {
   _accounting->onFeePlanUpdate(feePlanId, mode, feeRecord);
 }

@@ -13,7 +13,7 @@
 
 namespace {
 const std::string defaultFeePlan = "default";
-const std::vector<::UserFeePair> emptyFeeRecord;
+const std::vector<::CUserFeePair> emptyFeeRecord;
 } // namespace
 
 void AccountingDb::printRecentStatistic()
@@ -295,7 +295,7 @@ void AccountingDb::distributeBlockReward(MiningRound &R)
     auto feePlanIt = UserFeePlanIds_.find(record.UserId);
     const std::string &feePlanId = feePlanIt != UserFeePlanIds_.end() ? feePlanIt->second : defaultFeePlan;
     auto cacheIt = FeePlanCache_.find({feePlanId, EMiningMode::Pplns});
-    const std::vector<::UserFeePair> &feeRecord = cacheIt != FeePlanCache_.end() ? cacheIt->second : emptyFeeRecord;
+    const std::vector<::CUserFeePair> &feeRecord = cacheIt != FeePlanCache_.end() ? cacheIt->second : emptyFeeRecord;
 
     UInt<384> feeValuesSum = UInt<384>::zero();
     std::vector<UInt<384>> feeValues;
@@ -511,7 +511,7 @@ void AccountingDb::onUserSettingsUpdate(const UserSettingsRecord &settings)
   UserSettings_[settings.Login] = settings;
 }
 
-void AccountingDb::onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::UserFeePair> &feeRecord)
+void AccountingDb::onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::CUserFeePair> &feeRecord)
 {
   FeePlanCache_[{feePlanId, mode}] = feeRecord;
   CLOG_F(INFO, "AccountingDb {}: fee plan '{}' updated for mode {}, {} entries",
@@ -628,7 +628,13 @@ void AccountingDb::onMergedBlockNotification(const std::string &coinName, uint64
 {
   auto [it, inserted] = PendingMergedNotifications_.try_emplace(shareHash);
   auto &entry = it->second;
-  entry.Pending.push_back({coinName, height, hash});
+  {
+    CMergedBlockInfo merged;
+    merged.Coin = coinName;
+    merged.Height = height;
+    merged.Hash = hash;
+    entry.Pending.push_back(std::move(merged));
+  }
   if (entry.HasBlock)
     flushPendingMergedBlocks(entry);
   if (inserted)
@@ -656,14 +662,14 @@ void AccountingDb::flushPendingMergedBlocks(CMergedBlockPending &pending)
   for (auto &merged : pending.Pending) {
     bool found = false;
     for (auto &existing : blk.MergedBlocks) {
-      if (existing.CoinName == merged.CoinName) {
+      if (existing.Coin == merged.Coin) {
         found = true;
         break;
       }
     }
     if (!found) {
       CLOG_F(INFO, "AccountingDb {}: merged block {}/{} linked to block {}/{}",
-            CoinInfo_.Name, merged.CoinName, merged.Height, blk.Height, blk.Hash);
+            CoinInfo_.Name, merged.Coin, merged.Height, blk.Height, blk.Hash);
       blk.MergedBlocks.push_back(std::move(merged));
     }
   }

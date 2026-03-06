@@ -1,4 +1,5 @@
 mapped type money("UInt<384>") : string context(uint32) include "poolcommon/mappedTypes.h";
+mapped type moneyBTC("UInt<384>") : string include "poolcommon/mappedTypes.h";
 mapped type unixTime("Timestamp") : int64 include "poolcommon/mappedTypes.h";
 
 enum MiningMode : string {
@@ -36,6 +37,21 @@ struct SettingsMining {
 
 struct SettingsAutoExchange {
   payoutCoinName: string = "" @1;
+}
+
+struct UserFeePair {
+  userId: string;
+  percentage: double;
+}
+
+struct CoinFeeConfig {
+  coinName: string;
+  config: [UserFeePair];
+}
+
+struct ModeFeeConfig {
+  default: [UserFeePair];
+  coinSpecific: [CoinFeeConfig];
 }
 
 struct BackendPPS {
@@ -104,5 +120,44 @@ struct PPSState {
     void serializeKey(class xmstream &stream) const;
     void serializeValue(class xmstream &stream) const;
     bool deserializeValue(const void *data, size_t size);
+  }
+}
+
+struct MergedBlockInfo {
+  coin: string;
+  height: int64;
+  hash: string;
+}
+
+struct PPLNSPayoutEntry {
+  context money;
+  startTime: unixTime;
+  endTime: unixTime;
+  hash: string;
+  height: int64;
+  value: money;
+  valueBTC: moneyBTC;
+  valueUSD: moneyBTC;
+}
+
+struct PPSPayoutEntry {
+  context money;
+  startTime: unixTime;
+  endTime: unixTime;
+  value: money;
+  valueBTC: moneyBTC;
+  valueUSD: moneyBTC;
+}
+
+struct AccumulatedPayoutEntry {
+  context money;
+  timeLabel: int64;
+  value: money;
+  valueBTC: moneyBTC;
+  valueUSD: moneyBTC;
+
+  cpp {
+    void merge(const UInt<384> &payoutValue, double rateToBTC, double rateBTCToUSD, unsigned fractionalPartSize);
+    void mergeScaled(const UInt<384> &payoutValue, double rateToBTC, double rateBTCToUSD, double coeff, unsigned fractionalPartSize);
   }
 }

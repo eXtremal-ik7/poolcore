@@ -14,6 +14,11 @@
 
 class PoolBackend;
 
+struct CToken {
+  std::string Login;
+  bool IsReadOnly;
+};
+
 class UserManager {
 public:
   enum ESpecialUser {
@@ -48,18 +53,13 @@ public:
 
   struct FeePlan {
     struct ModeConfig {
-      std::vector<UserFeePair> Default;
-      std::unordered_map<std::string, std::vector<UserFeePair>> CoinSpecific;
+      std::vector<CUserFeePair> Default;
+      std::unordered_map<std::string, std::vector<CUserFeePair>> CoinSpecific;
     };
 
     // Indexed by EMiningMode
     std::vector<ModeConfig> Modes;
     BaseBlob<256> ReferralId;
-  };
-
-  struct UserWithAccessRights {
-    std::string Login;
-    bool IsReadOnly;
   };
 
   // User session life time from last access (default: 30 minutes)
@@ -464,7 +464,7 @@ public:
   // Synchronous api
   bool checkUser(const std::string &login);
   bool checkPassword(const std::string &login, const std::string &password);
-  bool validateSession(const std::string &id, const std::string &targetLogin, UserWithAccessRights &result, bool needWriteAccess);
+  bool validateSession(const std::string &id, const std::string &targetLogin, CToken &result, bool needWriteAccess);
   bool getUserCredentials(const std::string &login, Credentials &out);
   bool getUserCoinSettings(const std::string &login, const std::string &coin, UserSettingsRecord &settings);
   std::vector<UserSettingsRecord> getAllCoinSettings(const std::string &coin);
@@ -473,8 +473,8 @@ public:
   std::string getFeePlanId(const std::string &login);
   bool queryFeePlan(const std::string &login, const std::string &feePlanId, EMiningMode mode, std::string &status, BaseBlob<256> &referralIdOut, CModeFeeConfig &result);
   bool enumerateFeePlan(const std::string &login, std::string &status, std::vector<std::string> &result);
-  std::vector<UserFeePair> getFeeRecord(const std::string &feePlanId, EMiningMode mode, const std::string &coin);
-  std::vector<std::pair<std::string, std::vector<UserFeePair>>> getAllFeeRecords(EMiningMode mode, const std::string &coin);
+  std::vector<CUserFeePair> getFeeRecord(const std::string &feePlanId, EMiningMode mode, const std::string &coin);
+  std::vector<std::pair<std::string, std::vector<CUserFeePair>>> getAllFeeRecords(EMiningMode mode, const std::string &coin);
   void fillUserFeePlanIds(std::unordered_map<std::string, std::string> &out);
 
 private:

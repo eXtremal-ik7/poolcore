@@ -56,10 +56,12 @@ std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::strin
     case EFieldKind::Optional:
       return base;
     case EFieldKind::OptionalObject:
+    case EFieldKind::NullableObject:
       return std::format("std::optional<{}>", base);
     case EFieldKind::Array:
       return std::format("std::vector<{}>", base);
     case EFieldKind::OptionalArray:
+    case EFieldKind::NullableArray:
       return std::format("std::optional<std::vector<{}>>", base);
   }
   return base;
@@ -228,7 +230,7 @@ void emitSerializeValue(std::string &code, const CFieldDef &f,
 {
   std::string in = indent(ind);
   if (isEnum(f.Type.RefName, enumNames)) {
-    code += std::format("{}out += '\"'; out += E{}ToString({}); out += '\"';\n", in, f.Type.RefName, valueName);
+    code += std::format("{}out.write('\"'); out.write(E{}ToString({})); out.write('\"');\n", in, f.Type.RefName, valueName);
     return;
   }
   switch (f.Type.Scalar) {
@@ -258,7 +260,7 @@ void emitSerializeArrayElem(std::string &code, const CFieldDef &f,
                             int ind)
 {
   if (isStructRef(f, enumNames)) {
-    code += std::format("{}{}.serializeImpl(out);\n", indent(ind), valueName);
+    code += std::format("{}{}.serialize(out);\n", indent(ind), valueName);
     return;
   }
   emitSerializeValue(code, f, valueName, enumNames, ind);
@@ -270,9 +272,9 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
   std::string cn = fieldCppName(f.Name, pascalCase);
   auto emitKey = [&](const std::string &jsonKey) {
     if (!first)
-      code += std::format("{}out += ',';\n", in);
+      code += std::format("{}out.write(',');\n", in);
     first = false;
-    code += std::format("{}out += \"\\\"{}\\\":\";\n", in, jsonKey);
+    code += std::format("{}out.write(\"\\\"{}\\\":\");\n", in, jsonKey);
   };
 
   // Mapped field: write empty string in standard serialize
@@ -287,7 +289,7 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
     case EFieldKind::Optional: {
       emitKey(f.Name);
       if (isStructRef(f, enumNames)) {
-        code += std::format("{}{}.serializeImpl(out);\n", in, cn);
+        code += std::format("{}{}.serialize(out);\n", in, cn);
       } else {
         emitSerializeValue(code, f, cn, enumNames, ind);
       }
@@ -298,10 +300,10 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
       code += std::format("{}if ({}.has_value()) {{\n", in, cn);
       std::string in2 = indent(ind + 1);
       if (!first)
-        code += std::format("{}out += ',';\n", in2);
-      code += std::format("{}out += \"\\\"{}\\\":\";\n", in2, f.Name);
+        code += std::format("{}out.write(',');\n", in2);
+      code += std::format("{}out.write(\"\\\"{}\\\":\");\n", in2, f.Name);
       if (isStructRef(f, enumNames)) {
-        code += std::format("{}{}->serializeImpl(out);\n", in2, cn);
+        code += std::format("{}{}->serialize(out);\n", in2, cn);
       } else {
         emitSerializeValue(code, f, std::format("*{}", cn), enumNames, ind + 1);
       }
@@ -310,14 +312,29 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
       break;
     }
 
+    case EFieldKind::NullableObject: {
+      emitKey(f.Name);
+      code += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      std::string in2 = indent(ind + 1);
+      if (isStructRef(f, enumNames)) {
+        code += std::format("{}{}->serialize(out);\n", in2, cn);
+      } else {
+        emitSerializeValue(code, f, std::format("*{}", cn), enumNames, ind + 1);
+      }
+      code += std::format("{}}} else {{\n", in);
+      code += std::format("{}out.write(\"null\");\n", indent(ind + 1));
+      code += std::format("{}}}\n", in);
+      break;
+    }
+
     case EFieldKind::Array: {
       emitKey(f.Name);
-      code += std::format("{}out += '[';\n", in);
+      code += std::format("{}out.write('[');\n", in);
       code += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
-      code += std::format("{}  if (i_) out += ',';\n", in);
+      code += std::format("{}  if (i_) out.write(',');\n", in);
       emitSerializeArrayElem(code, f, std::format("{}[i_]", cn), enumNames, ind + 1);
       code += std::format("{}}}\n", in);
-      code += std::format("{}out += ']';\n", in);
+      code += std::format("{}out.write(']');\n", in);
       break;
     }
 
@@ -325,14 +342,31 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
       code += std::format("{}if ({}.has_value()) {{\n", in, cn);
       std::string in2 = indent(ind + 1);
       if (!first)
-        code += std::format("{}out += ',';\n", in2);
-      code += std::format("{}out += \"\\\"{}\\\":[\";\n", in2, f.Name);
+        code += std::format("{}out.write(',');\n", in2);
+      code += std::format("{}out.write(\"\\\"{}\\\":\");\n", in2, f.Name);
+      code += std::format("{}out.write('[');\n", in2);
       code += std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in2, cn);
-      code += std::format("{}  if (i_) out += ',';\n", in2);
+      code += std::format("{}  if (i_) out.write(',');\n", in2);
       emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
       code += std::format("{}}}\n", in2);
-      code += std::format("{}out += ']';\n", in2);
+      code += std::format("{}out.write(']');\n", in2);
       first = false;
+      code += std::format("{}}}\n", in);
+      break;
+    }
+
+    case EFieldKind::NullableArray: {
+      emitKey(f.Name);
+      code += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      std::string in2 = indent(ind + 1);
+      code += std::format("{}out.write('[');\n", in2);
+      code += std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in2, cn);
+      code += std::format("{}  if (i_) out.write(',');\n", in2);
+      emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      code += std::format("{}}}\n", in2);
+      code += std::format("{}out.write(']');\n", in2);
+      code += std::format("{}}} else {{\n", in);
+      code += std::format("{}out.write(\"null\");\n", indent(ind + 1));
       code += std::format("{}}}\n", in);
       break;
     }
@@ -555,46 +589,50 @@ static char jsonHexDigit(uint8_t b) {
   return b < 10 ? '0' + b : 'a' + b - 10;
 }
 
-static void jsonWriteString(std::string &out, const std::string &value) {
-  out += '"';
+static void jsonWriteString(xmstream &out, const std::string &value) {
+  out.write('"');
   for (char ch : value) {
     switch (ch) {
-      case '"':  out += "\\\""; break;
-      case '\\': out += "\\\\"; break;
-      case '\b': out += "\\b"; break;
-      case '\f': out += "\\f"; break;
-      case '\n': out += "\\n"; break;
-      case '\r': out += "\\r"; break;
-      case '\t': out += "\\t"; break;
+      case '"':  out.write("\\\""); break;
+      case '\\': out.write("\\\\"); break;
+      case '\b': out.write("\\b"); break;
+      case '\f': out.write("\\f"); break;
+      case '\n': out.write("\\n"); break;
+      case '\r': out.write("\\r"); break;
+      case '\t': out.write("\\t"); break;
       default:
         if (static_cast<uint8_t>(ch) < 0x20) {
-          out += "\\u00";
-          out += jsonHexDigit(static_cast<uint8_t>(ch) >> 4);
-          out += jsonHexDigit(static_cast<uint8_t>(ch) & 0xF);
+          out.write("\\u00");
+          out.write(jsonHexDigit(static_cast<uint8_t>(ch) >> 4));
+          out.write(jsonHexDigit(static_cast<uint8_t>(ch) & 0xF));
         } else {
-          out += ch;
+          out.write(ch);
         }
         break;
     }
   }
-  out += '"';
+  out.write('"');
 }
 
-static void jsonWriteInt(std::string &out, int64_t v) {
-  out += std::to_string(v);
+static void jsonWriteInt(xmstream &out, int64_t v) {
+  char buf[24];
+  int n = snprintf(buf, sizeof(buf), "%" PRId64, v);
+  out.write(buf, n);
 }
 
-static void jsonWriteUInt(std::string &out, uint64_t v) {
-  out += std::to_string(v);
+static void jsonWriteUInt(xmstream &out, uint64_t v) {
+  char buf[24];
+  int n = snprintf(buf, sizeof(buf), "%" PRIu64, v);
+  out.write(buf, n);
 }
 
-static void jsonWriteDouble(std::string &out, double v) {
+static void jsonWriteDouble(xmstream &out, double v) {
   char buf[64];
-  snprintf(buf, sizeof(buf), "%.12g", v);
-  out += buf;
+  int n = snprintf(buf, sizeof(buf), "%.12g", v);
+  out.write(buf, n);
 }
 
-static void jsonWriteBool(std::string &out, bool v) {
-  out += v ? "true" : "false";
+static void jsonWriteBool(xmstream &out, bool v) {
+  out.write(v ? "true" : "false");
 }
 )";

@@ -268,7 +268,7 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
 {
   // Validate individual entries and compute sum; extraFee is added to the total (PPS pool fee)
   auto acceptProc = [this](
-    const std::vector<UserFeePair> &config, const std::string &planId, double extraFee, std::string &error) -> bool
+    const std::vector<CUserFeePair> &config, const std::string &planId, double extraFee, std::string &error) -> bool
   {
     double sum = extraFee;
     for (const auto &pair: config) {
@@ -296,7 +296,7 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
     return true;
   };
 
-  auto feeConfigToString = [](const std::vector<UserFeePair> &config) -> std::string {
+  auto feeConfigToString = [](const std::vector<CUserFeePair> &config) -> std::string {
     std::string result;
     for (const auto &pair: config) {
       result.append(pair.UserId);
@@ -377,7 +377,7 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
 
 void UserManager::buildModeFeeConfig(const FeePlan::ModeConfig &mode, CModeFeeConfig &result)
 {
-  auto sortByUserId = [](const UserFeePair &l, const UserFeePair &r) { return l.UserId < r.UserId; };
+  auto sortByUserId = [](const CUserFeePair &l, const CUserFeePair &r) { return l.UserId < r.UserId; };
 
   result.Default = mode.Default;
   std::sort(result.Default.begin(), result.Default.end(), sortByUserId);
@@ -393,7 +393,7 @@ void UserManager::buildModeFeeConfig(const FeePlan::ModeConfig &mode, CModeFeeCo
   std::sort(
     result.CoinSpecific.begin(),
     result.CoinSpecific.end(),
-    [](const CUserFeeConfig &l, const CUserFeeConfig &r) { return l.CoinName < r.CoinName; });
+    [](const CCoinFeeConfig &l, const CCoinFeeConfig &r) { return l.CoinName < r.CoinName; });
 }
 
 void UserManager::buildFeePlanRecord(const std::string &feePlanId, const FeePlan &plan, UserFeePlanRecord &result)
@@ -639,7 +639,7 @@ void UserManager::changePasswordInitiateImpl(const std::string &login, Task::Def
 
 void UserManager::userChangePasswordForceImpl(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback)
 {
-  UserWithAccessRights tokenInfo;
+  CToken tokenInfo;
   if (!validateSession(sessionId, "admin", tokenInfo, true) || tokenInfo.Login != "admin") {
     callback("unknown_id");
     return;
@@ -1516,7 +1516,10 @@ bool UserManager::checkPassword(const std::string &login, const std::string &pas
   return record.PasswordHash == generateHash(login, password);
 }
 
-bool UserManager::validateSession(const std::string &id, const std::string &targetLogin, UserWithAccessRights &result, bool needWriteAccess)
+bool UserManager::validateSession(const std::string &id,
+                                  const std::string &targetLogin,
+                                  CToken &result,
+                                  bool needWriteAccess)
 {
   result.IsReadOnly = false;
   Timestamp currentTime = Timestamp::now();
@@ -1701,7 +1704,7 @@ bool UserManager::enumerateFeePlan(const std::string &login, std::string &status
 }
 
 // Returns flat fee list for a given plan/mode/coin (no fee chain resolution)
-std::vector<UserFeePair> UserManager::getFeeRecord(const std::string &feePlanId, EMiningMode mode, const std::string &coin)
+std::vector<CUserFeePair> UserManager::getFeeRecord(const std::string &feePlanId, EMiningMode mode, const std::string &coin)
 {
   decltype (FeePlanCache_)::const_accessor accessor;
   if (FeePlanCache_.find(accessor, feePlanId)) {
@@ -1715,9 +1718,9 @@ std::vector<UserFeePair> UserManager::getFeeRecord(const std::string &feePlanId,
   return {};
 }
 
-std::vector<std::pair<std::string, std::vector<UserFeePair>>> UserManager::getAllFeeRecords(EMiningMode mode, const std::string &coin)
+std::vector<std::pair<std::string, std::vector<CUserFeePair>>> UserManager::getAllFeeRecords(EMiningMode mode, const std::string &coin)
 {
-  std::vector<std::pair<std::string, std::vector<UserFeePair>>> result;
+  std::vector<std::pair<std::string, std::vector<CUserFeePair>>> result;
   for (const auto &entry : FeePlanCache_)
     result.emplace_back(entry.first, getFeeRecord(entry.first, mode, coin));
   return result;

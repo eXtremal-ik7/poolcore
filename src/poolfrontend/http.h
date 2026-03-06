@@ -61,57 +61,77 @@ private:
   void onInstanceEnumerateAll();
 
   // WithSession
-  void onUserLogout(const CUserLogoutRequest &request, const UserManager::UserWithAccessRights&);
-  void onUserQueryMonitoringSession(const CUserQueryMonitoringSessionRequest&, const UserManager::UserWithAccessRights &tokenInfo);
-  void onUserGetCredentials(const CUserGetCredentialsRequest&, const UserManager::UserWithAccessRights &tokenInfo);
-  void onUserGetSettings(const CUserGetSettingsRequest&, const UserManager::UserWithAccessRights &tokenInfo);
-  void onUserUpdateCredentials(const CUserUpdateCredentialsRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
-  void onUserUpdateSettings(const CUserUpdateSettingsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend&);
-  void onUserEnumerateAll(const CUserEnumerateAllRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic);
-  void onUserEnumerateFeePlan(const CUserEnumerateFeePlanRequest&, const UserManager::UserWithAccessRights &tokenInfo);
-  void onUserQueryFeePlan(const CUserQueryFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
-  void onUserCreateForce(const CUserCreateForceRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
-  void onUserCreateFeePlan(const CUserCreateFeePlanRequest &request, const UserManager::UserWithAccessRights&);
-  void onUserUpdateFeePlan(const CUserUpdateFeePlanRequest &request, const UserManager::UserWithAccessRights&);
-  void onUserDeleteFeePlan(const CUserDeleteFeePlanRequest &request, const UserManager::UserWithAccessRights&);
-  void onUserChangeFeePlan(const CUserChangeFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
-  void onUserRenewFeePlanReferralId(const CUserRenewFeePlanReferralIdRequest &request, const UserManager::UserWithAccessRights&);
-  void onUserActivate2faInitiate(const CUserActivate2faInitiateRequest&, const UserManager::UserWithAccessRights &tokenInfo);
-  void onUserDeactivate2faInitiate(const CUserDeactivate2faInitiateRequest&, const UserManager::UserWithAccessRights &tokenInfo);
-  void onBackendQueryUserBalance(const CBackendQueryUserBalanceRequest &request, const UserManager::UserWithAccessRights &tokenInfo);
-  void onBackendQueryUserStats(const CBackendQueryUserStatsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic);
-  void onBackendQueryUserStatsHistory(const CBackendQueryUserStatsHistoryRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic);
-  void onBackendQueryWorkerStatsHistory(const CBackendQueryWorkerStatsHistoryRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic);
-  void onBackendQueryProfitSwitchCoeff(const CBackendQueryProfitSwitchCoeffRequest&, const UserManager::UserWithAccessRights&);
-  void onComplexMiningStatsGetInfo(const CComplexMiningStatsGetInfoRequest&, const UserManager::UserWithAccessRights&);
+  void onUserLogout(const CSessionRequest &request, const CToken&);
+  void onUserQueryMonitoringSession(const CSessionTargetRequest&, const CToken &token);
+  void onUserGetCredentials(const CSessionTargetRequest&, const CToken &token);
+  void onUserGetSettings(const CSessionTargetRequest&, const CToken &token);
+  void onUserUpdateCredentials(const CUserUpdateCredentialsRequest &request, const CToken &token);
+  void onUserUpdateSettings(const CUserUpdateSettingsRequest &request, const CToken &token, PoolBackend&);
+  void onUserEnumerateAll(const CUserEnumerateAllRequest &request, const CToken &token, StatisticDb &statistic);
+  void onUserEnumerateFeePlan(const CSessionRequest&, const CToken &token);
+  void onUserQueryFeePlan(const CUserQueryFeePlanRequest &request, const CToken &token);
+  void onUserCreateForce(const CUserCreateForceRequest &request, const CToken &token);
+  void onUserCreateFeePlan(const CSessionFeePlanRequest &request, const CToken&);
+  void onUserUpdateFeePlan(const CUserUpdateFeePlanRequest &request, const CToken&);
+  void onUserDeleteFeePlan(const CSessionFeePlanRequest &request, const CToken&);
+  void onUserChangeFeePlan(const CUserChangeFeePlanRequest &request, const CToken &token);
+  void onUserRenewFeePlanReferralId(const CSessionFeePlanRequest &request, const CToken&);
+  void onUserActivate2faInitiate(const CSessionTargetRequest&, const CToken &token);
+  void onUserDeactivate2faInitiate(const CSessionTargetRequest&, const CToken &token);
+  void onBackendQueryUserBalance(const CBackendQueryUserBalanceRequest &request, const CToken &token);
+  void onBackendQueryUserStats(const CBackendQueryUserStatsRequest &request, const CToken &token, StatisticDb &statistic);
+  void onBackendQueryUserStatsHistory(const CBackendQueryUserStatsHistoryRequest &request, const CToken &token, StatisticDb &statistic);
+  void onBackendQueryWorkerStatsHistory(const CBackendQueryWorkerStatsHistoryRequest &request, const CToken &token, StatisticDb &statistic);
+  void onBackendQueryProfitSwitchCoeff(const CSessionRequest&, const CToken&);
+  void onComplexMiningStatsGetInfo(const CSessionRequest&, const CToken&);
 
   // WithBackend
   void onBackendPoolLuck(const CBackendPoolLuckRequest &request, PoolBackend &backend);
   void onBackendQueryFoundBlocks(const CBackendQueryFoundBlocksRequest &request, PoolBackend &backend);
 
   // WithSessionAndBackend
-  void onBackendManualPayout(const CBackendManualPayoutRequest&, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
-  void onBackendQueryPayouts(const CBackendQueryPayoutsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
-  void onBackendQueryPPLNSPayouts(const CBackendQueryPPLNSPayoutsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
-  void onBackendQueryPPLNSAcc(const CBackendQueryPPLNSAccRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
-  void onBackendQueryPPSPayouts(const CBackendQueryPPSPayoutsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
-  void onBackendQueryPPSPayoutsAcc(const CBackendQueryPPSPayoutsAccRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend);
-  void onBackendGetConfig(const CBackendGetConfigRequest&, const UserManager::UserWithAccessRights&, PoolBackend &backend);
-  void onBackendGetPPSState(const CBackendGetPPSStateRequest&, const UserManager::UserWithAccessRights&, PoolBackend &backend);
-  void onBackendQueryPPSHistory(const CBackendQueryPPSHistoryRequest &request, const UserManager::UserWithAccessRights&, PoolBackend &backend);
-  void onBackendUpdateConfig(const CBackendUpdateConfigRequest&, const UserManager::UserWithAccessRights&, PoolBackend &backend);
-  void onBackendUpdateProfitSwitchCoeff(const CBackendUpdateProfitSwitchCoeffRequest &request, const UserManager::UserWithAccessRights&, PoolBackend &backend);
-  void onUserAdjustInstantPayoutThreshold(const CUserAdjustInstantPayoutThresholdRequest &request, const UserManager::UserWithAccessRights&, PoolBackend &backend);
+  void onBackendManualPayout(const CBackendManualPayoutRequest&, const CToken &token, PoolBackend &backend);
+  void onBackendQueryPayouts(const CBackendQueryPayoutsRequest &request, const CToken &token, PoolBackend &backend);
+  void onBackendQueryPPLNSPayouts(const CBackendQueryPPLNSPayoutsRequest &request, const CToken &token, PoolBackend &backend);
+  void onBackendQueryPPLNSAcc(const CBackendQueryPPLNSAccRequest &request, const CToken &token, PoolBackend &backend);
+  void onBackendQueryPPSPayouts(const CBackendQueryPPSPayoutsRequest &request, const CToken &token, PoolBackend &backend);
+  void onBackendQueryPPSPayoutsAcc(const CBackendQueryPPSPayoutsAccRequest &request, const CToken &token, PoolBackend &backend);
+  void onBackendGetConfig(const CSessionCoinRequest&, const CToken&, PoolBackend &backend);
+  void onBackendGetPPSState(const CSessionCoinRequest&, const CToken&, PoolBackend &backend);
+  void onBackendQueryPPSHistory(const CBackendQueryPPSHistoryRequest &request, const CToken&, PoolBackend &backend);
+  void onBackendUpdateConfig(const CBackendUpdateConfigRequest&, const CToken&, PoolBackend &backend);
+  void onBackendUpdateProfitSwitchCoeff(const CBackendUpdateProfitSwitchCoeffRequest &request, const CToken&, PoolBackend &backend);
+  void onUserAdjustInstantPayoutThreshold(const CUserAdjustInstantPayoutThresholdRequest &request, const CToken&, PoolBackend &backend);
 
   void queryStatsHistory(StatisticDb *statistic, const std::string &login, const std::string &worker, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, int64_t currentTime);
   void replyWithStatus(const char *status);
+
+  template<typename T>
+  void sendReply(const T &response) {
+    xmstream stream;
+    reply200(stream);
+    size_t offset = startChunk(stream);
+    response.serialize(stream);
+    finishChunk(stream, offset);
+    aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
+  }
+
+  template<typename T, typename... Ctx>
+  void sendReply(const T &response, Ctx... ctx) {
+    xmstream stream;
+    reply200(stream);
+    size_t offset = startChunk(stream);
+    response.serialize(stream, ctx...);
+    finishChunk(stream, offset);
+    aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
+  }
 
   template<typename> struct HandlerTraits;
   template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&)> {
     using Request = T;
     static constexpr bool NeedSession = false, NeedBackend = false, NeedStatistic = false;
   };
-  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, const UserManager::UserWithAccessRights&)> {
+  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, const CToken&)> {
     using Request = T;
     static constexpr bool NeedSession = true, NeedBackend = false, NeedStatistic = false;
   };
@@ -123,11 +143,11 @@ private:
     using Request = T;
     static constexpr bool NeedSession = false, NeedBackend = false, NeedStatistic = true;
   };
-  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, const UserManager::UserWithAccessRights&, PoolBackend&)> {
+  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, const CToken&, PoolBackend&)> {
     using Request = T;
     static constexpr bool NeedSession = true, NeedBackend = true, NeedStatistic = false;
   };
-  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, const UserManager::UserWithAccessRights&, StatisticDb&)> {
+  template<typename T> struct HandlerTraits<void (PoolHttpConnection::*)(const T&, const CToken&, StatisticDb&)> {
     using Request = T;
     static constexpr bool NeedSession = true, NeedBackend = false, NeedStatistic = true;
   };
@@ -166,7 +186,7 @@ private:
     }
 
     // Phase 2: Access control and backend/statistic lookup
-    [[maybe_unused]] UserManager::UserWithAccessRights tokenInfo;
+    [[maybe_unused]] CToken tokenInfo;
     if constexpr (Meta.HasSession) {
       std::string targetLogin;
       if constexpr (requires { req.TargetLogin; })

@@ -6,7 +6,8 @@ include "poolcommon/types.idl";
 // Syntax:
 //   field: type;              — required (error if missing)
 //   field: type = default;    — optional with default value
-//   field: type?;             — optional sub-object (may be absent)
+//   field: type?;             — optional sub-object (omitted when absent)
+//   field: type??;            — nullable (null when absent)
 //   [type]                    — array of type
 //   mixin Name;               — inline all fields from another struct
 //   enum Name : type { ... }  — enumeration with allowed values
@@ -51,23 +52,26 @@ mixin TimeRangeDefault {
   groupByInterval: int64 = 3600;
 }
 
-struct UserFeePair {
-  userId: string;
-  percentage: double;
-}
-
-struct CoinFeeConfig {
-  coinName: string;
-  config: [UserFeePair];
-}
-
-mixin ModeFeeConfig {
-  default: [UserFeePair];
-  coinSpecific: [CoinFeeConfig];
-}
-
 struct StatusResponse {
   status: string;
+}
+
+struct SessionRequest {
+  id: string;
+}
+
+struct SessionTargetRequest {
+  mixin SessionTarget;
+}
+
+struct SessionCoinRequest {
+  id: string;
+  coin: string;
+}
+
+struct SessionFeePlanRequest {
+  id: string;
+  feePlanId: string;
 }
 
 // ============================================================================
@@ -132,14 +136,10 @@ struct UserLoginResponse {
 }
 
 // --- userLogout ---
-struct UserLogoutRequest {
-  id: string;
-}
+// → SessionRequest
 
 // --- userQueryMonitoringSession ---
-struct UserQueryMonitoringSessionRequest {
-  mixin SessionTarget;
-}
+// → SessionTargetRequest
 struct UserQueryMonitoringSessionResponse {
   status: string;
   sessionid: string;
@@ -158,9 +158,7 @@ struct UserChangePasswordForceRequest {
 }
 
 // --- userGetCredentials ---
-struct UserGetCredentialsRequest {
-  mixin SessionTarget;
-}
+// → SessionTargetRequest
 struct UserGetCredentialsResponse {
   status: string;
   login: string;
@@ -182,9 +180,7 @@ struct CoinSettings {
   ppsFee: double;
 }
 
-struct UserGetSettingsRequest {
-  mixin SessionTarget;
-}
+// → SessionTargetRequest
 struct UserGetSettingsResponse {
   status: string;
   coins: [CoinSettings];
@@ -237,19 +233,14 @@ struct UserEnumerateAllResponse {
 }
 
 // --- userEnumerateFeePlan ---
-struct UserEnumerateFeePlanRequest {
-  id: string;
-}
+// → SessionRequest
 struct UserEnumerateFeePlanResponse {
   status: string;
   plans: [string];
 }
 
 // --- userCreateFeePlan ---
-struct UserCreateFeePlanRequest {
-  id: string;
-  feePlanId: string;
-}
+// → SessionFeePlanRequest
 
 // --- userQueryFeePlan ---
 struct UserQueryFeePlanRequest {
@@ -262,7 +253,8 @@ struct UserQueryFeePlanResponse {
   feePlanId: string;
   mode: MiningMode;
   referralId: string;     // nullable
-  mixin ModeFeeConfig;
+  default: [UserFeePair];
+  coinSpecific: [CoinFeeConfig];
 }
 
 // --- userUpdateFeePlan ---
@@ -270,14 +262,12 @@ struct UserUpdateFeePlanRequest {
   id: string;
   feePlanId: string;
   mode: MiningMode;
-  mixin ModeFeeConfig;
+  default: [UserFeePair];
+  coinSpecific: [CoinFeeConfig];
 }
 
 // --- userDeleteFeePlan ---
-struct UserDeleteFeePlanRequest {
-  id: string;
-  feePlanId: string;
-}
+// → SessionFeePlanRequest
 
 // --- userChangeFeePlan ---
 struct UserChangeFeePlanRequest {
@@ -287,30 +277,21 @@ struct UserChangeFeePlanRequest {
 }
 
 // --- userRenewFeePlanReferralId ---
-struct UserRenewFeePlanReferralIdRequest {
-  id: string;
-  feePlanId: string;
-}
+// → SessionFeePlanRequest
 struct UserRenewFeePlanReferralIdResponse {
   status: string;
   referralId: string;
 }
 
 // --- userActivate2faInitiate ---
-struct UserActivate2faInitiateRequest {
-  id: string;
-  targetLogin: string = "";
-}
+// → SessionTargetRequest
 struct UserActivate2faInitiateResponse {
   status: string;
   key: string;
 }
 
 // --- userDeactivate2faInitiate ---
-struct UserDeactivate2faInitiateRequest {
-  id: string;
-  targetLogin: string = "";
-}
+// → SessionTargetRequest
 
 // --- userAdjustInstantPayoutThreshold ---
 struct UserAdjustInstantPayoutThresholdRequest {
@@ -431,16 +412,16 @@ struct HttpCoinInfo {
   minimalInstantPayout: string;
   acceptIncoming: bool;
   acceptOutgoing: bool;
-  valueBTC: double;           // nullable
-  valueUSD: double;           // nullable
-  height: int64;              // nullable (placeholder)
-  difficulty: double;         // nullable (placeholder)
-  powerUnit: string;          // nullable (placeholder)
-  powerMultLog10: int64;      // nullable (placeholder)
-  powerPPS: int64;            // nullable (placeholder)
-  dailyPPS: string;           // nullable (placeholder)
-  dailyPPSUSD: string;        // nullable (placeholder)
-  dailyPPSBTC: string;        // nullable (placeholder)
+  valueBTC: double??;
+  valueUSD: double??;
+  height: int64??;
+  difficulty: double??;
+  powerUnit: string??;
+  powerMultLog10: int64??;
+  powerPPS: int64??;
+  dailyPPS: string??;
+  dailyPPSUSD: string??;
+  dailyPPSBTC: string??;
 }
 
 struct BackendQueryCoinsResponse {
@@ -456,12 +437,6 @@ struct BackendQueryFoundBlocksRequest {
   count: uint32 = 20;
 }
 
-struct HttpMergedBlockInfo {
-  coin: string;
-  height: int64;
-  hash: string;
-}
-
 struct FoundBlock {
   height: int64;
   hash: string;
@@ -469,7 +444,7 @@ struct FoundBlock {
   confirmations: int64;
   generatedCoins: string;
   foundBy: string;
-  mergedBlocks: [HttpMergedBlockInfo]?;
+  mergedBlocks: [MergedBlockInfo]?;
 }
 
 struct BackendQueryFoundBlocksResponse {
@@ -530,9 +505,7 @@ struct BackendQueryPoolStatsHistoryRequest {
 }
 
 // --- backendQueryProfitSwitchCoeff ---
-struct BackendQueryProfitSwitchCoeffRequest {
-  id: string;
-}
+// → SessionRequest
 
 struct ProfitSwitchCoinEntry {
   name: string;
@@ -554,17 +527,8 @@ struct BackendQueryPPLNSPayoutsRequest {
   count: uint32 = 20;
 }
 
-struct PPLNSPayoutEntry {
-  startTime: int64;
-  endTime: int64;
-  hash: string;
-  height: int64;
-  value: string;
-  valueBTC: string;
-  valueUSD: string;
-}
-
 struct BackendQueryPPLNSPayoutsResponse {
+  context money;
   status: string;
   payouts: [PPLNSPayoutEntry];
 }
@@ -577,14 +541,8 @@ struct BackendQueryPPLNSAccRequest {
   mixin TimeRange;
 }
 
-struct AccumulatedPayoutEntry {
-  timeLabel: int64;
-  value: string;
-  valueBTC: string;
-  valueUSD: string;
-}
-
 struct BackendQueryPPLNSAccResponse {
+  context money;
   status: string;
   payouts: [AccumulatedPayoutEntry];
 }
@@ -598,15 +556,8 @@ struct BackendQueryPPSPayoutsRequest {
   count: uint32 = 20;
 }
 
-struct PPSPayoutEntry {
-  startTime: int64;
-  endTime: int64;
-  value: string;
-  valueBTC: string;
-  valueUSD: string;
-}
-
 struct BackendQueryPPSPayoutsResponse {
+  context money;
   status: string;
   payouts: [PPSPayoutEntry];
 }
@@ -627,11 +578,7 @@ struct BackendUpdateProfitSwitchCoeffRequest {
 }
 
 // --- backendGetConfig ---
-struct BackendGetConfigRequest {
-  id: string;
-  coin: string;
-}
-
+// → SessionCoinRequest
 struct BackendGetConfigResponse {
   status: string;
   pps: BackendPPS;
@@ -650,10 +597,7 @@ struct BackendUpdateConfigRequest {
 }
 
 // --- backendGetPPSState ---
-struct BackendGetPPSStateRequest {
-  id: string;
-  coin: string;
-}
+// → SessionCoinRequest
 
 struct PPSBalanceInfo {
   value: string;
@@ -742,6 +686,4 @@ struct InstanceEnumerateAllResponse {
 
 // --- complexMiningStatsGetInfo ---
 // Response is opaque (forwarded from ComplexMiningStats engine)
-struct ComplexMiningStatsGetInfoRequest {
-  id: string;
-}
+// → SessionRequest

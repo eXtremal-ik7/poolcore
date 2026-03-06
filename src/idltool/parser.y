@@ -238,8 +238,10 @@ field:
       switch ($3->Shape) {
         case ETypeShape::Plain:          $$->Kind = EFieldKind::Required; break;
         case ETypeShape::OptionalObject: $$->Kind = EFieldKind::OptionalObject; break;
+        case ETypeShape::NullableObject: $$->Kind = EFieldKind::NullableObject; break;
         case ETypeShape::Array:          $$->Kind = EFieldKind::Array; break;
         case ETypeShape::OptionalArray:  $$->Kind = EFieldKind::OptionalArray; break;
+        case ETypeShape::NullableArray:  $$->Kind = EFieldKind::NullableArray; break;
       }
       free($1);
       delete $3;
@@ -290,6 +292,18 @@ type_spec:
       }
       free($1);
     }
+  | type_name '?' '?' {
+      $$ = new CFieldType();
+      $$->Shape = ETypeShape::NullableObject;
+      auto scalar = parseScalarType($1);
+      if (scalar) {
+        $$->IsScalar = true;
+        $$->Scalar = *scalar;
+      } else {
+        $$->RefName = $1;
+      }
+      free($1);
+    }
   | '[' type_name ']' {
       $$ = new CFieldType();
       $$->Shape = ETypeShape::Array;
@@ -305,6 +319,18 @@ type_spec:
   | '[' type_name ']' '?' {
       $$ = new CFieldType();
       $$->Shape = ETypeShape::OptionalArray;
+      auto scalar = parseScalarType($2);
+      if (scalar) {
+        $$->IsScalar = true;
+        $$->Scalar = *scalar;
+      } else {
+        $$->RefName = $2;
+      }
+      free($2);
+    }
+  | '[' type_name ']' '?' '?' {
+      $$ = new CFieldType();
+      $$->Shape = ETypeShape::NullableArray;
       auto scalar = parseScalarType($2);
       if (scalar) {
         $$->IsScalar = true;

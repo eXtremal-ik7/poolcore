@@ -16,7 +16,7 @@ add_custom_command(
 add_custom_target(generate_test_idl DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/test.idl.h ${CMAKE_CURRENT_BINARY_DIR}/test.idl.cpp)
 add_dependencies(unittests generate_test_idl)
 
-target_include_directories(unittests PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(unittests PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(unittests
   GTest::gtest

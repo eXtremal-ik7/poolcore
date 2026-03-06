@@ -24,19 +24,23 @@ enum class EScalarType {
 
 // How a field is declared
 enum class EFieldKind {
-  Required,       // field: Type
-  Optional,       // field: Type = default
-  OptionalObject, // field: Type?
-  Array,          // field: [Type]
-  OptionalArray   // field: [Type]?
+  Required,        // field: Type
+  Optional,        // field: Type = default
+  OptionalObject,  // field: Type?          — omitted when nullopt
+  NullableObject,  // field: Type??         — null when nullopt
+  Array,           // field: [Type]
+  OptionalArray,   // field: [Type]?        — omitted when nullopt
+  NullableArray    // field: [Type]??       — null when nullopt
 };
 
 // Shape of field declaration in IDL
 enum class ETypeShape {
-  Plain,          // field: Type
-  OptionalObject, // field: Type?
-  Array,          // field: [Type]
-  OptionalArray   // field: [Type]?
+  Plain,           // field: Type
+  OptionalObject,  // field: Type?
+  NullableObject,  // field: Type??
+  Array,           // field: [Type]
+  OptionalArray,   // field: [Type]?
+  NullableArray    // field: [Type]??
 };
 
 // Type of a field — scalar or reference to struct/enum/mapped

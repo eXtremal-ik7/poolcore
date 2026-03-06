@@ -15,44 +15,6 @@ struct UserBalanceInfo {
   UInt<384> Queued;
 };
 
-struct CPPLNSPayoutInfo {
-  Timestamp RoundStartTime;
-  Timestamp RoundEndTime;
-  std::string BlockHash;
-  uint64_t BlockHeight;
-  UInt<384> Value;
-  UInt<384> ValueBTC;
-  UInt<384> ValueUSD;
-};
-
-struct CPPSPayoutInfo {
-  Timestamp IntervalBegin;
-  Timestamp IntervalEnd;
-  UInt<384> Value;
-  UInt<384> ValueBTC;
-  UInt<384> ValueUSD;
-};
-
-struct CPPLNSPayoutAcc {
-  int64_t IntervalEnd = 0;
-  UInt<384> TotalCoin = UInt<384>::zero();
-  UInt<384> TotalBTC = UInt<384>::zero();
-  UInt<384> TotalUSD = UInt<384>::zero();
-
-  void merge(const CPPLNSPayout &record, unsigned fractionalPartSize);
-  void mergeScaled(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize);
-};
-
-struct CPPSPayoutAcc {
-  int64_t IntervalEnd = 0;
-  UInt<384> TotalCoin = UInt<384>::zero();
-  UInt<384> TotalBTC = UInt<384>::zero();
-  UInt<384> TotalUSD = UInt<384>::zero();
-
-  void merge(const CPPSPayout &record, unsigned fractionalPartSize);
-  void mergeScaled(const CPPSPayout &record, double coeff, unsigned fractionalPartSize);
-};
-
 using QueryFoundBlocksCallback = std::function<void(const std::vector<FoundBlockRecord>&, const std::vector<CNetworkClient::GetBlockConfirmationsQuery>&)>;
 
 class CAccountingApi {
@@ -72,10 +34,10 @@ public:
 
   const char *manualPayout(const std::string &user);
   void queryFoundBlocks(int64_t heightFrom, const std::string &hashFrom, uint32_t count, QueryFoundBlocksCallback callback);
-  std::vector<CPPLNSPayoutInfo> queryPPLNSPayouts(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count);
-  std::vector<CPPLNSPayoutAcc> queryPPLNSPayoutsAcc(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval);
-  std::vector<CPPSPayoutInfo> queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count);
-  std::vector<CPPSPayoutAcc> queryPPSPayoutsAcc(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval);
+  std::vector<CPPLNSPayoutEntry> queryPPLNSPayouts(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count);
+  std::vector<CAccumulatedPayoutEntry> queryPPLNSPayoutsAcc(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval);
+  std::vector<CPPSPayoutEntry> queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count);
+  std::vector<CAccumulatedPayoutEntry> queryPPSPayoutsAcc(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval);
   std::vector<CPPSState> queryPPSHistory(int64_t timeFrom, int64_t timeTo);
   UserBalanceInfo queryBalance(const std::string &user);
   std::vector<double> poolLuck(const std::vector<int64_t> &intervals);

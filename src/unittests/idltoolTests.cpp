@@ -1,10 +1,11 @@
 #include "gtest/gtest.h"
 #include "test.idl.h"
+#include "p2putils/xmstream.h"
 #include "rapidjson/document.h"
 
-static rapidjson::Document parseRapid(const std::string &json) {
+static rapidjson::Document parseRapid(const xmstream &stream) {
   rapidjson::Document doc;
-  doc.Parse(json.c_str(), json.size());
+  doc.Parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
   return doc;
 }
 
@@ -220,7 +221,9 @@ TEST(IdlTool, SerializeScalarTypes) {
   t.fieldUint64 = 12345;
   t.fieldDouble = 2.718;
 
-  auto doc = parseRapid(t.serialize());
+  xmstream stream;
+  t.serialize(stream);
+  auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   EXPECT_STREQ(doc["fieldString"].GetString(), "test");
   EXPECT_EQ(doc["fieldBool"].GetBool(), false);
@@ -236,7 +239,9 @@ TEST(IdlTool, SerializeEnum) {
   we.color = EColor::green;
   we.priority = EPriority::high;
 
-  auto doc = parseRapid(we.serialize());
+  xmstream stream;
+  we.serialize(stream);
+  auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   EXPECT_STREQ(doc["color"].GetString(), "green");
   EXPECT_STREQ(doc["priority"].GetString(), "high");
@@ -248,7 +253,9 @@ TEST(IdlTool, SerializeNested) {
   o.child.value = "inner";
   o.child.count = 7;
 
-  auto doc = parseRapid(o.serialize());
+  xmstream stream;
+  o.serialize(stream);
+  auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   EXPECT_STREQ(doc["label"].GetString(), "outer");
   ASSERT_TRUE(doc["child"].IsObject());
@@ -263,7 +270,9 @@ TEST(IdlTool, SerializeOptionalPresent) {
   oc.first->value = "a";
   oc.first->count = 1;
 
-  auto doc = parseRapid(oc.serialize());
+  xmstream stream;
+  oc.serialize(stream);
+  auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   ASSERT_TRUE(doc.HasMember("first"));
   EXPECT_STREQ(doc["first"]["value"].GetString(), "a");
@@ -279,7 +288,9 @@ TEST(IdlTool, SerializeArray) {
   af.items[0].value = "item";
   af.items[0].count = 3;
 
-  auto doc = parseRapid(af.serialize());
+  xmstream stream;
+  af.serialize(stream);
+  auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   ASSERT_TRUE(doc["strings"].IsArray());
   EXPECT_EQ(doc["strings"].Size(), 2u);
@@ -294,7 +305,9 @@ TEST(IdlTool, SerializeOptionalArray) {
   oa.label = "test";
   oa.tags.emplace(std::vector<std::string>{"a", "b"});
 
-  auto doc = parseRapid(oa.serialize());
+  xmstream stream;
+  oa.serialize(stream);
+  auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   ASSERT_TRUE(doc.HasMember("tags"));
   EXPECT_EQ(doc["tags"].Size(), 2u);
@@ -306,7 +319,9 @@ TEST(IdlTool, SerializeStringEscapes) {
   inner.value = "line1\nline2\ttab\"quote\\backslash";
   inner.count = 1;
 
-  auto doc = parseRapid(inner.serialize());
+  xmstream stream;
+  inner.serialize(stream);
+  auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   EXPECT_STREQ(doc["value"].GetString(), "line1\nline2\ttab\"quote\\backslash");
 }
@@ -330,7 +345,9 @@ TEST(IdlTool, RoundtripCombined) {
   EXPECT_EQ(c.children.size(), 1u);
   EXPECT_EQ(c.nested.label, "n");
 
-  auto doc = parseRapid(c.serialize());
+  xmstream stream;
+  c.serialize(stream);
+  auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   EXPECT_STREQ(doc["id"].GetString(), "u1");
   EXPECT_STREQ(doc["priority"].GetString(), "high");
@@ -354,9 +371,10 @@ TEST(IdlTool, RoundtripScalars) {
   original.fieldUint64 = 200000;
   original.fieldDouble = 1.23456;
 
+  xmstream stream;
+  original.serialize(stream);
   ScalarTypes parsed;
-  auto json = original.serialize();
-  ASSERT_TRUE(parsed.parse(json.data(), json.size()));
+  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
   EXPECT_EQ(parsed.fieldString, original.fieldString);
   EXPECT_EQ(parsed.fieldBool, original.fieldBool);
   EXPECT_EQ(parsed.fieldInt32, original.fieldInt32);
@@ -469,4 +487,59 @@ TEST(IdlTool, DiagValidJsonNoDiagError) {
   ParseError error;
   ASSERT_TRUE(inner.parseVerbose(json, strlen(json), error));
   EXPECT_TRUE(error.message.empty());
+}
+
+// ============================================================================
+// Context vector tests
+// ============================================================================
+
+TEST(IdlTool, ContextVectorSerialize) {
+  // CtxChild has context testVal (uint32 context).
+  // CtxVectorParent has items: [CtxChild] → serialize takes vector<uint32_t>.
+  CtxVectorParent parent;
+  parent.items.resize(3);
+  parent.items[0].value = 12345;
+  parent.items[0].label = "a";
+  parent.items[1].value = 67890;
+  parent.items[1].label = "b";
+  parent.items[2].value = 100;
+  parent.items[2].label = "c";
+
+  // ctx[0]=2 → 123.45, ctx[1]=3 → 67.890, ctx[2]=0 → 100
+  std::vector<uint32_t> ctx = {2, 3, 0};
+
+  xmstream stream;
+  parent.serialize(stream, ctx);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["items"].IsArray());
+  ASSERT_EQ(doc["items"].Size(), 3u);
+  // Element 0: value=12345 with ctx=2 → "123.45"
+  EXPECT_STREQ(doc["items"][0]["value"].GetString(), "123.45");
+  EXPECT_STREQ(doc["items"][0]["label"].GetString(), "a");
+  // Element 1: value=67890 with ctx=3 → "67.890"
+  EXPECT_STREQ(doc["items"][1]["value"].GetString(), "67.890");
+  // Element 2: value=100 with ctx=0 → "100"
+  EXPECT_STREQ(doc["items"][2]["value"].GetString(), "100");
+}
+
+TEST(IdlTool, ContextVectorResolve) {
+  // Parse JSON with string values, then resolve with per-element context
+  const char *json = R"({"items":[{"value":"123.45","label":"a"},{"value":"67.890","label":"b"},{"value":"100","label":"c"}]})";
+
+  CtxVectorParent parent;
+  CtxVectorParent::Capture capture;
+  ASSERT_TRUE(parent.parse(json, strlen(json), capture));
+  EXPECT_EQ(parent.items.size(), 3u);
+
+  std::vector<uint32_t> ctx = {2, 3, 0};
+  ASSERT_TRUE(CtxVectorParent::resolve(parent, capture, ctx));
+
+  // Element 0: "123.45" with ctx=2 → 12345
+  EXPECT_EQ(parent.items[0].value, 12345);
+  EXPECT_EQ(parent.items[0].label, "a");
+  // Element 1: "67.890" with ctx=3 → 67890
+  EXPECT_EQ(parent.items[1].value, 67890);
+  // Element 2: "100" with ctx=0 → 100
+  EXPECT_EQ(parent.items[2].value, 100);
 }

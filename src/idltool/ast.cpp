@@ -429,8 +429,10 @@ void dumpAst(const CIdlFile &file)
         case EFieldKind::Required: break;
         case EFieldKind::Optional: break;
         case EFieldKind::OptionalObject: printf("?"); break;
+        case EFieldKind::NullableObject: printf("??"); break;
         case EFieldKind::Array: printf("[]"); break;
         case EFieldKind::OptionalArray: printf("[]?"); break;
+        case EFieldKind::NullableArray: printf("[]??"); break;
       }
       if (f.Default.Kind != EDefaultKind::None) {
         printf(" = ");

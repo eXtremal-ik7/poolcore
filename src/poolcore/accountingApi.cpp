@@ -5,66 +5,35 @@
 #include <cmath>
 #include <algorithm>
 
-void CPPLNSPayoutAcc::merge(const CPPLNSPayout &record, unsigned fractionalPartSize)
+void CAccumulatedPayoutEntry::merge(const UInt<384> &payoutValue, double rateToBTC, double rateBTCToUSD, unsigned fractionalPartSize)
 {
-  double rateScale = record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
-  TotalCoin += record.PayoutValue;
-
-  UInt<384> btcValue = record.PayoutValue;
-  btcValue.mulfp(rateScale);
-  TotalBTC += btcValue;
-
-  UInt<384> usdValue = record.PayoutValue;
-  usdValue.mulfp(rateScale * record.RateBTCToUSD);
-  TotalUSD += usdValue;
-}
-
-void CPPLNSPayoutAcc::mergeScaled(const CPPLNSPayout &record, double coeff, unsigned fractionalPartSize)
-{
-  double rateScale = record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
-
-  UInt<384> payoutValue = record.PayoutValue;
-  payoutValue.mulfp(coeff);
-  TotalCoin += payoutValue;
+  double rateScale = rateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
+  Value += payoutValue;
 
   UInt<384> btcValue = payoutValue;
   btcValue.mulfp(rateScale);
-  TotalBTC += btcValue;
+  ValueBTC += btcValue;
 
   UInt<384> usdValue = payoutValue;
-  usdValue.mulfp(rateScale * record.RateBTCToUSD);
-  TotalUSD += usdValue;
+  usdValue.mulfp(rateScale * rateBTCToUSD);
+  ValueUSD += usdValue;
 }
 
-void CPPSPayoutAcc::merge(const CPPSPayout &record, unsigned fractionalPartSize)
+void CAccumulatedPayoutEntry::mergeScaled(const UInt<384> &payoutValue, double rateToBTC, double rateBTCToUSD, double coeff, unsigned fractionalPartSize)
 {
-  double rateScale = record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
-  TotalCoin += record.PayoutValue;
+  double rateScale = rateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
 
-  UInt<384> btcValue = record.PayoutValue;
+  UInt<384> scaled = payoutValue;
+  scaled.mulfp(coeff);
+  Value += scaled;
+
+  UInt<384> btcValue = scaled;
   btcValue.mulfp(rateScale);
-  TotalBTC += btcValue;
+  ValueBTC += btcValue;
 
-  UInt<384> usdValue = record.PayoutValue;
-  usdValue.mulfp(rateScale * record.RateBTCToUSD);
-  TotalUSD += usdValue;
-}
-
-void CPPSPayoutAcc::mergeScaled(const CPPSPayout &record, double coeff, unsigned fractionalPartSize)
-{
-  double rateScale = record.RateToBTC * std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
-
-  UInt<384> payoutValue = record.PayoutValue;
-  payoutValue.mulfp(coeff);
-  TotalCoin += payoutValue;
-
-  UInt<384> btcValue = payoutValue;
-  btcValue.mulfp(rateScale);
-  TotalBTC += btcValue;
-
-  UInt<384> usdValue = payoutValue;
-  usdValue.mulfp(rateScale * record.RateBTCToUSD);
-  TotalUSD += usdValue;
+  UInt<384> usdValue = scaled;
+  usdValue.mulfp(rateScale * rateBTCToUSD);
+  ValueUSD += usdValue;
 }
 
 CAccountingApi::CAccountingApi(asyncBase *base,
@@ -159,7 +128,7 @@ void CAccountingApi::queryFoundBlocks(int64_t heightFrom, const std::string &has
   callback(foundBlocks, confirmationsQuery);
 }
 
-std::vector<CPPLNSPayoutInfo> CAccountingApi::queryPPLNSPayouts(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count)
+std::vector<CPPLNSPayoutEntry> CAccountingApi::queryPPLNSPayouts(const std::string &login, int64_t timeFrom, const std::string &hashFrom, uint32_t count)
 {
   std::unique_ptr<rocksdbBase::IteratorType> It(PPLNSPayoutsDb_.iterator());
 
@@ -187,28 +156,28 @@ std::vector<CPPLNSPayoutInfo> CAccountingApi::queryPPLNSPayouts(const std::strin
   unsigned fractionalPartSize = CoinInfo_.FractionalPartSize;
   double rateScale = std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
 
-  std::vector<CPPLNSPayoutInfo> payouts;
+  std::vector<CPPLNSPayoutEntry> payouts;
   for (unsigned i = 0; i < count && It->valid(); i++) {
-    CPPLNSPayoutInfo info;
-    info.RoundStartTime = valueRecord.RoundStartTime;
-    info.RoundEndTime = valueRecord.RoundEndTime;
-    info.BlockHash = std::move(valueRecord.BlockHash);
-    info.BlockHeight = valueRecord.BlockHeight;
-    info.Value = valueRecord.PayoutValue;
-    info.ValueBTC = valueRecord.PayoutValue;
-    info.ValueBTC.mulfp(valueRecord.RateToBTC * rateScale);
-    info.ValueUSD = valueRecord.PayoutValue;
-    info.ValueUSD.mulfp(valueRecord.RateToBTC * valueRecord.RateBTCToUSD * rateScale);
-    payouts.emplace_back(std::move(info));
+    CPPLNSPayoutEntry entry;
+    entry.StartTime = valueRecord.RoundStartTime;
+    entry.EndTime = valueRecord.RoundEndTime;
+    entry.Hash = std::move(valueRecord.BlockHash);
+    entry.Height = valueRecord.BlockHeight;
+    entry.Value = valueRecord.PayoutValue;
+    entry.ValueBTC = valueRecord.PayoutValue;
+    entry.ValueBTC.mulfp(valueRecord.RateToBTC * rateScale);
+    entry.ValueUSD = valueRecord.PayoutValue;
+    entry.ValueUSD.mulfp(valueRecord.RateToBTC * valueRecord.RateBTCToUSD * rateScale);
+    payouts.emplace_back(std::move(entry));
     It->prev<CPPLNSPayout>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 
   return payouts;
 }
 
-std::vector<CPPLNSPayoutAcc> CAccountingApi::queryPPLNSPayoutsAcc(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval)
+std::vector<CAccumulatedPayoutEntry> CAccountingApi::queryPPLNSPayoutsAcc(const std::string &login, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval)
 {
-  std::vector<CPPLNSPayoutAcc> payoutAccs;
+  std::vector<CAccumulatedPayoutEntry> payoutAccs;
 
   // Maximum number of output cells to prevent excessive memory/CPU usage
   constexpr int64_t MaxOutputCells = 3200;
@@ -236,7 +205,7 @@ std::vector<CPPLNSPayoutAcc> CAccountingApi::queryPPLNSPayoutsAcc(const std::str
 
   payoutAccs.resize(count);
   for (size_t i = 0; i < count; i++)
-    payoutAccs[i].IntervalEnd = timeFrom + groupByInterval * static_cast<int64_t>(i + 1);
+    payoutAccs[i].TimeLabel = timeFrom + groupByInterval * static_cast<int64_t>(i + 1);
 
   {
     CPPLNSPayout record;
@@ -271,9 +240,9 @@ std::vector<CPPLNSPayoutAcc> CAccountingApi::queryPPLNSPayoutsAcc(const std::str
     for (size_t i = firstIdx; i < lastIdx; i++) {
       double coeff = overlapFraction(valueRecord.RoundStartTime, valueRecord.RoundEndTime, cellBegin, cellEnd);
       if (coeff >= 1.0)
-        payoutAccs[i].merge(valueRecord, CoinInfo_.FractionalPartSize);
+        payoutAccs[i].merge(valueRecord.PayoutValue, valueRecord.RateToBTC, valueRecord.RateBTCToUSD, CoinInfo_.FractionalPartSize);
       else
-        payoutAccs[i].mergeScaled(valueRecord, coeff, CoinInfo_.FractionalPartSize);
+        payoutAccs[i].mergeScaled(valueRecord.PayoutValue, valueRecord.RateToBTC, valueRecord.RateBTCToUSD, coeff, CoinInfo_.FractionalPartSize);
 
       cellBegin = cellEnd;
       cellEnd += groupBy;
@@ -285,13 +254,13 @@ std::vector<CPPLNSPayoutAcc> CAccountingApi::queryPPLNSPayoutsAcc(const std::str
   return payoutAccs;
 }
 
-std::vector<CPPSPayoutAcc> CAccountingApi::queryPPSPayoutsAcc(
+std::vector<CAccumulatedPayoutEntry> CAccountingApi::queryPPSPayoutsAcc(
   const std::string &login,
   int64_t timeFrom,
   int64_t timeTo,
   int64_t groupByInterval)
 {
-  std::vector<CPPSPayoutAcc> payoutAccs;
+  std::vector<CAccumulatedPayoutEntry> payoutAccs;
 
   constexpr int64_t MaxOutputCells = 3200;
   if (timeTo <= timeFrom ||
@@ -316,7 +285,7 @@ std::vector<CPPSPayoutAcc> CAccountingApi::queryPPSPayoutsAcc(
 
   payoutAccs.resize(count);
   for (size_t i = 0; i < count; i++)
-    payoutAccs[i].IntervalEnd = timeFrom + groupByInterval * static_cast<int64_t>(i + 1);
+    payoutAccs[i].TimeLabel = timeFrom + groupByInterval * static_cast<int64_t>(i + 1);
 
   {
     CPPSPayout record;
@@ -347,9 +316,9 @@ std::vector<CPPSPayoutAcc> CAccountingApi::queryPPSPayoutsAcc(
     for (size_t i = firstIdx; i < lastIdx; i++) {
       double coeff = overlapFraction(valueRecord.IntervalBegin, valueRecord.IntervalEnd, cellBegin, cellEnd);
       if (coeff >= 1.0)
-        payoutAccs[i].merge(valueRecord, CoinInfo_.FractionalPartSize);
+        payoutAccs[i].merge(valueRecord.PayoutValue, valueRecord.RateToBTC, valueRecord.RateBTCToUSD, CoinInfo_.FractionalPartSize);
       else
-        payoutAccs[i].mergeScaled(valueRecord, coeff, CoinInfo_.FractionalPartSize);
+        payoutAccs[i].mergeScaled(valueRecord.PayoutValue, valueRecord.RateToBTC, valueRecord.RateBTCToUSD, coeff, CoinInfo_.FractionalPartSize);
 
       cellBegin = cellEnd;
       cellEnd += groupBy;
@@ -361,7 +330,7 @@ std::vector<CPPSPayoutAcc> CAccountingApi::queryPPSPayoutsAcc(
   return payoutAccs;
 }
 
-std::vector<CPPSPayoutInfo> CAccountingApi::queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count)
+std::vector<CPPSPayoutEntry> CAccountingApi::queryPPSPayouts(const std::string &login, int64_t timeFrom, uint32_t count)
 {
   std::unique_ptr<rocksdbBase::IteratorType> It(PPSPayoutsDb_.iterator());
 
@@ -388,17 +357,17 @@ std::vector<CPPSPayoutInfo> CAccountingApi::queryPPSPayouts(const std::string &l
   unsigned fractionalPartSize = CoinInfo_.FractionalPartSize;
   double rateScale = std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
 
-  std::vector<CPPSPayoutInfo> payouts;
+  std::vector<CPPSPayoutEntry> payouts;
   for (unsigned i = 0; i < count && It->valid(); i++) {
-    CPPSPayoutInfo info;
-    info.IntervalBegin = valueRecord.IntervalBegin;
-    info.IntervalEnd = valueRecord.IntervalEnd;
-    info.Value = valueRecord.PayoutValue;
-    info.ValueBTC = valueRecord.PayoutValue;
-    info.ValueBTC.mulfp(valueRecord.RateToBTC * rateScale);
-    info.ValueUSD = valueRecord.PayoutValue;
-    info.ValueUSD.mulfp(valueRecord.RateToBTC * valueRecord.RateBTCToUSD * rateScale);
-    payouts.emplace_back(std::move(info));
+    CPPSPayoutEntry entry;
+    entry.StartTime = valueRecord.IntervalBegin;
+    entry.EndTime = valueRecord.IntervalEnd;
+    entry.Value = valueRecord.PayoutValue;
+    entry.ValueBTC = valueRecord.PayoutValue;
+    entry.ValueBTC.mulfp(valueRecord.RateToBTC * rateScale);
+    entry.ValueUSD = valueRecord.PayoutValue;
+    entry.ValueUSD.mulfp(valueRecord.RateToBTC * valueRecord.RateBTCToUSD * rateScale);
+    payouts.emplace_back(std::move(entry));
     It->prev<CPPSPayout>(resumeKey.data<const char>(), resumeKey.sizeOf(), valueRecord, validPredicate);
   }
 

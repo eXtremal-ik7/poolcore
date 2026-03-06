@@ -19,8 +19,8 @@ private:
   using DefaultCb = std::function<void(const char*)>;
   using ManualPayoutCallback = std::function<void(bool)>;
   using QueryBalanceCallback = std::function<void(const UserBalanceInfo&)>;
-  using QueryPPLNSPayoutsCallback = std::function<void(const std::vector<CPPLNSPayoutInfo>&)>;
-  using QueryPPLNSAccCallback = std::function<void(const std::vector<CPPLNSPayoutAcc>&)>;
+  using QueryPPLNSPayoutsCallback = std::function<void(const std::vector<CPPLNSPayoutEntry>&)>;
+  using QueryPPLNSAccCallback = std::function<void(const std::vector<CAccumulatedPayoutEntry>&)>;
   using PoolLuckCallback = std::function<void(const std::vector<double>&)>;
   using QueryPPSStateCallback = std::function<void(const CPPSState&)>;
 
@@ -61,7 +61,7 @@ private:
 
   std::unordered_map<std::string, UserSettingsRecord> UserSettings_;
   std::unordered_map<std::string, std::string> UserFeePlanIds_;
-  std::unordered_map<FeePlanCacheKey, std::vector<::UserFeePair>, FeePlanCacheKeyHash> FeePlanCache_;
+  std::unordered_map<FeePlanCacheKey, std::vector<::CUserFeePair>, FeePlanCacheKeyHash> FeePlanCache_;
 
   CPeriodicTimer ShareLogFlushTimer_;
   CPeriodicTimer UserStatsFlushTimer_;
@@ -125,7 +125,7 @@ public:
   void onBlockFound(const CBlockFoundData &block);
   void onMergedBlockNotification(const std::string &coinName, uint64_t height, const std::string &hash, const BaseBlob<256> &shareHash);
   void onUserSettingsUpdate(const UserSettingsRecord &settings);
-  void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::UserFeePair> &feeRecord);
+  void onFeePlanUpdate(const std::string &feePlanId, EMiningMode mode, const std::vector<::CUserFeePair> &feeRecord);
   void onFeePlanDelete(const std::string &feePlanId);
   void onUserFeePlanChange(const std::string &login, const std::string &feePlanId);
   ERoundConfirmationResult processRoundConfirmation(MiningRound &R, int64_t confirmations, const std::string &hash, rocksdbBase::CBatch &stateBatch);

@@ -18,12 +18,6 @@ std::string partByTime(time_t time);
 
 typedef bool CheckAddressProcTy(const char*);
 
-struct CMergedBlockInfo {
-  std::string CoinName;
-  uint64_t Height;
-  std::string Hash;
-};
-
 struct CBlockFoundData {
   std::string UserId;
   uint64_t Height;
@@ -236,21 +230,6 @@ struct UserPersonalFeeRecord {
   void serializeValue(xmstream &stream) const;
 };
 
-struct UserFeePair {
-  std::string UserId;
-  double Percentage;
-};
-
-struct CUserFeeConfig {
-  std::string CoinName;
-  std::vector<UserFeePair> Config;
-};
-
-struct CModeFeeConfig {
-  std::vector<UserFeePair> Default;
-  std::vector<CUserFeeConfig> CoinSpecific;
-};
-
 struct UserFeePlanRecord {
   std::string FeePlanId;
   // Indexed by EMiningMode
@@ -458,14 +437,14 @@ struct CPPSPayout {
 template<>
 struct DbIo<CMergedBlockInfo> {
   static inline void serialize(xmstream &stream, const CMergedBlockInfo &data) {
-    DbIo<std::string>::serialize(stream, data.CoinName);
-    DbIo<uint64_t>::serialize(stream, data.Height);
+    DbIo<std::string>::serialize(stream, data.Coin);
+    DbIo<int64_t>::serialize(stream, data.Height);
     DbIo<std::string>::serialize(stream, data.Hash);
   }
 
   static inline void unserialize(xmstream &stream, CMergedBlockInfo &data) {
-    DbIo<std::string>::unserialize(stream, data.CoinName);
-    DbIo<uint64_t>::unserialize(stream, data.Height);
+    DbIo<std::string>::unserialize(stream, data.Coin);
+    DbIo<int64_t>::unserialize(stream, data.Height);
     DbIo<std::string>::unserialize(stream, data.Hash);
   }
 };
