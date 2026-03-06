@@ -467,55 +467,101 @@ static std::string capitalizeFirst(const std::string &s) {
   return r;
 }
 
+static std::string flatSerializeParamType(const CFieldDef &f,
+    const std::unordered_set<std::string> &enumNames, const std::string &structPrefix)
+{
+  std::string type = cppFieldType(f, enumNames, structPrefix);
+  // Enum types — pass by value (small, like int)
+  if (!f.Type.RefName.empty() && enumNames.count(f.Type.RefName))
+    return type;
+  // Use std::string_view for plain string parameters
+  if (f.Type.IsScalar && f.Type.Scalar == EScalarType::String && f.Kind == EFieldKind::Required)
+    return "std::string_view";
+  if (f.Type.IsScalar && f.Type.Scalar == EScalarType::String && f.Kind == EFieldKind::Optional)
+    return "std::string_view";
+  return "const " + type + " &";
+}
+
+static std::string flatSerializeParams(const CStructDef &s, const CContextAnalysis &ca,
+    const std::unordered_set<std::string> &enumNames, const CCodegenOptions &opts)
+{
+  std::string params = "xmstream &out";
+  for (auto &f : s.Fields) {
+    std::string paramType = flatSerializeParamType(f, enumNames, opts.StructPrefix);
+    std::string name = fieldCppName(f.Name, opts.PascalCaseFields);
+    params += std::format(", {} {}", paramType, name);
+  }
+  if (ca.hasContext())
+    params += ", " + ca.contextParams();
+  return params;
+}
+
 static void generateStructDecl(std::string &out, const CStructDef &s,
     const std::unordered_set<std::string> &enumNames,
     const CCodegenOptions &opts,
     const CContextAnalysis &ca)
 {
   std::string sn = opts.StructPrefix + s.Name;
+  bool needMembers = s.GenerateFlags.Parse || s.GenerateFlags.ParseVerbose || s.GenerateFlags.Serialize;
 
   out += std::format("struct {} {{\n", sn);
 
-  // Capture struct (empty for non-capture structs)
-  out += "  struct Capture {\n";
-  if (ca.hasContext())
-    generateCaptureFields(out, s, ca, opts);
-  out += "  };\n";
+  // Capture struct (always when Parse — empty for non-context structs)
+  if (s.GenerateFlags.Parse) {
+    out += "  struct Capture {\n";
+    if (ca.hasContext())
+      generateCaptureFields(out, s, ca, opts);
+    out += "  };\n";
+  }
 
-  if (ca.hasContext()) {
+  // Context type aliases — if context AND any codegen
+  if (ca.hasContext() && (s.GenerateFlags.Parse || s.GenerateFlags.Serialize || s.GenerateFlags.SerializeFlat)) {
     for (auto &n : ca.Needs)
       out += std::format("  using {}Context = {};\n", capitalizeFirst(n.MappedTypeName), n.CppContextType);
   }
   out += "\n";
 
-  // Fields
-  for (auto &f : s.Fields) {
-    std::string type = cppFieldType(f, enumNames, opts.StructPrefix);
-    std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
-    std::string def = cppDefault(f, enumNames, opts.PascalCaseFields);
-    if (!def.empty())
-      out += std::format("  {} {} = {};\n", type, cn, def);
-    else
-      out += std::format("  {} {};\n", type, cn);
+  // Fields — only if parse or serialize (member-based)
+  if (needMembers) {
+    for (auto &f : s.Fields) {
+      std::string type = cppFieldType(f, enumNames, opts.StructPrefix);
+      std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+      std::string def = cppDefault(f, enumNames, opts.PascalCaseFields);
+      if (!def.empty())
+        out += std::format("  {} {} = {};\n", type, cn, def);
+      else
+        out += std::format("  {} {};\n", type, cn);
+    }
+    out += "\n";
   }
 
-  out += "\n";
-
   // Parse/serialize methods
-  if (ca.hasContext()) {
-    std::string ctxParams = ca.contextParams();
-    out += "  bool parse(const char *buf, size_t bufSize, Capture &capture);\n";
-    out += "  bool parseImpl(JsonScanner &s, Capture *capture);\n";
-    out += std::format("  static bool resolve({} &out, const Capture &capture, {});\n", sn, ctxParams);
-    out += std::format("  void serialize(xmstream &out, {}) const;\n", ctxParams);
-  } else {
-    out += "  bool parse(const char *buf, size_t bufSize);\n";
-    out += "  bool parseImpl(JsonScanner &s);\n";
-    out += "  void serialize(xmstream &out) const;\n";
-    if (opts.VerboseMode) {
-      out += "  bool parseVerbose(const char *buf, size_t bufSize, ParseError &error);\n";
-      out += "  bool parseVerboseImpl(VerboseJsonScanner &s);\n";
+  if (s.GenerateFlags.Parse) {
+    if (ca.hasContext()) {
+      out += "  bool parse(const char *buf, size_t bufSize, Capture &capture);\n";
+      out += "  bool parseImpl(JsonScanner &s, Capture *capture);\n";
+      out += std::format("  static bool resolve({} &out, const Capture &capture, {});\n", sn, ca.contextParams());
+    } else {
+      out += "  bool parse(const char *buf, size_t bufSize);\n";
+      out += "  bool parseImpl(JsonScanner &s);\n";
     }
+  }
+
+  if (s.GenerateFlags.ParseVerbose && !ca.hasContext()) {
+    out += "  bool parseVerbose(const char *buf, size_t bufSize, ParseError &error);\n";
+    out += "  bool parseVerboseImpl(VerboseJsonScanner &s);\n";
+  }
+
+  if (s.GenerateFlags.Serialize) {
+    if (ca.hasContext())
+      out += std::format("  void serialize(xmstream &out, {}) const;\n", ca.contextParams());
+    else
+      out += "  void serialize(xmstream &out) const;\n";
+  }
+
+  if (s.GenerateFlags.SerializeFlat) {
+    std::string params = flatSerializeParams(s, ca, enumNames, opts);
+    out += std::format("  static void serialize({});\n", params);
   }
 
   // Tagged schema
@@ -808,6 +854,26 @@ static void generateContextSerializeBody(std::string &out, const CStructDef &s,
   }
 }
 
+static void generateSerializeBody(std::string &out, const CStructDef &s,
+    const CContextAnalysis &ca,
+    const std::unordered_set<std::string> &enumNames,
+    const CCodegenOptions &opts)
+{
+  if (ca.hasContext()) {
+    generateContextSerializeBody(out, s, ca, enumNames, opts);
+  } else {
+    bool first = true;
+    for (size_t i = 0; i < s.Fields.size(); i++) {
+      auto &fci = ca.FieldCapture[i];
+      if (fci.kind == CFieldCaptureInfo::MappedInline) {
+        emitMappedInlineSerialize(out, s.Fields[i], fci, 1, first, opts.PascalCaseFields);
+      } else {
+        generateSerializeField(out, s.Fields[i], enumNames, 1, first, opts.PascalCaseFields);
+      }
+    }
+  }
+}
+
 static void generateStructImpl(std::string &out, const CStructDef &s,
     const std::unordered_set<std::string> &enumNames,
     const CCodegenOptions &opts,
@@ -815,69 +881,73 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
 {
   std::string sn = opts.StructPrefix + s.Name;
   bool hasCtx = ca.hasContext();
+  bool needParse = s.GenerateFlags.Parse || s.GenerateFlags.ParseVerbose;
 
-  // Compute perfect hash
+  // Compute perfect hash (needed for parse/parseVerbose)
   std::vector<std::string> fieldNames;
-  for (auto &f : s.Fields)
-    fieldNames.push_back(f.Name);
-
-  auto ph = findPerfectHash(fieldNames);
-  if (!ph) {
-    fprintf(stderr, "warning: cannot find perfect hash for struct '%s', using mod=%zu\n",
-            s.Name.c_str(), fieldNames.size() * 4);
-    ph = CPerfectHash{0, 31, (uint32_t)(fieldNames.size() * 4)};
-  }
-
-  // Count required fields
-  auto isRequired = [](EFieldKind k) {
-    return k == EFieldKind::Required || k == EFieldKind::Array;
-  };
-  int requiredCount = 0;
-  for (auto &f : s.Fields)
-    if (isRequired(f.Kind))
-      requiredCount++;
-
-  // Build hash -> field index map
+  std::optional<CPerfectHash> ph;
   std::unordered_map<uint32_t, size_t> hashToIndex;
-  for (size_t i = 0; i < s.Fields.size(); i++) {
-    uint32_t h = computeHash(s.Fields[i].Name.c_str(), s.Fields[i].Name.size(),
-                              ph->Seed, ph->Mult, ph->Mod);
-    hashToIndex[h] = i;
+  std::unordered_map<size_t, int> fieldBitMap;
+  int requiredCount = 0;
+
+  if (needParse) {
+    for (auto &f : s.Fields)
+      fieldNames.push_back(f.Name);
+
+    ph = findPerfectHash(fieldNames);
+    if (!ph) {
+      fprintf(stderr, "warning: cannot find perfect hash for struct '%s', using mod=%zu\n",
+              s.Name.c_str(), fieldNames.size() * 4);
+      ph = CPerfectHash{0, 31, (uint32_t)(fieldNames.size() * 4)};
+    }
+
+    // Count required fields
+    auto isRequired = [](EFieldKind k) {
+      return k == EFieldKind::Required || k == EFieldKind::Array;
+    };
+    for (auto &f : s.Fields)
+      if (isRequired(f.Kind))
+        requiredCount++;
+
+    // Build hash -> field index map
+    for (size_t i = 0; i < s.Fields.size(); i++) {
+      uint32_t h = computeHash(s.Fields[i].Name.c_str(), s.Fields[i].Name.size(),
+                                ph->Seed, ph->Mult, ph->Mod);
+      hashToIndex[h] = i;
+    }
+
+    // Assign required field bits
+    int bitIndex = 0;
+    for (size_t i = 0; i < s.Fields.size(); i++)
+      if (isRequired(s.Fields[i].Kind))
+        fieldBitMap[i] = bitIndex++;
   }
 
-  // Assign required field bits
-  std::unordered_map<size_t, int> fieldBitMap;
-  int bitIndex = 0;
-  for (size_t i = 0; i < s.Fields.size(); i++)
-    if (isRequired(s.Fields[i].Kind))
-      fieldBitMap[i] = bitIndex++;
+  // --- Parse ---
+  if (s.GenerateFlags.Parse) {
+    if (hasCtx) {
+      out += std::format("bool {}::parse(const char *buf, size_t bufSize, Capture &capture) {{\n", sn);
+      out += "  JsonScanner s{buf, buf + bufSize};\n";
+      out += "  return parseImpl(s, &capture);\n";
+      out += "}\n\n";
 
-  if (hasCtx) {
-    // --- parse(buf, bufSize, capture) ---
-    out += std::format("bool {}::parse(const char *buf, size_t bufSize, Capture &capture) {{\n", sn);
-    out += "  JsonScanner s{buf, buf + bufSize};\n";
-    out += "  return parseImpl(s, &capture);\n";
-    out += "}\n\n";
+      out += std::format("bool {}::parseImpl(JsonScanner &s, Capture *capture) {{\n", sn);
+      generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
+      out += "}\n\n";
+    } else {
+      out += std::format("bool {}::parse(const char *buf, size_t bufSize) {{\n", sn);
+      out += "  JsonScanner s{buf, buf + bufSize};\n";
+      out += "  return parseImpl(s);\n";
+      out += "}\n\n";
 
-    // --- parseImpl(s, capture) ---
-    out += std::format("bool {}::parseImpl(JsonScanner &s, Capture *capture) {{\n", sn);
-    generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
-    out += "}\n\n";
-  } else {
-    // --- parse(buf, bufSize) ---
-    out += std::format("bool {}::parse(const char *buf, size_t bufSize) {{\n", sn);
-    out += "  JsonScanner s{buf, buf + bufSize};\n";
-    out += "  return parseImpl(s);\n";
-    out += "}\n\n";
-
-    // --- parseImpl(s) ---
-    out += std::format("bool {}::parseImpl(JsonScanner &s) {{\n", sn);
-    generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount);
-    out += "}\n\n";
+      out += std::format("bool {}::parseImpl(JsonScanner &s) {{\n", sn);
+      generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount);
+      out += "}\n\n";
+    }
   }
 
   // --- Verbose parse ---
-  if (opts.VerboseMode && !hasCtx) {
+  if (s.GenerateFlags.ParseVerbose && !hasCtx) {
     out += std::format("bool {}::parseVerbose(const char *buf, size_t bufSize, ParseError &error) {{\n", sn);
     out += "  VerboseJsonScanner s{buf, buf + bufSize, buf, &error};\n";
     out += "  return parseVerboseImpl(s);\n";
@@ -960,37 +1030,30 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
   }
 
   // --- resolve() ---
-  if (hasCtx)
+  if (s.GenerateFlags.Parse && hasCtx)
     generateResolveImpl(out, s, ca, enumNames, opts);
 
-  if (hasCtx) {
-    // Context-aware serialize (with or without external params)
+  // --- serialize (member) ---
+  if (s.GenerateFlags.Serialize) {
     if (hasCtx) {
       std::string ctxParams = ca.contextParams();
       out += std::format("void {}::serialize(xmstream &out, {}) const {{\n", sn, ctxParams);
     } else {
-      // Self-contained: no external context params
       out += std::format("void {}::serialize(xmstream &out) const {{\n", sn);
     }
     out += "  out.write('{');\n";
-    generateContextSerializeBody(out, s, ca, enumNames, opts);
+    generateSerializeBody(out, s, ca, enumNames, opts);
     out += "  out.write('}');\n";
     out += "}\n\n";
-  } else {
-    // --- serialize() ---
-    out += std::format("void {}::serialize(xmstream &out) const {{\n", sn);
+  }
+
+  // --- serialize (flat static) ---
+  if (s.GenerateFlags.SerializeFlat) {
+    std::string params = flatSerializeParams(s, ca, enumNames, opts);
+    out += std::format("void {}::serialize({}) {{\n", sn, params);
     out += "  out.write('{');\n";
-    {
-      bool first = true;
-      for (size_t i = 0; i < s.Fields.size(); i++) {
-        auto &fci = ca.FieldCapture[i];
-        if (fci.kind == CFieldCaptureInfo::MappedInline) {
-          emitMappedInlineSerialize(out, s.Fields[i], fci, 1, first, opts.PascalCaseFields);
-        } else {
-          generateSerializeField(out, s.Fields[i], enumNames, 1, first, opts.PascalCaseFields);
-        }
-      }
-    }
+    // Reuse same serialize body — parameter names match member names
+    generateSerializeBody(out, s, ca, enumNames, opts);
     out += "  out.write('}');\n";
     out += "}\n\n";
   }
@@ -1026,9 +1089,13 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   // Check features
   bool hasTaggedSchema = false;
   bool hasChrono = false;
+  bool anyVerbose = false;
+  bool anyFlatSerialize = false;
   for (auto &s : file.Structs) {
     if (!s.IsMixin && !s.IsImported) {
       if (s.HasTaggedSchema) hasTaggedSchema = true;
+      if (s.GenerateFlags.ParseVerbose) anyVerbose = true;
+      if (s.GenerateFlags.SerializeFlat) anyFlatSerialize = true;
       for (auto &f : s.Fields) {
         if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
             f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours))
@@ -1047,6 +1114,8 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   header += "#include <ctime>\n";
   if (hasChrono)
     header += "#include <chrono>\n";
+  if (anyFlatSerialize)
+    header += "#include <string_view>\n";
   if (hasTaggedSchema)
     header += "#include \"idltool/schema.h\"\n";
 
@@ -1066,7 +1135,7 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   // Forward declarations
   header += "class xmstream;\n";
   header += "struct JsonScanner;\n";
-  if (opts.VerboseMode) {
+  if (anyVerbose) {
     header += parseErrorCode;
     header += "struct VerboseJsonScanner;\n";
   }
@@ -1099,7 +1168,7 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
 
   if (opts.Standalone)
     source += jsonScannerCode;
-  if (opts.VerboseMode)
+  if (anyVerbose)
     source += verboseJsonScannerCode;
   source += jsonHelperCode;
   source += "\n";

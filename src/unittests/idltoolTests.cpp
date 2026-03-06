@@ -543,3 +543,23 @@ TEST(IdlTool, ContextVectorResolve) {
   // Element 2: "100" with ctx=0 → 100
   EXPECT_EQ(parent.items[2].value, 100);
 }
+
+// ============================================================================
+// Flat serialize tests
+// ============================================================================
+
+TEST(IdlTool, FlatSerialize) {
+  xmstream stream;
+  std::vector<Inner> items;
+  items.push_back(Inner{});
+  items.back().value = "hello";
+  items.back().count = 42;
+  FlatResponse::serialize(stream, std::string("ok"), items);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_STREQ(doc["status"].GetString(), "ok");
+  ASSERT_TRUE(doc["items"].IsArray());
+  ASSERT_EQ(doc["items"].Size(), 1u);
+  EXPECT_STREQ(doc["items"][0]["value"].GetString(), "hello");
+  EXPECT_EQ(doc["items"][0]["count"].GetInt64(), 42);
+}

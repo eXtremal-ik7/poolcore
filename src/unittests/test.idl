@@ -37,6 +37,7 @@ mixin Timestamped {
 // ============================================================================
 
 struct ScalarTypes {
+  .generate(parse, parse.verbose, serialize);
   fieldString: string;
   fieldBool: bool;
   fieldInt32: int32;
@@ -51,6 +52,7 @@ struct ScalarTypes {
 // ============================================================================
 
 struct ScalarDefaults {
+  .generate(parse, parse.verbose, serialize);
   fieldString: string = "hello";
   fieldBool: bool = true;
   fieldInt32: int32 = -1;
@@ -65,6 +67,7 @@ struct ScalarDefaults {
 // ============================================================================
 
 struct MixedFields {
+  .generate(parse, parse.verbose, serialize);
   required1: string;
   optional1: string = "";
   required2: int64;
@@ -78,11 +81,13 @@ struct MixedFields {
 // ============================================================================
 
 struct Inner {
+  .generate(parse, parse.verbose, serialize);
   value: string;
   count: int64;
 }
 
 struct Outer {
+  .generate(parse, parse.verbose, serialize);
   label: string;
   child: Inner;
 }
@@ -92,6 +97,7 @@ struct Outer {
 // ============================================================================
 
 struct OptionalChildren {
+  .generate(parse, parse.verbose, serialize);
   name: string;
   first: Inner?;
   second: Inner?;
@@ -102,6 +108,7 @@ struct OptionalChildren {
 // ============================================================================
 
 struct ArrayFields {
+  .generate(parse, parse.verbose, serialize);
   strings: [string];
   numbers: [int64];
   doubles: [double];
@@ -113,6 +120,7 @@ struct ArrayFields {
 // ============================================================================
 
 struct OptionalArrays {
+  .generate(parse, parse.verbose, serialize);
   label: string;
   tags: [string]?;
   items: [Inner]?;
@@ -123,6 +131,7 @@ struct OptionalArrays {
 // ============================================================================
 
 struct WithEnum {
+  .generate(parse, parse.verbose, serialize);
   color: Color;
   priority: Priority = "medium";
 }
@@ -132,11 +141,13 @@ struct WithEnum {
 // ============================================================================
 
 struct WithMixin {
+  .generate(parse, parse.verbose, serialize);
   mixin Identifiable;
   value: double;
 }
 
 struct WithMultipleMixins {
+  .generate(parse, parse.verbose, serialize);
   mixin Identifiable;
   mixin Timestamped;
   payload: string;
@@ -147,15 +158,18 @@ struct WithMultipleMixins {
 // ============================================================================
 
 struct Level2 {
+  .generate(parse, parse.verbose, serialize);
   value: int64;
 }
 
 struct Level1 {
+  .generate(parse, parse.verbose, serialize);
   nested: Level2;
   items: [Level2];
 }
 
 struct Level0 {
+  .generate(parse, parse.verbose, serialize);
   child: Level1;
   label: string = "";
 }
@@ -167,13 +181,15 @@ struct Level0 {
 mapped type testVal("int64_t") : string context(uint32) include "testMappedTypes.h";
 
 struct CtxChild {
-  context testVal;
+  .generate(parse, serialize);
+  .context(testVal);
   value: testVal;
   label: string;
 }
 
 // Vector context: array of context-needing struct → vector<uint32_t>
 struct CtxVectorParent {
+  .generate(parse, serialize);
   items: [CtxChild];
 }
 
@@ -182,6 +198,7 @@ struct CtxVectorParent {
 // ============================================================================
 
 struct Combined {
+  .generate(parse, parse.verbose, serialize);
   mixin Identifiable;
   mixin Timestamped;
   priority: Priority = "low";
@@ -191,4 +208,14 @@ struct Combined {
   tags: [string]?;
   children: [Inner];
   nested: Outer;
+}
+
+// ============================================================================
+// Flat serialize — no members, only static serialize
+// ============================================================================
+
+struct FlatResponse {
+  .generate(serialize.flat);
+  status: string;
+  items: [Inner];
 }

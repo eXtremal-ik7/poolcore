@@ -53,23 +53,28 @@ mixin TimeRangeDefault {
 }
 
 struct StatusResponse {
+  .generate(serialize.flat);
   status: string;
 }
 
 struct SessionRequest {
+  .generate(parse);
   id: string;
 }
 
 struct SessionTargetRequest {
+  .generate(parse);
   mixin SessionTarget;
 }
 
 struct SessionCoinRequest {
+  .generate(parse);
   id: string;
   coin: string;
 }
 
 struct SessionFeePlanRequest {
+  .generate(parse);
   id: string;
   feePlanId: string;
 }
@@ -99,6 +104,7 @@ enum WorkerSortColumn : string {
 
 // --- userAction ---
 struct UserActionRequest {
+  .generate(parse);
   actionId: string;
   newPassword: string = "";
   totp: string = "";
@@ -106,6 +112,7 @@ struct UserActionRequest {
 
 // --- userCreate ---
 struct UserCreateRequest {
+  .generate(parse);
   login: string;
   password: string;
   name: string = "";
@@ -116,20 +123,24 @@ struct UserCreateRequest {
 
 // --- userCreateForce ---
 struct UserCreateForceRequest {
+  .generate(parse);
   id: string;
   mixin Credentials;
 }
 
 // --- userResendEmail ---
 struct UserResendEmailRequest {
+  .generate(parse);
   mixin Credentials;
 }
 
 // --- userLogin ---
 struct UserLoginRequest {
+  .generate(parse);
   mixin Credentials;
 }
 struct UserLoginResponse {
+  .generate(serialize.flat);
   status: string;
   sessionid: string;
   isReadOnly: bool;
@@ -141,17 +152,20 @@ struct UserLoginResponse {
 // --- userQueryMonitoringSession ---
 // → SessionTargetRequest
 struct UserQueryMonitoringSessionResponse {
+  .generate(serialize.flat);
   status: string;
   sessionid: string;
 }
 
 // --- userChangePasswordInitiate ---
 struct UserChangePasswordInitiateRequest {
+  .generate(parse);
   login: string;
 }
 
 // --- userChangePasswordForce ---
 struct UserChangePasswordForceRequest {
+  .generate(parse);
   id: string;
   login: string;
   newPassword: string;
@@ -160,6 +174,7 @@ struct UserChangePasswordForceRequest {
 // --- userGetCredentials ---
 // → SessionTargetRequest
 struct UserGetCredentialsResponse {
+  .generate(serialize.flat);
   status: string;
   login: string;
   name: string;
@@ -172,6 +187,7 @@ struct UserGetCredentialsResponse {
 
 // --- userGetSettings ---
 struct CoinSettings {
+  .generate(serialize);
   name: string;
   payout: SettingsPayout;
   mining: SettingsMining;
@@ -182,18 +198,21 @@ struct CoinSettings {
 
 // → SessionTargetRequest
 struct UserGetSettingsResponse {
+  .generate(serialize.flat);
   status: string;
   coins: [CoinSettings];
 }
 
 // --- userUpdateCredentials ---
 struct UserUpdateCredentialsRequest {
+  .generate(parse);
   mixin SessionTarget;
   mixin Credentials;
 }
 
 // --- userUpdateSettings ---
 struct UserUpdateSettingsRequest {
+  .generate(parse);
   id: string;
   targetLogin: string = "";
   coin: string;
@@ -205,6 +224,7 @@ struct UserUpdateSettingsRequest {
 
 // --- userEnumerateAll ---
 struct UserEnumerateAllRequest {
+  .generate(parse);
   id: string;
   coin: string = "sha256";
   offset: uint64 = 0;
@@ -214,6 +234,7 @@ struct UserEnumerateAllRequest {
 }
 
 struct UserWithStats {
+  .generate(serialize);
   login: string;
   name: string;
   email: string;
@@ -228,6 +249,7 @@ struct UserWithStats {
 }
 
 struct UserEnumerateAllResponse {
+  .generate(serialize.flat);
   status: string;
   users: [UserWithStats];
 }
@@ -235,6 +257,7 @@ struct UserEnumerateAllResponse {
 // --- userEnumerateFeePlan ---
 // → SessionRequest
 struct UserEnumerateFeePlanResponse {
+  .generate(serialize.flat);
   status: string;
   plans: [string];
 }
@@ -244,11 +267,13 @@ struct UserEnumerateFeePlanResponse {
 
 // --- userQueryFeePlan ---
 struct UserQueryFeePlanRequest {
+  .generate(parse);
   id: string;
   feePlanId: string;
   mode: MiningMode;
 }
 struct UserQueryFeePlanResponse {
+  .generate(serialize.flat);
   status: string;
   feePlanId: string;
   mode: MiningMode;
@@ -259,6 +284,7 @@ struct UserQueryFeePlanResponse {
 
 // --- userUpdateFeePlan ---
 struct UserUpdateFeePlanRequest {
+  .generate(parse);
   id: string;
   feePlanId: string;
   mode: MiningMode;
@@ -271,6 +297,7 @@ struct UserUpdateFeePlanRequest {
 
 // --- userChangeFeePlan ---
 struct UserChangeFeePlanRequest {
+  .generate(parse);
   id: string;
   targetLogin: string;
   feePlanId: string;
@@ -279,6 +306,7 @@ struct UserChangeFeePlanRequest {
 // --- userRenewFeePlanReferralId ---
 // → SessionFeePlanRequest
 struct UserRenewFeePlanReferralIdResponse {
+  .generate(serialize.flat);
   status: string;
   referralId: string;
 }
@@ -286,6 +314,7 @@ struct UserRenewFeePlanReferralIdResponse {
 // --- userActivate2faInitiate ---
 // → SessionTargetRequest
 struct UserActivate2faInitiateResponse {
+  .generate(serialize.flat);
   status: string;
   key: string;
 }
@@ -295,6 +324,7 @@ struct UserActivate2faInitiateResponse {
 
 // --- userAdjustInstantPayoutThreshold ---
 struct UserAdjustInstantPayoutThresholdRequest {
+  .generate(parse);
   id: string;
   coin: string;
   threshold: string;
@@ -306,6 +336,7 @@ struct UserAdjustInstantPayoutThresholdRequest {
 
 // --- backendManualPayout ---
 struct BackendManualPayoutRequest {
+  .generate(parse);
   id: string;
   targetLogin: string = "";
   coin: string;
@@ -313,10 +344,12 @@ struct BackendManualPayoutRequest {
 
 // --- backendQueryUserBalance ---
 struct BackendQueryUserBalanceRequest {
+  .generate(parse);
   mixin SessionTargetCoin;
 }
 
 struct BalanceEntry {
+  .generate(serialize);
   coin: string;
   balance: string;
   requested: string;
@@ -325,12 +358,14 @@ struct BalanceEntry {
 }
 
 struct BackendQueryUserBalanceResponse {
+  .generate(serialize.flat);
   status: string;
   balances: [BalanceEntry];
 }
 
 // --- backendQueryUserStats ---
 struct BackendQueryUserStatsRequest {
+  .generate(parse);
   mixin SessionTargetCoin;
   offset: uint64 = 0;
   size: uint64 = 4096;
@@ -339,6 +374,7 @@ struct BackendQueryUserStatsRequest {
 }
 
 struct StatsTotal {
+  .generate(serialize);
   clients: int64;
   workers: int64;
   shareRate: double;
@@ -348,6 +384,7 @@ struct StatsTotal {
 }
 
 struct WorkerStats {
+  .generate(serialize);
   name: string;
   shareRate: double;
   shareWork: string;
@@ -356,6 +393,7 @@ struct WorkerStats {
 }
 
 struct BackendQueryUserStatsResponse {
+  .generate(serialize.flat);
   status: string;
   powerUnit: string;
   powerMultLog10: int64;
@@ -366,6 +404,7 @@ struct BackendQueryUserStatsResponse {
 
 // --- backendQueryUserStatsHistory ---
 struct BackendQueryUserStatsHistoryRequest {
+  .generate(parse);
   id: string;
   targetLogin: string = "";
   coin: string = "";
@@ -373,6 +412,7 @@ struct BackendQueryUserStatsHistoryRequest {
 }
 
 struct StatsHistoryEntry {
+  .generate(serialize);
   name: string;
   time: int64;
   shareRate: double;
@@ -381,6 +421,7 @@ struct StatsHistoryEntry {
 }
 
 struct StatsHistoryResponse {
+  .generate(serialize.flat);
   status: string;
   powerUnit: string;
   powerMultLog10: int64;
@@ -390,6 +431,7 @@ struct StatsHistoryResponse {
 
 // --- backendQueryWorkerStatsHistory ---
 struct BackendQueryWorkerStatsHistoryRequest {
+  .generate(parse);
   id: string;
   targetLogin: string = "";
   coin: string;
@@ -399,9 +441,11 @@ struct BackendQueryWorkerStatsHistoryRequest {
 
 // --- backendQueryCoins ---
 struct BackendQueryCoinsRequest {
+  .generate(parse);
 }
 
 struct HttpCoinInfo {
+  .generate(serialize);
   name: string;
   fullName: string;
   algorithm: string;
@@ -425,12 +469,14 @@ struct HttpCoinInfo {
 }
 
 struct BackendQueryCoinsResponse {
+  .generate(serialize.flat);
   status: string;
   coins: [HttpCoinInfo];
 }
 
 // --- backendQueryFoundBlocks ---
 struct BackendQueryFoundBlocksRequest {
+  .generate(parse);
   coin: string;
   heightFrom: int64 = -1;
   hashFrom: string = "";
@@ -438,6 +484,7 @@ struct BackendQueryFoundBlocksRequest {
 }
 
 struct FoundBlock {
+  .generate(serialize);
   height: int64;
   hash: string;
   time: int64;
@@ -448,12 +495,14 @@ struct FoundBlock {
 }
 
 struct BackendQueryFoundBlocksResponse {
+  .generate(serialize.flat);
   status: string;
   blocks: [FoundBlock];
 }
 
 // --- backendQueryPayouts ---
 struct BackendQueryPayoutsRequest {
+  .generate(parse);
   id: string;
   targetLogin: string = "";
   coin: string = "";
@@ -462,6 +511,7 @@ struct BackendQueryPayoutsRequest {
 }
 
 struct PayoutRecord {
+  .generate(serialize);
   time: int64;
   txid: string;
   value: string;
@@ -471,16 +521,19 @@ struct PayoutRecord {
 }
 
 struct BackendQueryPayoutsResponse {
+  .generate(serialize.flat);
   status: string;
   payouts: [PayoutRecord];
 }
 
 // --- backendQueryPoolStats ---
 struct BackendQueryPoolStatsRequest {
+  .generate(parse);
   coin: string = "";
 }
 
 struct PoolStatsEntry {
+  .generate(serialize);
   coin: string;
   powerUnit: string;
   powerMultLog10: int64;
@@ -493,6 +546,7 @@ struct PoolStatsEntry {
 }
 
 struct BackendQueryPoolStatsResponse {
+  .generate(serialize.flat);
   status: string;
   currentTime: int64;
   stats: [PoolStatsEntry];
@@ -500,6 +554,7 @@ struct BackendQueryPoolStatsResponse {
 
 // --- backendQueryPoolStatsHistory ---
 struct BackendQueryPoolStatsHistoryRequest {
+  .generate(parse);
   coin: string = "";
   mixin TimeRangeDefault;
 }
@@ -508,17 +563,20 @@ struct BackendQueryPoolStatsHistoryRequest {
 // → SessionRequest
 
 struct ProfitSwitchCoinEntry {
+  .generate(serialize);
   name: string;
   profitSwitchCoeff: double;
 }
 
 struct BackendQueryProfitSwitchCoeffResponse {
+  .generate(serialize.flat);
   status: string;
   coins: [ProfitSwitchCoinEntry];
 }
 
 // --- backendQueryPPLNSPayouts ---
 struct BackendQueryPPLNSPayoutsRequest {
+  .generate(parse);
   id: string;
   targetLogin: string = "";
   coin: string;
@@ -528,13 +586,15 @@ struct BackendQueryPPLNSPayoutsRequest {
 }
 
 struct BackendQueryPPLNSPayoutsResponse {
-  context money;
+  .generate(serialize.flat);
+  .context(money);
   status: string;
   payouts: [PPLNSPayoutEntry];
 }
 
 // --- backendQueryPPLNSAcc ---
 struct BackendQueryPPLNSAccRequest {
+  .generate(parse);
   id: string;
   targetLogin: string = "";
   coin: string;
@@ -542,13 +602,15 @@ struct BackendQueryPPLNSAccRequest {
 }
 
 struct BackendQueryPPLNSAccResponse {
-  context money;
+  .generate(serialize.flat);
+  .context(money);
   status: string;
   payouts: [AccumulatedPayoutEntry];
 }
 
 // --- backendQueryPPSPayouts ---
 struct BackendQueryPPSPayoutsRequest {
+  .generate(parse);
   id: string;
   targetLogin: string = "";
   coin: string;
@@ -557,13 +619,15 @@ struct BackendQueryPPSPayoutsRequest {
 }
 
 struct BackendQueryPPSPayoutsResponse {
-  context money;
+  .generate(serialize.flat);
+  .context(money);
   status: string;
   payouts: [PPSPayoutEntry];
 }
 
 // --- backendQueryPPSPayoutsAcc ---
 struct BackendQueryPPSPayoutsAccRequest {
+  .generate(parse);
   id: string;
   targetLogin: string = "";
   coin: string;
@@ -572,6 +636,7 @@ struct BackendQueryPPSPayoutsAccRequest {
 
 // --- backendUpdateProfitSwitchCoeff ---
 struct BackendUpdateProfitSwitchCoeffRequest {
+  .generate(parse);
   id: string;
   coin: string = "";
   profitSwitchCoeff: double;
@@ -580,6 +645,7 @@ struct BackendUpdateProfitSwitchCoeffRequest {
 // --- backendGetConfig ---
 // → SessionCoinRequest
 struct BackendGetConfigResponse {
+  .generate(serialize.flat);
   status: string;
   pps: BackendPPS;
   payouts: BackendPayouts;
@@ -589,6 +655,7 @@ struct BackendGetConfigResponse {
 
 // --- backendUpdateConfig ---
 struct BackendUpdateConfigRequest {
+  .generate(parse);
   id: string;
   coin: string;
   pps: BackendPPS?;
@@ -600,17 +667,20 @@ struct BackendUpdateConfigRequest {
 // → SessionCoinRequest
 
 struct PPSBalanceInfo {
+  .generate(serialize);
   value: string;
   inBlocks: double;
 }
 
 struct PPSBalanceWithSqLambda {
+  .generate(serialize);
   value: string;
   inBlocks: double;
   sqLambda: double;
 }
 
 struct HttpPPSBalanceSnapshot {
+  .generate(serialize);
   time: int64;
   value: string;
   inBlocks: double;
@@ -618,6 +688,7 @@ struct HttpPPSBalanceSnapshot {
 }
 
 struct HttpPPSState {
+  .generate(serialize);
   time: int64;
   balance: PPSBalanceInfo;
   refBalance: PPSBalanceWithSqLambda;
@@ -636,28 +707,33 @@ struct HttpPPSState {
 }
 
 struct BackendGetPPSStateResponse {
+  .generate(serialize.flat);
   status: string;
   state: HttpPPSState;
 }
 
 // --- backendQueryPPSHistory ---
 struct BackendQueryPPSHistoryRequest {
+  .generate(parse);
   id: string;
   coin: string;
   timeFrom: int64;
   timeTo: int64;
 }
 struct BackendQueryPPSHistoryResponse {
+  .generate(serialize.flat);
   status: string;
   history: [HttpPPSState];
 }
 
 // --- backendPoolLuck ---
 struct BackendPoolLuckRequest {
+  .generate(parse);
   coin: string;
   intervals: [int64];
 }
 struct BackendPoolLuckResponse {
+  .generate(serialize.flat);
   status: string;
   luck: [double];
 }
@@ -668,6 +744,7 @@ struct BackendPoolLuckResponse {
 
 // --- instanceEnumerateAll ---
 struct InstanceInfo {
+  .generate(serialize);
   protocol: string;
   type: string;
   port: int64;
@@ -676,6 +753,7 @@ struct InstanceInfo {
 }
 
 struct InstanceEnumerateAllResponse {
+  .generate(serialize.flat);
   status: string;
   instances: [InstanceInfo];
 }

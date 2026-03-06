@@ -359,11 +359,7 @@ void PoolHttpConnection::onUserLogin(const CUserLoginRequest &request)
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().userLogin(std::move(credentials), [this](const std::string &sessionId, const char *status, bool isReadOnly) {
-    CUserLoginResponse response;
-    response.Status = status;
-    response.Sessionid = sessionId;
-    response.IsReadOnly = isReadOnly;
-    sendReply(response);
+    sendReply<CUserLoginResponse>(status, sessionId, isReadOnly);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
@@ -381,10 +377,7 @@ void PoolHttpConnection::onUserQueryMonitoringSession(const CSessionTargetReques
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().userQueryMonitoringSession(token.Login, [this](const std::string &sessionId, const char *status) {
-    CUserQueryMonitoringSessionResponse response;
-    response.Status = status;
-    response.Sessionid = sessionId;
-    sendReply(response);
+    sendReply<CUserQueryMonitoringSessionResponse>(status, sessionId);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
@@ -419,31 +412,22 @@ void PoolHttpConnection::onUserChangePasswordForce(const CUserChangePasswordForc
 
 void PoolHttpConnection::onUserGetCredentials(const CSessionTargetRequest&, const CToken &token)
 {
-  UserManager::Credentials credentials;
-  if (!Server_.userManager().getUserCredentials(token.Login, credentials)) {
+  UserManager::Credentials c;
+  if (!Server_.userManager().getUserCredentials(token.Login, c)) {
     replyWithStatus("unknown_id");
     return;
   }
 
-  CUserGetCredentialsResponse response;
-  response.Status = "ok";
-  response.Login = token.Login;
-  response.Name = credentials.Name;
-  response.Email = credentials.EMail;
-  response.RegistrationDate = credentials.RegistrationDate.toUnixTime();
-  response.IsActive = credentials.IsActive;
-  // We return readonly flag if user or session has it
-  response.IsReadOnly = token.IsReadOnly | credentials.IsReadOnly;
-  response.Has2fa = credentials.HasTwoFactor;
-  sendReply(response);
+  bool isReadOnly = token.IsReadOnly | c.IsReadOnly;
+  int64_t regDate = c.RegistrationDate.toUnixTime();
+  sendReply<CUserGetCredentialsResponse>("ok", token.Login, c.Name, c.EMail, regDate, c.IsActive, isReadOnly, c.HasTwoFactor);
 }
 
 void PoolHttpConnection::onUserGetSettings(const CSessionTargetRequest&, const CToken &token)
 {
   std::string feePlanId = Server_.userManager().getFeePlanId(token.Login);
 
-  CUserGetSettingsResponse response;
-  response.Status = "ok";
+  std::vector<CCoinSettings> coins;
   std::vector<uint32_t> moneyCtx;
 
   for (const auto &backend: Server_.backends()) {
@@ -458,7 +442,7 @@ void PoolHttpConnection::onUserGetSettings(const CSessionTargetRequest&, const C
     for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::Pps, coinInfo.Name))
       ppsFee += fee.Percentage;
 
-    auto &coin = response.Coins.emplace_back();
+    auto &coin = coins.emplace_back();
     coin.Name = coinInfo.Name;
     coin.Payout = settings.Payout;
     coin.Mining = settings.Mining;
@@ -468,7 +452,7 @@ void PoolHttpConnection::onUserGetSettings(const CSessionTargetRequest&, const C
     moneyCtx.push_back(coinInfo.FractionalPartSize);
   }
 
-  sendReply(response, moneyCtx);
+  sendReply<CUserGetSettingsResponse>("ok", coins, moneyCtx);
 }
 
 void PoolHttpConnection::onUserUpdateCredentials(const CUserUpdateCredentialsRequest &request, const CToken &token)
@@ -520,8 +504,7 @@ void PoolHttpConnection::onUserEnumerateAll(const CUserEnumerateAllRequest &requ
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().enumerateUsers(token.Login, [this, &statistic, offset, size, column, sortDescending](const char *status, std::vector<UserManager::Credentials> &allUsers) {
     statistic.queryAllusersStats(std::move(allUsers), [this, status](const std::vector<StatisticDb::CredentialsWithStatistic> &result) {
-      CUserEnumerateAllResponse response;
-      response.Status = status;
+      std::vector<CUserWithStats> users;
       for (const auto &user: result) {
         CUserWithStats entry;
         entry.Login = user.Credentials.Login;
@@ -535,9 +518,9 @@ void PoolHttpConnection::onUserEnumerateAll(const CUserEnumerateAllRequest &requ
         entry.ShareRate = user.SharesPerSecond;
         entry.Power = user.AveragePower;
         entry.LastShareTime = user.LastShareTime.toUnixTime();
-        response.Users.push_back(std::move(entry));
+        users.push_back(std::move(entry));
       }
-      sendReply(response);
+      sendReply<CUserEnumerateAllResponse>(status, users);
       objectDecrementReference(aioObjectHandle(Socket_), 1);
 
     }, offset, size, column, sortDescending);
@@ -595,10 +578,7 @@ void PoolHttpConnection::onUserEnumerateFeePlan(const CSessionRequest&, const CT
     return;
   }
 
-  CUserEnumerateFeePlanResponse response;
-  response.Status = "ok";
-  response.Plans = std::move(result);
-  sendReply(response);
+  sendReply<CUserEnumerateFeePlanResponse>("ok", result);
 }
 
 void PoolHttpConnection::onUserQueryFeePlan(const CUserQueryFeePlanRequest &request, const CToken &token)
@@ -613,14 +593,8 @@ void PoolHttpConnection::onUserQueryFeePlan(const CUserQueryFeePlanRequest &requ
     return;
   }
 
-  CUserQueryFeePlanResponse response;
-  response.Status = "ok";
-  response.FeePlanId = request.FeePlanId;
-  response.Mode = mode;
-  response.ReferralId = referralId.isNull() ? "" : referralId.getHexRaw();
-  response.Default = std::move(result.Default);
-  response.CoinSpecific = std::move(result.CoinSpecific);
-  sendReply(response);
+  std::string refIdStr = referralId.isNull() ? "" : referralId.getHexRaw();
+  sendReply<CUserQueryFeePlanResponse>("ok", request.FeePlanId, mode, refIdStr, result.Default, result.CoinSpecific);
 }
 
 void PoolHttpConnection::onUserChangeFeePlan(const CUserChangeFeePlanRequest &request, const CToken &token)
@@ -636,10 +610,7 @@ void PoolHttpConnection::onUserRenewFeePlanReferralId(const CSessionFeePlanReque
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().renewFeePlanReferralId(request.FeePlanId, [this](const char *status, const std::string &referralId) {
-    CUserRenewFeePlanReferralIdResponse response;
-    response.Status = status;
-    response.ReferralId = referralId;
-    sendReply(response);
+    sendReply<CUserRenewFeePlanReferralIdResponse>(status, referralId);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
@@ -648,10 +619,7 @@ void PoolHttpConnection::onUserActivate2faInitiate(const CSessionTargetRequest&,
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().activate2faInitiate(token.Login, [this](const char *status, const char *key) {
-    CUserActivate2faInitiateResponse response;
-    response.Status = status;
-    response.Key = key;
-    sendReply(response);
+    sendReply<CUserActivate2faInitiateResponse>(status, key);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
@@ -699,16 +667,13 @@ void PoolHttpConnection::onBackendQueryUserBalance(const CBackendQueryUserBalanc
     objectIncrementReference(aioObjectHandle(Socket_), 1);
     backend->accountingDb()->queryUserBalance(token.Login, [this, backend](const UserBalanceInfo &record) {
       const CCoinInfo &coinInfo = backend->getCoinInfo();
-      CBackendQueryUserBalanceResponse response;
-      response.Status = "ok";
-      CBalanceEntry entry;
-      entry.Coin = coinInfo.Name;
-      entry.Balance = FormatMoney(record.Data.Balance, coinInfo.FractionalPartSize);
-      entry.Requested = FormatMoney(record.Data.Requested, coinInfo.FractionalPartSize);
-      entry.Paid = FormatMoney(record.Data.Paid, coinInfo.FractionalPartSize);
-      entry.Queued = FormatMoney(record.Queued, coinInfo.FractionalPartSize);
-      response.Balances.push_back(std::move(entry));
-      sendReply(response);
+      std::vector<CBalanceEntry> balances(1);
+      balances[0].Coin = coinInfo.Name;
+      balances[0].Balance = FormatMoney(record.Data.Balance, coinInfo.FractionalPartSize);
+      balances[0].Requested = FormatMoney(record.Data.Requested, coinInfo.FractionalPartSize);
+      balances[0].Paid = FormatMoney(record.Data.Paid, coinInfo.FractionalPartSize);
+      balances[0].Queued = FormatMoney(record.Queued, coinInfo.FractionalPartSize);
+      sendReply<CBackendQueryUserBalanceResponse>("ok", balances);
       objectDecrementReference(aioObjectHandle(Socket_), 1);
     });
   } else {
@@ -720,8 +685,7 @@ void PoolHttpConnection::onBackendQueryUserBalance(const CBackendQueryUserBalanc
       accountingDbs[i] = Server_.backend(i)->accountingDb();
 
     AccountingDb::queryUserBalanceMulti(&accountingDbs[0], accountingDbs.size(), token.Login, [this](const UserBalanceInfo *balanceData, size_t backendsNum) {
-      CBackendQueryUserBalanceResponse response;
-      response.Status = "ok";
+      std::vector<CBalanceEntry> balances;
       for (size_t i = 0; i < backendsNum; i++) {
         const CCoinInfo &coinInfo = Server_.backend(i)->getCoinInfo();
         CBalanceEntry entry;
@@ -730,9 +694,9 @@ void PoolHttpConnection::onBackendQueryUserBalance(const CBackendQueryUserBalanc
         entry.Requested = FormatMoney(balanceData[i].Data.Requested, coinInfo.FractionalPartSize);
         entry.Paid = FormatMoney(balanceData[i].Data.Paid, coinInfo.FractionalPartSize);
         entry.Queued = FormatMoney(balanceData[i].Queued, coinInfo.FractionalPartSize);
-        response.Balances.push_back(std::move(entry));
+        balances.push_back(std::move(entry));
       }
-      sendReply(response);
+      sendReply<CBackendQueryUserBalanceResponse>("ok", balances);
       objectDecrementReference(aioObjectHandle(Socket_), 1);
     });
   }
@@ -750,17 +714,14 @@ void PoolHttpConnection::onBackendQueryUserStats(const CBackendQueryUserStatsReq
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   statistic.queryUserStats(token.Login, [this, &statistic](const CStats &aggregate, const std::vector<CStats> &workers) {
-    CBackendQueryUserStatsResponse response;
-    response.Status = "ok";
-    response.PowerUnit = statistic.getCoinInfo().getPowerUnitName();
-    response.PowerMultLog10 = statistic.getCoinInfo().PowerMultLog10;
-    response.CurrentTime = time(nullptr);
-    response.Total.Clients = aggregate.ClientsNum;
-    response.Total.Workers = aggregate.WorkersNum;
-    response.Total.ShareRate = aggregate.SharesPerSecond;
-    response.Total.ShareWork = aggregate.SharesWork.getDecimal();
-    response.Total.Power = aggregate.AveragePower;
-    response.Total.LastShareTime = aggregate.LastShareTime.toUnixTime();
+    CStatsTotal total;
+    total.Clients = aggregate.ClientsNum;
+    total.Workers = aggregate.WorkersNum;
+    total.ShareRate = aggregate.SharesPerSecond;
+    total.ShareWork = aggregate.SharesWork.getDecimal();
+    total.Power = aggregate.AveragePower;
+    total.LastShareTime = aggregate.LastShareTime.toUnixTime();
+    std::vector<CWorkerStats> workersList;
     for (const auto &w : workers) {
       CWorkerStats entry;
       entry.Name = w.WorkerId;
@@ -768,9 +729,10 @@ void PoolHttpConnection::onBackendQueryUserStats(const CBackendQueryUserStatsReq
       entry.ShareWork = w.SharesWork.getDecimal();
       entry.Power = w.AveragePower;
       entry.LastShareTime = w.LastShareTime.toUnixTime();
-      response.Workers.push_back(std::move(entry));
+      workersList.push_back(std::move(entry));
     }
-    sendReply(response);
+    const CCoinInfo &ci = statistic.getCoinInfo();
+    sendReply<CBackendQueryUserStatsResponse>("ok", ci.getPowerUnitName(), ci.PowerMultLog10, time(nullptr), total, workersList);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   }, request.Offset, request.Size, column, request.SortDescending);
 }
@@ -780,11 +742,8 @@ void PoolHttpConnection::queryStatsHistory(StatisticDb *statistic, const std::st
   std::vector<CStats> stats;
   statistic->getHistory(login, worker, timeFrom, timeTo, groupByInterval, stats);
 
-  CStatsHistoryResponse response;
-  response.Status = "ok";
-  response.PowerUnit = statistic->getCoinInfo().getPowerUnitName();
-  response.PowerMultLog10 = statistic->getCoinInfo().PowerMultLog10;
-  response.CurrentTime = currentTime;
+  const CCoinInfo &ci = statistic->getCoinInfo();
+  std::vector<CStatsHistoryEntry> entries;
   for (const auto &s : stats) {
     CStatsHistoryEntry entry;
     entry.Name = s.WorkerId;
@@ -792,9 +751,9 @@ void PoolHttpConnection::queryStatsHistory(StatisticDb *statistic, const std::st
     entry.ShareRate = s.SharesPerSecond;
     entry.ShareWork = s.SharesWork.getDecimal();
     entry.Power = s.AveragePower;
-    response.Stats.push_back(std::move(entry));
+    entries.push_back(std::move(entry));
   }
-  sendReply(response);
+  sendReply<CStatsHistoryResponse>("ok", ci.getPowerUnitName(), ci.PowerMultLog10, currentTime, entries);
 }
 
 void PoolHttpConnection::onBackendQueryUserStatsHistory(const CBackendQueryUserStatsHistoryRequest &request, const CToken &token, StatisticDb &statistic)
@@ -809,8 +768,7 @@ void PoolHttpConnection::onBackendQueryWorkerStatsHistory(const CBackendQueryWor
 
 void PoolHttpConnection::onBackendQueryCoins(const CBackendQueryCoinsRequest&)
 {
-  CBackendQueryCoinsResponse response;
-  response.Status = "ok";
+  std::vector<CHttpCoinInfo> coins;
   for (const auto &backend: Server_.backends()) {
     const CCoinInfo &info = backend->getCoinInfo();
     auto backendCfg = backend->accountingDb()->backendSettings();
@@ -852,10 +810,9 @@ void PoolHttpConnection::onBackendQueryCoins(const CBackendQueryCoinsRequest&)
       }
     }
 
-    // Placeholders for future calculator fields (null)
-    response.Coins.push_back(std::move(entry));
+    coins.push_back(std::move(entry));
   }
-  sendReply(response);
+  sendReply<CBackendQueryCoinsResponse>("ok", coins);
 }
 
 void PoolHttpConnection::onBackendQueryFoundBlocks(const CBackendQueryFoundBlocksRequest &request, PoolBackend &backend)
@@ -864,8 +821,7 @@ void PoolHttpConnection::onBackendQueryFoundBlocks(const CBackendQueryFoundBlock
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   backend.accountingDb()->queryFoundBlocks(request.HeightFrom, request.HashFrom, request.Count, [this, &coinInfo](const std::vector<FoundBlockRecord> &blocks, const std::vector<CNetworkClient::GetBlockConfirmationsQuery> &confirmations) {
-    CBackendQueryFoundBlocksResponse response;
-    response.Status = "ok";
+    std::vector<CFoundBlock> result;
     for (size_t i = 0, ie = blocks.size(); i != ie; ++i) {
       CFoundBlock entry;
       entry.Height = blocks[i].Height;
@@ -876,9 +832,9 @@ void PoolHttpConnection::onBackendQueryFoundBlocks(const CBackendQueryFoundBlock
       entry.FoundBy = blocks[i].FoundBy;
       if (!blocks[i].MergedBlocks.empty())
         entry.MergedBlocks = blocks[i].MergedBlocks;
-      response.Blocks.push_back(std::move(entry));
+      result.push_back(std::move(entry));
     }
-    sendReply(response);
+    sendReply<CBackendQueryFoundBlocksResponse>("ok", result);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
@@ -890,8 +846,7 @@ void PoolHttpConnection::onBackendQueryPayouts(const CBackendQueryPayoutsRequest
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
   double rateScale = std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
 
-  CBackendQueryPayoutsResponse response;
-  response.Status = "ok";
+  std::vector<CPayoutRecord> payouts;
   for (size_t i = 0, ie = records.size(); i != ie; ++i) {
     CPayoutRecord entry;
     entry.Time = records[i].Time.count();
@@ -904,9 +859,9 @@ void PoolHttpConnection::onBackendQueryPayouts(const CBackendQueryPayoutsRequest
     entry.ValueBTC = FormatMoney(valueBTC, 8);
     entry.ValueUSD = FormatMoney(valueUSD, 8);
     entry.Status = records[i].Status;
-    response.Payouts.push_back(std::move(entry));
+    payouts.push_back(std::move(entry));
   }
-  sendReply(response);
+  sendReply<CBackendQueryPayoutsResponse>("ok", payouts);
 }
 
 void PoolHttpConnection::onBackendQueryPoolBalance()
@@ -931,21 +886,17 @@ void PoolHttpConnection::onBackendQueryPoolStats(const CBackendQueryPoolStatsReq
     objectIncrementReference(aioObjectHandle(Socket_), 1);
     statistic->queryPoolStats([this, statistic](const CStats &record) {
       const CCoinInfo &coinInfo = statistic->getCoinInfo();
-      CBackendQueryPoolStatsResponse response;
-      response.Status = "ok";
-      response.CurrentTime = time(nullptr);
-      CPoolStatsEntry entry;
-      entry.Coin = coinInfo.Name;
-      entry.PowerUnit = coinInfo.getPowerUnitName();
-      entry.PowerMultLog10 = coinInfo.PowerMultLog10;
-      entry.Clients = record.ClientsNum;
-      entry.Workers = record.WorkersNum;
-      entry.ShareRate = record.SharesPerSecond;
-      entry.ShareWork = record.SharesWork.getDecimal();
-      entry.Power = record.AveragePower;
-      entry.LastShareTime = record.LastShareTime.toUnixTime();
-      response.Stats.push_back(std::move(entry));
-      sendReply(response);
+      std::vector<CPoolStatsEntry> statsVec(1);
+      statsVec[0].Coin = coinInfo.Name;
+      statsVec[0].PowerUnit = coinInfo.getPowerUnitName();
+      statsVec[0].PowerMultLog10 = coinInfo.PowerMultLog10;
+      statsVec[0].Clients = record.ClientsNum;
+      statsVec[0].Workers = record.WorkersNum;
+      statsVec[0].ShareRate = record.SharesPerSecond;
+      statsVec[0].ShareWork = record.SharesWork.getDecimal();
+      statsVec[0].Power = record.AveragePower;
+      statsVec[0].LastShareTime = record.LastShareTime.toUnixTime();
+      sendReply<CBackendQueryPoolStatsResponse>("ok", time(nullptr), statsVec);
       objectDecrementReference(aioObjectHandle(Socket_), 1);
     });
   } else {
@@ -957,9 +908,7 @@ void PoolHttpConnection::onBackendQueryPoolStats(const CBackendQueryPoolStatsReq
       statisticDbs[i] = Server_.backend(i)->statisticDb();
 
     StatisticDb::queryPoolStatsMulti(&statisticDbs[0], statisticDbs.size(), [this](const CStats *stats, size_t backendsNum) {
-      CBackendQueryPoolStatsResponse response;
-      response.Status = "ok";
-      response.CurrentTime = time(nullptr);
+      std::vector<CPoolStatsEntry> statsVec;
       for (size_t i = 0; i < backendsNum; i++) {
         const CCoinInfo &coinInfo = Server_.backend(i)->getCoinInfo();
         CPoolStatsEntry entry;
@@ -971,9 +920,9 @@ void PoolHttpConnection::onBackendQueryPoolStats(const CBackendQueryPoolStatsReq
         entry.ShareRate = stats[i].SharesPerSecond;
         entry.ShareWork = stats[i].SharesWork.getDecimal();
         entry.Power = stats[i].AveragePower;
-        response.Stats.push_back(std::move(entry));
+        statsVec.push_back(std::move(entry));
       }
-      sendReply(response);
+      sendReply<CBackendQueryPoolStatsResponse>("ok", time(nullptr), statsVec);
       objectDecrementReference(aioObjectHandle(Socket_), 1);
     });
   }
@@ -986,25 +935,21 @@ void PoolHttpConnection::onBackendQueryPoolStatsHistory(const CBackendQueryPoolS
 
 void PoolHttpConnection::onBackendQueryProfitSwitchCoeff(const CSessionRequest&, const CToken&)
 {
-  CBackendQueryProfitSwitchCoeffResponse response;
-  response.Status = "ok";
+  std::vector<CProfitSwitchCoinEntry> coins;
   for (const auto &backend : Server_.backends()) {
     CProfitSwitchCoinEntry entry;
     entry.Name = backend->getCoinInfo().Name;
     entry.ProfitSwitchCoeff = backend->getProfitSwitchCoeff();
-    response.Coins.push_back(std::move(entry));
+    coins.push_back(std::move(entry));
   }
-  sendReply(response);
+  sendReply<CBackendQueryProfitSwitchCoeffResponse>("ok", coins);
 }
 
 void PoolHttpConnection::onBackendQueryPPLNSPayouts(const CBackendQueryPPLNSPayoutsRequest &request, const CToken &token, PoolBackend &backend)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   backend.accountingDb()->queryPPLNSPayouts(token.Login, request.TimeFrom, request.HashFrom, request.Count, [this, &backend](const std::vector<CPPLNSPayoutEntry>& result) {
-    CBackendQueryPPLNSPayoutsResponse response;
-    response.Status = "ok";
-    response.Payouts = result;
-    sendReply(response, backend.getCoinInfo().FractionalPartSize);
+    sendReply<CBackendQueryPPLNSPayoutsResponse>("ok", result, backend.getCoinInfo().FractionalPartSize);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
@@ -1021,10 +966,7 @@ void PoolHttpConnection::onBackendQueryPPLNSAcc(const CBackendQueryPPLNSAccReque
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   backend.accountingDb()->queryPPLNSAcc(token.Login, request.TimeFrom, request.TimeTo, request.GroupByInterval, [this, &backend](const std::vector<CAccumulatedPayoutEntry>& result) {
-    CBackendQueryPPLNSAccResponse response;
-    response.Status = "ok";
-    response.Payouts = result;
-    sendReply(response, backend.getCoinInfo().FractionalPartSize);
+    sendReply<CBackendQueryPPLNSAccResponse>("ok", result, backend.getCoinInfo().FractionalPartSize);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
@@ -1033,10 +975,7 @@ void PoolHttpConnection::onBackendQueryPPSPayouts(const CBackendQueryPPSPayoutsR
 {
   auto result = backend.accountingDb()->api().queryPPSPayouts(token.Login, request.TimeFrom, request.Count);
 
-  CBackendQueryPPSPayoutsResponse response;
-  response.Status = "ok";
-  response.Payouts = std::move(result);
-  sendReply(response, backend.getCoinInfo().FractionalPartSize);
+  sendReply<CBackendQueryPPSPayoutsResponse>("ok", result, backend.getCoinInfo().FractionalPartSize);
 }
 
 void PoolHttpConnection::onBackendQueryPPSPayoutsAcc(const CBackendQueryPPSPayoutsAccRequest &request, const CToken &token, PoolBackend &backend)
@@ -1051,10 +990,7 @@ void PoolHttpConnection::onBackendQueryPPSPayoutsAcc(const CBackendQueryPPSPayou
 
   auto result = backend.accountingDb()->api().queryPPSPayoutsAcc(token.Login, request.TimeFrom, request.TimeTo, request.GroupByInterval);
 
-  CBackendQueryPPLNSAccResponse response;
-  response.Status = "ok";
-  response.Payouts = std::move(result);
-  sendReply(response, backend.getCoinInfo().FractionalPartSize);
+  sendReply<CBackendQueryPPLNSAccResponse>("ok", result, backend.getCoinInfo().FractionalPartSize);
 }
 
 void PoolHttpConnection::onBackendUpdateProfitSwitchCoeff(const CBackendUpdateProfitSwitchCoeffRequest &request, const CToken&, PoolBackend &backend)
@@ -1068,14 +1004,10 @@ void PoolHttpConnection::onBackendGetConfig(const CSessionCoinRequest&, const CT
   CBackendSettings settings = backend.accountingDb()->backendSettings();
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
 
-  CBackendGetConfigResponse response;
-  response.Status = "ok";
-  response.Pps = settings.PPSConfig;
-  response.Payouts = settings.PayoutConfig;
-  response.Swap = settings.SwapConfig;
+  std::vector<std::string> satFuncs;
   for (const char *name : ESaturationFunctionNames())
-    response.SaturationFunctions.emplace_back(name);
-  sendReply(response, fractionalPartSize);
+    satFuncs.emplace_back(name);
+  sendReply<CBackendGetConfigResponse>("ok", settings.PPSConfig, settings.PayoutConfig, settings.SwapConfig, satFuncs, fractionalPartSize);
 }
 
 CHttpPPSState::CHttpPPSState(const CPPSState &pps, unsigned fractionalPartSize)
@@ -1107,10 +1039,7 @@ void PoolHttpConnection::onBackendGetPPSState(const CSessionCoinRequest&, const 
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   backend.accountingDb()->queryPPSState([this, fractionalPartSize](const CPPSState &pps) {
-    CBackendGetPPSStateResponse response;
-    response.Status = "ok";
-    response.State = CHttpPPSState(pps, fractionalPartSize);
-    sendReply(response);
+    sendReply<CBackendGetPPSStateResponse>("ok", CHttpPPSState(pps, fractionalPartSize));
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
@@ -1120,11 +1049,10 @@ void PoolHttpConnection::onBackendQueryPPSHistory(const CBackendQueryPPSHistoryR
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
   auto result = backend.accountingDb()->api().queryPPSHistory(request.TimeFrom, request.TimeTo);
 
-  CBackendQueryPPSHistoryResponse response;
-  response.Status = "ok";
+  std::vector<CHttpPPSState> history;
   for (const auto &pps : result)
-    response.History.emplace_back(pps, fractionalPartSize);
-  sendReply(response);
+    history.emplace_back(pps, fractionalPartSize);
+  sendReply<CBackendQueryPPSHistoryResponse>("ok", history);
 }
 
 void PoolHttpConnection::onBackendUpdateConfig(const CBackendUpdateConfigRequest &request, const CToken&, PoolBackend &backend)
@@ -1156,18 +1084,14 @@ void PoolHttpConnection::onBackendPoolLuck(const CBackendPoolLuckRequest &reques
   std::vector<int64_t> intervals = request.Intervals;
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   backend.accountingDb()->poolLuck(std::move(intervals), [this](const std::vector<double> &result) {
-    CBackendPoolLuckResponse response;
-    response.Status = "ok";
-    response.Luck = result;
-    sendReply(response);
+    sendReply<CBackendPoolLuckResponse>("ok", result);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
 void PoolHttpConnection::onInstanceEnumerateAll()
 {
-  CInstanceEnumerateAllResponse response;
-  response.Status = "ok";
+  std::vector<CInstanceInfo> instances;
   for (const auto &instance : Server_.config().Instances) {
     CInstanceInfo info;
     info.Protocol = instance.Protocol;
@@ -1175,9 +1099,9 @@ void PoolHttpConnection::onInstanceEnumerateAll()
     info.Port = instance.Port;
     info.Backends = instance.Backends;
     info.ShareDiff = instance.ShareDiff;
-    response.Instances.push_back(std::move(info));
+    instances.push_back(std::move(info));
   }
-  sendReply(response);
+  sendReply<CInstanceEnumerateAllResponse>("ok", instances);
 }
 
 void PoolHttpConnection::onComplexMiningStatsGetInfo(const CSessionRequest&, const CToken&)
@@ -1286,7 +1210,5 @@ void PoolHttpServer::acceptCb(AsyncOpStatus status, aioObject *object, HostAddre
 
 void PoolHttpConnection::replyWithStatus(const char *status)
 {
-  CStatusResponse response;
-  response.Status = status;
-  sendReply(response);
+  sendReply<CStatusResponse>(status);
 }

@@ -13,7 +13,6 @@ static void usage()
     "  -o <file>           output header file (default: <input>.idl.h)\n"
     "  -I <dir>            add include search path (repeatable)\n"
     "  --dump-ast          dump AST and exit\n"
-    "  --parser-verbose    generate verbose parser with detailed errors\n"
     "  --struct-prefix P   prefix for generated struct names (e.g., C)\n"
     "  --pascal-case       capitalize first letter of field names in C++\n"
   );
@@ -24,7 +23,6 @@ int main(int argc, char **argv)
   const char *inputFile = nullptr;
   const char *outputFile = nullptr;
   bool dumpAstMode = false;
-  bool verboseMode = false;
   const char *structPrefix = "";
   bool pascalCase = false;
   std::vector<std::string> includePaths;
@@ -36,8 +34,6 @@ int main(int argc, char **argv)
       includePaths.push_back(argv[++i]);
     } else if (strcmp(argv[i], "--dump-ast") == 0) {
       dumpAstMode = true;
-    } else if (strcmp(argv[i], "--parser-verbose") == 0) {
-      verboseMode = true;
     } else if (strcmp(argv[i], "--struct-prefix") == 0 && i + 1 < argc) {
       structPrefix = argv[++i];
     } else if (strcmp(argv[i], "--pascal-case") == 0) {
@@ -105,7 +101,6 @@ int main(int argc, char **argv)
   // Generate
   CCodegenOptions opts;
   opts.StructPrefix = structPrefix;
-  opts.VerboseMode = verboseMode;
   opts.PascalCaseFields = pascalCase;
   CCodegenResult result = generateCode(file, headerName, opts);
 

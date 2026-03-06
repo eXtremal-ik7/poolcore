@@ -106,22 +106,12 @@ private:
   void queryStatsHistory(StatisticDb *statistic, const std::string &login, const std::string &worker, int64_t timeFrom, int64_t timeTo, int64_t groupByInterval, int64_t currentTime);
   void replyWithStatus(const char *status);
 
-  template<typename T>
-  void sendReply(const T &response) {
+  template<typename T, typename... Args>
+  void sendReply(Args&&... args) {
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
-    response.serialize(stream);
-    finishChunk(stream, offset);
-    aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
-  }
-
-  template<typename T, typename... Ctx>
-  void sendReply(const T &response, Ctx... ctx) {
-    xmstream stream;
-    reply200(stream);
-    size_t offset = startChunk(stream);
-    response.serialize(stream, ctx...);
+    T::serialize(stream, std::forward<Args>(args)...);
     finishChunk(stream, offset);
     aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
   }

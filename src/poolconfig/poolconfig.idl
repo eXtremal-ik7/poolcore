@@ -12,6 +12,7 @@
 // ============================================================================
 
 struct PoolFrontendConfig {
+  .generate(parse.verbose);
   poolfrontend: FrontendSettings;
   coins: [CoinConfig];
   instances: [InstanceConfig];
@@ -22,6 +23,7 @@ struct PoolFrontendConfig {
 // ============================================================================
 
 struct FrontendSettings {
+  .generate(parse.verbose);
   httpPort: uint32;
   workerThreadsNum: uint32 = 0;
   httpThreadsNum: uint32 = 0;
@@ -50,6 +52,7 @@ struct FrontendSettings {
 // ============================================================================
 
 struct NodeConfig {
+  .generate(parse.verbose);
   type: string;
   address: string;
   login: string = "";
@@ -59,12 +62,14 @@ struct NodeConfig {
 }
 
 struct MiningAddressConfig {
+  .generate(parse.verbose);
   address: string;
   privateKey: string = "";
   weight: uint32;
 }
 
 struct CoinConfig {
+  .generate(parse.verbose);
   name: string;
   getWorkNodes: [NodeConfig];
   RPCNodes: [NodeConfig];
@@ -90,6 +95,7 @@ struct CoinConfig {
 // ============================================================================
 
 struct InstanceConfig {
+  .generate(parse.verbose);
   name: string;
   type: string;
   protocol: string;

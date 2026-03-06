@@ -589,7 +589,7 @@ static char jsonHexDigit(uint8_t b) {
   return b < 10 ? '0' + b : 'a' + b - 10;
 }
 
-static void jsonWriteString(xmstream &out, const std::string &value) {
+static void jsonWriteString(xmstream &out, std::string_view value) {
   out.write('"');
   for (char ch : value) {
     switch (ch) {

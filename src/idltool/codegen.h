@@ -6,7 +6,6 @@
 struct CCodegenOptions {
   std::string StructPrefix;      // prefix for user struct names (e.g., "C")
   bool Standalone = true;        // include JsonScanner in output
-  bool VerboseMode = false;      // include VerboseJsonScanner + parseVerboseImpl
   bool PascalCaseFields = false; // capitalize first letter of field names in C++
 };
 

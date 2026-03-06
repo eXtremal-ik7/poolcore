@@ -171,6 +171,13 @@ static bool resolveMixins(CIdlFile &file)
         }
       } else if (auto *ctx = std::get_if<CContextDecl>(&member)) {
         s.ContextDecls.push_back(ctx->MappedTypeName);
+      } else if (auto *gd = std::get_if<CGenerateDecl>(&member)) {
+        if (s.HasGenerateDecl) {
+          fprintf(stderr, "line %d: duplicate .generate() directive\n", gd->Line);
+          return false;
+        }
+        s.GenerateFlags = *gd;
+        s.HasGenerateDecl = true;
       } else if (auto *cpp = std::get_if<CCppBlock>(&member)) {
         s.CppBlocks.push_back(cpp->Code);
       } else {
@@ -181,6 +188,12 @@ static bool resolveMixins(CIdlFile &file)
         }
         s.Fields.push_back(field);
       }
+    }
+
+    // Apply default generate flags for non-mixin structs
+    if (!s.HasGenerateDecl && !s.IsMixin) {
+      s.GenerateFlags.Parse = true;
+      s.GenerateFlags.Serialize = true;
     }
   }
   return true;
@@ -211,6 +224,12 @@ static bool validateTypes(CIdlFile &file)
 
   for (auto &s : file.Structs) {
     if (s.IsMixin || s.IsImported) continue;
+
+    // Validate parse.verbose not used with context
+    if (s.GenerateFlags.ParseVerbose && !s.ContextDecls.empty()) {
+      fprintf(stderr, "struct '%s': parse.verbose not supported with context\n", s.Name.c_str());
+      return false;
+    }
 
     // Validate context declarations
     for (auto &cd : s.ContextDecls) {
@@ -418,7 +437,22 @@ void dumpAst(const CIdlFile &file)
   for (auto &s : file.Structs) {
     printf("%s %s {\n", s.IsMixin ? "mixin" : "struct", s.Name.c_str());
     for (auto &cd : s.ContextDecls)
-      printf("  context %s;\n", cd.c_str());
+      printf("  .context(%s);\n", cd.c_str());
+    if (s.HasGenerateDecl) {
+      printf("  .generate(");
+      bool first = true;
+      auto emit = [&](bool flag, const char *name) {
+        if (!flag) return;
+        if (!first) printf(", ");
+        first = false;
+        printf("%s", name);
+      };
+      emit(s.GenerateFlags.Parse, "parse");
+      emit(s.GenerateFlags.ParseVerbose, "parse.verbose");
+      emit(s.GenerateFlags.Serialize, "serialize");
+      emit(s.GenerateFlags.SerializeFlat, "serialize.flat");
+      printf(");\n");
+    }
     for (auto &f : s.Fields) {
       printf("  %s: ", f.Name.c_str());
       if (f.Type.IsScalar && f.Type.RefName.empty())

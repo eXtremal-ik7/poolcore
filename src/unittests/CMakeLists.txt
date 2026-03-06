@@ -9,7 +9,7 @@ add_executable(unittests
 # Generate test.idl.h and test.idl.cpp from test.idl using idltool
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/test.idl.h ${CMAKE_CURRENT_BINARY_DIR}/test.idl.cpp
-  COMMAND idltool ${CMAKE_CURRENT_SOURCE_DIR}/test.idl -o ${CMAKE_CURRENT_BINARY_DIR}/test.idl.h --parser-verbose
+  COMMAND idltool ${CMAKE_CURRENT_SOURCE_DIR}/test.idl -o ${CMAKE_CURRENT_BINARY_DIR}/test.idl.h
   DEPENDS idltool ${CMAKE_CURRENT_SOURCE_DIR}/test.idl
   COMMENT "Generating test.idl.h and test.idl.cpp"
 )

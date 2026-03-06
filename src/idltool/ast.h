@@ -92,6 +92,14 @@ struct CContextDecl {
   int Line = 0;
 };
 
+struct CGenerateDecl {
+  bool Parse = false;
+  bool ParseVerbose = false;
+  bool Serialize = false;
+  bool SerializeFlat = false;
+  int Line = 0;
+};
+
 struct CCppBlock {
   std::string Code;
   int Line = 0;
@@ -102,13 +110,16 @@ struct CStructDef {
   bool IsMixin = false;
   bool IsImported = false;
   bool HasTaggedSchema = false;
-  std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock>> Members;
+  std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock, CGenerateDecl>> Members;
   // After mixin resolution — flat list of fields
   std::vector<CFieldDef> Fields;
-  // Context declarations from 'context money;' members
+  // Context declarations from '.context(money)' members
   std::vector<std::string> ContextDecls;
   // Raw C++ code blocks to emit inside the struct
   std::vector<std::string> CppBlocks;
+  // Generate flags from '.generate(...)' directive
+  CGenerateDecl GenerateFlags;
+  bool HasGenerateDecl = false;
   int Line = 0;
 };
 

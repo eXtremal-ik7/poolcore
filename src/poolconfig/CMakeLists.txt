@@ -1,6 +1,6 @@
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/poolconfig.idl.h ${CMAKE_CURRENT_BINARY_DIR}/poolconfig.idl.cpp
-  COMMAND idltool ${CMAKE_CURRENT_SOURCE_DIR}/poolconfig.idl -o ${CMAKE_CURRENT_BINARY_DIR}/poolconfig.idl.h --parser-verbose --struct-prefix C --pascal-case
+  COMMAND idltool ${CMAKE_CURRENT_SOURCE_DIR}/poolconfig.idl -o ${CMAKE_CURRENT_BINARY_DIR}/poolconfig.idl.h --struct-prefix C --pascal-case
   DEPENDS idltool ${CMAKE_CURRENT_SOURCE_DIR}/poolconfig.idl
   COMMENT "Generating poolconfig.idl.h and poolconfig.idl.cpp"
 )

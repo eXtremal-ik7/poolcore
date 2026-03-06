@@ -26,6 +26,7 @@
 "mapped"                { return TOK_MAPPED; }
 "type"                  { return TOK_TYPE; }
 "context"               { return TOK_CONTEXT; }
+"generate"              { return TOK_GENERATE; }
 
 "cpp" {
     int c;
@@ -117,6 +118,7 @@
 ")"                     { return ')'; }
 "-"                     { return '-'; }
 "@"                     { return '@'; }
+"."                     { return '.'; }
 
 .                       { fprintf(stderr, "lexer error at line %d: unexpected '%s'\n", yylineno, yytext); }
 

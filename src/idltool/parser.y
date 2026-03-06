@@ -29,13 +29,13 @@
   CFieldType *fieldType;
   CDefaultValue *defaultVal;
   int tagVal;
-  std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock>> *memberList;
+  std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock, CGenerateDecl>> *memberList;
   std::vector<CFieldDef> *fieldList;
   std::vector<std::string> *stringList;
 }
 
 %token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW TOK_INCLUDE
-%token TOK_MAPPED TOK_TYPE TOK_CONTEXT
+%token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_GENERATE
 %token <strVal> TOK_CPP_BLOCK
 %token <strVal> TOK_IDENTIFIER TOK_STRING_LITERAL
 %token <strVal> TOK_CHRONO_SECONDS TOK_CHRONO_MINUTES TOK_CHRONO_HOURS
@@ -53,7 +53,8 @@
 %type <strVal> type_name field_name
 %type <memberList> member_list
 %type <fieldList> mixin_field_list
-%type <stringList> enum_values
+%type <stringList> enum_values generate_flag_list
+%type <strVal> generate_flag
 
 %destructor { free($$); } <strVal>
 %destructor { delete $$; } <structDef> <enumDef> <includeDef> <mappedDef> <fieldDef> <fieldType> <defaultVal> <memberList> <fieldList> <stringList>
@@ -172,7 +173,7 @@ enum_def:
 
 member_list:
     /* empty */ {
-      $$ = new std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock>>();
+      $$ = new std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock, CGenerateDecl>>();
     }
   | member_list TOK_MIXIN TOK_IDENTIFIER ';' {
       $$ = $1;
@@ -182,13 +183,28 @@ member_list:
       $$->push_back(std::move(ref));
       free($3);
     }
-  | member_list TOK_CONTEXT TOK_IDENTIFIER ';' {
+  | member_list '.' TOK_CONTEXT '(' TOK_IDENTIFIER ')' ';' {
       $$ = $1;
       CContextDecl cd;
-      cd.MappedTypeName = $3;
+      cd.MappedTypeName = $5;
       cd.Line = @2.first_line;
       $$->push_back(std::move(cd));
-      free($3);
+      free($5);
+    }
+  | member_list '.' TOK_GENERATE '(' generate_flag_list ')' ';' {
+      $$ = $1;
+      CGenerateDecl gd;
+      gd.Line = @2.first_line;
+      for (auto &flag : *$5) {
+        if (flag == "parse") gd.Parse = true;
+        else if (flag == "parse.verbose") gd.ParseVerbose = true;
+        else if (flag == "serialize") gd.Serialize = true;
+        else if (flag == "serialize.flat") gd.SerializeFlat = true;
+        else { yyerror(&@5, file, scanner,
+               ("unknown generate flag: " + flag).c_str()); YYERROR; }
+      }
+      $$->push_back(std::move(gd));
+      delete $5;
     }
   | member_list field {
       $$ = $1;
@@ -226,6 +242,7 @@ field_name:
   | TOK_TYPE       { $$ = strdup("type"); }
   | TOK_CONTEXT    { $$ = strdup("context"); }
   | TOK_MAPPED     { $$ = strdup("mapped"); }
+  | TOK_GENERATE   { $$ = strdup("generate"); }
   ;
 
 field:
@@ -382,6 +399,27 @@ default_value:
       $$ = new CDefaultValue();
       $$->Kind = EDefaultKind::RuntimeNowOffset;
       $$->IntVal = $5;
+    }
+  ;
+
+generate_flag:
+    TOK_IDENTIFIER                        { $$ = $1; }
+  | TOK_IDENTIFIER '.' TOK_IDENTIFIER    {
+      size_t len = strlen($1) + 1 + strlen($3) + 1;
+      $$ = (char*)malloc(len);
+      snprintf($$, len, "%s.%s", $1, $3);
+      free($1); free($3);
+    }
+  ;
+
+generate_flag_list:
+    generate_flag {
+      $$ = new std::vector<std::string>();
+      $$->push_back($1); free($1);
+    }
+  | generate_flag_list ',' generate_flag {
+      $$ = $1;
+      $$->push_back($3); free($3);
     }
   ;
 
