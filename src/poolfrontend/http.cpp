@@ -21,7 +21,6 @@ static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction 
     case F::InstanceEnumerateAll:
     case F::UserAction:
     case F::UserChangeEmail:
-    case F::UserChangePasswordForce:
     case F::UserChangePasswordInitiate:
     case F::UserCreate:
     case F::UserLogin:
@@ -67,6 +66,7 @@ static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction 
     case F::BackendUpdateConfig:
     case F::BackendUpdateProfitSwitchCoeff:
     case F::UserAdjustInstantPayoutThreshold:
+    case F::UserChangePasswordForce:
     case F::UserChangeFeePlan:
     case F::UserCreateFeePlan:
     case F::UserCreateForce:
@@ -78,6 +78,8 @@ static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction 
       throw "unknown FunctionTy in getFunctionMeta";
   }
 }
+
+static constexpr size_t MaxRequestBodySize = 256 * 1024;
 
 static inline bool rawcmp(Raw data, const char *operand) {
   size_t opSize = strlen(operand);
@@ -122,9 +124,13 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
     }
   } else if (component->type == httpRequestDtData) {
     Context.Request.append(component->data.data, component->data.data + component->data.size);
+    if (Context.Request.size() > MaxRequestBodySize)
+      return 0;
     return 1;
   } else if (component->type == httpRequestDtDataLast) {
     Context.Request.append(component->data.data, component->data.data + component->data.size);
+    if (Context.Request.size() > MaxRequestBodySize)
+      return 0;
 
     if (!Context.Function) {
       reply404();
@@ -140,7 +146,6 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
       case F::InstanceEnumerateAll: dispatchEmpty<getFunctionMeta(F::InstanceEnumerateAll), &PoolHttpConnection::onInstanceEnumerateAll>(); break;
       case F::UserAction: dispatch<getFunctionMeta(F::UserAction), &PoolHttpConnection::onUserAction>(); break;
       case F::UserChangeEmail: dispatchEmpty<getFunctionMeta(F::UserChangeEmail), &PoolHttpConnection::onUserChangeEmail>(); break;
-      case F::UserChangePasswordForce: dispatch<getFunctionMeta(F::UserChangePasswordForce), &PoolHttpConnection::onUserChangePasswordForce>(); break;
       case F::UserChangePasswordInitiate: dispatch<getFunctionMeta(F::UserChangePasswordInitiate), &PoolHttpConnection::onUserChangePasswordInitiate>(); break;
       case F::UserCreate: dispatch<getFunctionMeta(F::UserCreate), &PoolHttpConnection::onUserCreate>(); break;
       case F::UserLogin: dispatch<getFunctionMeta(F::UserLogin), &PoolHttpConnection::onUserLogin>(); break;
@@ -156,6 +161,7 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
       case F::ComplexMiningStatsGetInfo: dispatch<getFunctionMeta(F::ComplexMiningStatsGetInfo), &PoolHttpConnection::onComplexMiningStatsGetInfo>(); break;
       case F::UserActivate2faInitiate: dispatch<getFunctionMeta(F::UserActivate2faInitiate), &PoolHttpConnection::onUserActivate2faInitiate>(); break;
       case F::UserChangeFeePlan: dispatch<getFunctionMeta(F::UserChangeFeePlan), &PoolHttpConnection::onUserChangeFeePlan>(); break;
+      case F::UserChangePasswordForce: dispatch<getFunctionMeta(F::UserChangePasswordForce), &PoolHttpConnection::onUserChangePasswordForce>(); break;
       case F::UserCreateFeePlan: dispatch<getFunctionMeta(F::UserCreateFeePlan), &PoolHttpConnection::onUserCreateFeePlan>(); break;
       case F::UserCreateForce: dispatch<getFunctionMeta(F::UserCreateForce), &PoolHttpConnection::onUserCreateForce>(); break;
       case F::UserDeactivate2faInitiate: dispatch<getFunctionMeta(F::UserDeactivate2faInitiate), &PoolHttpConnection::onUserDeactivate2faInitiate>(); break;
@@ -243,7 +249,7 @@ StatisticDb *PoolHttpConnection::statistic(const std::string &coin) { return Ser
 
 void PoolHttpConnection::reply200(xmstream &stream)
 {
-  const char reply200[] = "HTTP/1.1 200 OK\r\nServer: bcnode\r\nTransfer-Encoding: chunked\r\n\r\n";
+  const char reply200[] = "HTTP/1.1 200 OK\r\nServer: bcnode\r\nContent-Type: application/json\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n";
   stream.write(reply200, sizeof(reply200)-1);
 }
 
@@ -276,7 +282,7 @@ void PoolHttpConnection::finishChunk(xmstream &stream, size_t offset)
   char finishData[] = "\r\n0\r\n\r\n";
   snprintf(hex, sizeof(hex), "%08x", static_cast<unsigned>(stream.offsetOf() - offset - 10));
   memcpy(stream.data<uint8_t>() + offset, hex, 8);
-  stream.write(finishData, sizeof(finishData));
+  stream.write(finishData, sizeof(finishData) - 1);
 }
 
 void PoolHttpConnection::close()
@@ -384,12 +390,7 @@ void PoolHttpConnection::onUserQueryMonitoringSession(const CSessionTargetReques
 
 void PoolHttpConnection::onUserChangeEmail()
 {
-  xmstream stream;
-  reply200(stream);
-  size_t offset = startChunk(stream);
-  stream.write("{\"error\": \"not implemented\"}\n");
-  finishChunk(stream, offset);
-  aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
+  replyWithStatus("not_implemented");
 }
 
 void PoolHttpConnection::onUserChangePasswordInitiate(const CUserChangePasswordInitiateRequest &request)
@@ -401,10 +402,10 @@ void PoolHttpConnection::onUserChangePasswordInitiate(const CUserChangePasswordI
   });
 }
 
-void PoolHttpConnection::onUserChangePasswordForce(const CUserChangePasswordForceRequest &request)
+void PoolHttpConnection::onUserChangePasswordForce(const CUserChangePasswordForceRequest &request, const CToken &token)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().userChangePasswordForce(request.Id, request.Login, request.NewPassword, [this](const char *status) {
+  Server_.userManager().userChangePasswordForce(token.Login, request.NewPassword, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
@@ -418,7 +419,7 @@ void PoolHttpConnection::onUserGetCredentials(const CSessionTargetRequest&, cons
     return;
   }
 
-  bool isReadOnly = token.IsReadOnly | c.IsReadOnly;
+  bool isReadOnly = token.IsReadOnly || c.IsReadOnly;
   int64_t regDate = c.RegistrationDate.toUnixTime();
   sendReply<CUserGetCredentialsResponse>("ok", token.Login, c.Name, c.EMail, regDate, c.IsActive, isReadOnly, c.HasTwoFactor);
 }
@@ -844,6 +845,7 @@ void PoolHttpConnection::onBackendQueryPayouts(const CBackendQueryPayoutsRequest
   std::vector<PayoutDbRecord> records;
   backend.queryPayouts(token.Login, Timestamp(request.TimeFrom), request.Count, records);
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
+  // NOTE: assumes fractionalPartSize <= 8; if a coin has more fractional digits, rateScale < 1 and mulfp precision may suffer
   double rateScale = std::pow(10.0, 8 - static_cast<int>(fractionalPartSize));
 
   std::vector<CPayoutRecord> payouts;
@@ -866,12 +868,7 @@ void PoolHttpConnection::onBackendQueryPayouts(const CBackendQueryPayoutsRequest
 
 void PoolHttpConnection::onBackendQueryPoolBalance()
 {
-  xmstream stream;
-  reply200(stream);
-  size_t offset = startChunk(stream);
-  stream.write("{\"error\": \"not implemented\"}\n");
-  finishChunk(stream, offset);
-  aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
+  replyWithStatus("not_implemented");
 }
 
 void PoolHttpConnection::onBackendQueryPoolStats(const CBackendQueryPoolStatsRequest &request)
@@ -966,7 +963,7 @@ void PoolHttpConnection::onBackendQueryPPLNSAcc(const CBackendQueryPPLNSAccReque
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   backend.accountingDb()->queryPPLNSAcc(token.Login, request.TimeFrom, request.TimeTo, request.GroupByInterval, [this, &backend](const std::vector<CAccumulatedPayoutEntry>& result) {
-    sendReply<CBackendQueryPPLNSAccResponse>("ok", result, backend.getCoinInfo().FractionalPartSize);
+    sendReply<CBackendQueryPayoutsAccResponse>("ok", result, backend.getCoinInfo().FractionalPartSize);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
@@ -990,7 +987,7 @@ void PoolHttpConnection::onBackendQueryPPSPayoutsAcc(const CBackendQueryPPSPayou
 
   auto result = backend.accountingDb()->api().queryPPSPayoutsAcc(token.Login, request.TimeFrom, request.TimeTo, request.GroupByInterval);
 
-  sendReply<CBackendQueryPPLNSAccResponse>("ok", result, backend.getCoinInfo().FractionalPartSize);
+  sendReply<CBackendQueryPayoutsAccResponse>("ok", result, backend.getCoinInfo().FractionalPartSize);
 }
 
 void PoolHttpConnection::onBackendUpdateProfitSwitchCoeff(const CBackendUpdateProfitSwitchCoeffRequest &request, const CToken&, PoolBackend &backend)

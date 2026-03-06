@@ -53,7 +53,6 @@ private:
   void onUserLogin(const CUserLoginRequest &request);
   void onUserChangeEmail();
   void onUserChangePasswordInitiate(const CUserChangePasswordInitiateRequest &request);
-  void onUserChangePasswordForce(const CUserChangePasswordForceRequest &request);
   void onBackendQueryCoins(const CBackendQueryCoinsRequest&);
   void onBackendQueryPoolStats(const CBackendQueryPoolStatsRequest &request);
   void onBackendQueryPoolStatsHistory(const CBackendQueryPoolStatsHistoryRequest &request, StatisticDb &statistic);
@@ -61,6 +60,7 @@ private:
   void onInstanceEnumerateAll();
 
   // WithSession
+  void onUserChangePasswordForce(const CUserChangePasswordForceRequest &request, const CToken &token);
   void onUserLogout(const CSessionRequest &request, const CToken&);
   void onUserQueryMonitoringSession(const CSessionTargetRequest&, const CToken &token);
   void onUserGetCredentials(const CSessionTargetRequest&, const CToken &token);

@@ -111,10 +111,9 @@ public:
 
   class UserChangePasswordForceTask : public Task {
   public:
-    UserChangePasswordForceTask(UserManager *userMgr, const std::string &sessionId, const std::string &login, const std::string &newPassword, DefaultCb callback) : Task(userMgr), SessionId_(sessionId), Login_(login), NewPassword_(newPassword), Callback_(callback) {}
-    void run() final { UserMgr_->userChangePasswordForceImpl(SessionId_, Login_, NewPassword_, Callback_); }
+    UserChangePasswordForceTask(UserManager *userMgr, const std::string &login, const std::string &newPassword, DefaultCb callback) : Task(userMgr), Login_(login), NewPassword_(newPassword), Callback_(callback) {}
+    void run() final { UserMgr_->userChangePasswordForceImpl(Login_, NewPassword_, Callback_); }
   private:
-    std::string SessionId_;
     std::string Login_;
     std::string NewPassword_;
     DefaultCb Callback_;
@@ -431,7 +430,7 @@ public:
     { startAsyncTask(new UserActionTask(this, BaseBlob<512>::fromHexLE(actionId.c_str()), newPassword, totp, callback)); }
 
   void userChangePasswordInitiate(const std::string &login, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordInitiateImplTask(this, login, callback)); }
-  void userChangePasswordForce(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordForceTask(this, sessionId, login, newPassword, callback)); }
+  void userChangePasswordForce(const std::string &login, const std::string &newPassword, Task::DefaultCb callback) { startAsyncTask(new UserChangePasswordForceTask(this, login, newPassword, callback)); }
   void userCreate(const std::string &login, Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserCreateTask(this, login, std::move(credentials), callback)); }
   void userResendEmail(Credentials &&credentials, Task::DefaultCb callback) { startAsyncTask(new UserResendEmailTask(this, std::move(credentials), callback)); }
   void userLogin(Credentials &&credentials, UserLoginTask::Cb callback) { startAsyncTask(new UserLoginTask(this, std::move(credentials), callback)); }
@@ -482,7 +481,7 @@ private:
   void startAsyncTask(Task *task);
   void actionImpl(const BaseBlob<512> &id, const std::string &newPassword, const std::string &totp, Task::DefaultCb callback);
   void changePasswordInitiateImpl(const std::string &sessionId, Task::DefaultCb callback);
-  void userChangePasswordForceImpl(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback);
+  void userChangePasswordForceImpl(const std::string &login, const std::string &newPassword, Task::DefaultCb callback);
   void userCreateImpl(const std::string &login, Credentials &credentials, Task::DefaultCb callback);
   void resendEmailImpl(Credentials &credentials, Task::DefaultCb callback);
   void loginImpl(Credentials &credentials, UserLoginTask::Cb callback);

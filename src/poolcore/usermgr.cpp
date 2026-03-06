@@ -637,14 +637,8 @@ void UserManager::changePasswordInitiateImpl(const std::string &login, Task::Def
   callback("ok");
 }
 
-void UserManager::userChangePasswordForceImpl(const std::string &sessionId, const std::string &login, const std::string &newPassword, Task::DefaultCb callback)
+void UserManager::userChangePasswordForceImpl(const std::string &login, const std::string &newPassword, Task::DefaultCb callback)
 {
-  CToken tokenInfo;
-  if (!validateSession(sessionId, "admin", tokenInfo, true) || tokenInfo.Login != "admin") {
-    callback("unknown_id");
-    return;
-  }
-
   // Check password format
   if (newPassword.size() < 8 || newPassword.size() > 64) {
     callback("password_format_invalid");
