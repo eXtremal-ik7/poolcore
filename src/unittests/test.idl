@@ -63,6 +63,17 @@ struct ScalarDefaults {
 }
 
 // ============================================================================
+// Chrono scalar types
+// ============================================================================
+
+struct ChronoFields {
+  .generate(parse, parse.verbose, serialize);
+  timeoutSec: chrono::seconds;
+  retryMin: chrono::minutes = 5;
+  ttlHours: chrono::hours;
+}
+
+// ============================================================================
 // Mixed required and optional
 // ============================================================================
 
@@ -127,6 +138,17 @@ struct OptionalArrays {
 }
 
 // ============================================================================
+// Nullable scalar/object-like shapes
+// ============================================================================
+
+struct NullableScalars {
+  .generate(parse, parse.verbose, serialize);
+  title: string;
+  note: string??;
+  numbers: [int64]??;
+}
+
+// ============================================================================
 // Enum fields
 // ============================================================================
 
@@ -134,6 +156,11 @@ struct WithEnum {
   .generate(parse, parse.verbose, serialize);
   color: Color;
   priority: Priority = "medium";
+}
+
+struct EnumArray {
+  .generate(parse, parse.verbose, serialize);
+  priorities: [Priority];
 }
 
 // ============================================================================
@@ -179,6 +206,21 @@ struct Level0 {
 // ============================================================================
 
 mapped type testVal("int64_t") : string context(uint32) include "testMappedTypes.h";
+mapped type plainVal("int64_t") : string include "testMappedTypes.h";
+
+struct InlineMapped {
+  .generate(parse, parse.verbose, serialize);
+  amount: plainVal;
+  optionalAmount: plainVal?;
+  nullableAmount: plainVal??;
+}
+
+struct InlineMappedArray {
+  .generate(parse, parse.verbose, serialize);
+  amounts: [plainVal];
+  optionalAmounts: [plainVal]?;
+  nullableAmounts: [plainVal]??;
+}
 
 struct CtxChild {
   .generate(parse, serialize);
@@ -191,6 +233,64 @@ struct CtxChild {
 struct CtxVectorParent {
   .generate(parse, serialize);
   items: [CtxChild];
+}
+
+// ============================================================================
+// Uint64 wire mapped type (bug: jsonWriteInt used instead of jsonWriteUInt)
+// ============================================================================
+
+mapped type counterVal("uint64_t") : uint64 include "testMappedTypes.h";
+
+struct WithUint64Mapped {
+  .generate(parse, serialize);
+  counter: counterVal;
+}
+
+// ============================================================================
+// Nullable struct object (Inner?? — emits null when absent, unlike Inner?)
+// ============================================================================
+
+struct NullableObject {
+  .generate(parse, parse.verbose, serialize);
+  title: string;
+  inner: Inner??;
+}
+
+// ============================================================================
+// Large enum (>4 values) — triggers perfect hash path
+// ============================================================================
+
+enum Status : string {
+  pending,
+  active,
+  paused,
+  completed,
+  cancelled,
+  failed
+}
+
+struct WithStatus {
+  .generate(parse, parse.verbose, serialize);
+  status: Status;
+  label: string = "";
+}
+
+// ============================================================================
+// Scalar context — parent with a single CtxChild (not array)
+// ============================================================================
+
+struct CtxScalarParent {
+  .generate(parse, serialize);
+  child: CtxChild;
+}
+
+// ============================================================================
+// Chrono array (bug: chrono types in arrays not handled in parse codegen)
+// ============================================================================
+
+struct ChronoArray {
+  .generate(parse, parse.verbose, serialize);
+  durations: [chrono::seconds];
 }
 
 // ============================================================================

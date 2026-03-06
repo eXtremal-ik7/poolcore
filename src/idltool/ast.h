@@ -50,6 +50,7 @@ struct CFieldType {
   EScalarType Scalar = EScalarType::String;
   std::string RefName; // non-empty if referencing struct/enum/mapped type
   std::string MappedCppType; // C++ type from mapped type definition
+  std::string MappedWireType; // JSON wire type from mapped type definition
   ETypeShape Shape = ETypeShape::Plain;
 };
 

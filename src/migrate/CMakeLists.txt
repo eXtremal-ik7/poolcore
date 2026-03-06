@@ -7,5 +7,6 @@ add_executable(migrate
   ${GETOPT_SOURCES}
 )
 
+add_dependencies(migrate poolcore)
 target_link_whole_archive(migrate ${POOLFRONTEND_EXTRAS})
 target_link_libraries(migrate ${LIBRARIES})

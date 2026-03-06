@@ -47,6 +47,8 @@ add_library(blockmaker STATIC
   protocol.proto
 )
 
+add_dependencies(blockmaker poolconfig)
+
 target_link_libraries(blockmaker
   OpenSSL::SSL
   OpenSSL::Crypto

@@ -115,7 +115,36 @@ struct VerboseJsonScanner {
           case 'n': out += '\n'; break;
           case 'r': out += '\r'; break;
           case 't': out += '\t'; break;
-          case 'u': out += '\\'; out += 'u'; break;
+          case 'u': {
+            if (p + 5 <= end) {
+              auto hexVal = [](char c) -> int {
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'a' && c <= 'f') return 10 + c - 'a';
+                if (c >= 'A' && c <= 'F') return 10 + c - 'A';
+                return -1;
+              };
+              int d0 = hexVal(p[1]), d1 = hexVal(p[2]), d2 = hexVal(p[3]), d3 = hexVal(p[4]);
+              if (d0 >= 0 && d1 >= 0 && d2 >= 0 && d3 >= 0) {
+                uint32_t cp = (d0 << 12) | (d1 << 8) | (d2 << 4) | d3;
+                if (cp < 0x80) {
+                  out += (char)cp;
+                } else if (cp < 0x800) {
+                  out += (char)(0xC0 | (cp >> 6));
+                  out += (char)(0x80 | (cp & 0x3F));
+                } else {
+                  out += (char)(0xE0 | (cp >> 12));
+                  out += (char)(0x80 | ((cp >> 6) & 0x3F));
+                  out += (char)(0x80 | (cp & 0x3F));
+                }
+                p += 4;
+              } else {
+                out += '\\'; out += 'u';
+              }
+            } else {
+              out += '\\'; out += 'u';
+            }
+            break;
+          }
           default: out += *p; break;
         }
         p++;
@@ -141,6 +170,7 @@ struct VerboseJsonScanner {
   bool readUInt64(uint64_t &out) {
     skipWhitespace();
     if (p >= end) { setError("expected integer, got end of input"); return false; }
+    if (*p == '-') { setError("expected unsigned integer, got negative value"); return false; }
     char *ep;
     out = strtoull(p, &ep, 10);
     if (ep == p) { setError(std::string("expected integer, got '") + *p + "'"); return false; }
@@ -151,6 +181,7 @@ struct VerboseJsonScanner {
   bool readInt32(int32_t &out) {
     int64_t v;
     if (!readInt64(v)) return false;
+    if (v < INT32_MIN || v > INT32_MAX) { setError("integer out of int32 range"); return false; }
     out = (int32_t)v;
     return true;
   }
@@ -158,6 +189,7 @@ struct VerboseJsonScanner {
   bool readUInt32(uint32_t &out) {
     uint64_t v;
     if (!readUInt64(v)) return false;
+    if (v > UINT32_MAX) { setError("integer out of uint32 range"); return false; }
     out = (uint32_t)v;
     return true;
   }
@@ -249,20 +281,40 @@ struct VerboseJsonScanner {
 
 // --- Verbose parse field generation ---
 
+struct VerboseWireTypeInfo {
+  const char *readMethod;
+  const char *cppType;
+};
+
+static VerboseWireTypeInfo getVerboseWireTypeInfo(const std::string &wireType)
+{
+  if (wireType == "string") return {"readStringValue", "std::string"};
+  if (wireType == "int64")  return {"readInt64", "int64_t"};
+  if (wireType == "uint64") return {"readUInt64", "uint64_t"};
+  if (wireType == "int32")  return {"readInt32", "int32_t"};
+  if (wireType == "uint32") return {"readUInt32", "uint32_t"};
+  if (wireType == "double") return {"readDouble", "double"};
+  if (wireType == "bool")   return {"readBool", "bool"};
+  return {"readStringValue", "std::string"};
+}
+
 static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int foundBit, int ind, const std::string &fieldContext, bool pascalCase)
 {
   std::string in = indent(ind);
   std::string cn = fieldCppName(f.Name, pascalCase);
 
-  // Extern field: parse into _raw_ string
+  // Mapped field: parse wire value + resolve into destination value.
   if (isMappedField(f)) {
-    std::string rawCn = "_raw_" + cn;
-    out += std::format("{}if (!s.readStringValue({})) {{\n", in, rawCn);
-    out += std::format("{}  s.error->message = \"field '{}': \" + s.error->message;\n", in, fieldContext);
-    out += std::format("{}  return false;\n", in);
-    out += std::format("{}}}\n", in);
+    auto wi = getVerboseWireTypeInfo(f.Type.MappedWireType);
+    std::string resolveFunc = "__" + f.Type.RefName + "Resolve";
+    out += std::format("{}{{ {} _tmp;\n", in, wi.cppType);
+    out += std::format("{}  if (!s.{}(_tmp)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n",
+                       in, wi.readMethod, fieldContext);
+    out += std::format("{}  if (!{}(_tmp, {})) {{ s.setError(\"field '{}': invalid mapped value\"); return false; }}\n",
+                       in, resolveFunc, cn, fieldContext);
     if (foundBit >= 0)
-      out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
+      out += std::format("{}  found |= (uint64_t)1 << {};\n", in, foundBit);
+    out += std::format("{}}}\n", in);
     return;
   }
 
@@ -359,7 +411,16 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       out += std::format("{}if (s.p < s.end && *s.p != ']') {{\n", in);
       out += std::format("{}  for (;;) {{\n", in);
 
-      if (isStructRef(f, enumNames)) {
+      if (isMappedField(f)) {
+        auto wi = getVerboseWireTypeInfo(f.Type.MappedWireType);
+        std::string resolveFunc = "__" + f.Type.RefName + "Resolve";
+        out += std::format("{}    {{ {} _tmp; {}.emplace_back();\n", in, wi.cppType, cn);
+        out += std::format("{}      if (!s.{}(_tmp)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n",
+                           in, wi.readMethod, ctx);
+        out += std::format("{}      if (!{}(_tmp, {}.back())) {{ s.setError(\"field '{}': invalid mapped value in array\"); return false; }}\n",
+                           in, resolveFunc, cn, ctx);
+        out += std::format("{}    }}\n", in);
+      } else if (isStructRef(f, enumNames)) {
         out += std::format("{}    if (!{}.emplace_back().parseVerboseImpl(s)) return false;\n", in, cn);
       } else if (isEnum(f.Type.RefName, enumNames)) {
         out += std::format("{}    {{\n", in);
@@ -372,6 +433,11 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
         out += std::format("{}        return false;\n", in);
         out += std::format("{}      }}\n", in);
         out += std::format("{}    }}\n", in);
+      } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
+                 f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
+        std::string chronoType = cppScalarType(f.Type.Scalar);
+        out += std::format("{}    {{ int64_t _t; if (!s.readInt64(_t)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }} "
+                           "{}.push_back({}(_t)); }}\n", in, ctx, cn, chronoType);
       } else {
         const char *cppType = nullptr;
         const char *readMethod = nullptr;

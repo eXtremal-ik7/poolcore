@@ -254,6 +254,7 @@ static bool validateTypes(CIdlFile &file)
         if (mappedNames.count(f.Type.RefName)) {
           f.Type.IsMapped = true;
           f.Type.MappedCppType = mappedIndex[f.Type.RefName]->CppType;
+          f.Type.MappedWireType = mappedIndex[f.Type.RefName]->JsonWireType;
           // If this mapped type has context, struct must declare it
           auto mi = mappedIndex.find(f.Type.RefName);
           if (mi != mappedIndex.end() && mi->second->ContextType && !contextDeclSet.count(f.Type.RefName)) {

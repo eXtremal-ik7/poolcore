@@ -37,3 +37,28 @@ inline std::string __testValFormat(int64_t val, uint32_t ctx)
     fracStr = "0" + fracStr;
   return result + fracStr;
 }
+
+// Context-free mapped type: int64_t <-> decimal string
+inline bool __plainValResolve(const std::string &raw, int64_t &out)
+{
+  char *end;
+  out = strtoll(raw.c_str(), &end, 10);
+  return end != raw.c_str() && *end == '\0';
+}
+
+inline std::string __plainValFormat(int64_t val)
+{
+  return std::to_string(val);
+}
+
+// Context-free mapped type: uint64_t <-> uint64 (identity, for testing wire type dispatch)
+inline bool __counterValResolve(uint64_t raw, uint64_t &out)
+{
+  out = raw;
+  return true;
+}
+
+inline uint64_t __counterValFormat(uint64_t val)
+{
+  return val;
+}

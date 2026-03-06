@@ -452,7 +452,33 @@ struct JsonScanner {
           case 'r': out += '\r'; break;
           case 't': out += '\t'; break;
           case 'u': {
-            out += '\\'; out += 'u';
+            if (p + 5 <= end) {
+              auto hexVal = [](char c) -> int {
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'a' && c <= 'f') return 10 + c - 'a';
+                if (c >= 'A' && c <= 'F') return 10 + c - 'A';
+                return -1;
+              };
+              int d0 = hexVal(p[1]), d1 = hexVal(p[2]), d2 = hexVal(p[3]), d3 = hexVal(p[4]);
+              if (d0 >= 0 && d1 >= 0 && d2 >= 0 && d3 >= 0) {
+                uint32_t cp = (d0 << 12) | (d1 << 8) | (d2 << 4) | d3;
+                if (cp < 0x80) {
+                  out += (char)cp;
+                } else if (cp < 0x800) {
+                  out += (char)(0xC0 | (cp >> 6));
+                  out += (char)(0x80 | (cp & 0x3F));
+                } else {
+                  out += (char)(0xE0 | (cp >> 12));
+                  out += (char)(0x80 | ((cp >> 6) & 0x3F));
+                  out += (char)(0x80 | (cp & 0x3F));
+                }
+                p += 4;
+              } else {
+                out += '\\'; out += 'u';
+              }
+            } else {
+              out += '\\'; out += 'u';
+            }
             break;
           }
           default: out += *p; break;
@@ -480,6 +506,7 @@ struct JsonScanner {
   bool readUInt64(uint64_t &out) {
     skipWhitespace();
     if (p >= end) return false;
+    if (*p == '-') return false;
     char *ep;
     out = strtoull(p, &ep, 10);
     if (ep == p) return false;
@@ -490,6 +517,7 @@ struct JsonScanner {
   bool readInt32(int32_t &out) {
     int64_t v;
     if (!readInt64(v)) return false;
+    if (v < INT32_MIN || v > INT32_MAX) return false;
     out = (int32_t)v;
     return true;
   }
@@ -497,6 +525,7 @@ struct JsonScanner {
   bool readUInt32(uint32_t &out) {
     uint64_t v;
     if (!readUInt64(v)) return false;
+    if (v > UINT32_MAX) return false;
     out = (uint32_t)v;
     return true;
   }

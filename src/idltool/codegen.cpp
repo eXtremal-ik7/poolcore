@@ -99,7 +99,7 @@ static CContextAnalysis analyzeContext(const CStructDef &s, bool pascalCase,
         a.FieldCapture[i].kind = CFieldCaptureInfo::MappedInline;
         a.FieldCapture[i].CaptureFieldName = fieldCppName(f.Name, pascalCase);
         a.FieldCapture[i].MappedTypeName = f.Type.RefName;
-        a.FieldCapture[i].MappedWireType = it->second->JsonWireType;
+        a.FieldCapture[i].MappedWireType = !f.Type.MappedWireType.empty() ? f.Type.MappedWireType : it->second->JsonWireType;
       }
     }
   }
@@ -161,7 +161,7 @@ struct WireTypeInfo {
 static WireTypeInfo getWireTypeInfo(const std::string &wireType) {
   if (wireType == "string") return {"readStringValue", "jsonWriteString", "std::string"};
   if (wireType == "int64")  return {"readInt64", "jsonWriteInt", "int64_t"};
-  if (wireType == "uint64") return {"readUInt64", "jsonWriteInt", "uint64_t"};
+  if (wireType == "uint64") return {"readUInt64", "jsonWriteUInt", "uint64_t"};
   if (wireType == "int32")  return {"readInt32", "jsonWriteInt", "int32_t"};
   if (wireType == "uint32") return {"readUInt32", "jsonWriteInt", "uint32_t"};
   if (wireType == "double") return {"readDouble", "jsonWriteDouble", "double"};
@@ -300,7 +300,17 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       out += std::format("{}if (s.p < s.end && *s.p != ']') {{\n", in);
       out += std::format("{}  for (;;) {{\n", in);
 
-      if (isStructRef(f, enumNames)) {
+      if (isMappedField(f)) {
+        if (ci && ci->kind == CFieldCaptureInfo::MappedInline) {
+          auto wi = getWireTypeInfo(ci->MappedWireType);
+          std::string resolveFunc = "__" + ci->MappedTypeName + "Resolve";
+          out += std::format("{}    {{ {} _tmp; {}.emplace_back(); if (!s.{}(_tmp) || !{}(_tmp, {}.back())) {{ valid = false; break; }} }}\n",
+                             in, wi.cppType, cn, wi.readMethod, resolveFunc, cn);
+        } else {
+          out += std::format("{}    if (!s.skipValue()) {{ valid = false; break; }}\n", in);
+          out += std::format("{}    valid = false; break;\n", in);
+        }
+      } else if (isStructRef(f, enumNames)) {
         if (ci && ci->kind == CFieldCaptureInfo::NestedStruct) {
           out += std::format("{}    if (capture) capture->{}.emplace_back();\n", in, ci->CaptureFieldName);
           out += std::format("{}    if (!{}.emplace_back().parseImpl(s, capture ? &capture->{}.back() : nullptr)) {{ valid = false; break; }}\n",
@@ -315,6 +325,11 @@ static void generateParseField(std::string &out, const CFieldDef &f,
         out += std::format("{}      if (!s.readString(eStr, eLen) || !parseE{}(eStr, eLen, {}.back())) "
                            "{{ valid = false; break; }}\n", in, f.Type.RefName, cn);
         out += std::format("{}    }}\n", in);
+      } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
+                 f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
+        std::string chronoType = cppScalarType(f.Type.Scalar);
+        out += std::format("{}    {{ int64_t _t; if (!s.readInt64(_t)) {{ valid = false; break; }} "
+                           "{}.push_back({}(_t)); }}\n", in, cn, chronoType);
       } else {
         const char *cppType = nullptr;
         const char *readMethod = nullptr;
@@ -928,7 +943,9 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     if (hasCtx) {
       out += std::format("bool {}::parse(const char *buf, size_t bufSize, Capture &capture) {{\n", sn);
       out += "  JsonScanner s{buf, buf + bufSize};\n";
-      out += "  return parseImpl(s, &capture);\n";
+      out += "  if (!parseImpl(s, &capture)) return false;\n";
+      out += "  s.skipWhitespace();\n";
+      out += "  return s.p == s.end;\n";
       out += "}\n\n";
 
       out += std::format("bool {}::parseImpl(JsonScanner &s, Capture *capture) {{\n", sn);
@@ -937,11 +954,13 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     } else {
       out += std::format("bool {}::parse(const char *buf, size_t bufSize) {{\n", sn);
       out += "  JsonScanner s{buf, buf + bufSize};\n";
-      out += "  return parseImpl(s);\n";
+      out += "  if (!parseImpl(s)) return false;\n";
+      out += "  s.skipWhitespace();\n";
+      out += "  return s.p == s.end;\n";
       out += "}\n\n";
 
       out += std::format("bool {}::parseImpl(JsonScanner &s) {{\n", sn);
-      generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount);
+      generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
       out += "}\n\n";
     }
   }
@@ -950,7 +969,13 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
   if (s.GenerateFlags.ParseVerbose && !hasCtx) {
     out += std::format("bool {}::parseVerbose(const char *buf, size_t bufSize, ParseError &error) {{\n", sn);
     out += "  VerboseJsonScanner s{buf, buf + bufSize, buf, &error};\n";
-    out += "  return parseVerboseImpl(s);\n";
+    out += "  if (!parseVerboseImpl(s)) return false;\n";
+    out += "  s.skipWhitespace();\n";
+    out += "  if (s.p != s.end) {\n";
+    out += "    s.setError(\"trailing characters after JSON value\");\n";
+    out += "    return false;\n";
+    out += "  }\n";
+    out += "  return true;\n";
     out += "}\n\n";
 
     out += std::format("bool {}::parseVerboseImpl(VerboseJsonScanner &s) {{\n", sn);

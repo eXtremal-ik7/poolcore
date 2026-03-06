@@ -29,6 +29,7 @@ add_library(poolcore STATIC
   workSummary.cpp
 )
 
+add_dependencies(poolcore poolcommon)
 target_include_directories(poolcore PUBLIC ${RAPIDJSON_INCLUDE_DIRECTORY})
 
 target_link_libraries(poolcore

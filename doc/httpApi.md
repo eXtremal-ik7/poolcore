@@ -1182,7 +1182,7 @@ Updates the profit switching coefficient for a coin.
 
 Queries complex mining statistics engine.
 
-- **Auth**: session
+- **Auth**: admin or observer
 
 | Request field | Type | Required | Description |
 |---------------|------|----------|-------------|

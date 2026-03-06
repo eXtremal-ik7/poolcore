@@ -55,6 +55,33 @@ TEST(IdlTool, ParseDefaultsOverride) {
   EXPECT_EQ(d.fieldUint32, 42u);
 }
 
+TEST(IdlTool, ParseChronoFields) {
+  const char *json = R"({"timeoutSec":15,"ttlHours":2})";
+  ChronoFields f;
+  ASSERT_TRUE(f.parse(json, strlen(json)));
+  EXPECT_EQ(f.timeoutSec, std::chrono::seconds(15));
+  EXPECT_EQ(f.retryMin, std::chrono::minutes(5));
+  EXPECT_EQ(f.ttlHours, std::chrono::hours(2));
+}
+
+TEST(IdlTool, ParseMixedFields) {
+  const char *json = R"({"required1":"x","required2":10,"required3":true})";
+  MixedFields m;
+  ASSERT_TRUE(m.parse(json, strlen(json)));
+  EXPECT_EQ(m.required1, "x");
+  EXPECT_EQ(m.required2, 10);
+  EXPECT_EQ(m.required3, true);
+  EXPECT_EQ(m.optional1, "");
+  EXPECT_EQ(m.optional2, -1);
+  EXPECT_EQ(m.optional3, false);
+}
+
+TEST(IdlTool, ParseMixedFieldsMissingRequired) {
+  const char *json = R"({"required1":"x","required3":true})";
+  MixedFields m;
+  EXPECT_FALSE(m.parse(json, strlen(json)));
+}
+
 TEST(IdlTool, ParseEnum) {
   const char *json = R"({"color":"blue","priority":"critical"})";
   WithEnum we;
@@ -69,6 +96,15 @@ TEST(IdlTool, ParseEnumDefault) {
   ASSERT_TRUE(we.parse(json, strlen(json)));
   EXPECT_EQ(we.color, EColor::red);
   EXPECT_EQ(we.priority, EPriority::medium);
+}
+
+TEST(IdlTool, ParseEnumArray) {
+  const char *json = R"({"priorities":["low","critical"]})";
+  EnumArray ea;
+  ASSERT_TRUE(ea.parse(json, strlen(json)));
+  ASSERT_EQ(ea.priorities.size(), 2u);
+  EXPECT_EQ(ea.priorities[0], EPriority::low);
+  EXPECT_EQ(ea.priorities[1], EPriority::critical);
 }
 
 TEST(IdlTool, ParseEnumInvalid) {
@@ -140,6 +176,24 @@ TEST(IdlTool, ParseOptionalArray) {
   EXPECT_FALSE(oa3.tags.has_value());
 }
 
+TEST(IdlTool, ParseNullableScalars) {
+  const char *json1 = R"({"title":"a","note":"hello","numbers":[1,2,3]})";
+  NullableScalars s1;
+  ASSERT_TRUE(s1.parse(json1, strlen(json1)));
+  EXPECT_EQ(s1.title, "a");
+  ASSERT_TRUE(s1.note.has_value());
+  EXPECT_EQ(*s1.note, "hello");
+  ASSERT_TRUE(s1.numbers.has_value());
+  ASSERT_EQ(s1.numbers->size(), 3u);
+  EXPECT_EQ((*s1.numbers)[1], 2);
+
+  const char *json2 = R"({"title":"b","note":null,"numbers":null})";
+  NullableScalars s2;
+  ASSERT_TRUE(s2.parse(json2, strlen(json2)));
+  EXPECT_FALSE(s2.note.has_value());
+  EXPECT_FALSE(s2.numbers.has_value());
+}
+
 TEST(IdlTool, ParseMixin) {
   const char *json = R"({"id":"abc","value":2.5})";
   WithMixin wm;
@@ -173,6 +227,60 @@ TEST(IdlTool, ParseUnknownFieldRejected) {
   const char *json = R"({"value":"x","count":1,"extra":"bad"})";
   Inner inner;
   EXPECT_FALSE(inner.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, ParseWithComments) {
+  const char *json =
+    "{\n"
+    "  // inline comment\n"
+    "  \"value\": \"x\", /* block comment */\n"
+    "  \"count\": 1\n"
+    "}";
+  Inner inner;
+  ASSERT_TRUE(inner.parse(json, strlen(json)));
+  EXPECT_EQ(inner.value, "x");
+  EXPECT_EQ(inner.count, 1);
+}
+
+TEST(IdlTool, ParseTrailingGarbageRejected) {
+  const char *json = "{\"value\":\"x\",\"count\":1} trailing";
+  Inner inner;
+  EXPECT_FALSE(inner.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, ParseInlineMapped) {
+  const char *json = R"({"amount":"42","optionalAmount":"7","nullableAmount":null})";
+  InlineMapped m;
+  ASSERT_TRUE(m.parse(json, strlen(json)));
+  EXPECT_EQ(m.amount, 42);
+  ASSERT_TRUE(m.optionalAmount.has_value());
+  EXPECT_EQ(*m.optionalAmount, 7);
+  EXPECT_FALSE(m.nullableAmount.has_value());
+}
+
+TEST(IdlTool, ParseInlineMappedInvalid) {
+  const char *json = R"({"amount":"nope"})";
+  InlineMapped m;
+  EXPECT_FALSE(m.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, ParseInlineMappedArray) {
+  const char *json = R"({"amounts":["1","2"],"optionalAmounts":["5"],"nullableAmounts":null})";
+  InlineMappedArray m;
+  ASSERT_TRUE(m.parse(json, strlen(json)));
+  ASSERT_EQ(m.amounts.size(), 2u);
+  EXPECT_EQ(m.amounts[0], 1);
+  EXPECT_EQ(m.amounts[1], 2);
+  ASSERT_TRUE(m.optionalAmounts.has_value());
+  ASSERT_EQ(m.optionalAmounts->size(), 1u);
+  EXPECT_EQ((*m.optionalAmounts)[0], 5);
+  EXPECT_FALSE(m.nullableAmounts.has_value());
+}
+
+TEST(IdlTool, ParseInlineMappedArrayInvalid) {
+  const char *json = R"({"amounts":["1","bad"]})";
+  InlineMappedArray m;
+  EXPECT_FALSE(m.parse(json, strlen(json)));
 }
 
 TEST(IdlTool, DiagUnknownField) {
@@ -234,6 +342,42 @@ TEST(IdlTool, SerializeScalarTypes) {
   EXPECT_DOUBLE_EQ(doc["fieldDouble"].GetDouble(), 2.718);
 }
 
+TEST(IdlTool, SerializeChronoFields) {
+  ChronoFields f;
+  f.timeoutSec = std::chrono::seconds(30);
+  f.retryMin = std::chrono::minutes(2);
+  f.ttlHours = std::chrono::hours(8);
+
+  xmstream stream;
+  f.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_EQ(doc["timeoutSec"].GetInt64(), 30);
+  EXPECT_EQ(doc["retryMin"].GetInt64(), 2);
+  EXPECT_EQ(doc["ttlHours"].GetInt64(), 8);
+}
+
+TEST(IdlTool, SerializeMixedFields) {
+  MixedFields m;
+  m.required1 = "r1";
+  m.required2 = 123;
+  m.required3 = true;
+  m.optional1 = "opt";
+  m.optional2 = 456;
+  m.optional3 = false;
+
+  xmstream stream;
+  m.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_STREQ(doc["required1"].GetString(), "r1");
+  EXPECT_EQ(doc["required2"].GetInt64(), 123);
+  EXPECT_EQ(doc["required3"].GetBool(), true);
+  EXPECT_STREQ(doc["optional1"].GetString(), "opt");
+  EXPECT_EQ(doc["optional2"].GetInt64(), 456);
+  EXPECT_EQ(doc["optional3"].GetBool(), false);
+}
+
 TEST(IdlTool, SerializeEnum) {
   WithEnum we;
   we.color = EColor::green;
@@ -245,6 +389,20 @@ TEST(IdlTool, SerializeEnum) {
   ASSERT_FALSE(doc.HasParseError());
   EXPECT_STREQ(doc["color"].GetString(), "green");
   EXPECT_STREQ(doc["priority"].GetString(), "high");
+}
+
+TEST(IdlTool, SerializeEnumArray) {
+  EnumArray ea;
+  ea.priorities = {EPriority::low, EPriority::critical};
+
+  xmstream stream;
+  ea.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["priorities"].IsArray());
+  ASSERT_EQ(doc["priorities"].Size(), 2u);
+  EXPECT_STREQ(doc["priorities"][0].GetString(), "low");
+  EXPECT_STREQ(doc["priorities"][1].GetString(), "critical");
 }
 
 TEST(IdlTool, SerializeNested) {
@@ -312,6 +470,83 @@ TEST(IdlTool, SerializeOptionalArray) {
   ASSERT_TRUE(doc.HasMember("tags"));
   EXPECT_EQ(doc["tags"].Size(), 2u);
   EXPECT_FALSE(doc.HasMember("items"));
+}
+
+TEST(IdlTool, SerializeNullableScalars) {
+  NullableScalars s;
+  s.title = "x";
+
+  xmstream stream1;
+  s.serialize(stream1);
+  auto doc1 = parseRapid(stream1);
+  ASSERT_FALSE(doc1.HasParseError());
+  EXPECT_STREQ(doc1["title"].GetString(), "x");
+  ASSERT_TRUE(doc1.HasMember("note"));
+  ASSERT_TRUE(doc1["note"].IsNull());
+  ASSERT_TRUE(doc1.HasMember("numbers"));
+  ASSERT_TRUE(doc1["numbers"].IsNull());
+
+  s.note = "present";
+  s.numbers = std::vector<int64_t>{4, 5};
+  xmstream stream2;
+  s.serialize(stream2);
+  auto doc2 = parseRapid(stream2);
+  ASSERT_FALSE(doc2.HasParseError());
+  EXPECT_STREQ(doc2["note"].GetString(), "present");
+  ASSERT_TRUE(doc2["numbers"].IsArray());
+  EXPECT_EQ(doc2["numbers"].Size(), 2u);
+  EXPECT_EQ(doc2["numbers"][0].GetInt64(), 4);
+}
+
+TEST(IdlTool, SerializeInlineMapped) {
+  InlineMapped m;
+  m.amount = 100;
+
+  xmstream stream1;
+  m.serialize(stream1);
+  auto doc1 = parseRapid(stream1);
+  ASSERT_FALSE(doc1.HasParseError());
+  EXPECT_STREQ(doc1["amount"].GetString(), "100");
+  EXPECT_FALSE(doc1.HasMember("optionalAmount"));
+  ASSERT_TRUE(doc1.HasMember("nullableAmount"));
+  ASSERT_TRUE(doc1["nullableAmount"].IsNull());
+
+  m.optionalAmount = 5;
+  m.nullableAmount = 7;
+  xmstream stream2;
+  m.serialize(stream2);
+  auto doc2 = parseRapid(stream2);
+  ASSERT_FALSE(doc2.HasParseError());
+  EXPECT_STREQ(doc2["optionalAmount"].GetString(), "5");
+  EXPECT_STREQ(doc2["nullableAmount"].GetString(), "7");
+}
+
+TEST(IdlTool, SerializeInlineMappedArray) {
+  InlineMappedArray m;
+  m.amounts = {1, 2};
+
+  xmstream stream1;
+  m.serialize(stream1);
+  auto doc1 = parseRapid(stream1);
+  ASSERT_FALSE(doc1.HasParseError());
+  ASSERT_TRUE(doc1["amounts"].IsArray());
+  ASSERT_EQ(doc1["amounts"].Size(), 2u);
+  EXPECT_STREQ(doc1["amounts"][0].GetString(), "1");
+  EXPECT_STREQ(doc1["amounts"][1].GetString(), "2");
+  EXPECT_FALSE(doc1.HasMember("optionalAmounts"));
+  ASSERT_TRUE(doc1.HasMember("nullableAmounts"));
+  ASSERT_TRUE(doc1["nullableAmounts"].IsNull());
+
+  m.optionalAmounts = std::vector<int64_t>{3};
+  m.nullableAmounts = std::vector<int64_t>{4, 5};
+  xmstream stream2;
+  m.serialize(stream2);
+  auto doc2 = parseRapid(stream2);
+  ASSERT_FALSE(doc2.HasParseError());
+  ASSERT_TRUE(doc2["optionalAmounts"].IsArray());
+  EXPECT_STREQ(doc2["optionalAmounts"][0].GetString(), "3");
+  ASSERT_TRUE(doc2["nullableAmounts"].IsArray());
+  EXPECT_STREQ(doc2["nullableAmounts"][1].GetString(), "5");
 }
 
 TEST(IdlTool, SerializeStringEscapes) {
@@ -423,6 +658,32 @@ TEST(IdlTool, DiagMissingRequired) {
   EXPECT_NE(error.message.find("missing required field"), std::string::npos);
 }
 
+TEST(IdlTool, DiagChronoWrongType) {
+  const char *json = R"({"timeoutSec":"x","ttlHours":1})";
+  ChronoFields f;
+  ParseError error;
+  EXPECT_FALSE(f.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("field 'timeoutSec'"), std::string::npos);
+  EXPECT_NE(error.message.find("expected integer"), std::string::npos);
+}
+
+TEST(IdlTool, DiagInlineMappedInvalid) {
+  const char *json = R"({"amount":"nope"})";
+  InlineMapped m;
+  ParseError error;
+  EXPECT_FALSE(m.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("field 'amount'"), std::string::npos);
+  EXPECT_NE(error.message.find("invalid mapped value"), std::string::npos);
+}
+
+TEST(IdlTool, DiagInlineMappedValidNoDiagError) {
+  const char *json = R"({"amount":"42"})";
+  InlineMapped m;
+  ParseError error;
+  ASSERT_TRUE(m.parseVerbose(json, strlen(json), error));
+  EXPECT_TRUE(error.message.empty());
+}
+
 TEST(IdlTool, DiagInvalidEnum) {
   const char *json = R"({"color":"pink"})";
   WithEnum we;
@@ -467,6 +728,23 @@ TEST(IdlTool, DiagArrayElementError) {
   EXPECT_NE(error.message.find("expected string"), std::string::npos);
 }
 
+TEST(IdlTool, DiagEnumArrayElementError) {
+  const char *json = R"({"priorities":["low","bad"]})";
+  EnumArray ea;
+  ParseError error;
+  EXPECT_FALSE(ea.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("invalid enum value"), std::string::npos);
+}
+
+TEST(IdlTool, DiagInlineMappedArrayElementError) {
+  const char *json = R"({"amounts":["1","bad"]})";
+  InlineMappedArray m;
+  ParseError error;
+  EXPECT_FALSE(m.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("field 'amounts'"), std::string::npos);
+  EXPECT_NE(error.message.find("invalid mapped value in array"), std::string::npos);
+}
+
 TEST(IdlTool, DiagMultilinePosition) {
   const char *json =
     "{\n"
@@ -487,6 +765,14 @@ TEST(IdlTool, DiagValidJsonNoDiagError) {
   ParseError error;
   ASSERT_TRUE(inner.parseVerbose(json, strlen(json), error));
   EXPECT_TRUE(error.message.empty());
+}
+
+TEST(IdlTool, DiagTrailingGarbage) {
+  const char *json = "{\"value\":\"x\",\"count\":1} trailing";
+  Inner inner;
+  ParseError error;
+  EXPECT_FALSE(inner.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("trailing characters"), std::string::npos);
 }
 
 // ============================================================================
@@ -542,6 +828,531 @@ TEST(IdlTool, ContextVectorResolve) {
   EXPECT_EQ(parent.items[1].value, 67890);
   // Element 2: "100" with ctx=0 → 100
   EXPECT_EQ(parent.items[2].value, 100);
+}
+
+// ============================================================================
+// Flat serialize tests
+// ============================================================================
+
+// ============================================================================
+// Bug-exposing tests (issues 1–4)
+// ============================================================================
+
+// Issue 1: getWireTypeInfo returns jsonWriteInt for uint64 wire type.
+// Large uint64 values (> INT64_MAX) get written as negative numbers.
+TEST(IdlTool, BugUint64WireSerialize) {
+  WithUint64Mapped m;
+  m.counter = 10000000000000000000ULL;  // > INT64_MAX
+
+  xmstream stream;
+  m.serialize(stream);
+  std::string json(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+
+  // Bug: jsonWriteInt formats uint64 as signed → negative number in output
+  EXPECT_EQ(json.find('-'), std::string::npos) << "Large uint64 serialized as negative: " << json;
+}
+
+// Issue 2: \uXXXX escape handling drops hex digits, produces literal '\u'
+// instead of decoding the Unicode codepoint.
+TEST(IdlTool, BugUnicodeEscape) {
+  const char *json = R"({"value":"hello\u0041world","count":1})";
+  Inner inner;
+  ASSERT_TRUE(inner.parse(json, strlen(json)));
+  // \u0041 = 'A', should be decoded
+  EXPECT_EQ(inner.value, "helloAworld");
+}
+
+// Issue 3: readInt32/readUInt32 silently truncate values out of range
+// instead of reporting an error.
+TEST(IdlTool, BugInt32Overflow) {
+  // 3000000000 > INT32_MAX (2147483647)
+  const char *json = R"({"fieldString":"x","fieldBool":true,"fieldInt32":3000000000,"fieldUint32":1,"fieldInt64":1,"fieldUint64":1,"fieldDouble":1.0})";
+  ScalarTypes t;
+  EXPECT_FALSE(t.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, BugUint32Overflow) {
+  // 5000000000 > UINT32_MAX (4294967295)
+  const char *json = R"({"fieldString":"x","fieldBool":true,"fieldInt32":1,"fieldUint32":5000000000,"fieldInt64":1,"fieldUint64":1,"fieldDouble":1.0})";
+  ScalarTypes t;
+  EXPECT_FALSE(t.parse(json, strlen(json)));
+}
+
+// Issue 4: chrono types in arrays — codegen produces push_back(int64_t) into
+// vector<chrono::seconds>, which won't compile (explicit constructor).
+// If this test compiles, the bug is fixed.
+TEST(IdlTool, BugChronoArrayParse) {
+  const char *json = R"({"durations":[10,20,30]})";
+  ChronoArray ca;
+  ASSERT_TRUE(ca.parse(json, strlen(json)));
+  ASSERT_EQ(ca.durations.size(), 3u);
+  EXPECT_EQ(ca.durations[0], std::chrono::seconds(10));
+  EXPECT_EQ(ca.durations[1], std::chrono::seconds(20));
+  EXPECT_EQ(ca.durations[2], std::chrono::seconds(30));
+}
+
+TEST(IdlTool, BugChronoArraySerialize) {
+  ChronoArray ca;
+  ca.durations = {std::chrono::seconds(5), std::chrono::seconds(15)};
+
+  xmstream stream;
+  ca.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["durations"].IsArray());
+  ASSERT_EQ(doc["durations"].Size(), 2u);
+  EXPECT_EQ(doc["durations"][0].GetInt64(), 5);
+  EXPECT_EQ(doc["durations"][1].GetInt64(), 15);
+}
+
+TEST(IdlTool, BugChronoArrayVerboseParse) {
+  const char *json = R"({"durations":[10,20]})";
+  ChronoArray ca;
+  ParseError error;
+  ASSERT_TRUE(ca.parseVerbose(json, strlen(json), error));
+  ASSERT_EQ(ca.durations.size(), 2u);
+  EXPECT_EQ(ca.durations[0], std::chrono::seconds(10));
+  EXPECT_EQ(ca.durations[1], std::chrono::seconds(20));
+}
+
+// ============================================================================
+// Coverage gap tests
+// ============================================================================
+
+// --- Nullable struct object (Inner??) ---
+
+TEST(IdlTool, ParseNullableObjectPresent) {
+  const char *json = R"({"title":"t","inner":{"value":"v","count":1}})";
+  NullableObject no;
+  ASSERT_TRUE(no.parse(json, strlen(json)));
+  EXPECT_EQ(no.title, "t");
+  ASSERT_TRUE(no.inner.has_value());
+  EXPECT_EQ(no.inner->value, "v");
+  EXPECT_EQ(no.inner->count, 1);
+}
+
+TEST(IdlTool, ParseNullableObjectNull) {
+  const char *json = R"({"title":"t","inner":null})";
+  NullableObject no;
+  ASSERT_TRUE(no.parse(json, strlen(json)));
+  EXPECT_FALSE(no.inner.has_value());
+}
+
+TEST(IdlTool, ParseNullableObjectAbsent) {
+  // NullableObject (Inner??) — absent field should still succeed (default nullopt)
+  const char *json = R"({"title":"t"})";
+  NullableObject no;
+  ASSERT_TRUE(no.parse(json, strlen(json)));
+  EXPECT_FALSE(no.inner.has_value());
+}
+
+TEST(IdlTool, SerializeNullableObjectPresent) {
+  NullableObject no;
+  no.title = "t";
+  no.inner.emplace();
+  no.inner->value = "v";
+  no.inner->count = 42;
+
+  xmstream stream;
+  no.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_STREQ(doc["title"].GetString(), "t");
+  ASSERT_TRUE(doc.HasMember("inner"));
+  ASSERT_TRUE(doc["inner"].IsObject());
+  EXPECT_STREQ(doc["inner"]["value"].GetString(), "v");
+  EXPECT_EQ(doc["inner"]["count"].GetInt64(), 42);
+}
+
+TEST(IdlTool, SerializeNullableObjectAbsent) {
+  NullableObject no;
+  no.title = "t";
+  // inner is nullopt
+
+  xmstream stream;
+  no.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  // Nullable emits null (unlike optional which omits)
+  ASSERT_TRUE(doc.HasMember("inner"));
+  EXPECT_TRUE(doc["inner"].IsNull());
+}
+
+TEST(IdlTool, VerboseParseNullableObjectPresent) {
+  const char *json = R"({"title":"t","inner":{"value":"v","count":1}})";
+  NullableObject no;
+  ParseError error;
+  ASSERT_TRUE(no.parseVerbose(json, strlen(json), error));
+  ASSERT_TRUE(no.inner.has_value());
+  EXPECT_EQ(no.inner->value, "v");
+}
+
+TEST(IdlTool, VerboseParseNullableObjectNull) {
+  const char *json = R"({"title":"t","inner":null})";
+  NullableObject no;
+  ParseError error;
+  ASSERT_TRUE(no.parseVerbose(json, strlen(json), error));
+  EXPECT_FALSE(no.inner.has_value());
+}
+
+TEST(IdlTool, RoundtripNullableObject) {
+  NullableObject original;
+  original.title = "roundtrip";
+  original.inner.emplace();
+  original.inner->value = "inner";
+  original.inner->count = 99;
+
+  xmstream stream;
+  original.serialize(stream);
+  NullableObject parsed;
+  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  EXPECT_EQ(parsed.title, original.title);
+  ASSERT_TRUE(parsed.inner.has_value());
+  EXPECT_EQ(parsed.inner->value, original.inner->value);
+  EXPECT_EQ(parsed.inner->count, original.inner->count);
+}
+
+// --- Empty arrays ---
+
+TEST(IdlTool, ParseEmptyArrays) {
+  const char *json = R"({"strings":[],"numbers":[],"doubles":[],"items":[]})";
+  ArrayFields af;
+  ASSERT_TRUE(af.parse(json, strlen(json)));
+  EXPECT_TRUE(af.strings.empty());
+  EXPECT_TRUE(af.numbers.empty());
+  EXPECT_TRUE(af.doubles.empty());
+  EXPECT_TRUE(af.items.empty());
+}
+
+TEST(IdlTool, VerboseParseEmptyArrays) {
+  const char *json = R"({"strings":[],"numbers":[],"doubles":[],"items":[]})";
+  ArrayFields af;
+  ParseError error;
+  ASSERT_TRUE(af.parseVerbose(json, strlen(json), error));
+  EXPECT_TRUE(af.strings.empty());
+  EXPECT_TRUE(af.numbers.empty());
+  EXPECT_TRUE(af.items.empty());
+}
+
+TEST(IdlTool, SerializeEmptyArrays) {
+  ArrayFields af;
+  xmstream stream;
+  af.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["strings"].IsArray());
+  EXPECT_EQ(doc["strings"].Size(), 0u);
+  ASSERT_TRUE(doc["numbers"].IsArray());
+  EXPECT_EQ(doc["numbers"].Size(), 0u);
+}
+
+// --- Numeric edge cases ---
+
+TEST(IdlTool, ParseInt64Boundaries) {
+  // INT64_MAX = 9223372036854775807
+  const char *jsonMax = R"({"fieldString":"x","fieldBool":true,"fieldInt32":1,"fieldUint32":1,"fieldInt64":9223372036854775807,"fieldUint64":1,"fieldDouble":1.0})";
+  ScalarTypes tMax;
+  ASSERT_TRUE(tMax.parse(jsonMax, strlen(jsonMax)));
+  EXPECT_EQ(tMax.fieldInt64, INT64_MAX);
+
+  // INT64_MIN = -9223372036854775808
+  const char *jsonMin = R"({"fieldString":"x","fieldBool":true,"fieldInt32":1,"fieldUint32":1,"fieldInt64":-9223372036854775808,"fieldUint64":1,"fieldDouble":1.0})";
+  ScalarTypes tMin;
+  ASSERT_TRUE(tMin.parse(jsonMin, strlen(jsonMin)));
+  EXPECT_EQ(tMin.fieldInt64, INT64_MIN);
+}
+
+TEST(IdlTool, ParseUint64Max) {
+  // UINT64_MAX = 18446744073709551615
+  const char *json = R"({"fieldString":"x","fieldBool":true,"fieldInt32":1,"fieldUint32":1,"fieldInt64":1,"fieldUint64":18446744073709551615,"fieldDouble":1.0})";
+  ScalarTypes t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_EQ(t.fieldUint64, UINT64_MAX);
+}
+
+TEST(IdlTool, ParseNegativeUint64Rejected) {
+  const char *json = R"({"fieldString":"x","fieldBool":true,"fieldInt32":1,"fieldUint32":1,"fieldInt64":1,"fieldUint64":-1,"fieldDouble":1.0})";
+  ScalarTypes t;
+  EXPECT_FALSE(t.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, ParseInt32Boundaries) {
+  // INT32_MAX = 2147483647
+  const char *jsonMax = R"({"fieldString":"x","fieldBool":true,"fieldInt32":2147483647,"fieldUint32":1,"fieldInt64":1,"fieldUint64":1,"fieldDouble":1.0})";
+  ScalarTypes tMax;
+  ASSERT_TRUE(tMax.parse(jsonMax, strlen(jsonMax)));
+  EXPECT_EQ(tMax.fieldInt32, INT32_MAX);
+
+  // INT32_MIN = -2147483648
+  const char *jsonMin = R"({"fieldString":"x","fieldBool":true,"fieldInt32":-2147483648,"fieldUint32":1,"fieldInt64":1,"fieldUint64":1,"fieldDouble":1.0})";
+  ScalarTypes tMin;
+  ASSERT_TRUE(tMin.parse(jsonMin, strlen(jsonMin)));
+  EXPECT_EQ(tMin.fieldInt32, INT32_MIN);
+}
+
+TEST(IdlTool, ParseUint32Max) {
+  // UINT32_MAX = 4294967295
+  const char *json = R"({"fieldString":"x","fieldBool":true,"fieldInt32":1,"fieldUint32":4294967295,"fieldInt64":1,"fieldUint64":1,"fieldDouble":1.0})";
+  ScalarTypes t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_EQ(t.fieldUint32, UINT32_MAX);
+}
+
+// --- Control character serialization ---
+
+TEST(IdlTool, SerializeControlChars) {
+  Inner inner;
+  inner.value = std::string("a\b" "b\fc\rd", 7);  // \b, \f, \r
+  inner.count = 1;
+
+  xmstream stream;
+  inner.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  std::string parsed = doc["value"].GetString();
+  EXPECT_EQ(parsed.size(), 7u);
+  EXPECT_EQ(parsed[1], '\b');
+  EXPECT_EQ(parsed[3], '\f');
+  EXPECT_EQ(parsed[5], '\r');
+}
+
+TEST(IdlTool, SerializeNullChar) {
+  Inner inner;
+  inner.value = std::string("ab\0cd", 5);  // embedded null
+  inner.count = 1;
+
+  xmstream stream;
+  inner.serialize(stream);
+  // At least it should produce valid JSON (rapidjson may truncate at \0)
+  std::string json(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  EXPECT_NE(json.find("\\u0000"), std::string::npos);
+}
+
+// --- Whitespace variants ---
+
+TEST(IdlTool, ParseWhitespaceVariants) {
+  // Tabs, \r\n between fields
+  const char *json = "{\r\n\t\"value\"\t:\t\"x\"\t,\r\n\t\"count\"\t:\t1\r\n}";
+  Inner inner;
+  ASSERT_TRUE(inner.parse(json, strlen(json)));
+  EXPECT_EQ(inner.value, "x");
+  EXPECT_EQ(inner.count, 1);
+}
+
+TEST(IdlTool, VerboseParseWhitespaceVariants) {
+  const char *json = "{\r\n\t\"value\"\t:\t\"x\"\t,\r\n\t\"count\"\t:\t1\r\n}";
+  Inner inner;
+  ParseError error;
+  ASSERT_TRUE(inner.parseVerbose(json, strlen(json), error));
+  EXPECT_EQ(inner.value, "x");
+}
+
+// --- Verbose parse for optional/nullable types ---
+
+TEST(IdlTool, VerboseParseOptionalObjectPresent) {
+  const char *json = R"({"name":"x","first":{"value":"a","count":1}})";
+  OptionalChildren oc;
+  ParseError error;
+  ASSERT_TRUE(oc.parseVerbose(json, strlen(json), error));
+  ASSERT_TRUE(oc.first.has_value());
+  EXPECT_EQ(oc.first->value, "a");
+  EXPECT_FALSE(oc.second.has_value());
+}
+
+TEST(IdlTool, VerboseParseOptionalObjectNull) {
+  const char *json = R"({"name":"x","first":null,"second":null})";
+  OptionalChildren oc;
+  ParseError error;
+  ASSERT_TRUE(oc.parseVerbose(json, strlen(json), error));
+  EXPECT_FALSE(oc.first.has_value());
+  EXPECT_FALSE(oc.second.has_value());
+}
+
+TEST(IdlTool, VerboseParseOptionalArrayPresent) {
+  const char *json = R"({"label":"x","tags":["a","b"]})";
+  OptionalArrays oa;
+  ParseError error;
+  ASSERT_TRUE(oa.parseVerbose(json, strlen(json), error));
+  ASSERT_TRUE(oa.tags.has_value());
+  EXPECT_EQ(oa.tags->size(), 2u);
+  EXPECT_FALSE(oa.items.has_value());
+}
+
+TEST(IdlTool, VerboseParseOptionalArrayNull) {
+  const char *json = R"({"label":"x","tags":null})";
+  OptionalArrays oa;
+  ParseError error;
+  ASSERT_TRUE(oa.parseVerbose(json, strlen(json), error));
+  EXPECT_FALSE(oa.tags.has_value());
+}
+
+TEST(IdlTool, VerboseParseNullableScalarsPresent) {
+  const char *json = R"({"title":"t","note":"hello","numbers":[1,2]})";
+  NullableScalars ns;
+  ParseError error;
+  ASSERT_TRUE(ns.parseVerbose(json, strlen(json), error));
+  ASSERT_TRUE(ns.note.has_value());
+  EXPECT_EQ(*ns.note, "hello");
+  ASSERT_TRUE(ns.numbers.has_value());
+  EXPECT_EQ(ns.numbers->size(), 2u);
+}
+
+TEST(IdlTool, VerboseParseNullableScalarsNull) {
+  const char *json = R"({"title":"t","note":null,"numbers":null})";
+  NullableScalars ns;
+  ParseError error;
+  ASSERT_TRUE(ns.parseVerbose(json, strlen(json), error));
+  EXPECT_FALSE(ns.note.has_value());
+  EXPECT_FALSE(ns.numbers.has_value());
+}
+
+// --- Large enum (perfect hash path) ---
+
+TEST(IdlTool, ParseLargeEnum) {
+  const char *json = R"({"status":"completed"})";
+  WithStatus ws;
+  ASSERT_TRUE(ws.parse(json, strlen(json)));
+  EXPECT_EQ(ws.status, EStatus::completed);
+}
+
+TEST(IdlTool, ParseLargeEnumAllValues) {
+  // Test all 6 values to exercise the perfect hash
+  const char *values[] = {"pending", "active", "paused", "completed", "cancelled", "failed"};
+  EStatus expected[] = {EStatus::pending, EStatus::active, EStatus::paused,
+                        EStatus::completed, EStatus::cancelled, EStatus::failed};
+
+  for (int i = 0; i < 6; i++) {
+    std::string json = std::format(R"({{"status":"{}"}})", values[i]);
+    WithStatus ws;
+    ASSERT_TRUE(ws.parse(json.c_str(), json.size())) << "Failed to parse: " << values[i];
+    EXPECT_EQ(ws.status, expected[i]) << "Wrong enum for: " << values[i];
+  }
+}
+
+TEST(IdlTool, ParseLargeEnumInvalid) {
+  const char *json = R"({"status":"unknown"})";
+  WithStatus ws;
+  EXPECT_FALSE(ws.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, VerboseParseLargeEnumInvalid) {
+  const char *json = R"({"status":"unknown"})";
+  WithStatus ws;
+  ParseError error;
+  EXPECT_FALSE(ws.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("invalid enum value"), std::string::npos);
+}
+
+TEST(IdlTool, SerializeLargeEnum) {
+  WithStatus ws;
+  ws.status = EStatus::cancelled;
+  ws.label = "test";
+
+  xmstream stream;
+  ws.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_STREQ(doc["status"].GetString(), "cancelled");
+}
+
+TEST(IdlTool, RoundtripLargeEnum) {
+  WithStatus original;
+  original.status = EStatus::failed;
+  original.label = "rt";
+
+  xmstream stream;
+  original.serialize(stream);
+  WithStatus parsed;
+  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  EXPECT_EQ(parsed.status, original.status);
+  EXPECT_EQ(parsed.label, original.label);
+}
+
+// --- Scalar context (non-vector) ---
+
+TEST(IdlTool, ContextScalarSerialize) {
+  CtxScalarParent parent;
+  parent.child.value = 12345;
+  parent.child.label = "item";
+
+  uint32_t ctx = 2;  // scale = 100 → "123.45"
+
+  xmstream stream;
+  parent.serialize(stream, ctx);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["child"].IsObject());
+  EXPECT_STREQ(doc["child"]["value"].GetString(), "123.45");
+  EXPECT_STREQ(doc["child"]["label"].GetString(), "item");
+}
+
+TEST(IdlTool, ContextScalarResolve) {
+  const char *json = R"({"child":{"value":"123.45","label":"item"}})";
+
+  CtxScalarParent parent;
+  CtxScalarParent::Capture capture;
+  ASSERT_TRUE(parent.parse(json, strlen(json), capture));
+
+  uint32_t ctx = 2;
+  ASSERT_TRUE(CtxScalarParent::resolve(parent, capture, ctx));
+  EXPECT_EQ(parent.child.value, 12345);
+  EXPECT_EQ(parent.child.label, "item");
+}
+
+// --- Roundtrip optional/nullable ---
+
+TEST(IdlTool, RoundtripOptionalChildren) {
+  OptionalChildren original;
+  original.name = "test";
+  original.first.emplace();
+  original.first->value = "first";
+  original.first->count = 10;
+  // second is absent (nullopt)
+
+  xmstream stream;
+  original.serialize(stream);
+  OptionalChildren parsed;
+  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  EXPECT_EQ(parsed.name, "test");
+  ASSERT_TRUE(parsed.first.has_value());
+  EXPECT_EQ(parsed.first->value, "first");
+  EXPECT_EQ(parsed.first->count, 10);
+  EXPECT_FALSE(parsed.second.has_value());
+}
+
+TEST(IdlTool, RoundtripNullableArrays) {
+  NullableScalars original;
+  original.title = "test";
+  original.note = "hello";
+  original.numbers = std::vector<int64_t>{10, 20, 30};
+
+  xmstream stream;
+  original.serialize(stream);
+  NullableScalars parsed;
+  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  EXPECT_EQ(parsed.title, "test");
+  ASSERT_TRUE(parsed.note.has_value());
+  EXPECT_EQ(*parsed.note, "hello");
+  ASSERT_TRUE(parsed.numbers.has_value());
+  ASSERT_EQ(parsed.numbers->size(), 3u);
+  EXPECT_EQ((*parsed.numbers)[2], 30);
+}
+
+// --- Serialize absent optional object (focused test) ---
+
+TEST(IdlTool, SerializeAbsentOptionalObject) {
+  OptionalChildren oc;
+  oc.name = "empty";
+  // both first and second are nullopt
+
+  xmstream stream;
+  oc.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_STREQ(doc["name"].GetString(), "empty");
+  // Optional objects (?) should NOT appear in output when absent
+  EXPECT_FALSE(doc.HasMember("first"));
+  EXPECT_FALSE(doc.HasMember("second"));
 }
 
 // ============================================================================
