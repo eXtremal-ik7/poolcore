@@ -22,20 +22,22 @@ class Poolfrontend:
     def userChangePasswordInitiate(self, login, requiredStatus=None, debug=None):
         return self.__call__("userChangePasswordInitiate", {"login": login}, requiredStatus, debug)
 
-    def userChangePasswordForce(self, adminSessionId, login, newPassword, requiredStatus=None, debug=None):
-        return self.__call__("userChangePasswordForce", {"id": adminSessionId, "login": login, "newPassword": newPassword}, requiredStatus, debug)
+    def userChangePasswordForce(self, adminSessionId, targetLogin, newPassword, requiredStatus=None, debug=None):
+        return self.__call__("userChangePasswordForce", {"id": adminSessionId, "targetLogin": targetLogin, "newPassword": newPassword}, requiredStatus, debug)
 
-    def userCreate(self, name, password, email, sessionId=None, isActive=None, isReadOnly=None, feePlan=None, requiredStatus=None, debug=None):
+    def userCreate(self, name, password, email, referralId=None, requiredStatus=None, debug=None):
         data = {"login": name, "password": password, "email": email}
-        if sessionId is not None:
-            data.update({"id": sessionId})
-        if isActive is not None:
-            data.update({"isActive": isActive})
-        if isReadOnly is not None:
-            data.update({"isReadOnly": isReadOnly})
+        if referralId is not None:
+            data.update({"referralId": referralId})
+        return self.__call__("userCreate", data, requiredStatus, debug)
+
+    def userCreateForce(self, adminSessionId, login, password, name="", email="", isActive=False, isReadOnly=False, feePlan=None, referralId=None, requiredStatus=None, debug=None):
+        data = {"id": adminSessionId, "login": login, "password": password, "name": name, "email": email, "isActive": isActive, "isReadOnly": isReadOnly}
         if feePlan is not None:
             data.update({"feePlanId": feePlan})
-        return self.__call__("userCreate", data, requiredStatus, debug)
+        if referralId is not None:
+            data.update({"referralId": referralId})
+        return self.__call__("userCreateForce", data, requiredStatus, debug)
 
     def userResendEmail(self, login, password, requiredStatus=None, debug=None):
         return self.__call__("userResendEmail", {"login": login, "password": password}, requiredStatus, debug)
@@ -123,6 +125,9 @@ class Poolfrontend:
 
     def userChangeFeePlan(self, adminSessionId, targetLogin, feePlanId, requiredStatus=None, debug=None):
         return self.__call__("userChangeFeePlan", {"id": adminSessionId, "targetLogin": targetLogin, "feePlanId": feePlanId}, requiredStatus, debug)
+
+    def userRenewFeePlanReferralId(self, adminSessionId, feePlanId, requiredStatus=None, debug=None):
+        return self.__call__("userRenewFeePlanReferralId", {"id": adminSessionId, "feePlanId": feePlanId}, requiredStatus, debug)
 
     def userQueryMonitoringSession(self, sessionId, targetLogin=None, requiredStatus=None, debug=None):
         data = {"id": sessionId}

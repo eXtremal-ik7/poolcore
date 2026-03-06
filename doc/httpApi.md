@@ -1,6 +1,6 @@
 # HTTP API
 
-All endpoints: `POST /api/<name>`. Request and response bodies are JSON.
+All endpoints: `POST /api/<name>`. Request and response bodies are JSON (`Content-Type: application/json`).
 Response is sent with chunked transfer encoding. All responses include a `status` field (`"ok"` or error string).
 
 Timestamps in request/response are **Unix timestamps (seconds)** unless noted otherwise.
@@ -22,6 +22,7 @@ When `targetLogin` is provided:
 * [Common status values](#common-status-values)
 * [User management](#user-management)
   * [userCreate](#usercreate)
+  * [userCreateForce](#usercreateforce)
   * [userResendEmail](#userresendemail)
   * [userAction](#useraction)
   * [userLogin](#userlogin)
@@ -98,19 +99,38 @@ When `targetLogin` is provided:
 
 Creates a new user account. If SMTP is enabled, sends an activation email.
 
-- **Auth**: none (public registration) or session (admin creating user)
+- **Auth**: none
 
 | Request field | Type | Required | Default | Description |
 |---------------|------|----------|---------|-------------|
-| `id` | string | no | `""` | Session ID (admin can set isActive, feePlanId) |
 | `login` | string | yes | | Username |
 | `password` | string | yes | | Password |
 | `name` | string | no | `""` | Display name |
 | `email` | string | no | `""` | Email address |
 | `totp` | string | no | `""` | 2FA code (if parent user has 2FA) |
-| `isActive` | bool | no | `false` | Activate immediately (admin only) |
+| `referralId` | string | no | `""` | Referral ID for fee plan |
+
+**Response**: `status`
+
+---
+
+### userCreateForce
+
+Admin-only user creation with full control over account flags.
+
+- **Auth**: admin
+
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `login` | string | no | `""` | Username |
+| `password` | string | no | `""` | Password |
+| `name` | string | no | `""` | Display name |
+| `email` | string | no | `""` | Email address |
+| `totp` | string | no | `""` | 2FA code |
+| `isActive` | bool | no | `false` | Activate immediately |
 | `isReadOnly` | bool | no | `false` | Read-only account |
-| `feePlanId` | string | no | `""` | Assign fee plan (admin only) |
+| `feePlanId` | string | no | `""` | Assign fee plan (cannot combine with referralId) |
 | `referralId` | string | no | `""` | Referral ID for fee plan (cannot combine with feePlanId) |
 
 **Response**: `status`
@@ -175,7 +195,7 @@ Authenticates a user and returns a session token.
 
 Invalidates a session.
 
-- **Auth**: none (session self-invalidation)
+- **Auth**: session
 
 | Request field | Type | Required | Description |
 |---------------|------|----------|-------------|
@@ -221,15 +241,15 @@ Initiates password change by sending a reset email.
 
 ### userChangePasswordForce
 
-Changes password using an action token (from email link).
+Admin-only forced password change for a user.
 
-- **Auth**: none (uses action token)
+- **Auth**: admin
 
-| Request field | Type | Required | Description |
-|---------------|------|----------|-------------|
-| `id` | string | yes | Action token |
-| `login` | string | yes | Username |
-| `newPassword` | string | yes | New password |
+| Request field | Type | Required | Default | Description |
+|---------------|------|----------|---------|-------------|
+| `id` | string | yes | | Session ID |
+| `targetLogin` | string | yes | | Target user |
+| `newPassword` | string | yes | | New password |
 
 **Response**: `status`
 
@@ -1173,51 +1193,52 @@ Queries complex mining statistics engine.
 
 | # | Endpoint | Auth |
 |---|----------|------|
-| 1 | userCreate | none/session |
-| 2 | userResendEmail | none |
-| 3 | userAction | none |
-| 4 | userLogin | none |
-| 5 | userLogout | none |
-| 6 | userQueryMonitoringSession | session |
-| 7 | userChangeEmail | — (not implemented) |
-| 8 | userChangePasswordInitiate | none |
-| 9 | userChangePasswordForce | none |
-| 10 | userGetCredentials | session |
-| 11 | userUpdateCredentials | session |
-| 12 | userGetSettings | session |
-| 13 | userUpdateSettings | session |
-| 14 | userEnumerateAll | admin/observer |
-| 15 | userEnumerateFeePlan | session |
-| 16 | userCreateFeePlan | session |
-| 17 | userQueryFeePlan | session |
-| 18 | userUpdateFeePlan | session |
-| 19 | userDeleteFeePlan | session |
-| 20 | userChangeFeePlan | session |
-| 21 | userRenewFeePlanReferralId | session |
-| 22 | userActivate2faInitiate | session |
-| 23 | userDeactivate2faInitiate | session |
-| 24 | userAdjustInstantPayoutThreshold | admin |
-| 25 | backendManualPayout | session (write) |
-| 26 | backendQueryCoins | none |
-| 27 | backendQueryFoundBlocks | none |
-| 28 | backendQueryPayouts | session |
-| 29 | backendQueryPoolBalance | — (not implemented) |
-| 30 | backendQueryPoolStats | none |
-| 31 | backendQueryPoolStatsHistory | none |
-| 32 | backendQueryProfitSwitchCoeff | admin/observer |
-| 33 | backendQueryUserBalance | session |
-| 34 | backendQueryUserStats | session |
-| 35 | backendQueryUserStatsHistory | session |
-| 36 | backendQueryWorkerStatsHistory | session |
-| 37 | backendQueryPPLNSPayouts | session |
-| 38 | backendQueryPPLNSAcc | session |
-| 39 | backendQueryPPSPayouts | session |
-| 40 | backendQueryPPSPayoutsAcc | session |
-| 41 | backendUpdateProfitSwitchCoeff | admin |
-| 42 | backendGetConfig | admin/observer |
-| 43 | backendGetPPSState | admin/observer |
-| 44 | backendQueryPPSHistory | admin/observer |
-| 45 | backendUpdateConfig | admin |
-| 46 | backendPoolLuck | none |
-| 47 | instanceEnumerateAll | none |
-| 48 | complexMiningStatsGetInfo | session |
+| 1 | userCreate | none |
+| 2 | userCreateForce | admin |
+| 3 | userResendEmail | none |
+| 4 | userAction | none |
+| 5 | userLogin | none |
+| 6 | userLogout | session |
+| 7 | userQueryMonitoringSession | session |
+| 8 | userChangeEmail | none (not implemented) |
+| 9 | userChangePasswordInitiate | none |
+| 10 | userChangePasswordForce | admin |
+| 11 | userGetCredentials | session |
+| 12 | userUpdateCredentials | session (write) |
+| 13 | userGetSettings | session |
+| 14 | userUpdateSettings | session (write) |
+| 15 | userEnumerateAll | session |
+| 16 | userEnumerateFeePlan | session |
+| 17 | userCreateFeePlan | admin |
+| 18 | userQueryFeePlan | session |
+| 19 | userUpdateFeePlan | admin |
+| 20 | userDeleteFeePlan | admin |
+| 21 | userChangeFeePlan | admin |
+| 22 | userRenewFeePlanReferralId | admin |
+| 23 | userActivate2faInitiate | session (write) |
+| 24 | userDeactivate2faInitiate | session (write) |
+| 25 | userAdjustInstantPayoutThreshold | admin |
+| 26 | backendManualPayout | session (write) |
+| 27 | backendQueryCoins | none |
+| 28 | backendQueryFoundBlocks | none |
+| 29 | backendQueryPayouts | session |
+| 30 | backendQueryPoolBalance | none (not implemented) |
+| 31 | backendQueryPoolStats | none |
+| 32 | backendQueryPoolStatsHistory | none |
+| 33 | backendQueryProfitSwitchCoeff | admin/observer |
+| 34 | backendQueryUserBalance | session |
+| 35 | backendQueryUserStats | session |
+| 36 | backendQueryUserStatsHistory | session |
+| 37 | backendQueryWorkerStatsHistory | session |
+| 38 | backendQueryPPLNSPayouts | session |
+| 39 | backendQueryPPLNSAcc | session |
+| 40 | backendQueryPPSPayouts | session |
+| 41 | backendQueryPPSPayoutsAcc | session |
+| 42 | backendUpdateProfitSwitchCoeff | admin |
+| 43 | backendGetConfig | admin/observer |
+| 44 | backendGetPPSState | admin/observer |
+| 45 | backendQueryPPSHistory | admin/observer |
+| 46 | backendUpdateConfig | admin |
+| 47 | backendPoolLuck | none |
+| 48 | instanceEnumerateAll | none |
+| 49 | complexMiningStatsGetInfo | admin/observer |
