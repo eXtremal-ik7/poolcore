@@ -435,7 +435,7 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
     if (ppsEnabled) {
       auto settingsIt = UserSettings_.find(entry.UserId);
       if (settingsIt != UserSettings_.end())
-        mode = settingsIt->second.Mining.MiningMode;
+        mode = settingsIt->second.Mining.Mode;
     }
 
     if (mode == EMiningMode::Pplns) {

@@ -255,7 +255,7 @@ static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, con
   std::string cn = fieldCppName(f.Name, pascalCase);
 
   // Extern field: parse into _raw_ string
-  if (isExternField(f)) {
+  if (isMappedField(f)) {
     std::string rawCn = "_raw_" + cn;
     out += std::format("{}if (!s.readStringValue({})) {{\n", in, rawCn);
     out += std::format("{}  s.error->message = \"field '{}': \" + s.error->message;\n", in, fieldContext);

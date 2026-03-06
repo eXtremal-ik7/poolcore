@@ -43,7 +43,7 @@ TEST(Tagged, UserSettingsRecordRoundTrip)
   original.Payout.Mode = EPayoutMode::Disabled;
   original.Payout.Address = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa";
   original.Payout.InstantPayoutThreshold = UInt<384>(1000000u);
-  original.Mining.MiningMode = EMiningMode::Pplns;
+  original.Mining.Mode = EMiningMode::Pplns;
   original.AutoExchange.PayoutCoinName = "";
 
   // Serialize
@@ -60,7 +60,7 @@ TEST(Tagged, UserSettingsRecordRoundTrip)
   EXPECT_EQ(loaded.Payout.Mode, EPayoutMode::Disabled);
   EXPECT_EQ(loaded.Payout.Address, "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa");
   EXPECT_EQ(loaded.Payout.InstantPayoutThreshold, UInt<384>(1000000u));
-  EXPECT_EQ(loaded.Mining.MiningMode, EMiningMode::Pplns);
+  EXPECT_EQ(loaded.Mining.Mode, EMiningMode::Pplns);
   EXPECT_EQ(loaded.AutoExchange.PayoutCoinName, "");
 }
 
@@ -72,7 +72,7 @@ TEST(Tagged, UserSettingsRecordInstantMode)
   original.Payout.Mode = EPayoutMode::Instant;
   original.Payout.Address = "ATWDYBwVDvswyZADMbEo5yBt4tH2zfGjd1";
   original.Payout.InstantPayoutThreshold = UInt<384>(500u);
-  original.Mining.MiningMode = EMiningMode::Pps;
+  original.Mining.Mode = EMiningMode::Pps;
   original.AutoExchange.PayoutCoinName = "BTC";
 
   xmstream stream;
@@ -84,7 +84,7 @@ TEST(Tagged, UserSettingsRecordInstantMode)
   ASSERT_TRUE(ok);
   EXPECT_EQ(loaded.Payout.Mode, EPayoutMode::Instant);
   EXPECT_EQ(loaded.Payout.Address, "ATWDYBwVDvswyZADMbEo5yBt4tH2zfGjd1");
-  EXPECT_EQ(loaded.Mining.MiningMode, EMiningMode::Pps);
+  EXPECT_EQ(loaded.Mining.Mode, EMiningMode::Pps);
   EXPECT_EQ(loaded.AutoExchange.PayoutCoinName, "BTC");
 }
 

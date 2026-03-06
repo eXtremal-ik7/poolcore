@@ -1,4 +1,4 @@
-extern type money : string include "poolcommon/money.h";
+mapped type money("UInt<384>") : string context(uint32) include "poolcommon/money.h";
 
 enum MiningMode : string {
   pplns,
@@ -22,8 +22,15 @@ enum SaturationFunction : string {
   exp
 }
 
+struct SettingsPayout {
+  context money;
+  mode: PayoutMode = "disabled" @1;
+  address: string = "" @2;
+  instantPayoutThreshold: money @3;
+}
+
 struct SettingsMining {
-  miningMode: MiningMode = "pplns" @1;
+  mode: MiningMode = "pplns" @1;
 }
 
 struct SettingsAutoExchange {
@@ -45,6 +52,7 @@ struct BackendSwap {
 }
 
 struct BackendPayouts {
+  context money;
   instantPayoutsEnabled: bool = true @1;
   regularPayoutsEnabled: bool = true @2;
   instantMinimalPayout: money @3;

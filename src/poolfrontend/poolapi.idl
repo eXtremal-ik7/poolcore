@@ -173,25 +173,11 @@ struct UserGetCredentialsResponse {
 }
 
 // --- userGetSettings ---
-struct PayoutSettings {
-  mode: PayoutMode;
-  address: string;
-  instantPayoutThreshold: string;
-}
-
-struct MiningSettings {
-  mode: MiningMode;
-}
-
-struct AutoExchangeSettings {
-  payoutCoinName: string;
-}
-
 struct CoinSettings {
   name: string;
-  payout: PayoutSettings;
-  mining: MiningSettings;
-  autoExchange: AutoExchangeSettings;
+  payout: SettingsPayout;
+  mining: SettingsMining;
+  autoExchange: SettingsAutoExchange;
   pplnsFee: double;
   ppsFee: double;
 }
@@ -216,9 +202,9 @@ struct UserUpdateSettingsRequest {
   targetLogin: string = "";
   coin: string;
   totp: string = "";
-  payout: PayoutSettings?;
-  mining: MiningSettings?;
-  autoExchange: AutoExchangeSettings?;
+  payout: SettingsPayout?;
+  mining: SettingsMining?;
+  autoExchange: SettingsAutoExchange?;
 }
 
 // --- userEnumerateAll ---
@@ -656,34 +642,20 @@ struct PPSConfig {
   saturationFunctions: [string];
 }
 
-struct SwapConfig {
-  acceptIncoming: bool;
-  acceptOutgoing: bool;
-}
-
 struct BackendGetConfigResponse {
   status: string;
   pps: PPSConfig;
   payouts: BackendPayouts;
-  swap: SwapConfig;
+  swap: BackendSwap;
 }
 
 // --- backendUpdateConfig ---
-struct PPSConfigUpdate {
-  enabled: bool;
-  poolFee: double;
-  saturationFunction: SaturationFunction = "none";
-  saturationB0: double = 0.0;
-  saturationANegative: double = 0.0;
-  saturationAPositive: double = 0.0;
-}
-
 struct BackendUpdateConfigRequest {
   id: string;
   coin: string;
-  pps: PPSConfigUpdate?;
-  payouts: BackendPayouts? context(coin);
-  swap: SwapConfig?;
+  pps: BackendPPS?;
+  payouts: BackendPayouts?;
+  swap: BackendSwap?;
 }
 
 // --- backendGetPPSState ---

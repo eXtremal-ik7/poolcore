@@ -40,8 +40,8 @@ std::string fieldCppName(const std::string &name, bool pascalCase)
 std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::string> &enumNames, const std::string &structPrefix)
 {
   std::string base;
-  if (f.Type.IsExtern) {
-    base = f.Type.RefName + "_t";
+  if (f.Type.IsMapped) {
+    base = f.Type.MappedCppType;
   } else if (!f.Type.RefName.empty()) {
     if (enumNames.count(f.Type.RefName))
       base = "E" + f.Type.RefName;
@@ -105,7 +105,7 @@ bool isEnum(const std::string &refName, const std::unordered_set<std::string> &e
 
 bool isStructRef(const CFieldDef &f, const std::unordered_set<std::string> &enumNames)
 {
-  return !f.Type.RefName.empty() && !f.Type.IsExtern && !enumNames.count(f.Type.RefName);
+  return !f.Type.RefName.empty() && !f.Type.IsMapped && !enumNames.count(f.Type.RefName);
 }
 
 // --- Perfect hash ---
@@ -228,9 +228,9 @@ void emitSerializeValue(std::string &code, const CFieldDef &f,
   }
 }
 
-bool isExternField(const CFieldDef &f)
+bool isMappedField(const CFieldDef &f)
 {
-  return f.Type.IsExtern;
+  return f.Type.IsMapped;
 }
 
 void emitSerializeArrayElem(std::string &code, const CFieldDef &f,
@@ -245,10 +245,10 @@ void emitSerializeArrayElem(std::string &code, const CFieldDef &f,
   emitSerializeValue(code, f, valueName, enumNames, ind);
 }
 
-void generateSerializeField(std::string &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase, int captureIdx, bool captureIsDeferred)
+void generateSerializeField(std::string &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase)
 {
   std::string in = indent(ind);
-  std::string cn = fieldCppName(f.Name, pascalCase); // C++ field name
+  std::string cn = fieldCppName(f.Name, pascalCase);
   auto emitKey = [&](const std::string &jsonKey) {
     if (!first)
       code += std::format("{}out += ',';\n", in);
@@ -256,13 +256,10 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
     code += std::format("{}out += \"\\\"{}\\\":\";\n", in, jsonKey);
   };
 
-  // Extern field: serialize from _capture array or write ""
-  if (isExternField(f)) {
+  // Mapped field: write empty string in standard serialize
+  if (isMappedField(f)) {
     emitKey(f.Name);
-    if (captureIdx >= 0)
-      code += std::format("{}jsonWriteString(out, _capture[{}]);\n", in, captureIdx);
-    else
-      code += std::format("{}jsonWriteString(out, \"\");\n", in);
+    code += std::format("{}jsonWriteString(out, \"\");\n", in);
     return;
   }
 
@@ -279,25 +276,15 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
     }
 
     case EFieldKind::OptionalObject: {
-      if (captureIsDeferred && captureIdx >= 0) {
-        // Context-threaded struct: use pre-serialized JSON from _capture
-        code += std::format("{}if (!_capture[{}].empty()) {{\n", in, captureIdx);
-        std::string in2 = indent(ind + 1);
-        if (!first)
-          code += std::format("{}out += ',';\n", in2);
-        code += std::format("{}out += \"\\\"{}\\\":\";\n", in2, f.Name);
-        code += std::format("{}out += _capture[{}];\n", in2, captureIdx);
+      code += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      std::string in2 = indent(ind + 1);
+      if (!first)
+        code += std::format("{}out += ',';\n", in2);
+      code += std::format("{}out += \"\\\"{}\\\":\";\n", in2, f.Name);
+      if (isStructRef(f, enumNames)) {
+        code += std::format("{}{}->serializeImpl(out);\n", in2, cn);
       } else {
-        code += std::format("{}if ({}.has_value()) {{\n", in, cn);
-        std::string in2 = indent(ind + 1);
-        if (!first)
-          code += std::format("{}out += ',';\n", in2);
-        code += std::format("{}out += \"\\\"{}\\\":\";\n", in2, f.Name);
-        if (isStructRef(f, enumNames)) {
-          code += std::format("{}{}->serializeImpl(out);\n", in2, cn);
-        } else {
-          emitSerializeValue(code, f, std::format("*{}", cn), enumNames, ind + 1);
-        }
+        emitSerializeValue(code, f, std::format("*{}", cn), enumNames, ind + 1);
       }
       first = false;
       code += std::format("{}}}\n", in);

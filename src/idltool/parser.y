@@ -1,11 +1,6 @@
 %code requires {
   #include "ast.h"
   typedef void *yyscan_t;
-
-  struct CFieldAnnotation {
-    int Tag;
-    char *ContextField;
-  };
 }
 
 %code {
@@ -30,17 +25,17 @@
   CFieldDef *fieldDef;
   CEnumDef *enumDef;
   CIncludeDirective *includeDef;
-  CExternTypeDef *externDef;
+  CMappedTypeDef *mappedDef;
   CFieldType *fieldType;
   CDefaultValue *defaultVal;
-  CFieldAnnotation *annotation;
-  std::vector<std::variant<CMixinRef, CFieldDef>> *memberList;
+  int tagVal;
+  std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl>> *memberList;
   std::vector<CFieldDef> *fieldList;
   std::vector<std::string> *stringList;
 }
 
 %token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW TOK_INCLUDE
-%token TOK_EXTERN TOK_TYPE TOK_CONTEXT
+%token TOK_MAPPED TOK_TYPE TOK_CONTEXT
 %token <strVal> TOK_IDENTIFIER TOK_STRING_LITERAL
 %token <strVal> TOK_CHRONO_SECONDS TOK_CHRONO_MINUTES TOK_CHRONO_HOURS
 %token <intVal> TOK_INT_LITERAL
@@ -49,19 +44,18 @@
 %type <structDef> struct_def mixin_def
 %type <enumDef> enum_def
 %type <includeDef> include_directive
-%type <externDef> extern_def
+%type <mappedDef> mapped_def
 %type <fieldDef> field
 %type <fieldType> type_spec
 %type <defaultVal> default_value
-%type <annotation> field_annotations
+%type <tagVal> field_tag
 %type <strVal> type_name field_name
 %type <memberList> member_list
 %type <fieldList> mixin_field_list
 %type <stringList> enum_values
 
 %destructor { free($$); } <strVal>
-%destructor { delete $$; } <structDef> <enumDef> <includeDef> <externDef> <fieldDef> <fieldType> <defaultVal> <memberList> <fieldList> <stringList>
-%destructor { if ($$->ContextField) free($$->ContextField); delete $$; } <annotation>
+%destructor { delete $$; } <structDef> <enumDef> <includeDef> <mappedDef> <fieldDef> <fieldType> <defaultVal> <memberList> <fieldList> <stringList>
 
 %%
 
@@ -87,8 +81,8 @@ definition:
       file->Includes.push_back(std::move(*$1));
       delete $1;
     }
-  | extern_def {
-      file->ExternTypes.push_back(std::move(*$1));
+  | mapped_def {
+      file->MappedTypes.push_back(std::move(*$1));
       delete $1;
     }
   ;
@@ -102,16 +96,38 @@ include_directive:
     }
   ;
 
-extern_def:
-    TOK_EXTERN TOK_TYPE TOK_IDENTIFIER ':' TOK_IDENTIFIER TOK_INCLUDE TOK_STRING_LITERAL ';' {
-      $$ = new CExternTypeDef();
+mapped_def:
+    TOK_MAPPED TOK_TYPE TOK_IDENTIFIER '(' TOK_STRING_LITERAL ')' ':' TOK_IDENTIFIER TOK_INCLUDE TOK_STRING_LITERAL ';' {
+      $$ = new CMappedTypeDef();
       $$->Name = $3;
-      $$->JsonWireType = $5;
-      $$->IncludePath = $7;
+      $$->CppType = $5;
+      $$->JsonWireType = $8;
+      $$->IncludePath = $10;
       $$->Line = @1.first_line;
       free($3);
       free($5);
-      free($7);
+      free($8);
+      free($10);
+    }
+  | TOK_MAPPED TOK_TYPE TOK_IDENTIFIER '(' TOK_STRING_LITERAL ')' ':' TOK_IDENTIFIER TOK_CONTEXT '(' type_name ')' TOK_INCLUDE TOK_STRING_LITERAL ';' {
+      $$ = new CMappedTypeDef();
+      $$->Name = $3;
+      $$->CppType = $5;
+      $$->JsonWireType = $8;
+      $$->IncludePath = $14;
+      $$->Line = @1.first_line;
+      auto ct = parseScalarType($11);
+      if (ct) {
+        $$->ContextType = *ct;
+      } else {
+        yyerror(&@11, file, scanner, "invalid context type");
+        YYERROR;
+      }
+      free($3);
+      free($5);
+      free($8);
+      free($11);
+      free($14);
     }
   ;
 
@@ -155,7 +171,7 @@ enum_def:
 
 member_list:
     /* empty */ {
-      $$ = new std::vector<std::variant<CMixinRef, CFieldDef>>();
+      $$ = new std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl>>();
     }
   | member_list TOK_MIXIN TOK_IDENTIFIER ';' {
       $$ = $1;
@@ -163,6 +179,14 @@ member_list:
       ref.Name = $3;
       ref.Line = @2.first_line;
       $$->push_back(std::move(ref));
+      free($3);
+    }
+  | member_list TOK_CONTEXT TOK_IDENTIFIER ';' {
+      $$ = $1;
+      CContextDecl cd;
+      cd.MappedTypeName = $3;
+      cd.Line = @2.first_line;
+      $$->push_back(std::move(cd));
       free($3);
     }
   | member_list field {
@@ -183,37 +207,24 @@ mixin_field_list:
     }
   ;
 
-field_annotations:
-    /* empty */ {
-      $$ = new CFieldAnnotation();
-      $$->Tag = 0;
-      $$->ContextField = nullptr;
-    }
-  | field_annotations '@' TOK_INT_LITERAL {
-      $$ = $1;
-      $$->Tag = (int)$3;
-    }
-  | field_annotations TOK_CONTEXT '(' type_name ')' {
-      $$ = $1;
-      if ($$->ContextField) free($$->ContextField);
-      $$->ContextField = $4;
-    }
+field_tag:
+    /* empty */ { $$ = 0; }
+  | field_tag '@' TOK_INT_LITERAL { $$ = (int)$3; }
   ;
 
 field_name:
     TOK_IDENTIFIER { $$ = $1; }
   | TOK_TYPE       { $$ = strdup("type"); }
   | TOK_CONTEXT    { $$ = strdup("context"); }
-  | TOK_EXTERN     { $$ = strdup("extern"); }
+  | TOK_MAPPED     { $$ = strdup("mapped"); }
   ;
 
 field:
-    field_name ':' type_spec field_annotations ';' {
+    field_name ':' type_spec field_tag ';' {
       $$ = new CFieldDef();
       $$->Name = $1;
       $$->Type = *$3;
-      $$->Tag = $4->Tag;
-      if ($4->ContextField) { $$->ContextField = $4->ContextField; $4->ContextField = nullptr; }
+      $$->Tag = $4;
       $$->Line = @1.first_line;
       switch ($3->Shape) {
         case ETypeShape::Plain:          $$->Kind = EFieldKind::Required; break;
@@ -223,21 +234,18 @@ field:
       }
       free($1);
       delete $3;
-      delete $4;
     }
-  | field_name ':' type_spec '=' default_value field_annotations ';' {
+  | field_name ':' type_spec '=' default_value field_tag ';' {
       $$ = new CFieldDef();
       $$->Name = $1;
       $$->Type = *$3;
       $$->Default = *$5;
-      $$->Tag = $6->Tag;
-      if ($6->ContextField) { $$->ContextField = $6->ContextField; $6->ContextField = nullptr; }
+      $$->Tag = $6;
       $$->Kind = EFieldKind::Optional;
       $$->Line = @1.first_line;
       free($1);
       delete $3;
       delete $5;
-      delete $6;
     }
   ;
 

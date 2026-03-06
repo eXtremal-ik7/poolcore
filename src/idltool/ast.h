@@ -39,12 +39,13 @@ enum class ETypeShape {
   OptionalArray   // field: [Type]?
 };
 
-// Type of a field — scalar or reference to struct/enum
+// Type of a field — scalar or reference to struct/enum/mapped
 struct CFieldType {
   bool IsScalar = false;
-  bool IsExtern = false;
+  bool IsMapped = false;
   EScalarType Scalar = EScalarType::String;
-  std::string RefName; // non-empty if referencing struct/enum
+  std::string RefName; // non-empty if referencing struct/enum/mapped type
+  std::string MappedCppType; // C++ type from mapped type definition
   ETypeShape Shape = ETypeShape::Plain;
 };
 
@@ -74,7 +75,6 @@ struct CFieldDef {
   EFieldKind Kind = EFieldKind::Required;
   CDefaultValue Default;
   int Tag = 0;  // 0 = no tag, 1..63 = tagged field for schema()
-  std::string ContextField; // "coin" from context(coin), empty = no context
   int Line = 0;
 };
 
@@ -83,14 +83,21 @@ struct CMixinRef {
   int Line = 0;
 };
 
+struct CContextDecl {
+  std::string MappedTypeName;
+  int Line = 0;
+};
+
 struct CStructDef {
   std::string Name;
   bool IsMixin = false;
   bool IsImported = false;
   bool HasTaggedSchema = false;
-  std::vector<std::variant<CMixinRef, CFieldDef>> Members;
+  std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl>> Members;
   // After mixin resolution — flat list of fields
   std::vector<CFieldDef> Fields;
+  // Context declarations from 'context money;' members
+  std::vector<std::string> ContextDecls;
   int Line = 0;
 };
 
@@ -107,10 +114,12 @@ struct CIncludeDirective {
   int Line = 0;
 };
 
-struct CExternTypeDef {
-  std::string Name;         // "money"
-  std::string JsonWireType; // "string"
-  std::string IncludePath;  // "poolcommon/money.h"
+struct CMappedTypeDef {
+  std::string Name;
+  std::string CppType;
+  std::string JsonWireType;
+  std::string IncludePath;
+  std::optional<EScalarType> ContextType;
   int Line = 0;
   bool IsImported = false;
 };
@@ -119,7 +128,7 @@ struct CIdlFile {
   std::vector<CIncludeDirective> Includes;
   std::vector<CStructDef> Structs; // includes mixins
   std::vector<CEnumDef> Enums;
-  std::vector<CExternTypeDef> ExternTypes;
+  std::vector<CMappedTypeDef> MappedTypes;
 };
 
 // Parse IDL from file, returns false on error

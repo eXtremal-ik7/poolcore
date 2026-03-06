@@ -7,18 +7,116 @@
 #include <unordered_set>
 #include <unordered_map>
 
-// --- Minimal parse generation ---
+// ============================================================================
+// Context analysis
+// ============================================================================
 
-static void generateParseScalar(std::string &out, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int foundBit, int ind, bool pascalCase, int externCaptureIdx = -1)
+// Per-field capture info: how a field participates in context capture
+struct CFieldCaptureInfo {
+  enum Kind { None, MappedDirect, NestedStruct };
+  Kind kind = None;
+  std::string CaptureFieldName;  // field name in the Capture struct
+  std::string MappedTypeName;    // for MappedDirect: which mapped type (for resolve/format function names)
+};
+
+// Per-struct context analysis result
+struct CContextAnalysis {
+  struct ContextNeed {
+    std::string MappedTypeName;   // IDL name, e.g. "money"
+    std::string CppContextType;   // e.g. "uint32_t"
+    std::string ParamName;        // e.g. "moneyCtx"
+  };
+  std::vector<ContextNeed> Needs;
+
+  // Parallel to s.Fields
+  std::vector<CFieldCaptureInfo> FieldCapture;
+
+  bool hasContext() const { return !Needs.empty(); }
+
+  std::string contextParams() const {
+    std::string result;
+    for (auto &n : Needs) {
+      if (!result.empty()) result += ", ";
+      result += n.CppContextType + " " + n.ParamName;
+    }
+    return result;
+  }
+
+  std::string contextArgs() const {
+    std::string result;
+    for (auto &n : Needs) {
+      if (!result.empty()) result += ", ";
+      result += n.ParamName;
+    }
+    return result;
+  }
+};
+
+static CContextAnalysis analyzeContext(const CStructDef &s, bool pascalCase,
+    const std::unordered_map<std::string, const CMappedTypeDef *> &mappedTypes,
+    const std::unordered_map<std::string, CContextAnalysis> &childAnalysis)
+{
+  CContextAnalysis a;
+  a.FieldCapture.resize(s.Fields.size());
+
+  std::unordered_set<std::string> contextDeclSet(s.ContextDecls.begin(), s.ContextDecls.end());
+  std::unordered_set<std::string> needsSet;
+
+  // Add needs from context declarations (direct mapped fields)
+  for (auto &cd : s.ContextDecls) {
+    auto it = mappedTypes.find(cd);
+    if (it != mappedTypes.end() && it->second->ContextType) {
+      if (needsSet.insert(cd).second) {
+        a.Needs.push_back({cd, cppScalarType(*it->second->ContextType), cd + "Ctx"});
+      }
+    }
+  }
+
+  // Mark direct mapped fields with context
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    auto &f = s.Fields[i];
+    if (f.Type.IsMapped && contextDeclSet.count(f.Type.RefName)) {
+      a.FieldCapture[i].kind = CFieldCaptureInfo::MappedDirect;
+      a.FieldCapture[i].CaptureFieldName = fieldCppName(f.Name, pascalCase);
+      a.FieldCapture[i].MappedTypeName = f.Type.RefName;
+    }
+  }
+
+  // Check nested struct/array fields for context propagation
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    auto &f = s.Fields[i];
+    if (!f.Type.RefName.empty() && !f.Type.IsMapped && !f.Type.IsScalar) {
+      auto cit = childAnalysis.find(f.Type.RefName);
+      if (cit != childAnalysis.end() && cit->second.hasContext()) {
+        a.FieldCapture[i].kind = CFieldCaptureInfo::NestedStruct;
+        a.FieldCapture[i].CaptureFieldName = fieldCppName(f.Name, pascalCase);
+        for (auto &need : cit->second.Needs) {
+          if (needsSet.insert(need.MappedTypeName).second)
+            a.Needs.push_back(need);
+        }
+      }
+    }
+  }
+
+  return a;
+}
+
+// ============================================================================
+// Parse generation
+// ============================================================================
+
+static void generateParseScalar(std::string &out, const CFieldDef &f,
+    const std::unordered_set<std::string> &enumNames, int foundBit, int ind,
+    bool pascalCase, const CFieldCaptureInfo *ci = nullptr)
 {
   std::string in = indent(ind);
   std::string cn = fieldCppName(f.Name, pascalCase);
 
-  // Extern field: skip value (non-capture mode) or read into _capture (capture mode)
-  if (isExternField(f)) {
-    if (externCaptureIdx >= 0) {
-      out += std::format("{}if (_capture) {{\n", in);
-      out += std::format("{}  if (!s.readStringValue(_capture[{}])) valid = false;\n", in, externCaptureIdx);
+  // Mapped field
+  if (isMappedField(f)) {
+    if (ci && ci->kind == CFieldCaptureInfo::MappedDirect) {
+      out += std::format("{}if (capture) {{\n", in);
+      out += std::format("{}  if (!s.readStringValue(capture->{})) valid = false;\n", in, ci->CaptureFieldName);
       if (foundBit >= 0)
         out += std::format("{}  else found |= (uint64_t)1 << {};\n", in, foundBit);
       out += std::format("{}}} else {{\n", in);
@@ -43,7 +141,7 @@ static void generateParseScalar(std::string &out, const CFieldDef &f, const std:
     return;
   }
 
-  // Chrono types: read as int64_t then construct
+  // Chrono types
   if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
       f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
     std::string chronoType = cppScalarType(f.Type.Scalar);
@@ -72,9 +170,9 @@ static void generateParseScalar(std::string &out, const CFieldDef &f, const std:
     out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
 }
 
-// captureIdx: >= 0 for extern/deferred fields, index into _capture array
-// captureIsDeferred: true for context-threaded struct fields (capture raw JSON)
-static void generateParseField(std::string &out, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int foundBit, int ind, bool pascalCase, int captureIdx = -1, bool captureIsDeferred = false)
+static void generateParseField(std::string &out, const CFieldDef &f,
+    const std::unordered_set<std::string> &enumNames, int foundBit, int ind,
+    bool pascalCase, const CFieldCaptureInfo *ci = nullptr)
 {
   std::string in = indent(ind);
   std::string cn = fieldCppName(f.Name, pascalCase);
@@ -83,43 +181,38 @@ static void generateParseField(std::string &out, const CFieldDef &f, const std::
     case EFieldKind::Required:
     case EFieldKind::Optional: {
       if (isStructRef(f, enumNames)) {
-        out += std::format("{}if (!{}.parseImpl(s)) valid = false;\n", in, cn);
+        if (ci && ci->kind == CFieldCaptureInfo::NestedStruct) {
+          out += std::format("{}if (!{}.parseImpl(s, capture ? &capture->{} : nullptr)) valid = false;\n",
+                             in, cn, ci->CaptureFieldName);
+        } else {
+          out += std::format("{}if (!{}.parseImpl(s)) valid = false;\n", in, cn);
+        }
         if (foundBit >= 0)
           out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
       } else {
-        generateParseScalar(out, f, enumNames, foundBit, ind, pascalCase, isExternField(f) ? captureIdx : -1);
+        generateParseScalar(out, f, enumNames, foundBit, ind, pascalCase,
+                            (isMappedField(f) && ci) ? ci : nullptr);
       }
       break;
     }
 
     case EFieldKind::OptionalObject: {
-      if (captureIsDeferred && captureIdx >= 0) {
-        // Context-threaded struct: capture raw JSON when _capture is non-null, else parse inline
-        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
-        out += std::format("{}else if (_capture) {{\n", in);
-        out += std::format("{}  s.skipWhitespace();\n", in);
-        out += std::format("{}  const char *_start = s.p;\n", in);
-        out += std::format("{}  if (!s.skipValue()) valid = false;\n", in);
-        out += std::format("{}  else _capture[{}].assign(_start, s.p - _start);\n", in, captureIdx);
-        out += std::format("{}}}\n", in);
-        // Fallback: parse inline when _capture is null (extern sub-fields will be skipped)
-        if (isStructRef(f, enumNames))
-          out += std::format("{}else if (!{}.emplace().parseImpl(s)) valid = false;\n", in, cn);
-        else
-          out += std::format("{}else {{ if (!s.skipValue()) valid = false; }}\n", in);
-      } else {
-        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
-        if (isStructRef(f, enumNames)) {
-          out += std::format("{}else if (!{}.emplace().parseImpl(s)) valid = false;\n", in, cn);
+      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      if (isStructRef(f, enumNames)) {
+        if (ci && ci->kind == CFieldCaptureInfo::NestedStruct) {
+          out += std::format("{}else if (!{}.emplace().parseImpl(s, capture ? &capture->{} : nullptr)) valid = false;\n",
+                             in, cn, ci->CaptureFieldName);
         } else {
-          out += std::format("{}else {{\n", in);
-          out += std::format("{}  {}.emplace();\n", in, cn);
-          CFieldDef tmp = f;
-          tmp.Name = std::format("(*{})", cn);
-          tmp.Kind = EFieldKind::Required;
-          generateParseScalar(out, tmp, enumNames, -1, ind + 1, false);
-          out += std::format("{}}}\n", in);
+          out += std::format("{}else if (!{}.emplace().parseImpl(s)) valid = false;\n", in, cn);
         }
+      } else {
+        out += std::format("{}else {{\n", in);
+        out += std::format("{}  {}.emplace();\n", in, cn);
+        CFieldDef tmp = f;
+        tmp.Name = std::format("(*{})", cn);
+        tmp.Kind = EFieldKind::Required;
+        generateParseScalar(out, tmp, enumNames, -1, ind + 1, false);
+        out += std::format("{}}}\n", in);
       }
       break;
     }
@@ -131,7 +224,13 @@ static void generateParseField(std::string &out, const CFieldDef &f, const std::
       out += std::format("{}  for (;;) {{\n", in);
 
       if (isStructRef(f, enumNames)) {
-        out += std::format("{}    if (!{}.emplace_back().parseImpl(s)) {{ valid = false; break; }}\n", in, cn);
+        if (ci && ci->kind == CFieldCaptureInfo::NestedStruct) {
+          out += std::format("{}    if (capture) capture->{}.emplace_back();\n", in, ci->CaptureFieldName);
+          out += std::format("{}    if (!{}.emplace_back().parseImpl(s, capture ? &capture->{}.back() : nullptr)) {{ valid = false; break; }}\n",
+                             in, cn, ci->CaptureFieldName);
+        } else {
+          out += std::format("{}    if (!{}.emplace_back().parseImpl(s)) {{ valid = false; break; }}\n", in, cn);
+        }
       } else if (isEnum(f.Type.RefName, enumNames)) {
         out += std::format("{}    {{\n", in);
         out += std::format("{}      const char *eStr; size_t eLen;\n", in);
@@ -179,239 +278,21 @@ static void generateParseField(std::string &out, const CFieldDef &f, const std::
       CFieldDef tmp = f;
       tmp.Name = std::format("(*{})", cn);
       tmp.Kind = EFieldKind::Array;
-      generateParseField(out, tmp, enumNames, -1, ind + 1, false);
+      generateParseField(out, tmp, enumNames, -1, ind + 1, false, ci);
       out += std::format("{}}}\n", in);
       break;
     }
   }
 }
 
-// --- Struct declaration (header) ---
-
-// Per-struct extern type analysis
-struct CExternAnalysis {
-  bool HasExternDirect = false;   // struct has extern-type fields directly
-  bool HasExternNested = false;   // struct has struct-type fields with context(X)
-  bool NeedsExternalContext = false; // has extern fields without self-contained context resolution
-  bool SelfContainedContext = false; // all extern fields have context within this struct
-
-  // Direct extern fields: {fieldName, contextField (may be empty)}
-  struct ExternFieldInfo {
-    std::string FieldName;
-    std::string ContextField;
-  };
-  std::vector<ExternFieldInfo> ExternFields;
-
-  // Nested struct fields that have context threading
-  struct NestedContextInfo {
-    std::string FieldName;  // the struct field
-    std::string ContextField; // the context field in this struct
-    bool IsOptional;
-  };
-  std::vector<NestedContextInfo> NestedContextFields;
-};
-
-static CExternAnalysis analyzeExternFields(const CStructDef &s, bool pascalCase)
-{
-  CExternAnalysis a;
-
-  for (auto &f : s.Fields) {
-    if (f.Type.IsExtern) {
-      a.HasExternDirect = true;
-      a.ExternFields.push_back({fieldCppName(f.Name, pascalCase), f.ContextField});
-    }
-    if (!f.ContextField.empty() && !f.Type.IsExtern && !f.Type.IsScalar && !f.Type.RefName.empty()) {
-      // Struct field with context() annotation = context threading
-      a.HasExternNested = true;
-      bool isOpt = (f.Kind == EFieldKind::OptionalObject);
-      a.NestedContextFields.push_back({fieldCppName(f.Name, pascalCase), fieldCppName(f.ContextField, pascalCase), isOpt});
-    }
-  }
-
-  // Determine context resolution strategy
-  if (a.HasExternDirect) {
-    // Check if all extern fields have context from a field in the same struct
-    bool allHaveContext = true;
-    for (auto &ef : a.ExternFields) {
-      if (ef.ContextField.empty()) {
-        allHaveContext = false;
-        break;
-      }
-    }
-    if (allHaveContext)
-      a.SelfContainedContext = true;
-    else
-      a.NeedsExternalContext = true;
-  }
-
-  return a;
-}
-
-static void generateStructDecl(std::string &out, const CStructDef &s, const std::unordered_set<std::string> &enumNames, const CCodegenOptions &opts)
-{
-  std::string sn = opts.StructPrefix + s.Name;
-  CExternAnalysis ea = analyzeExternFields(s, opts.PascalCaseFields);
-  bool hasExtern = ea.HasExternDirect || ea.HasExternNested;
-
-  // Compute capture array size: direct extern fields + context-threaded nested fields
-  int captureCount = (int)ea.ExternFields.size() + (int)ea.NestedContextFields.size();
-
-  out += std::format("struct {} {{\n", sn);
-
-  // Fields (no _raw_ members)
-  for (auto &f : s.Fields) {
-    std::string type = cppFieldType(f, enumNames, opts.StructPrefix);
-    std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
-    std::string def = cppDefault(f, enumNames, opts.PascalCaseFields);
-    if (!def.empty())
-      out += std::format("  {} {} = {};\n", type, cn, def);
-    else
-      out += std::format("  {} {};\n", type, cn);
-  }
-
-  out += "\n";
-
-  // Method declarations
-  out += "  bool parse(const char *buf, size_t bufSize);\n";
-  out += "  bool parseImpl(JsonScanner &s);\n";
-  if (hasExtern) {
-    out += "  bool parseImpl(JsonScanner &s, std::string *_capture);\n";
-    out += std::format("  bool parseWithCapture(const char *buf, size_t bufSize, std::string (&_capture)[{}]);\n", captureCount);
-  }
-  if (opts.VerboseMode) {
-    out += "  bool parseVerbose(const char *buf, size_t bufSize, ParseError &error);\n";
-    out += "  bool parseVerboseImpl(VerboseJsonScanner &s);\n";
-  }
-  out += "  std::string serialize() const;\n";
-  out += "  void serializeImpl(std::string &out) const;\n";
-  if (hasExtern)
-    out += "  void serializeImpl(std::string &out, const std::string *_capture) const;\n";
-
-  // Template parse/serialize for extern field resolution
-  if (hasExtern) {
-    // Template parse: resolver converts raw strings to typed values
-    if (ea.NeedsExternalContext) {
-      // Direct extern fields, needs external context: resolver(raw, out) → bool
-      out += "\n  template<typename F>\n";
-      out += "  bool parse(const char *buf, size_t bufSize, F &&_resolver) {\n";
-      out += std::format("    std::string _capture[{}];\n", captureCount);
-      out += "    if (!parseWithCapture(buf, bufSize, _capture)) return false;\n";
-      int idx = 0;
-      for (auto &ef : ea.ExternFields) {
-        out += std::format("    if (!_resolver(_capture[{}], {})) return false;\n", idx, ef.FieldName);
-        idx++;
-      }
-      out += "    return true;\n";
-      out += "  }\n";
-    }
-
-    if (ea.SelfContainedContext || ea.HasExternNested) {
-      // Self-contained or context-threaded: resolver(ctx, raw, out) → bool
-      out += "\n  template<typename F>\n";
-      out += "  bool parse(const char *buf, size_t bufSize, F &&_resolver) {\n";
-      out += std::format("    std::string _capture[{}];\n", captureCount);
-      out += "    if (!parseWithCapture(buf, bufSize, _capture)) return false;\n";
-      // Direct extern fields with self-contained context
-      int idx = 0;
-      for (auto &ef : ea.ExternFields) {
-        if (!ef.ContextField.empty())
-          out += std::format("    if (!_resolver({}, _capture[{}], {})) return false;\n",
-                             ef.ContextField, idx, ef.FieldName);
-        idx++;
-      }
-      // Context-threaded nested struct fields
-      for (auto &nc : ea.NestedContextFields) {
-        out += std::format("    if (!_capture[{}].empty()) {{\n", idx);
-        out += std::format("      {}.emplace();\n", nc.FieldName);
-        out += std::format("      if (!{}->parse(_capture[{}].c_str(), _capture[{}].size(),\n",
-                           nc.FieldName, idx, idx);
-        out += std::format("        [&_resolver, this](const std::string &_raw, auto &_out) {{\n");
-        out += std::format("          return _resolver({}, _raw, _out);\n", nc.ContextField);
-        out += "        })) return false;\n";
-        out += "    }\n";
-        idx++;
-      }
-      out += "    return true;\n";
-      out += "  }\n";
-    }
-
-    // Template serialize: formatter converts typed values to raw strings
-    if (ea.NeedsExternalContext) {
-      // Direct extern fields: formatter(value) → string
-      out += "\n  template<typename F>\n";
-      out += "  std::string serialize(F &&_formatter) const {\n";
-      out += std::format("    const std::string _capture[{}] = {{\n", captureCount);
-      for (auto &ef : ea.ExternFields)
-        out += std::format("      _formatter({}),\n", ef.FieldName);
-      out += "    };\n";
-      out += "    std::string out;\n";
-      out += "    serializeImpl(out, _capture);\n";
-      out += "    return out;\n";
-      out += "  }\n";
-    }
-
-    if (ea.SelfContainedContext || ea.HasExternNested) {
-      // Context-threaded: formatter(ctx, value) → string
-      out += "\n  template<typename F>\n";
-      out += "  std::string serialize(F &&_formatter) const {\n";
-      out += std::format("    std::string _capture[{}];\n", captureCount);
-      int idx = 0;
-      for (auto &ef : ea.ExternFields) {
-        if (!ef.ContextField.empty())
-          out += std::format("    _capture[{}] = _formatter({}, {});\n", idx, ef.ContextField, ef.FieldName);
-        idx++;
-      }
-      for (auto &nc : ea.NestedContextFields) {
-        if (nc.IsOptional)
-          out += std::format("    if ({}.has_value())\n  ", nc.FieldName);
-        out += std::format("    _capture[{}] = {}serialize(\n", idx, nc.IsOptional ? nc.FieldName + "->" : nc.FieldName + ".");
-        out += std::format("      [&_formatter, this](const auto &_val) -> std::string {{\n");
-        out += std::format("        return _formatter({}, _val);\n", nc.ContextField);
-        out += "      });\n";
-        idx++;
-      }
-      out += "    std::string out;\n";
-      out += "    serializeImpl(out, _capture);\n";
-      out += "    return out;\n";
-      out += "  }\n";
-    }
-
-    out += "\n  static constexpr bool hasExternFields = true;\n";
-  }
-
-  // Tagged schema
-  if (s.HasTaggedSchema) {
-    out += "\n  static constexpr auto schema() {\n";
-    out += "    return std::make_tuple(\n";
-    bool first = true;
-    for (auto &f : s.Fields) {
-      if (!first) out += ",\n";
-      first = false;
-      std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
-      out += std::format("      field<{}, &{}::{}>()", f.Tag, sn, cn);
-    }
-    out += "\n    );\n";
-    out += "  }\n";
-  }
-
-  out += "};\n\n";
-}
-
-// --- Struct implementation (source) ---
-
-// Helper to generate the parse loop body. When captureInfo is provided, extern fields
-// and context-threaded struct fields use the _capture array.
-struct CFieldCaptureInfo {
-  int CaptureIdx = -1;         // index into _capture array, or -1
-  bool IsDeferred = false;     // true for context-threaded struct field
-};
-
-static void generateParseBody(std::string &out, const CStructDef &s, const std::unordered_set<std::string> &enumNames,
-                               const CCodegenOptions &opts, const CPerfectHash &ph,
-                               const std::unordered_map<uint32_t, size_t> &hashToIndex,
-                               const std::unordered_map<size_t, int> &fieldBitMap,
-                               int requiredCount,
-                               const std::unordered_map<size_t, CFieldCaptureInfo> *captureInfo = nullptr)
+// Generate the parse loop body
+static void generateParseBody(std::string &out, const CStructDef &s,
+    const std::unordered_set<std::string> &enumNames,
+    const CCodegenOptions &opts, const CPerfectHash &ph,
+    const std::unordered_map<uint32_t, size_t> &hashToIndex,
+    const std::unordered_map<size_t, int> &fieldBitMap,
+    int requiredCount,
+    const std::vector<CFieldCaptureInfo> *fieldCapture = nullptr)
 {
   out += "  if (!s.expectChar('{')) return false;\n";
   out += "  bool valid = true;\n";
@@ -445,21 +326,14 @@ static void generateParseBody(std::string &out, const CStructDef &s, const std::
       if (bitIt != fieldBitMap.end())
         foundBit = bitIt->second;
 
-      // Determine capture behavior for this field
-      int captureIdx = -1;
-      bool captureIsDeferred = false;
-      if (captureInfo) {
-        auto cit = captureInfo->find(fi);
-        if (cit != captureInfo->end()) {
-          captureIdx = cit->second.CaptureIdx;
-          captureIsDeferred = cit->second.IsDeferred;
-        }
-      }
+      const CFieldCaptureInfo *ci = nullptr;
+      if (fieldCapture && (*fieldCapture)[fi].kind != CFieldCaptureInfo::None)
+        ci = &(*fieldCapture)[fi];
 
       out += std::format("        case {}:\n", h);
       out += std::format("          if (keyLen == {} && memcmp(key, \"{}\", {}) == 0) {{\n",
                          f.Name.size(), f.Name, f.Name.size());
-      generateParseField(out, f, enumNames, foundBit, 6, opts.PascalCaseFields, captureIdx, captureIsDeferred);
+      generateParseField(out, f, enumNames, foundBit, 6, opts.PascalCaseFields, ci);
       out += "          } else { return false; }\n";
       out += "          break;\n";
     }
@@ -484,14 +358,260 @@ static void generateParseBody(std::string &out, const CStructDef &s, const std::
   }
 }
 
-static void generateStructImpl(std::string &out, const CStructDef &s, const std::unordered_set<std::string> &enumNames, const CCodegenOptions &opts)
+// ============================================================================
+// Code generation — declarations (header)
+// ============================================================================
+
+static void generateCaptureFields(std::string &out, const CStructDef &s,
+    const CContextAnalysis &ca,
+    const CCodegenOptions &opts)
+{
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    auto &ci = ca.FieldCapture[i];
+    auto &f = s.Fields[i];
+    if (ci.kind == CFieldCaptureInfo::MappedDirect) {
+      out += std::format("    std::string {};\n", ci.CaptureFieldName);
+    } else if (ci.kind == CFieldCaptureInfo::NestedStruct) {
+      std::string childCapture = opts.StructPrefix + f.Type.RefName + "::Capture";
+      bool isArray = (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::OptionalArray);
+      if (isArray)
+        out += std::format("    std::vector<{}> {};\n", childCapture, ci.CaptureFieldName);
+      else
+        out += std::format("    {} {};\n", childCapture, ci.CaptureFieldName);
+    }
+  }
+}
+
+static std::string capitalizeFirst(const std::string &s) {
+  if (s.empty()) return s;
+  std::string r = s;
+  r[0] = toupper(r[0]);
+  return r;
+}
+
+static void generateStructDecl(std::string &out, const CStructDef &s,
+    const std::unordered_set<std::string> &enumNames,
+    const CCodegenOptions &opts,
+    const CContextAnalysis &ca)
 {
   std::string sn = opts.StructPrefix + s.Name;
-  CExternAnalysis ea = analyzeExternFields(s, opts.PascalCaseFields);
-  bool hasExtern = ea.HasExternDirect || ea.HasExternNested;
-  int captureCount = (int)ea.ExternFields.size() + (int)ea.NestedContextFields.size();
 
-  // Compute perfect hash (uses original IDL field names for JSON key matching)
+  out += std::format("struct {} {{\n", sn);
+
+  // Nested Capture struct and context type aliases
+  if (ca.hasContext()) {
+    out += "  struct Capture {\n";
+    generateCaptureFields(out, s, ca, opts);
+    out += "  };\n\n";
+
+    for (auto &n : ca.Needs)
+      out += std::format("  using {}Context = {};\n", capitalizeFirst(n.MappedTypeName), n.CppContextType);
+    out += "\n";
+  }
+
+  // Fields
+  for (auto &f : s.Fields) {
+    std::string type = cppFieldType(f, enumNames, opts.StructPrefix);
+    std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+    std::string def = cppDefault(f, enumNames, opts.PascalCaseFields);
+    if (!def.empty())
+      out += std::format("  {} {} = {};\n", type, cn, def);
+    else
+      out += std::format("  {} {};\n", type, cn);
+  }
+
+  out += "\n";
+
+  // Standard methods
+  out += "  bool parse(const char *buf, size_t bufSize);\n";
+  out += "  bool parseImpl(JsonScanner &s);\n";
+  if (opts.VerboseMode) {
+    out += "  bool parseVerbose(const char *buf, size_t bufSize, ParseError &error);\n";
+    out += "  bool parseVerboseImpl(VerboseJsonScanner &s);\n";
+  }
+  out += "  std::string serialize() const;\n";
+  out += "  void serializeImpl(std::string &out) const;\n";
+
+  // Context-aware methods
+  if (ca.hasContext()) {
+    std::string ctxParams = ca.contextParams();
+    out += std::format("\n  bool parse(const char *buf, size_t bufSize, Capture &capture);\n");
+    out += std::format("  bool parseImpl(JsonScanner &s, Capture *capture);\n");
+    out += std::format("  static bool resolve({} &out, const Capture &capture, {});\n", sn, ctxParams);
+    out += std::format("  std::string serialize({}) const;\n", ctxParams);
+    out += std::format("  void serializeImpl(std::string &out, {}) const;\n", ctxParams);
+  }
+
+  // Tagged schema
+  if (s.HasTaggedSchema) {
+    out += "\n  static constexpr auto schema() {\n";
+    out += "    return std::make_tuple(\n";
+    bool first = true;
+    for (auto &f : s.Fields) {
+      if (!first) out += ",\n";
+      first = false;
+      std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+      out += std::format("      field<{}, &{}::{}>()", f.Tag, sn, cn);
+    }
+    out += "\n    );\n";
+    out += "  }\n";
+  }
+
+  out += "};\n\n";
+}
+
+// ============================================================================
+// Code generation — implementations (source)
+// ============================================================================
+
+
+static void generateResolveImpl(std::string &out, const CStructDef &s,
+    const CContextAnalysis &ca,
+    const std::unordered_set<std::string> &enumNames,
+    const CCodegenOptions &opts)
+{
+  std::string sn = opts.StructPrefix + s.Name;
+  std::string ctxParams = ca.contextParams();
+  std::string ctxArgs = ca.contextArgs();
+
+  out += std::format("bool {}::resolve({} &out, const Capture &capture, {}) {{\n",
+                     sn, sn, ctxParams);
+
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    auto &ci = ca.FieldCapture[i];
+    auto &f = s.Fields[i];
+    std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+
+    if (ci.kind == CFieldCaptureInfo::MappedDirect) {
+      std::string resolveFunc = "__" + ci.MappedTypeName + "Resolve";
+      out += std::format("  if (!{}(capture.{}, {}, out.{})) return false;\n",
+                         resolveFunc, ci.CaptureFieldName, ctxArgs, cn);
+    } else if (ci.kind == CFieldCaptureInfo::NestedStruct) {
+      std::string childStruct = opts.StructPrefix + f.Type.RefName;
+
+      switch (f.Kind) {
+        case EFieldKind::Required:
+        case EFieldKind::Optional:
+          out += std::format("  if (!{}::resolve(out.{}, capture.{}, {})) return false;\n",
+                             childStruct, cn, ci.CaptureFieldName, ctxArgs);
+          break;
+        case EFieldKind::OptionalObject:
+          out += std::format("  if (out.{}.has_value()) {{\n", cn);
+          out += std::format("    if (!{}::resolve(*out.{}, capture.{}, {})) return false;\n",
+                             childStruct, cn, ci.CaptureFieldName, ctxArgs);
+          out += "  }\n";
+          break;
+        case EFieldKind::Array:
+          out += std::format("  for (size_t i = 0; i < out.{}.size(); i++) {{\n", cn);
+          out += std::format("    if (!{}::resolve(out.{}[i], capture.{}[i], {})) return false;\n",
+                             childStruct, cn, ci.CaptureFieldName, ctxArgs);
+          out += "  }\n";
+          break;
+        case EFieldKind::OptionalArray:
+          out += std::format("  if (out.{}.has_value()) {{\n", cn);
+          out += std::format("    for (size_t i = 0; i < out.{}->size(); i++) {{\n", cn);
+          out += std::format("      if (!{}::resolve((*out.{})[i], capture.{}[i], {})) return false;\n",
+                             childStruct, cn, ci.CaptureFieldName, ctxArgs);
+          out += "    }\n";
+          out += "  }\n";
+          break;
+      }
+    }
+  }
+
+  out += "  return true;\n";
+  out += "}\n\n";
+}
+
+// Generate the context-aware serialize body
+static void generateContextSerializeBody(std::string &out, const CStructDef &s,
+    const CContextAnalysis &ca,
+    const std::unordered_set<std::string> &enumNames,
+    const CCodegenOptions &opts)
+{
+  std::string ctxArgs = ca.contextArgs();
+  bool first = true;
+
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    auto &ci = ca.FieldCapture[i];
+    auto &f = s.Fields[i];
+    std::string in = indent(1);
+    std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+
+    auto emitKey = [&](const std::string &jsonKey) {
+      if (!first)
+        out += std::format("{}out += ',';\n", in);
+      first = false;
+      out += std::format("{}out += \"\\\"{}\\\":\";\n", in, jsonKey);
+    };
+
+    if (ci.kind == CFieldCaptureInfo::MappedDirect) {
+      std::string formatFunc = "__" + ci.MappedTypeName + "Format";
+      emitKey(f.Name);
+      out += std::format("{}jsonWriteString(out, {}({}, {}));\n", in, formatFunc, cn, ctxArgs);
+      continue;
+    }
+
+    if (ci.kind == CFieldCaptureInfo::NestedStruct) {
+      switch (f.Kind) {
+        case EFieldKind::Required:
+        case EFieldKind::Optional:
+          emitKey(f.Name);
+          out += std::format("{}{}.serializeImpl(out, {});\n", in, cn, ctxArgs);
+          break;
+        case EFieldKind::OptionalObject: {
+          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+          std::string in2 = indent(2);
+          if (!first)
+            out += std::format("{}out += ',';\n", in2);
+          out += std::format("{}out += \"\\\"{}\\\":\";\n", in2, f.Name);
+          out += std::format("{}{}->serializeImpl(out, {});\n", in2, cn, ctxArgs);
+          first = false;
+          out += std::format("{}}}\n", in);
+          break;
+        }
+        case EFieldKind::Array:
+          emitKey(f.Name);
+          out += std::format("{}out += '[';\n", in);
+          out += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
+          out += std::format("{}  if (i_) out += ',';\n", in);
+          out += std::format("{}  {}[i_].serializeImpl(out, {});\n", in, cn, ctxArgs);
+          out += std::format("{}}}\n", in);
+          out += std::format("{}out += ']';\n", in);
+          break;
+        case EFieldKind::OptionalArray: {
+          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+          std::string in2 = indent(2);
+          if (!first)
+            out += std::format("{}out += ',';\n", in2);
+          out += std::format("{}out += \"\\\"{}\\\":[\";\n", in2, f.Name);
+          out += std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in2, cn);
+          out += std::format("{}  if (i_) out += ',';\n", in2);
+          out += std::format("{}  (*{})[i_].serializeImpl(out, {});\n", in2, cn, ctxArgs);
+          out += std::format("{}}}\n", in2);
+          out += std::format("{}out += ']';\n", in2);
+          first = false;
+          out += std::format("{}}}\n", in);
+          break;
+        }
+      }
+      continue;
+    }
+
+    // Regular field — use standard serialize helper
+    generateSerializeField(out, f, enumNames, 1, first, opts.PascalCaseFields);
+  }
+}
+
+static void generateStructImpl(std::string &out, const CStructDef &s,
+    const std::unordered_set<std::string> &enumNames,
+    const CCodegenOptions &opts,
+    const CContextAnalysis &ca)
+{
+  std::string sn = opts.StructPrefix + s.Name;
+  bool hasCtx = ca.hasContext();
+
+  // Compute perfect hash
   std::vector<std::string> fieldNames;
   for (auto &f : s.Fields)
     fieldNames.push_back(f.Name);
@@ -527,57 +647,30 @@ static void generateStructImpl(std::string &out, const CStructDef &s, const std:
     if (isRequired(s.Fields[i].Kind))
       fieldBitMap[i] = bitIndex++;
 
-  // Build capture info map for the capture-aware overload
-  std::unordered_map<size_t, CFieldCaptureInfo> captureInfoMap;
-  if (hasExtern) {
-    // Build field name → field index map
-    std::unordered_map<std::string, size_t> fieldNameToIndex;
-    for (size_t i = 0; i < s.Fields.size(); i++)
-      fieldNameToIndex[fieldCppName(s.Fields[i].Name, opts.PascalCaseFields)] = i;
-
-    int captureIdx = 0;
-    for (auto &ef : ea.ExternFields) {
-      auto it = fieldNameToIndex.find(ef.FieldName);
-      if (it != fieldNameToIndex.end())
-        captureInfoMap[it->second] = {captureIdx, false};
-      captureIdx++;
-    }
-    for (auto &nc : ea.NestedContextFields) {
-      auto it = fieldNameToIndex.find(nc.FieldName);
-      if (it != fieldNameToIndex.end())
-        captureInfoMap[it->second] = {captureIdx, true};
-      captureIdx++;
-    }
-  }
-
   // --- parse() ---
-  if (hasExtern) {
-    out += std::format("bool {}::parse(const char *buf, size_t bufSize) {{\n", sn);
-    out += "  JsonScanner s{buf, buf + bufSize};\n";
+  out += std::format("bool {}::parse(const char *buf, size_t bufSize) {{\n", sn);
+  out += "  JsonScanner s{buf, buf + bufSize};\n";
+  if (hasCtx)
     out += "  return parseImpl(s, nullptr);\n";
-    out += "}\n\n";
-  } else {
-    out += std::format("bool {}::parse(const char *buf, size_t bufSize) {{\n", sn);
-    out += "  JsonScanner s{buf, buf + bufSize};\n";
+  else
     out += "  return parseImpl(s);\n";
-    out += "}\n\n";
-  }
+  out += "}\n\n";
 
   // --- parseImpl(s) ---
-  if (hasExtern) {
+  if (hasCtx) {
     out += std::format("bool {}::parseImpl(JsonScanner &s) {{\n", sn);
     out += "  return parseImpl(s, nullptr);\n";
     out += "}\n\n";
 
-    // --- parseImpl(s, _capture) ---
-    out += std::format("bool {}::parseImpl(JsonScanner &s, std::string *_capture) {{\n", sn);
-    generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &captureInfoMap);
+    // --- parseImpl(s, capture) ---
+    out += std::format("bool {}::parseImpl(JsonScanner &s, Capture *capture) {{\n", sn);
+    generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
     out += "}\n\n";
 
-    // --- parseWithCapture(buf, bufSize, _capture) ---
-    out += std::format("bool {}::parseWithCapture(const char *buf, size_t bufSize, std::string (&_capture)[{}]) {{\n", sn, captureCount);
+    // --- parse(buf, bufSize, capture) ---
+    out += std::format("bool {}::parse(const char *buf, size_t bufSize, Capture &capture) {{\n", sn);
     out += "  JsonScanner s{buf, buf + bufSize};\n";
-    out += "  return parseImpl(s, _capture);\n";
+    out += "  return parseImpl(s, &capture);\n";
     out += "}\n\n";
   } else {
     out += std::format("bool {}::parseImpl(JsonScanner &s) {{\n", sn);
@@ -585,15 +678,13 @@ static void generateStructImpl(std::string &out, const CStructDef &s, const std:
     out += "}\n\n";
   }
 
-  // --- Verbose parse (when enabled) ---
+  // --- Verbose parse ---
   if (opts.VerboseMode) {
-    // parseVerbose() with ParseError
     out += std::format("bool {}::parseVerbose(const char *buf, size_t bufSize, ParseError &error) {{\n", sn);
     out += "  VerboseJsonScanner s{buf, buf + bufSize, buf, &error};\n";
     out += "  return parseVerboseImpl(s);\n";
     out += "}\n\n";
 
-    // parseVerboseImpl()
     out += std::format("bool {}::parseVerboseImpl(VerboseJsonScanner &s) {{\n", sn);
     out += "  if (!s.expectChar('{')) return false;\n";
     if (requiredCount > 0)
@@ -670,55 +761,50 @@ static void generateStructImpl(std::string &out, const CStructDef &s, const std:
     out += "}\n\n";
   }
 
+  // --- resolve() ---
+  if (hasCtx)
+    generateResolveImpl(out, s, ca, enumNames, opts);
+
   // --- serialize() ---
-  if (hasExtern) {
-    out += std::format("std::string {}::serialize() const {{\n", sn);
-    out += "  std::string out;\n";
-    out += "  serializeImpl(out, nullptr);\n";
-    out += "  return out;\n";
-    out += "}\n\n";
-  } else {
-    out += std::format("std::string {}::serialize() const {{\n", sn);
-    out += "  std::string out;\n";
-    out += "  serializeImpl(out);\n";
-    out += "  return out;\n";
-    out += "}\n\n";
-  }
+  out += std::format("std::string {}::serialize() const {{\n", sn);
+  out += "  std::string out;\n";
+  out += "  serializeImpl(out);\n";
+  out += "  return out;\n";
+  out += "}\n\n";
 
-  // --- serializeImpl() ---
-  if (hasExtern) {
-    out += std::format("void {}::serializeImpl(std::string &out) const {{\n", sn);
-    out += "  serializeImpl(out, nullptr);\n";
-    out += "}\n\n";
-
-    // --- serializeImpl(out, _capture) ---
-    out += std::format("void {}::serializeImpl(std::string &out, const std::string *_capture) const {{\n", sn);
-    out += "  out += '{';\n";
-    bool first = true;
-    for (size_t i = 0; i < s.Fields.size(); i++) {
-      int captureIdx = -1;
-      bool captureIsDeferred = false;
-      auto cit = captureInfoMap.find(i);
-      if (cit != captureInfoMap.end()) {
-        captureIdx = cit->second.CaptureIdx;
-        captureIsDeferred = cit->second.IsDeferred;
-      }
-      generateSerializeField(out, s.Fields[i], enumNames, 1, first, opts.PascalCaseFields, captureIdx, captureIsDeferred);
-    }
-    out += "  out += '}';\n";
-    out += "}\n\n";
-  } else {
-    out += std::format("void {}::serializeImpl(std::string &out) const {{\n", sn);
-    out += "  out += '{';\n";
+  // --- serializeImpl() --- standard (mapped fields → empty string)
+  out += std::format("void {}::serializeImpl(std::string &out) const {{\n", sn);
+  out += "  out += '{';\n";
+  {
     bool first = true;
     for (auto &f : s.Fields)
       generateSerializeField(out, f, enumNames, 1, first, opts.PascalCaseFields);
+  }
+  out += "  out += '}';\n";
+  out += "}\n\n";
+
+  // --- serialize(ctx) / serializeImpl(out, ctx) --- context-aware
+  if (hasCtx) {
+    std::string ctxParams = ca.contextParams();
+    std::string ctxArgs = ca.contextArgs();
+
+    out += std::format("std::string {}::serialize({}) const {{\n", sn, ctxParams);
+    out += "  std::string out;\n";
+    out += std::format("  serializeImpl(out, {});\n", ctxArgs);
+    out += "  return out;\n";
+    out += "}\n\n";
+
+    out += std::format("void {}::serializeImpl(std::string &out, {}) const {{\n", sn, ctxParams);
+    out += "  out += '{';\n";
+    generateContextSerializeBody(out, s, ca, enumNames, opts);
     out += "  out += '}';\n";
     out += "}\n\n";
   }
 }
 
-// --- Main entry point ---
+// ============================================================================
+// Main entry point
+// ============================================================================
 
 CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName, const CCodegenOptions &opts)
 {
@@ -726,12 +812,24 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   auto &header = result.Header;
   auto &source = result.Source;
 
-  // Collect enum names (both local and imported for type resolution)
+  // Collect enum names
   std::unordered_set<std::string> enumNames;
   for (auto &e : file.Enums)
     enumNames.insert(e.Name);
 
-  // Check if any local struct has tagged schema
+  // Build mapped type index
+  std::unordered_map<std::string, const CMappedTypeDef *> mappedTypeIndex;
+  for (auto &m : file.MappedTypes)
+    mappedTypeIndex[m.Name] = &m;
+
+  // Analyze context for all structs (topological order — children first)
+  std::unordered_map<std::string, CContextAnalysis> contextAnalysis;
+  for (auto &s : file.Structs) {
+    if (s.IsMixin) continue;
+    contextAnalysis[s.Name] = analyzeContext(s, opts.PascalCaseFields, mappedTypeIndex, contextAnalysis);
+  }
+
+  // Check features
   bool hasTaggedSchema = false;
   bool hasChrono = false;
   for (auto &s : file.Structs) {
@@ -758,22 +856,20 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   if (hasTaggedSchema)
     header += "#include \"idltool/schema.h\"\n";
 
-  // Emit #include for extern type headers (local only, not imported)
-  for (auto &ext : file.ExternTypes) {
-    if (!ext.IsImported)
-      header += std::format("#include \"{}\"\n", ext.IncludePath);
+  // Mapped type headers
+  for (auto &m : file.MappedTypes) {
+    if (!m.IsImported)
+      header += std::format("#include \"{}\"\n", m.IncludePath);
   }
   header += "\n";
 
-  // Emit #include for each include directive
-  for (auto &inc : file.Includes) {
-    // Transform "foo/bar.idl" → "foo/bar.idl.h"
+  // Include directives
+  for (auto &inc : file.Includes)
     header += std::format("#include \"{}.h\"\n", inc.Path);
-  }
   if (!file.Includes.empty())
     header += "\n";
 
-  // Forward declarations for scanners
+  // Forward declarations
   header += "struct JsonScanner;\n";
   if (opts.VerboseMode) {
     header += parseErrorCode;
@@ -781,20 +877,21 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   }
   header += "\n";
 
-  // Enum declarations (local only)
+  // Enums
   generateEnumDeclarations(header, file, opts.PascalCaseFields);
 
-  // Struct forward declarations (local only)
+  // Forward declarations for structs
   for (auto &s : file.Structs) {
     if (s.IsMixin || s.IsImported) continue;
     header += std::format("struct {};\n", opts.StructPrefix + s.Name);
   }
   header += "\n";
 
-  // Struct declarations (local only)
+  // Struct declarations (Capture is nested inside)
   for (auto &s : file.Structs) {
     if (s.IsMixin || s.IsImported) continue;
-    generateStructDecl(header, s, enumNames, opts);
+    auto &ca = contextAnalysis[s.Name];
+    generateStructDecl(header, s, enumNames, opts, ca);
   }
 
   // === Source ===
@@ -803,24 +900,18 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   source += "#include <cstring>\n";
   source += "#include <cstdlib>\n\n";
 
-  // Scanner definitions
   if (opts.Standalone)
     source += jsonScannerCode;
-
   if (opts.VerboseMode)
     source += verboseJsonScannerCode;
-
-  // JSON write helpers
   source += jsonHelperCode;
   source += "\n";
 
-  // Enum definitions (local only)
   generateEnumDefinitions(source, file, opts.PascalCaseFields);
 
-  // Struct implementations (local only)
   for (auto &s : file.Structs) {
     if (s.IsMixin || s.IsImported) continue;
-    generateStructImpl(source, s, enumNames, opts);
+    generateStructImpl(source, s, enumNames, opts, contextAnalysis[s.Name]);
   }
 
   return result;

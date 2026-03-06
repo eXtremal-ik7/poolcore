@@ -22,7 +22,7 @@
 "false"                 { return TOK_FALSE; }
 "now"                   { return TOK_NOW; }
 "include"               { return TOK_INCLUDE; }
-"extern"                { return TOK_EXTERN; }
+"mapped"                { return TOK_MAPPED; }
 "type"                  { return TOK_TYPE; }
 "context"               { return TOK_CONTEXT; }
 

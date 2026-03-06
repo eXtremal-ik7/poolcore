@@ -108,9 +108,9 @@ static bool processIncludesImpl(CIdlFile &file, const std::vector<std::string> &
       s.IsImported = true;
       file.Structs.push_back(std::move(s));
     }
-    for (auto &ext : included.ExternTypes) {
+    for (auto &ext : included.MappedTypes) {
       ext.IsImported = true;
-      file.ExternTypes.push_back(std::move(ext));
+      file.MappedTypes.push_back(std::move(ext));
     }
   }
   return true;
@@ -169,6 +169,8 @@ static bool resolveMixins(CIdlFile &file)
           }
           s.Fields.push_back(field);
         }
+      } else if (auto *ctx = std::get_if<CContextDecl>(&member)) {
+        s.ContextDecls.push_back(ctx->MappedTypeName);
       } else {
         auto &field = std::get<CFieldDef>(member);
         if (!fieldNames.insert(field.Name).second) {
@@ -187,7 +189,7 @@ static bool validateTypes(CIdlFile &file)
   // Build indices (include both local and imported)
   std::unordered_set<std::string> structNames;
   std::unordered_set<std::string> enumNames;
-  std::unordered_set<std::string> externNames;
+  std::unordered_set<std::string> mappedNames;
   std::unordered_map<std::string, CEnumDef *> enumIndex;
 
   for (auto &s : file.Structs)
@@ -197,22 +199,48 @@ static bool validateTypes(CIdlFile &file)
     enumNames.insert(e.Name);
     enumIndex[e.Name] = &e;
   }
-  for (auto &ext : file.ExternTypes)
-    externNames.insert(ext.Name);
+  for (auto &ext : file.MappedTypes)
+    mappedNames.insert(ext.Name);
+
+  // Build mapped type index for context validation
+  std::unordered_map<std::string, CMappedTypeDef *> mappedIndex;
+  for (auto &m : file.MappedTypes)
+    mappedIndex[m.Name] = &m;
 
   for (auto &s : file.Structs) {
     if (s.IsMixin || s.IsImported) continue;
 
-    // Build field name set for context validation
-    std::unordered_set<std::string> fieldNameSet;
-    for (auto &f : s.Fields)
-      fieldNameSet.insert(f.Name);
+    // Validate context declarations
+    for (auto &cd : s.ContextDecls) {
+      auto it = mappedIndex.find(cd);
+      if (it == mappedIndex.end()) {
+        fprintf(stderr, "struct '%s': context declaration references unknown mapped type '%s'\n",
+                s.Name.c_str(), cd.c_str());
+        return false;
+      }
+      if (!it->second->ContextType) {
+        fprintf(stderr, "struct '%s': mapped type '%s' has no context type\n",
+                s.Name.c_str(), cd.c_str());
+        return false;
+      }
+    }
+
+    // Validate that structs with direct mapped+context fields have the required context decl
+    std::unordered_set<std::string> contextDeclSet(s.ContextDecls.begin(), s.ContextDecls.end());
 
     for (auto &f : s.Fields) {
       if (!f.Type.IsScalar && !f.Type.RefName.empty()) {
-        // Check extern types first
-        if (externNames.count(f.Type.RefName)) {
-          f.Type.IsExtern = true;
+        if (mappedNames.count(f.Type.RefName)) {
+          f.Type.IsMapped = true;
+          f.Type.MappedCppType = mappedIndex[f.Type.RefName]->CppType;
+          // If this mapped type has context, struct must declare it
+          auto mi = mappedIndex.find(f.Type.RefName);
+          if (mi != mappedIndex.end() && mi->second->ContextType && !contextDeclSet.count(f.Type.RefName)) {
+            fprintf(stderr, "line %d: field '%s' uses mapped type '%s' which has context, "
+                    "but struct '%s' has no 'context %s;' declaration\n",
+                    f.Line, f.Name.c_str(), f.Type.RefName.c_str(), s.Name.c_str(), f.Type.RefName.c_str());
+            return false;
+          }
         } else {
           bool found = structNames.count(f.Type.RefName) || enumNames.count(f.Type.RefName);
           if (!found) {
@@ -224,15 +252,6 @@ static bool validateTypes(CIdlFile &file)
           if (enumNames.count(f.Type.RefName)) {
             f.Type.IsScalar = true; // enums are parsed as strings
           }
-        }
-      }
-
-      // Validate context(X) annotation
-      if (!f.ContextField.empty()) {
-        if (!fieldNameSet.count(f.ContextField)) {
-          fprintf(stderr, "line %d: context field '%s' not found in struct '%s'\n",
-                  f.Line, f.ContextField.c_str(), s.Name.c_str());
-          return false;
         }
       }
 
@@ -287,13 +306,13 @@ static bool topologicalSort(CIdlFile &file)
   std::unordered_map<std::string, std::unordered_set<std::string>> deps;
   std::unordered_map<std::string, CStructDef *> structIndex;
   std::unordered_set<std::string> enumNames;
-  std::unordered_set<std::string> externNames;
+  std::unordered_set<std::string> mappedNames;
   std::unordered_set<std::string> importedNames;
 
   for (auto &e : file.Enums)
     enumNames.insert(e.Name);
-  for (auto &ext : file.ExternTypes)
-    externNames.insert(ext.Name);
+  for (auto &ext : file.MappedTypes)
+    mappedNames.insert(ext.Name);
 
   // First pass: collect imported names
   for (auto &s : file.Structs) {
@@ -310,7 +329,7 @@ static bool topologicalSort(CIdlFile &file)
     deps[s.Name]; // ensure entry exists
     for (auto &f : s.Fields) {
       if (!f.Type.RefName.empty() && !enumNames.count(f.Type.RefName) &&
-          !importedNames.count(f.Type.RefName) && !externNames.count(f.Type.RefName)) {
+          !importedNames.count(f.Type.RefName) && !mappedNames.count(f.Type.RefName)) {
         deps[s.Name].insert(f.Type.RefName);
       }
     }
@@ -380,8 +399,11 @@ bool resolveAst(CIdlFile &file)
 
 void dumpAst(const CIdlFile &file)
 {
-  for (auto &ext : file.ExternTypes) {
-    printf("extern type %s : %s include \"%s\";\n", ext.Name.c_str(), ext.JsonWireType.c_str(), ext.IncludePath.c_str());
+  for (auto &m : file.MappedTypes) {
+    if (m.ContextType)
+      printf("mapped type %s(\"%s\") : %s context(%s) include \"%s\";\n", m.Name.c_str(), m.CppType.c_str(), m.JsonWireType.c_str(), scalarTypeName(*m.ContextType), m.IncludePath.c_str());
+    else
+      printf("mapped type %s(\"%s\") : %s include \"%s\";\n", m.Name.c_str(), m.CppType.c_str(), m.JsonWireType.c_str(), m.IncludePath.c_str());
   }
   for (auto &e : file.Enums) {
     printf("enum %s : %s { ", e.Name.c_str(), e.BaseType.c_str());
@@ -393,6 +415,8 @@ void dumpAst(const CIdlFile &file)
   }
   for (auto &s : file.Structs) {
     printf("%s %s {\n", s.IsMixin ? "mixin" : "struct", s.Name.c_str());
+    for (auto &cd : s.ContextDecls)
+      printf("  context %s;\n", cd.c_str());
     for (auto &f : s.Fields) {
       printf("  %s: ", f.Name.c_str());
       if (f.Type.IsScalar && f.Type.RefName.empty())
@@ -420,8 +444,6 @@ void dumpAst(const CIdlFile &file)
       }
       if (f.Tag > 0)
         printf(" @%d", f.Tag);
-      if (!f.ContextField.empty())
-        printf(" context(%s)", f.ContextField.c_str());
       printf(";\n");
     }
     printf("}\n");

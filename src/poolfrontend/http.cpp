@@ -153,11 +153,11 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
     switch (Context.Function->Type) {
       // Plain
       case fnBackendQueryCoins: dispatch<&PoolHttpConnection::onBackendQueryCoins>(); break;
-      case fnBackendQueryPoolBalance: onBackendQueryPoolBalance(); break;
+      case fnBackendQueryPoolBalance: dispatchEmpty<&PoolHttpConnection::onBackendQueryPoolBalance>(); break;
       case fnBackendQueryPoolStats: dispatch<&PoolHttpConnection::onBackendQueryPoolStats>(); break;
-      case fnInstanceEnumerateAll: onInstanceEnumerateAll(); break;
+      case fnInstanceEnumerateAll: dispatchEmpty<&PoolHttpConnection::onInstanceEnumerateAll>(); break;
       case fnUserAction: dispatch<&PoolHttpConnection::onUserAction>(); break;
-      case fnUserChangeEmail: onUserChangeEmail(); break;
+      case fnUserChangeEmail: dispatchEmpty<&PoolHttpConnection::onUserChangeEmail>(); break;
       case fnUserChangePasswordForce: dispatch<&PoolHttpConnection::onUserChangePasswordForce>(); break;
       case fnUserChangePasswordInitiate: dispatch<&PoolHttpConnection::onUserChangePasswordInitiate>(); break;
       case fnUserCreate: dispatch<&PoolHttpConnection::onUserCreate>(); break;
@@ -397,7 +397,7 @@ void PoolHttpConnection::onUserLogin(const CUserLoginRequest &request)
   });
 }
 
-void PoolHttpConnection::onUserLogout(const CUserLogoutRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserLogout(const CUserLogoutRequest &request, const UserManager::UserWithAccessRights&)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().userLogout(request.Id, [this](const char *status) {
@@ -406,7 +406,7 @@ void PoolHttpConnection::onUserLogout(const CUserLogoutRequest &request, const U
   });
 }
 
-void PoolHttpConnection::onUserQueryMonitoringSession(const CUserQueryMonitoringSessionRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserQueryMonitoringSession(const CUserQueryMonitoringSessionRequest&, const UserManager::UserWithAccessRights &tokenInfo)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().userQueryMonitoringSession(tokenInfo.Login, [this](const std::string &sessionId, const char *status) {
@@ -454,7 +454,7 @@ void PoolHttpConnection::onUserChangePasswordForce(const CUserChangePasswordForc
   });
 }
 
-void PoolHttpConnection::onUserGetCredentials(const CUserGetCredentialsRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserGetCredentials(const CUserGetCredentialsRequest&, const UserManager::UserWithAccessRights &tokenInfo)
 {
   xmstream stream;
   reply200(stream);
@@ -482,7 +482,7 @@ void PoolHttpConnection::onUserGetCredentials(const CUserGetCredentialsRequest &
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onUserGetSettings(const CUserGetSettingsRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserGetSettings(const CUserGetSettingsRequest&, const UserManager::UserWithAccessRights &tokenInfo)
 {
   std::string feePlanId = Server_.userManager().getFeePlanId(tokenInfo.Login);
 
@@ -495,41 +495,28 @@ void PoolHttpConnection::onUserGetSettings(const CUserGetSettingsRequest &reques
     object.addString("status", "ok");
     object.addField("coins");
     JSON::Array coins(stream);
-    for (const auto &coinInfo: Server_.userManager().coinInfo()) {
-      coins.addField();
-      JSON::Object coin(stream);
+    for (const auto &backend: Server_.backends()) {
+      const CCoinInfo &coinInfo = backend->getCoinInfo();
       UserSettingsRecord settings;
-      coin.addString("name", coinInfo.Name.c_str());
       Server_.userManager().getUserCoinSettings(tokenInfo.Login, coinInfo.Name, settings);
-      coin.addField("payout");
-      {
-        JSON::Object payout(stream);
-        payout.addString("mode", EPayoutModeToString(settings.Payout.Mode));
-        payout.addString("address", settings.Payout.Address);
-        payout.addString("instantPayoutThreshold", FormatMoney(settings.Payout.InstantPayoutThreshold, coinInfo.FractionalPartSize));
-      }
-      coin.addField("mining");
-      {
-        JSON::Object mining(stream);
-        mining.addString("mode", EMiningModeToString(settings.Mining.MiningMode));
-      }
-      coin.addField("autoExchange");
-      {
-        JSON::Object autoExchange(stream);
-        autoExchange.addString("payoutCoinName", settings.AutoExchange.PayoutCoinName);
-      }
 
-      // Per-user fee
-      PoolBackend *backend = Server_.backend(coinInfo.Name);
       double pplnsFee = 0.0;
       for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::Pplns, coinInfo.Name))
         pplnsFee += fee.Percentage;
-      coin.addDouble("pplnsFee", pplnsFee);
-
-      double ppsFee = backend ? backend->accountingDb()->backendSettings().PPSConfig.PoolFee : 0.0;
+      double ppsFee = backend->accountingDb()->backendSettings().PPSConfig.PoolFee;
       for (const auto &fee : Server_.userManager().getFeeRecord(feePlanId, EMiningMode::Pps, coinInfo.Name))
         ppsFee += fee.Percentage;
-      coin.addDouble("ppsFee", ppsFee);
+
+      CCoinSettings response;
+      response.Name = coinInfo.Name;
+      response.Payout = settings.Payout;
+      response.Mining = settings.Mining;
+      response.AutoExchange = settings.AutoExchange;
+      response.PplnsFee = pplnsFee;
+      response.PpsFee = ppsFee;
+
+      coins.addField();
+      stream.write(response.serialize(coinInfo.FractionalPartSize));
     }
   }
 
@@ -548,61 +535,24 @@ void PoolHttpConnection::onUserUpdateCredentials(const CUserUpdateCredentialsReq
   });
 }
 
-void PoolHttpConnection::onUserUpdateSettings(const CUserUpdateSettingsRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserUpdateSettings(const CUserUpdateSettingsRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend&)
 {
   if (!request.Payout.has_value() && !request.Mining.has_value() && !request.AutoExchange.has_value()) {
     replyWithStatus("json_format_error");
     return;
   }
 
-  std::optional<CSettingsPayout> payout;
-  std::optional<CSettingsMining> mining;
-  std::optional<CSettingsAutoExchange> autoExchange;
-
-  if (request.Payout.has_value()) {
-    CSettingsPayout settingsPayout;
-    settingsPayout.Mode = request.Payout->Mode;
-    settingsPayout.Address = request.Payout->Address;
-
-    auto It = Server_.userManager().coinIdxMap().find(request.Coin);
-    if (It == Server_.userManager().coinIdxMap().end()) {
-      replyWithStatus("invalid_coin");
-      return;
-    }
-
-    CCoinInfo &coinInfo = Server_.userManager().coinInfo()[It->second];
-    if (!parseMoneyValue(
-          request.Payout->InstantPayoutThreshold.c_str(),
-          coinInfo.FractionalPartSize,
-          &settingsPayout.InstantPayoutThreshold)) {
-      replyWithStatus("request_format_error");
-      return;
-    }
-
-    payout = std::move(settingsPayout);
-  }
-
-  if (request.Mining.has_value()) {
-    CSettingsMining settingsMining;
-    settingsMining.MiningMode = request.Mining->Mode;
-    mining = std::move(settingsMining);
-  }
-
-  if (request.AutoExchange.has_value()) {
-    CSettingsAutoExchange settingsAutoExchange;
-    settingsAutoExchange.PayoutCoinName = request.AutoExchange->PayoutCoinName;
-    autoExchange = std::move(settingsAutoExchange);
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().updateSettings(
-    tokenInfo.Login, request.Coin,
-    std::move(payout), std::move(mining), std::move(autoExchange),
-    request.Totp,
-    [this](const char *status) {
-      replyWithStatus(status);
-      objectDecrementReference(aioObjectHandle(Socket_), 1);
-    });
+  Server_.userManager().updateSettings(tokenInfo.Login,
+                                       request.Coin,
+                                       request.Payout,
+                                       request.Mining,
+                                       request.AutoExchange,
+                                       request.Totp,
+                                       [this](const char *status) {
+    replyWithStatus(status);
+    objectDecrementReference(aioObjectHandle(Socket_), 1);
+  });
 }
 
 void PoolHttpConnection::onUserEnumerateAll(const CUserEnumerateAllRequest &request, const UserManager::UserWithAccessRights &tokenInfo, StatisticDb &statistic)
@@ -662,7 +612,7 @@ void PoolHttpConnection::onUserEnumerateAll(const CUserEnumerateAllRequest &requ
 }
 
 
-void PoolHttpConnection::onUserCreateFeePlan(const CUserCreateFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserCreateFeePlan(const CUserCreateFeePlanRequest &request, const UserManager::UserWithAccessRights&)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().createFeePlan(request.FeePlanId, [this](const char *status) {
@@ -671,7 +621,7 @@ void PoolHttpConnection::onUserCreateFeePlan(const CUserCreateFeePlanRequest &re
   });
 }
 
-void PoolHttpConnection::onUserUpdateFeePlan(const CUserUpdateFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserUpdateFeePlan(const CUserUpdateFeePlanRequest &request, const UserManager::UserWithAccessRights&)
 {
   EMiningMode mode = request.Mode;
 
@@ -701,7 +651,7 @@ void PoolHttpConnection::onUserUpdateFeePlan(const CUserUpdateFeePlanRequest &re
   });
 }
 
-void PoolHttpConnection::onUserDeleteFeePlan(const CUserDeleteFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserDeleteFeePlan(const CUserDeleteFeePlanRequest &request, const UserManager::UserWithAccessRights&)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().deleteFeePlan(request.FeePlanId, [this](const char *status) {
@@ -710,7 +660,7 @@ void PoolHttpConnection::onUserDeleteFeePlan(const CUserDeleteFeePlanRequest &re
   });
 }
 
-void PoolHttpConnection::onUserEnumerateFeePlan(const CUserEnumerateFeePlanRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserEnumerateFeePlan(const CUserEnumerateFeePlanRequest&, const UserManager::UserWithAccessRights &tokenInfo)
 {
   std::string status;
   std::vector<std::string> result;
@@ -777,7 +727,7 @@ void PoolHttpConnection::onUserChangeFeePlan(const CUserChangeFeePlanRequest &re
   });
 }
 
-void PoolHttpConnection::onUserRenewFeePlanReferralId(const CUserRenewFeePlanReferralIdRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserRenewFeePlanReferralId(const CUserRenewFeePlanReferralIdRequest &request, const UserManager::UserWithAccessRights&)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().renewFeePlanReferralId(request.FeePlanId, [this](const char *status, const std::string &referralId) {
@@ -797,7 +747,7 @@ void PoolHttpConnection::onUserRenewFeePlanReferralId(const CUserRenewFeePlanRef
   });
 }
 
-void PoolHttpConnection::onUserActivate2faInitiate(const CUserActivate2faInitiateRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserActivate2faInitiate(const CUserActivate2faInitiateRequest&, const UserManager::UserWithAccessRights &tokenInfo)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().activate2faInitiate(tokenInfo.Login, [this](const char *status, const char *key) {
@@ -817,7 +767,7 @@ void PoolHttpConnection::onUserActivate2faInitiate(const CUserActivate2faInitiat
   });
 }
 
-void PoolHttpConnection::onUserDeactivate2faInitiate(const CUserDeactivate2faInitiateRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onUserDeactivate2faInitiate(const CUserDeactivate2faInitiateRequest&, const UserManager::UserWithAccessRights &tokenInfo)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().deactivate2faInitiate(tokenInfo.Login, [this](const char *status) {
@@ -826,7 +776,7 @@ void PoolHttpConnection::onUserDeactivate2faInitiate(const CUserDeactivate2faIni
   });
 }
 
-void PoolHttpConnection::onUserAdjustInstantPayoutThreshold(const CUserAdjustInstantPayoutThresholdRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
+void PoolHttpConnection::onUserAdjustInstantPayoutThreshold(const CUserAdjustInstantPayoutThresholdRequest &request, const UserManager::UserWithAccessRights&, PoolBackend &backend)
 {
   UInt<384> minimalPayout;
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
@@ -839,7 +789,7 @@ void PoolHttpConnection::onUserAdjustInstantPayoutThreshold(const CUserAdjustIns
   replyWithStatus("ok");
 }
 
-void PoolHttpConnection::onBackendManualPayout(const CBackendManualPayoutRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
+void PoolHttpConnection::onBackendManualPayout(const CBackendManualPayoutRequest&, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   backend.accountingDb()->manualPayout(tokenInfo.Login, [this](const char *status) {
@@ -1027,7 +977,7 @@ void PoolHttpConnection::onBackendQueryWorkerStatsHistory(const CBackendQueryWor
   queryStatsHistory(&statistic, tokenInfo.Login, request.WorkerId, request.TimeFrom, request.TimeTo, request.GroupByInterval, time(nullptr));
 }
 
-void PoolHttpConnection::onBackendQueryCoins(const CBackendQueryCoinsRequest &request)
+void PoolHttpConnection::onBackendQueryCoins(const CBackendQueryCoinsRequest&)
 {
   xmstream stream;
   reply200(stream);
@@ -1292,7 +1242,7 @@ void PoolHttpConnection::onBackendQueryPoolStatsHistory(const CBackendQueryPoolS
   queryStatsHistory(&statistic, "", "", request.TimeFrom, request.TimeTo, request.GroupByInterval, time(nullptr));
 }
 
-void PoolHttpConnection::onBackendQueryProfitSwitchCoeff(const CBackendQueryProfitSwitchCoeffRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onBackendQueryProfitSwitchCoeff(const CBackendQueryProfitSwitchCoeffRequest&, const UserManager::UserWithAccessRights&)
 {
   xmstream stream;
   reply200(stream);
@@ -1459,13 +1409,13 @@ void PoolHttpConnection::onBackendQueryPPSPayoutsAcc(const CBackendQueryPPSPayou
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendUpdateProfitSwitchCoeff(const CBackendUpdateProfitSwitchCoeffRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
+void PoolHttpConnection::onBackendUpdateProfitSwitchCoeff(const CBackendUpdateProfitSwitchCoeffRequest &request, const UserManager::UserWithAccessRights&, PoolBackend &backend)
 {
   backend.setProfitSwitchCoeff(request.ProfitSwitchCoeff);
   replyWithStatus("ok");
 }
 
-void PoolHttpConnection::onBackendGetConfig(const CBackendGetConfigRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
+void PoolHttpConnection::onBackendGetConfig(const CBackendGetConfigRequest&, const UserManager::UserWithAccessRights&, PoolBackend &backend)
 {
   CBackendSettings settings = backend.accountingDb()->backendSettings();
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
@@ -1495,9 +1445,7 @@ void PoolHttpConnection::onBackendGetConfig(const CBackendGetConfigRequest &requ
       }
     }
     response.addField("payouts");
-    stream.write(settings.PayoutConfig.serialize([fractionalPartSize](const money_t &value) -> std::string {
-      return FormatMoney(value, fractionalPartSize);
-    }));
+    stream.write(settings.PayoutConfig.serialize(fractionalPartSize));
     response.addField("swap");
     {
       JSON::Object swap(stream);
@@ -1551,7 +1499,7 @@ static void serializePPSState(xmstream &stream, const CPPSState &pps, unsigned f
   obj.addString("lastAverageTxFee", FormatMoney(pps.LastAverageTxFee, fractionalPartSize));
 }
 
-void PoolHttpConnection::onBackendGetPPSState(const CBackendGetPPSStateRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
+void PoolHttpConnection::onBackendGetPPSState(const CBackendGetPPSStateRequest&, const UserManager::UserWithAccessRights&, PoolBackend &backend)
 {
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
   objectIncrementReference(aioObjectHandle(Socket_), 1);
@@ -1571,7 +1519,7 @@ void PoolHttpConnection::onBackendGetPPSState(const CBackendGetPPSStateRequest &
   });
 }
 
-void PoolHttpConnection::onBackendQueryPPSHistory(const CBackendQueryPPSHistoryRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
+void PoolHttpConnection::onBackendQueryPPSHistory(const CBackendQueryPPSHistoryRequest &request, const UserManager::UserWithAccessRights&, PoolBackend &backend)
 {
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
   auto result = backend.accountingDb()->api().queryPPSHistory(request.TimeFrom, request.TimeTo);
@@ -1595,49 +1543,16 @@ void PoolHttpConnection::onBackendQueryPPSHistory(const CBackendQueryPPSHistoryR
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onBackendUpdateConfig(const CBackendUpdateConfigRequest &request, const UserManager::UserWithAccessRights &tokenInfo, PoolBackend &backend)
+void PoolHttpConnection::onBackendUpdateConfig(const CBackendUpdateConfigRequest &request, const UserManager::UserWithAccessRights&, PoolBackend &backend)
 {
-  // Re-parse with resolver to convert money values using coin-specific fractional part size
-  CBackendUpdateConfigRequest resolvedRequest;
-  unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
-  if (!resolvedRequest.parse(Context.Request.c_str(), Context.Request.size(),
-    [fractionalPartSize](const std::string &, const std::string &raw, money_t &value) -> bool {
-      return parseMoneyValue(raw.c_str(), fractionalPartSize, &value);
-    })) {
-    replyWithStatus("request_format_error");
-    return;
-  }
-
-  if (!resolvedRequest.Pps.has_value() && !resolvedRequest.Payouts.has_value() && !resolvedRequest.Swap.has_value()) {
+  if (!request.Pps.has_value() && !request.Payouts.has_value() && !request.Swap.has_value()) {
     replyWithStatus("json_format_error");
     return;
   }
 
-  std::optional<CBackendPPS> pps;
-  if (resolvedRequest.Pps.has_value()) {
-    CBackendPPS ppsCfg;
-    ppsCfg.Enabled = resolvedRequest.Pps->Enabled;
-    ppsCfg.PoolFee = resolvedRequest.Pps->PoolFee;
-    ppsCfg.SaturationFunction = resolvedRequest.Pps->SaturationFunction;
-    ppsCfg.SaturationB0 = resolvedRequest.Pps->SaturationB0;
-    ppsCfg.SaturationANegative = resolvedRequest.Pps->SaturationANegative;
-    ppsCfg.SaturationAPositive = resolvedRequest.Pps->SaturationAPositive;
-    pps = std::move(ppsCfg);
-  }
-
-  std::optional<CBackendSwap> swap;
-  if (resolvedRequest.Swap.has_value()) {
-    CBackendSwap swapCfg;
-    swapCfg.AcceptIncoming = resolvedRequest.Swap->AcceptIncoming;
-    swapCfg.AcceptOutgoing = resolvedRequest.Swap->AcceptOutgoing;
-    swap = std::move(swapCfg);
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   backend.accountingDb()->updateBackendSettings(
-    std::move(pps),
-    std::move(resolvedRequest.Payouts),
-    std::move(swap),
+    request.Pps, request.Payouts, request.Swap,
     [this](const char *status) {
       replyWithStatus(status);
       objectDecrementReference(aioObjectHandle(Socket_), 1);
@@ -1709,7 +1624,7 @@ void PoolHttpConnection::onInstanceEnumerateAll()
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-void PoolHttpConnection::onComplexMiningStatsGetInfo(const CComplexMiningStatsGetInfoRequest &request, const UserManager::UserWithAccessRights &tokenInfo)
+void PoolHttpConnection::onComplexMiningStatsGetInfo(const CComplexMiningStatsGetInfoRequest&, const UserManager::UserWithAccessRights&)
 {
   const char *data = Context.Request.c_str();
   size_t size = Context.Request.size();

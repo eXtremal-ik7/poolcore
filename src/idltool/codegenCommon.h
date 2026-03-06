@@ -16,7 +16,7 @@ std::string fieldCppName(const std::string &name, bool pascalCase);
 
 bool isEnum(const std::string &refName, const std::unordered_set<std::string> &enumNames);
 bool isStructRef(const CFieldDef &f, const std::unordered_set<std::string> &enumNames);
-bool isExternField(const CFieldDef &f);
+bool isMappedField(const CFieldDef &f);
 
 // --- Perfect hash ---
 
@@ -44,9 +44,7 @@ void emitSerializeArrayElem(std::string &code, const CFieldDef &f,
                             const std::string &valueName,
                             const std::unordered_set<std::string> &enumNames,
                             int ind);
-// captureIdx: for extern fields, index into _capture array; -1 = no capture (write "")
-// captureIsDeferred: true for context-threaded struct fields (use pre-serialized _capture[idx])
-void generateSerializeField(std::string &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase = false, int captureIdx = -1, bool captureIsDeferred = false);
+void generateSerializeField(std::string &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase = false);
 
 // --- Scanner code strings ---
 

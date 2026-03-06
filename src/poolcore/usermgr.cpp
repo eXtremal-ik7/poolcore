@@ -1131,7 +1131,7 @@ void UserManager::updateSettingsImpl(const std::string &login,
   }
 
   if (mining.has_value()) {
-    if (mining->MiningMode == EMiningMode::Pps &&
+    if (mining->Mode == EMiningMode::Pps &&
         !backendIt->second->accountingDb()->backendSettings().PPSConfig.Enabled) {
       callback("pps_not_available");
       return;

@@ -310,20 +310,6 @@ struct UserSessionRecord {
   }
 };
 
-struct CSettingsPayout {
-  EPayoutMode Mode = EPayoutMode::Disabled;
-  std::string Address;
-  UInt<384> InstantPayoutThreshold;
-
-  static constexpr auto schema() {
-    return std::make_tuple(
-      field<1, &CSettingsPayout::Mode>(),
-      field<2, &CSettingsPayout::Address>(),
-      field<3, &CSettingsPayout::InstantPayoutThreshold>()
-    );
-  }
-};
-
 struct UserSettingsRecord : CSerializable<UserSettingsRecord> {
   std::string Login;
   std::string Coin;
