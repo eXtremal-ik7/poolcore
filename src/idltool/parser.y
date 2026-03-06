@@ -29,13 +29,14 @@
   CFieldType *fieldType;
   CDefaultValue *defaultVal;
   int tagVal;
-  std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl>> *memberList;
+  std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock>> *memberList;
   std::vector<CFieldDef> *fieldList;
   std::vector<std::string> *stringList;
 }
 
 %token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW TOK_INCLUDE
 %token TOK_MAPPED TOK_TYPE TOK_CONTEXT
+%token <strVal> TOK_CPP_BLOCK
 %token <strVal> TOK_IDENTIFIER TOK_STRING_LITERAL
 %token <strVal> TOK_CHRONO_SECONDS TOK_CHRONO_MINUTES TOK_CHRONO_HOURS
 %token <intVal> TOK_INT_LITERAL
@@ -171,7 +172,7 @@ enum_def:
 
 member_list:
     /* empty */ {
-      $$ = new std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl>>();
+      $$ = new std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock>>();
     }
   | member_list TOK_MIXIN TOK_IDENTIFIER ';' {
       $$ = $1;
@@ -193,6 +194,14 @@ member_list:
       $$ = $1;
       $$->push_back(std::move(*$2));
       delete $2;
+    }
+  | member_list TOK_CPP_BLOCK {
+      $$ = $1;
+      CCppBlock blk;
+      blk.Code = $2;
+      blk.Line = @2.first_line;
+      $$->push_back(std::move(blk));
+      free($2);
     }
   ;
 

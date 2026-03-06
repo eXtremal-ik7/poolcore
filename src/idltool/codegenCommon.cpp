@@ -177,9 +177,28 @@ void generateEnumDefinitions(std::string &out, const CIdlFile &file, bool pascal
 
     // String -> enum
     out += std::format("bool parse{}(const char *str, size_t len, {} &out) {{\n", enumType, enumType);
-    for (auto &v : e.Values)
-      out += std::format("  if (len == {} && memcmp(str, \"{}\", {}) == 0) {{ out = {}::{}; return true; }}\n",
-                         v.size(), v, v.size(), enumType, fieldCppName(v, pascalCase));
+
+    auto ph = findPerfectHash(e.Values);
+    if (ph && e.Values.size() > 4) {
+      // Perfect hash dispatch
+      out += std::format("  uint32_t h = {}u;\n", ph->Seed);
+      out += std::format("  for (size_t i = 0; i < len; i++) h = h * {}u + (unsigned char)str[i];\n", ph->Mult);
+      out += std::format("  switch (h % {}u) {{\n", ph->Mod);
+      for (size_t i = 0; i < e.Values.size(); i++) {
+        auto &v = e.Values[i];
+        uint32_t h = computeHash(v.c_str(), v.size(), ph->Seed, ph->Mult, ph->Mod);
+        out += std::format("    case {}: if (len == {} && memcmp(str, \"{}\", {}) == 0) {{ out = {}::{}; return true; }} break;\n",
+                           h, v.size(), v, v.size(), enumType, fieldCppName(v, pascalCase));
+      }
+      out += "    default: break;\n";
+      out += "  }\n";
+    } else {
+      // Linear search for small enums
+      for (auto &v : e.Values)
+        out += std::format("  if (len == {} && memcmp(str, \"{}\", {}) == 0) {{ out = {}::{}; return true; }}\n",
+                           v.size(), v, v.size(), enumType, fieldCppName(v, pascalCase));
+    }
+
     out += "  return false;\n}\n\n";
 
     // Enum -> string

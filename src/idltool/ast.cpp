@@ -171,6 +171,8 @@ static bool resolveMixins(CIdlFile &file)
         }
       } else if (auto *ctx = std::get_if<CContextDecl>(&member)) {
         s.ContextDecls.push_back(ctx->MappedTypeName);
+      } else if (auto *cpp = std::get_if<CCppBlock>(&member)) {
+        s.CppBlocks.push_back(cpp->Code);
       } else {
         auto &field = std::get<CFieldDef>(member);
         if (!fieldNames.insert(field.Name).second) {

@@ -8,66 +8,77 @@
 #include "poolcommon/jsonSerializer.h"
 #include <cmath>
 
-std::unordered_map<std::string, PoolHttpConnection::FunctionInfo> PoolHttpConnection::FunctionNameMap_ = {
-  // Public (no session)
-  {"backendQueryCoins",                {fnBackendQueryCoins,                false, false, false}},
-  {"backendPoolLuck",                  {fnBackendPoolLuck,                  false, false, false}},
-  {"backendQueryFoundBlocks",          {fnBackendQueryFoundBlocks,          false, false, false}},
-  {"backendQueryPoolBalance",          {fnBackendQueryPoolBalance,          false, false, false}},
-  {"backendQueryPoolStats",            {fnBackendQueryPoolStats,            false, false, false}},
-  {"backendQueryPoolStatsHistory",     {fnBackendQueryPoolStatsHistory,     false, false, false}},
-  {"instanceEnumerateAll",             {fnInstanceEnumerateAll,             false, false, false}},
-  {"userAction",                       {fnUserAction,                       false, false, false}},
-  {"userChangeEmail",                  {fnUserChangeEmail,                  false, false, false}},
-  {"userChangePasswordForce",          {fnUserChangePasswordForce,          false, false, false}},
-  {"userChangePasswordInitiate",       {fnUserChangePasswordInitiate,       false, false, false}},
-  {"userCreate",                       {fnUserCreate,                       false, false, false}},
-  {"userLogin",                        {fnUserLogin,                        false, false, false}},
-  {"userResendEmail",                  {fnUserResendEmail,                  false, false, false}},
+static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction f)
+{
+  using F = EHttpFunction;
+  switch (f) {
+    // Public (no session)
+    case F::BackendQueryCoins:
+    case F::BackendPoolLuck:
+    case F::BackendQueryFoundBlocks:
+    case F::BackendQueryPoolBalance:
+    case F::BackendQueryPoolStats:
+    case F::BackendQueryPoolStatsHistory:
+    case F::InstanceEnumerateAll:
+    case F::UserAction:
+    case F::UserChangeEmail:
+    case F::UserChangePasswordForce:
+    case F::UserChangePasswordInitiate:
+    case F::UserCreate:
+    case F::UserLogin:
+    case F::UserResendEmail:
+      return {false, false, false};
 
-  // Session, Read
-  {"backendQueryPayouts",              {fnBackendQueryPayouts,              true,  false, false}},
-  {"backendQueryPPLNSAcc",             {fnBackendQueryPPLNSAcc,             true,  false, false}},
-  {"backendQueryPPLNSPayouts",         {fnBackendQueryPPLNSPayouts,         true,  false, false}},
-  {"backendQueryPPSPayouts",           {fnBackendQueryPPSPayouts,           true,  false, false}},
-  {"backendQueryPPSPayoutsAcc",        {fnBackendQueryPPSPayoutsAcc,        true,  false, false}},
-  {"backendQueryUserBalance",          {fnBackendQueryUserBalance,          true,  false, false}},
-  {"backendQueryUserStats",            {fnBackendQueryUserStats,            true,  false, false}},
-  {"backendQueryUserStatsHistory",     {fnBackendQueryUserStatsHistory,     true,  false, false}},
-  {"backendQueryWorkerStatsHistory",   {fnBackendQueryWorkerStatsHistory,   true,  false, false}},
-  {"userEnumerateAll",                 {fnUserEnumerateAll,                 true,  false, false}},
-  {"userEnumerateFeePlan",             {fnUserEnumerateFeePlan,             true,  false, false}},
-  {"userGetCredentials",               {fnUserGetCredentials,               true,  false, false}},
-  {"userGetSettings",                  {fnUserGetSettings,                  true,  false, false}},
-  {"userLogout",                       {fnUserLogout,                       true,  false, false}},
-  {"userQueryFeePlan",                 {fnUserQueryFeePlan,                 true,  false, false}},
-  {"userQueryMonitoringSession",       {fnUserQueryMonitoringSession,       true,  false, false}},
+    // Session, Read
+    case F::BackendQueryPayouts:
+    case F::BackendQueryPPLNSAcc:
+    case F::BackendQueryPPLNSPayouts:
+    case F::BackendQueryPPSPayouts:
+    case F::BackendQueryPPSPayoutsAcc:
+    case F::BackendQueryUserBalance:
+    case F::BackendQueryUserStats:
+    case F::BackendQueryUserStatsHistory:
+    case F::BackendQueryWorkerStatsHistory:
+    case F::UserEnumerateAll:
+    case F::UserEnumerateFeePlan:
+    case F::UserGetCredentials:
+    case F::UserGetSettings:
+    case F::UserLogout:
+    case F::UserQueryFeePlan:
+    case F::UserQueryMonitoringSession:
+      return {true, false, false};
 
-  // Session, Write
-  {"backendManualPayout",              {fnBackendManualPayout,              true,  true,  false}},
-  {"userActivate2faInitiate",          {fnUserActivate2faInitiate,          true,  true,  false}},
-  {"userDeactivate2faInitiate",        {fnUserDeactivate2faInitiate,        true,  true,  false}},
-  {"userUpdateCredentials",            {fnUserUpdateCredentials,            true,  true,  false}},
-  {"userUpdateSettings",               {fnUserUpdateSettings,               true,  true,  false}},
+    // Session, Write
+    case F::BackendManualPayout:
+    case F::UserActivate2faInitiate:
+    case F::UserDeactivate2faInitiate:
+    case F::UserUpdateCredentials:
+    case F::UserUpdateSettings:
+      return {true, true, false};
 
-  // SuperUser, Read (admin + observer)
-  {"backendGetConfig",                 {fnBackendGetConfig,                 true,  false, true}},
-  {"backendGetPPSState",               {fnBackendGetPPSState,               true,  false, true}},
-  {"backendQueryPPSHistory",           {fnBackendQueryPPSHistory,           true,  false, true}},
-  {"backendQueryProfitSwitchCoeff",    {fnBackendQueryProfitSwitchCoeff,    true,  false, true}},
-  {"complexMiningStatsGetInfo",        {fnComplexMiningStatsGetInfo,        true,  false, true}},
+    // SuperUser, Read (admin + observer)
+    case F::BackendGetConfig:
+    case F::BackendGetPPSState:
+    case F::BackendQueryPPSHistory:
+    case F::BackendQueryProfitSwitchCoeff:
+    case F::ComplexMiningStatsGetInfo:
+      return {true, false, true};
 
-  // SuperUser, Write (admin only)
-  {"backendUpdateConfig",              {fnBackendUpdateConfig,              true,  true,  true}},
-  {"backendUpdateProfitSwitchCoeff",   {fnBackendUpdateProfitSwitchCoeff,   true,  true,  true}},
-  {"userAdjustInstantPayoutThreshold", {fnUserAdjustInstantPayoutThreshold, true,  true,  true}},
-  {"userChangeFeePlan",                {fnUserChangeFeePlan,                true,  true,  true}},
-  {"userCreateFeePlan",                {fnUserCreateFeePlan,                true,  true,  true}},
-  {"userCreateForce",                  {fnUserCreateForce,                  true,  true,  true}},
-  {"userDeleteFeePlan",                {fnUserDeleteFeePlan,                true,  true,  true}},
-  {"userRenewFeePlanReferralId",       {fnUserRenewFeePlanReferralId,       true,  true,  true}},
-  {"userUpdateFeePlan",                {fnUserUpdateFeePlan,                true,  true,  true}},
-};
+    // SuperUser, Write (admin only)
+    case F::BackendUpdateConfig:
+    case F::BackendUpdateProfitSwitchCoeff:
+    case F::UserAdjustInstantPayoutThreshold:
+    case F::UserChangeFeePlan:
+    case F::UserCreateFeePlan:
+    case F::UserCreateForce:
+    case F::UserDeleteFeePlan:
+    case F::UserRenewFeePlanReferralId:
+    case F::UserUpdateFeePlan:
+      return {true, true, true};
+    default:
+      throw "unknown FunctionTy in getFunctionMeta";
+  }
+}
 
 static inline bool rawcmp(Raw data, const char *operand) {
   size_t opSize = strlen(operand);
@@ -112,7 +123,7 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
   if (component->type == httpRequestDtMethod) {
     Context.method = component->method;
     Context.parseState = psUnknown;
-    Context.Function = nullptr;
+    Context.Function.reset();
     return 1;
   }
 
@@ -125,14 +136,13 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
         return 0;
       }
 
-      std::string functionName(component->data.data, component->data.data + component->data.size);
-      auto It = FunctionNameMap_.find(functionName);
-      if (It == FunctionNameMap_.end()) {
+      EHttpFunction fn;
+      if (!parseEHttpFunction(component->data.data, component->data.size, fn)) {
         reply404();
         return 0;
       }
 
-      Context.Function = &It->second;
+      Context.Function = fn;
       Context.parseState = psResolved;
       return 1;
     } else {
@@ -150,65 +160,63 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
       return 0;
     }
 
-    switch (Context.Function->Type) {
+    using F = EHttpFunction;
+    switch (*Context.Function) {
       // Plain
-      case fnBackendQueryCoins: dispatch<&PoolHttpConnection::onBackendQueryCoins>(); break;
-      case fnBackendQueryPoolBalance: dispatchEmpty<&PoolHttpConnection::onBackendQueryPoolBalance>(); break;
-      case fnBackendQueryPoolStats: dispatch<&PoolHttpConnection::onBackendQueryPoolStats>(); break;
-      case fnInstanceEnumerateAll: dispatchEmpty<&PoolHttpConnection::onInstanceEnumerateAll>(); break;
-      case fnUserAction: dispatch<&PoolHttpConnection::onUserAction>(); break;
-      case fnUserChangeEmail: dispatchEmpty<&PoolHttpConnection::onUserChangeEmail>(); break;
-      case fnUserChangePasswordForce: dispatch<&PoolHttpConnection::onUserChangePasswordForce>(); break;
-      case fnUserChangePasswordInitiate: dispatch<&PoolHttpConnection::onUserChangePasswordInitiate>(); break;
-      case fnUserCreate: dispatch<&PoolHttpConnection::onUserCreate>(); break;
-      case fnUserLogin: dispatch<&PoolHttpConnection::onUserLogin>(); break;
-      case fnUserResendEmail: dispatch<&PoolHttpConnection::onUserResendEmail>(); break;
+      case F::BackendQueryCoins: dispatch<getFunctionMeta(F::BackendQueryCoins), &PoolHttpConnection::onBackendQueryCoins>(); break;
+      case F::BackendQueryPoolBalance: dispatchEmpty<getFunctionMeta(F::BackendQueryPoolBalance), &PoolHttpConnection::onBackendQueryPoolBalance>(); break;
+      case F::BackendQueryPoolStats: dispatch<getFunctionMeta(F::BackendQueryPoolStats), &PoolHttpConnection::onBackendQueryPoolStats>(); break;
+      case F::InstanceEnumerateAll: dispatchEmpty<getFunctionMeta(F::InstanceEnumerateAll), &PoolHttpConnection::onInstanceEnumerateAll>(); break;
+      case F::UserAction: dispatch<getFunctionMeta(F::UserAction), &PoolHttpConnection::onUserAction>(); break;
+      case F::UserChangeEmail: dispatchEmpty<getFunctionMeta(F::UserChangeEmail), &PoolHttpConnection::onUserChangeEmail>(); break;
+      case F::UserChangePasswordForce: dispatch<getFunctionMeta(F::UserChangePasswordForce), &PoolHttpConnection::onUserChangePasswordForce>(); break;
+      case F::UserChangePasswordInitiate: dispatch<getFunctionMeta(F::UserChangePasswordInitiate), &PoolHttpConnection::onUserChangePasswordInitiate>(); break;
+      case F::UserCreate: dispatch<getFunctionMeta(F::UserCreate), &PoolHttpConnection::onUserCreate>(); break;
+      case F::UserLogin: dispatch<getFunctionMeta(F::UserLogin), &PoolHttpConnection::onUserLogin>(); break;
+      case F::UserResendEmail: dispatch<getFunctionMeta(F::UserResendEmail), &PoolHttpConnection::onUserResendEmail>(); break;
       // Backend
-      case fnBackendPoolLuck: dispatch<&PoolHttpConnection::onBackendPoolLuck>(); break;
-      case fnBackendQueryFoundBlocks: dispatch<&PoolHttpConnection::onBackendQueryFoundBlocks>(); break;
+      case F::BackendPoolLuck: dispatch<getFunctionMeta(F::BackendPoolLuck), &PoolHttpConnection::onBackendPoolLuck>(); break;
+      case F::BackendQueryFoundBlocks: dispatch<getFunctionMeta(F::BackendQueryFoundBlocks), &PoolHttpConnection::onBackendQueryFoundBlocks>(); break;
       // Statistic
-      case fnBackendQueryPoolStatsHistory: dispatch<&PoolHttpConnection::onBackendQueryPoolStatsHistory>(); break;
+      case F::BackendQueryPoolStatsHistory: dispatch<getFunctionMeta(F::BackendQueryPoolStatsHistory), &PoolHttpConnection::onBackendQueryPoolStatsHistory>(); break;
       // Session
-      case fnBackendQueryProfitSwitchCoeff: dispatch<&PoolHttpConnection::onBackendQueryProfitSwitchCoeff>(); break;
-      case fnBackendQueryUserBalance: dispatch<&PoolHttpConnection::onBackendQueryUserBalance>(); break;
-      case fnComplexMiningStatsGetInfo: dispatch<&PoolHttpConnection::onComplexMiningStatsGetInfo>(); break;
-      case fnUserActivate2faInitiate: dispatch<&PoolHttpConnection::onUserActivate2faInitiate>(); break;
-      case fnUserChangeFeePlan: dispatch<&PoolHttpConnection::onUserChangeFeePlan>(); break;
-      case fnUserCreateFeePlan: dispatch<&PoolHttpConnection::onUserCreateFeePlan>(); break;
-      case fnUserCreateForce: dispatch<&PoolHttpConnection::onUserCreateForce>(); break;
-      case fnUserDeactivate2faInitiate: dispatch<&PoolHttpConnection::onUserDeactivate2faInitiate>(); break;
-      case fnUserDeleteFeePlan: dispatch<&PoolHttpConnection::onUserDeleteFeePlan>(); break;
-      case fnUserEnumerateFeePlan: dispatch<&PoolHttpConnection::onUserEnumerateFeePlan>(); break;
-      case fnUserGetCredentials: dispatch<&PoolHttpConnection::onUserGetCredentials>(); break;
-      case fnUserGetSettings: dispatch<&PoolHttpConnection::onUserGetSettings>(); break;
-      case fnUserLogout: dispatch<&PoolHttpConnection::onUserLogout>(); break;
-      case fnUserQueryFeePlan: dispatch<&PoolHttpConnection::onUserQueryFeePlan>(); break;
-      case fnUserQueryMonitoringSession: dispatch<&PoolHttpConnection::onUserQueryMonitoringSession>(); break;
-      case fnUserRenewFeePlanReferralId: dispatch<&PoolHttpConnection::onUserRenewFeePlanReferralId>(); break;
-      case fnUserUpdateCredentials: dispatch<&PoolHttpConnection::onUserUpdateCredentials>(); break;
-      case fnUserUpdateFeePlan: dispatch<&PoolHttpConnection::onUserUpdateFeePlan>(); break;
-      case fnUserUpdateSettings: dispatch<&PoolHttpConnection::onUserUpdateSettings>(); break;
+      case F::BackendQueryProfitSwitchCoeff: dispatch<getFunctionMeta(F::BackendQueryProfitSwitchCoeff), &PoolHttpConnection::onBackendQueryProfitSwitchCoeff>(); break;
+      case F::BackendQueryUserBalance: dispatch<getFunctionMeta(F::BackendQueryUserBalance), &PoolHttpConnection::onBackendQueryUserBalance>(); break;
+      case F::ComplexMiningStatsGetInfo: dispatch<getFunctionMeta(F::ComplexMiningStatsGetInfo), &PoolHttpConnection::onComplexMiningStatsGetInfo>(); break;
+      case F::UserActivate2faInitiate: dispatch<getFunctionMeta(F::UserActivate2faInitiate), &PoolHttpConnection::onUserActivate2faInitiate>(); break;
+      case F::UserChangeFeePlan: dispatch<getFunctionMeta(F::UserChangeFeePlan), &PoolHttpConnection::onUserChangeFeePlan>(); break;
+      case F::UserCreateFeePlan: dispatch<getFunctionMeta(F::UserCreateFeePlan), &PoolHttpConnection::onUserCreateFeePlan>(); break;
+      case F::UserCreateForce: dispatch<getFunctionMeta(F::UserCreateForce), &PoolHttpConnection::onUserCreateForce>(); break;
+      case F::UserDeactivate2faInitiate: dispatch<getFunctionMeta(F::UserDeactivate2faInitiate), &PoolHttpConnection::onUserDeactivate2faInitiate>(); break;
+      case F::UserDeleteFeePlan: dispatch<getFunctionMeta(F::UserDeleteFeePlan), &PoolHttpConnection::onUserDeleteFeePlan>(); break;
+      case F::UserEnumerateFeePlan: dispatch<getFunctionMeta(F::UserEnumerateFeePlan), &PoolHttpConnection::onUserEnumerateFeePlan>(); break;
+      case F::UserGetCredentials: dispatch<getFunctionMeta(F::UserGetCredentials), &PoolHttpConnection::onUserGetCredentials>(); break;
+      case F::UserGetSettings: dispatch<getFunctionMeta(F::UserGetSettings), &PoolHttpConnection::onUserGetSettings>(); break;
+      case F::UserLogout: dispatch<getFunctionMeta(F::UserLogout), &PoolHttpConnection::onUserLogout>(); break;
+      case F::UserQueryFeePlan: dispatch<getFunctionMeta(F::UserQueryFeePlan), &PoolHttpConnection::onUserQueryFeePlan>(); break;
+      case F::UserQueryMonitoringSession: dispatch<getFunctionMeta(F::UserQueryMonitoringSession), &PoolHttpConnection::onUserQueryMonitoringSession>(); break;
+      case F::UserRenewFeePlanReferralId: dispatch<getFunctionMeta(F::UserRenewFeePlanReferralId), &PoolHttpConnection::onUserRenewFeePlanReferralId>(); break;
+      case F::UserUpdateCredentials: dispatch<getFunctionMeta(F::UserUpdateCredentials), &PoolHttpConnection::onUserUpdateCredentials>(); break;
+      case F::UserUpdateFeePlan: dispatch<getFunctionMeta(F::UserUpdateFeePlan), &PoolHttpConnection::onUserUpdateFeePlan>(); break;
+      case F::UserUpdateSettings: dispatch<getFunctionMeta(F::UserUpdateSettings), &PoolHttpConnection::onUserUpdateSettings>(); break;
       // Session + Statistic
-      case fnBackendQueryUserStats: dispatch<&PoolHttpConnection::onBackendQueryUserStats>(); break;
-      case fnBackendQueryUserStatsHistory: dispatch<&PoolHttpConnection::onBackendQueryUserStatsHistory>(); break;
-      case fnBackendQueryWorkerStatsHistory: dispatch<&PoolHttpConnection::onBackendQueryWorkerStatsHistory>(); break;
-      case fnUserEnumerateAll: dispatch<&PoolHttpConnection::onUserEnumerateAll>(); break;
+      case F::BackendQueryUserStats: dispatch<getFunctionMeta(F::BackendQueryUserStats), &PoolHttpConnection::onBackendQueryUserStats>(); break;
+      case F::BackendQueryUserStatsHistory: dispatch<getFunctionMeta(F::BackendQueryUserStatsHistory), &PoolHttpConnection::onBackendQueryUserStatsHistory>(); break;
+      case F::BackendQueryWorkerStatsHistory: dispatch<getFunctionMeta(F::BackendQueryWorkerStatsHistory), &PoolHttpConnection::onBackendQueryWorkerStatsHistory>(); break;
+      case F::UserEnumerateAll: dispatch<getFunctionMeta(F::UserEnumerateAll), &PoolHttpConnection::onUserEnumerateAll>(); break;
       // Session + Backend
-      case fnBackendGetConfig: dispatch<&PoolHttpConnection::onBackendGetConfig>(); break;
-      case fnBackendGetPPSState: dispatch<&PoolHttpConnection::onBackendGetPPSState>(); break;
-      case fnBackendManualPayout: dispatch<&PoolHttpConnection::onBackendManualPayout>(); break;
-      case fnBackendQueryPayouts: dispatch<&PoolHttpConnection::onBackendQueryPayouts>(); break;
-      case fnBackendQueryPPLNSAcc: dispatch<&PoolHttpConnection::onBackendQueryPPLNSAcc>(); break;
-      case fnBackendQueryPPLNSPayouts: dispatch<&PoolHttpConnection::onBackendQueryPPLNSPayouts>(); break;
-      case fnBackendQueryPPSHistory: dispatch<&PoolHttpConnection::onBackendQueryPPSHistory>(); break;
-      case fnBackendQueryPPSPayouts: dispatch<&PoolHttpConnection::onBackendQueryPPSPayouts>(); break;
-      case fnBackendQueryPPSPayoutsAcc: dispatch<&PoolHttpConnection::onBackendQueryPPSPayoutsAcc>(); break;
-      case fnBackendUpdateConfig: dispatch<&PoolHttpConnection::onBackendUpdateConfig>(); break;
-      case fnBackendUpdateProfitSwitchCoeff: dispatch<&PoolHttpConnection::onBackendUpdateProfitSwitchCoeff>(); break;
-      case fnUserAdjustInstantPayoutThreshold: dispatch<&PoolHttpConnection::onUserAdjustInstantPayoutThreshold>(); break;
-      default:
-        reply404();
-        return 0;
+      case F::BackendGetConfig: dispatch<getFunctionMeta(F::BackendGetConfig), &PoolHttpConnection::onBackendGetConfig>(); break;
+      case F::BackendGetPPSState: dispatch<getFunctionMeta(F::BackendGetPPSState), &PoolHttpConnection::onBackendGetPPSState>(); break;
+      case F::BackendManualPayout: dispatch<getFunctionMeta(F::BackendManualPayout), &PoolHttpConnection::onBackendManualPayout>(); break;
+      case F::BackendQueryPayouts: dispatch<getFunctionMeta(F::BackendQueryPayouts), &PoolHttpConnection::onBackendQueryPayouts>(); break;
+      case F::BackendQueryPPLNSAcc: dispatch<getFunctionMeta(F::BackendQueryPPLNSAcc), &PoolHttpConnection::onBackendQueryPPLNSAcc>(); break;
+      case F::BackendQueryPPLNSPayouts: dispatch<getFunctionMeta(F::BackendQueryPPLNSPayouts), &PoolHttpConnection::onBackendQueryPPLNSPayouts>(); break;
+      case F::BackendQueryPPSHistory: dispatch<getFunctionMeta(F::BackendQueryPPSHistory), &PoolHttpConnection::onBackendQueryPPSHistory>(); break;
+      case F::BackendQueryPPSPayouts: dispatch<getFunctionMeta(F::BackendQueryPPSPayouts), &PoolHttpConnection::onBackendQueryPPSPayouts>(); break;
+      case F::BackendQueryPPSPayoutsAcc: dispatch<getFunctionMeta(F::BackendQueryPPSPayoutsAcc), &PoolHttpConnection::onBackendQueryPPSPayoutsAcc>(); break;
+      case F::BackendUpdateConfig: dispatch<getFunctionMeta(F::BackendUpdateConfig), &PoolHttpConnection::onBackendUpdateConfig>(); break;
+      case F::BackendUpdateProfitSwitchCoeff: dispatch<getFunctionMeta(F::BackendUpdateProfitSwitchCoeff), &PoolHttpConnection::onBackendUpdateProfitSwitchCoeff>(); break;
+      case F::UserAdjustInstantPayoutThreshold: dispatch<getFunctionMeta(F::UserAdjustInstantPayoutThreshold), &PoolHttpConnection::onUserAdjustInstantPayoutThreshold>(); break;
     }
   }
 
@@ -1420,83 +1428,44 @@ void PoolHttpConnection::onBackendGetConfig(const CBackendGetConfigRequest&, con
   CBackendSettings settings = backend.accountingDb()->backendSettings();
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
 
+  CBackendGetConfigResponse resp;
+  resp.Status = "ok";
+  resp.Pps = settings.PPSConfig;
+  resp.Payouts = settings.PayoutConfig;
+  resp.Swap = settings.SwapConfig;
+  for (const char *name : ESaturationFunctionNames())
+    resp.SaturationFunctions.emplace_back(name);
+
   xmstream stream;
   reply200(stream);
   size_t offset = startChunk(stream);
-  {
-    JSON::Object response(stream);
-    response.addString("status", "ok");
-    response.addField("pps");
-    {
-      JSON::Object pps(stream);
-      pps.addBoolean("enabled", settings.PPSConfig.Enabled);
-      pps.addDouble("poolFee", settings.PPSConfig.PoolFee);
-      pps.addString(
-        "saturationFunction",
-        ESaturationFunctionToString(settings.PPSConfig.SaturationFunction));
-      pps.addDouble("saturationB0", settings.PPSConfig.SaturationB0);
-      pps.addDouble("saturationANegative", settings.PPSConfig.SaturationANegative);
-      pps.addDouble("saturationAPositive", settings.PPSConfig.SaturationAPositive);
-      pps.addField("saturationFunctions");
-      {
-        JSON::Array arr(stream);
-        for (const char *name : ESaturationFunctionNames())
-          arr.addString(name);
-      }
-    }
-    response.addField("payouts");
-    stream.write(settings.PayoutConfig.serialize(fractionalPartSize));
-    response.addField("swap");
-    {
-      JSON::Object swap(stream);
-      swap.addBoolean("acceptIncoming", settings.SwapConfig.AcceptIncoming);
-      swap.addBoolean("acceptOutgoing", settings.SwapConfig.AcceptOutgoing);
-    }
-  }
-
+  stream.write(resp.serialize(fractionalPartSize));
   finishChunk(stream, offset);
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }
 
-static void serializePPSState(xmstream &stream, const CPPSState &pps, unsigned fractionalPartSize)
+CHttpPPSState::CHttpPPSState(const CPPSState &pps, unsigned fractionalPartSize)
 {
   const auto &reward = pps.LastBaseBlockReward;
-  JSON::Object obj(stream);
-  obj.addInt("time", pps.Time.toUnixTime());
-  obj.addField("balance");
-  {
-    JSON::Object balanceObj(stream);
-    balanceObj.addString("value", FormatMoney(pps.Balance, fractionalPartSize));
-    balanceObj.addDouble("inBlocks", CPPSState::balanceInBlocks(pps.Balance, reward));
-  }
-  obj.addField("refBalance");
-  {
-    JSON::Object refObj(stream);
-    refObj.addString("value", FormatMoney(pps.ReferenceBalance, fractionalPartSize));
-    refObj.addDouble("inBlocks", CPPSState::balanceInBlocks(pps.ReferenceBalance, reward));
-    refObj.addDouble("sqLambda", CPPSState::sqLambda(pps.ReferenceBalance, reward, pps.TotalBlocksFound));
-  }
-  obj.addField("minRefBalance");
-  {
-    JSON::Object minObj(stream);
-    minObj.addInt("time", pps.Min.Time.toUnixTime());
-    minObj.addString("value", FormatMoney(pps.Min.Balance, fractionalPartSize));
-    minObj.addDouble("inBlocks", CPPSState::balanceInBlocks(pps.Min.Balance, reward));
-    minObj.addDouble("sqLambda", CPPSState::sqLambda(pps.Min.Balance, reward, pps.Min.TotalBlocksFound));
-  }
-  obj.addField("maxRefBalance");
-  {
-    JSON::Object maxObj(stream);
-    maxObj.addInt("time", pps.Max.Time.toUnixTime());
-    maxObj.addString("value", FormatMoney(pps.Max.Balance, fractionalPartSize));
-    maxObj.addDouble("inBlocks", CPPSState::balanceInBlocks(pps.Max.Balance, reward));
-    maxObj.addDouble("sqLambda", CPPSState::sqLambda(pps.Max.Balance, reward, pps.Max.TotalBlocksFound));
-  }
-  obj.addDouble("totalBlocksFound", pps.TotalBlocksFound);
-  obj.addDouble("orphanBlocks", pps.OrphanBlocks);
-  obj.addDouble("lastSaturateCoeff", pps.LastSaturateCoeff);
-  obj.addString("lastBaseBlockReward", FormatMoney(pps.LastBaseBlockReward, fractionalPartSize));
-  obj.addString("lastAverageTxFee", FormatMoney(pps.LastAverageTxFee, fractionalPartSize));
+  Time = pps.Time.toUnixTime();
+  Balance.Value = FormatMoney(pps.Balance, fractionalPartSize);
+  Balance.InBlocks = CPPSState::balanceInBlocks(pps.Balance, reward);
+  RefBalance.Value = FormatMoney(pps.ReferenceBalance, fractionalPartSize);
+  RefBalance.InBlocks = CPPSState::balanceInBlocks(pps.ReferenceBalance, reward);
+  RefBalance.SqLambda = CPPSState::sqLambda(pps.ReferenceBalance, reward, pps.TotalBlocksFound);
+  MinRefBalance.Time = pps.Min.Time.toUnixTime();
+  MinRefBalance.Value = FormatMoney(pps.Min.Balance, fractionalPartSize);
+  MinRefBalance.InBlocks = CPPSState::balanceInBlocks(pps.Min.Balance, reward);
+  MinRefBalance.SqLambda = CPPSState::sqLambda(pps.Min.Balance, reward, pps.Min.TotalBlocksFound);
+  MaxRefBalance.Time = pps.Max.Time.toUnixTime();
+  MaxRefBalance.Value = FormatMoney(pps.Max.Balance, fractionalPartSize);
+  MaxRefBalance.InBlocks = CPPSState::balanceInBlocks(pps.Max.Balance, reward);
+  MaxRefBalance.SqLambda = CPPSState::sqLambda(pps.Max.Balance, reward, pps.Max.TotalBlocksFound);
+  TotalBlocksFound = pps.TotalBlocksFound;
+  OrphanBlocks = pps.OrphanBlocks;
+  LastSaturateCoeff = pps.LastSaturateCoeff;
+  LastBaseBlockReward = FormatMoney(pps.LastBaseBlockReward, fractionalPartSize);
+  LastAverageTxFee = FormatMoney(pps.LastAverageTxFee, fractionalPartSize);
 }
 
 void PoolHttpConnection::onBackendGetPPSState(const CBackendGetPPSStateRequest&, const UserManager::UserWithAccessRights&, PoolBackend &backend)
@@ -1504,15 +1473,14 @@ void PoolHttpConnection::onBackendGetPPSState(const CBackendGetPPSStateRequest&,
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   backend.accountingDb()->queryPPSState([this, fractionalPartSize](const CPPSState &pps) {
+    CBackendGetPPSStateResponse resp;
+    resp.Status = "ok";
+    resp.State = CHttpPPSState(pps, fractionalPartSize);
+
     xmstream stream;
     reply200(stream);
     size_t offset = startChunk(stream);
-    {
-      JSON::Object response(stream);
-      response.addString("status", "ok");
-      response.addField("state");
-      serializePPSState(stream, pps, fractionalPartSize);
-    }
+    stream.write(resp.serialize());
     finishChunk(stream, offset);
     aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
@@ -1524,21 +1492,15 @@ void PoolHttpConnection::onBackendQueryPPSHistory(const CBackendQueryPPSHistoryR
   unsigned fractionalPartSize = backend.getCoinInfo().FractionalPartSize;
   auto result = backend.accountingDb()->api().queryPPSHistory(request.TimeFrom, request.TimeTo);
 
+  CBackendQueryPPSHistoryResponse resp;
+  resp.Status = "ok";
+  for (const auto &pps : result)
+    resp.History.emplace_back(pps, fractionalPartSize);
+
   xmstream stream;
   reply200(stream);
   size_t offset = startChunk(stream);
-  {
-    JSON::Object response(stream);
-    response.addString("status", "ok");
-    response.addField("history");
-    {
-      JSON::Array arr(stream);
-      for (const auto &pps : result) {
-        arr.addField();
-        serializePPSState(stream, pps, fractionalPartSize);
-      }
-    }
-  }
+  stream.write(resp.serialize());
   finishChunk(stream, offset);
   aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
 }

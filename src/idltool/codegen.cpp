@@ -13,10 +13,11 @@
 
 // Per-field capture info: how a field participates in context capture
 struct CFieldCaptureInfo {
-  enum Kind { None, MappedDirect, NestedStruct };
+  enum Kind { None, MappedDirect, MappedInline, NestedStruct };
   Kind kind = None;
   std::string CaptureFieldName;  // field name in the Capture struct
-  std::string MappedTypeName;    // for MappedDirect: which mapped type (for resolve/format function names)
+  std::string MappedTypeName;    // for MappedDirect/MappedInline: which mapped type (for resolve/format function names)
+  std::string MappedWireType;    // for MappedInline: JSON wire type (e.g. "int64", "string")
 };
 
 // Per-struct context analysis result
@@ -82,6 +83,20 @@ static CContextAnalysis analyzeContext(const CStructDef &s, bool pascalCase,
     }
   }
 
+  // Mark context-free mapped fields (inline resolve/format, no capture needed)
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    auto &f = s.Fields[i];
+    if (f.Type.IsMapped && a.FieldCapture[i].kind == CFieldCaptureInfo::None) {
+      auto it = mappedTypes.find(f.Type.RefName);
+      if (it != mappedTypes.end() && !it->second->ContextType) {
+        a.FieldCapture[i].kind = CFieldCaptureInfo::MappedInline;
+        a.FieldCapture[i].CaptureFieldName = fieldCppName(f.Name, pascalCase);
+        a.FieldCapture[i].MappedTypeName = f.Type.RefName;
+        a.FieldCapture[i].MappedWireType = it->second->JsonWireType;
+      }
+    }
+  }
+
   // Check nested struct/array fields for context propagation
   for (size_t i = 0; i < s.Fields.size(); i++) {
     auto &f = s.Fields[i];
@@ -99,6 +114,24 @@ static CContextAnalysis analyzeContext(const CStructDef &s, bool pascalCase,
   }
 
   return a;
+}
+
+// Wire type info for context-free mapped types
+struct WireTypeInfo {
+  const char *readMethod;  // JsonScanner method
+  const char *writeFunc;   // jsonWrite* function
+  const char *cppType;     // C++ wire type
+};
+
+static WireTypeInfo getWireTypeInfo(const std::string &wireType) {
+  if (wireType == "string") return {"readStringValue", "jsonWriteString", "std::string"};
+  if (wireType == "int64")  return {"readInt64", "jsonWriteInt", "int64_t"};
+  if (wireType == "uint64") return {"readUInt64", "jsonWriteInt", "uint64_t"};
+  if (wireType == "int32")  return {"readInt32", "jsonWriteInt", "int32_t"};
+  if (wireType == "uint32") return {"readUInt32", "jsonWriteInt", "uint32_t"};
+  if (wireType == "double") return {"readDouble", "jsonWriteDouble", "double"};
+  if (wireType == "bool")   return {"readBool", "jsonWriteBool", "bool"};
+  return {"readStringValue", "jsonWriteString", "std::string"};
 }
 
 // ============================================================================
@@ -121,6 +154,14 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
         out += std::format("{}  else found |= (uint64_t)1 << {};\n", in, foundBit);
       out += std::format("{}}} else {{\n", in);
       out += std::format("{}  if (!s.skipValue()) valid = false;\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}  else found |= (uint64_t)1 << {};\n", in, foundBit);
+      out += std::format("{}}}\n", in);
+    } else if (ci && ci->kind == CFieldCaptureInfo::MappedInline) {
+      auto wi = getWireTypeInfo(ci->MappedWireType);
+      std::string resolveFunc = "__" + ci->MappedTypeName + "Resolve";
+      out += std::format("{}{{ {} _tmp; if (!s.{}(_tmp) || !{}(_tmp, {})) valid = false;\n",
+                         in, wi.cppType, wi.readMethod, resolveFunc, cn);
       if (foundBit >= 0)
         out += std::format("{}  else found |= (uint64_t)1 << {};\n", in, foundBit);
       out += std::format("{}}}\n", in);
@@ -211,7 +252,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
         CFieldDef tmp = f;
         tmp.Name = std::format("(*{})", cn);
         tmp.Kind = EFieldKind::Required;
-        generateParseScalar(out, tmp, enumNames, -1, ind + 1, false);
+        generateParseScalar(out, tmp, enumNames, -1, ind + 1, false, (isMappedField(f) && ci) ? ci : nullptr);
         out += std::format("{}}}\n", in);
       }
       break;
@@ -398,16 +439,17 @@ static void generateStructDecl(std::string &out, const CStructDef &s,
 
   out += std::format("struct {} {{\n", sn);
 
-  // Nested Capture struct and context type aliases
-  if (ca.hasContext()) {
-    out += "  struct Capture {\n";
+  // Capture struct (empty for non-context structs)
+  out += "  struct Capture {\n";
+  if (ca.hasContext())
     generateCaptureFields(out, s, ca, opts);
-    out += "  };\n\n";
+  out += "  };\n";
 
+  if (ca.hasContext()) {
     for (auto &n : ca.Needs)
       out += std::format("  using {}Context = {};\n", capitalizeFirst(n.MappedTypeName), n.CppContextType);
-    out += "\n";
   }
+  out += "\n";
 
   // Fields
   for (auto &f : s.Fields) {
@@ -422,24 +464,23 @@ static void generateStructDecl(std::string &out, const CStructDef &s,
 
   out += "\n";
 
-  // Standard methods
-  out += "  bool parse(const char *buf, size_t bufSize);\n";
-  out += "  bool parseImpl(JsonScanner &s);\n";
-  if (opts.VerboseMode) {
-    out += "  bool parseVerbose(const char *buf, size_t bufSize, ParseError &error);\n";
-    out += "  bool parseVerboseImpl(VerboseJsonScanner &s);\n";
-  }
-  out += "  std::string serialize() const;\n";
-  out += "  void serializeImpl(std::string &out) const;\n";
-
-  // Context-aware methods
+  // Parse/serialize methods
   if (ca.hasContext()) {
     std::string ctxParams = ca.contextParams();
-    out += std::format("\n  bool parse(const char *buf, size_t bufSize, Capture &capture);\n");
-    out += std::format("  bool parseImpl(JsonScanner &s, Capture *capture);\n");
+    out += "  bool parse(const char *buf, size_t bufSize, Capture &capture);\n";
+    out += "  bool parseImpl(JsonScanner &s, Capture *capture);\n";
     out += std::format("  static bool resolve({} &out, const Capture &capture, {});\n", sn, ctxParams);
     out += std::format("  std::string serialize({}) const;\n", ctxParams);
     out += std::format("  void serializeImpl(std::string &out, {}) const;\n", ctxParams);
+  } else {
+    out += "  bool parse(const char *buf, size_t bufSize);\n";
+    out += "  bool parseImpl(JsonScanner &s);\n";
+    out += "  std::string serialize() const;\n";
+    out += "  void serializeImpl(std::string &out) const;\n";
+    if (opts.VerboseMode) {
+      out += "  bool parseVerbose(const char *buf, size_t bufSize, ParseError &error);\n";
+      out += "  bool parseVerboseImpl(VerboseJsonScanner &s);\n";
+    }
   }
 
   // Tagged schema
@@ -455,6 +496,21 @@ static void generateStructDecl(std::string &out, const CStructDef &s,
     }
     out += "\n    );\n";
     out += "  }\n";
+  }
+
+  // Embedded C++ code
+  for (auto &code : s.CppBlocks) {
+    out += "\n";
+    // Indent each line by 2 spaces
+    size_t pos = 0;
+    while (pos < code.size()) {
+      size_t eol = code.find('\n', pos);
+      if (eol == std::string::npos) eol = code.size();
+      out += "  ";
+      out.append(code, pos, eol - pos);
+      out += "\n";
+      pos = eol + 1;
+    }
   }
 
   out += "};\n\n";
@@ -521,6 +577,62 @@ static void generateResolveImpl(std::string &out, const CStructDef &s,
 
   out += "  return true;\n";
   out += "}\n\n";
+}
+
+// Serialize a context-free mapped field using its format function
+static void emitMappedInlineSerialize(std::string &out, const CFieldDef &f,
+    const CFieldCaptureInfo &fci, int ind, bool &first, bool pascalCase)
+{
+  std::string in = indent(ind);
+  std::string cn = fieldCppName(f.Name, pascalCase);
+  auto wi = getWireTypeInfo(fci.MappedWireType);
+  std::string formatFunc = "__" + fci.MappedTypeName + "Format";
+
+  auto emitKey = [&](const std::string &jsonKey) {
+    if (!first)
+      out += std::format("{}out += ',';\n", in);
+    first = false;
+    out += std::format("{}out += \"\\\"{}\\\":\";\n", in, jsonKey);
+  };
+
+  switch (f.Kind) {
+    case EFieldKind::Required:
+    case EFieldKind::Optional:
+      emitKey(f.Name);
+      out += std::format("{}{}(out, {}({}));\n", in, wi.writeFunc, formatFunc, cn);
+      break;
+    case EFieldKind::OptionalObject:
+      out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      if (!first)
+        out += std::format("{}  out += ',';\n", in);
+      out += std::format("{}  out += \"\\\"{}\\\":\";\n", in, f.Name);
+      out += std::format("{}  {}(out, {}(*{}));\n", in, wi.writeFunc, formatFunc, cn);
+      first = false;
+      out += std::format("{}}}\n", in);
+      break;
+    case EFieldKind::Array:
+      emitKey(f.Name);
+      out += std::format("{}out += '[';\n", in);
+      out += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
+      out += std::format("{}  if (i_) out += ',';\n", in);
+      out += std::format("{}  {}(out, {}({}[i_]));\n", in, wi.writeFunc, formatFunc, cn);
+      out += std::format("{}}}\n", in);
+      out += std::format("{}out += ']';\n", in);
+      break;
+    case EFieldKind::OptionalArray:
+      out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      if (!first)
+        out += std::format("{}  out += ',';\n", in);
+      out += std::format("{}  out += \"\\\"{}\\\":[\";\n", in, f.Name);
+      out += std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn);
+      out += std::format("{}    if (i_) out += ',';\n", in);
+      out += std::format("{}    {}(out, {}((*{})[i_]));\n", in, wi.writeFunc, formatFunc, cn);
+      out += std::format("{}  }}\n", in);
+      out += std::format("{}  out += ']';\n", in);
+      first = false;
+      out += std::format("{}}}\n", in);
+      break;
+  }
 }
 
 // Generate the context-aware serialize body
@@ -598,8 +710,11 @@ static void generateContextSerializeBody(std::string &out, const CStructDef &s,
       continue;
     }
 
-    // Regular field — use standard serialize helper
-    generateSerializeField(out, f, enumNames, 1, first, opts.PascalCaseFields);
+    // Regular field or context-free mapped field
+    if (ci.kind == CFieldCaptureInfo::MappedInline)
+      emitMappedInlineSerialize(out, f, ci, 1, first, opts.PascalCaseFields);
+    else
+      generateSerializeField(out, f, enumNames, 1, first, opts.PascalCaseFields);
   }
 }
 
@@ -647,32 +762,25 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     if (isRequired(s.Fields[i].Kind))
       fieldBitMap[i] = bitIndex++;
 
-  // --- parse() ---
-  out += std::format("bool {}::parse(const char *buf, size_t bufSize) {{\n", sn);
-  out += "  JsonScanner s{buf, buf + bufSize};\n";
-  if (hasCtx)
-    out += "  return parseImpl(s, nullptr);\n";
-  else
-    out += "  return parseImpl(s);\n";
-  out += "}\n\n";
-
-  // --- parseImpl(s) ---
   if (hasCtx) {
-    out += std::format("bool {}::parseImpl(JsonScanner &s) {{\n", sn);
-    out += "  return parseImpl(s, nullptr);\n";
+    // --- parse(buf, bufSize, capture) ---
+    out += std::format("bool {}::parse(const char *buf, size_t bufSize, Capture &capture) {{\n", sn);
+    out += "  JsonScanner s{buf, buf + bufSize};\n";
+    out += "  return parseImpl(s, &capture);\n";
     out += "}\n\n";
 
     // --- parseImpl(s, capture) ---
     out += std::format("bool {}::parseImpl(JsonScanner &s, Capture *capture) {{\n", sn);
     generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
     out += "}\n\n";
-
-    // --- parse(buf, bufSize, capture) ---
-    out += std::format("bool {}::parse(const char *buf, size_t bufSize, Capture &capture) {{\n", sn);
-    out += "  JsonScanner s{buf, buf + bufSize};\n";
-    out += "  return parseImpl(s, &capture);\n";
-    out += "}\n\n";
   } else {
+    // --- parse(buf, bufSize) ---
+    out += std::format("bool {}::parse(const char *buf, size_t bufSize) {{\n", sn);
+    out += "  JsonScanner s{buf, buf + bufSize};\n";
+    out += "  return parseImpl(s);\n";
+    out += "}\n\n";
+
+    // --- parseImpl(s) ---
     out += std::format("bool {}::parseImpl(JsonScanner &s) {{\n", sn);
     generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount);
     out += "}\n\n";
@@ -765,26 +873,8 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
   if (hasCtx)
     generateResolveImpl(out, s, ca, enumNames, opts);
 
-  // --- serialize() ---
-  out += std::format("std::string {}::serialize() const {{\n", sn);
-  out += "  std::string out;\n";
-  out += "  serializeImpl(out);\n";
-  out += "  return out;\n";
-  out += "}\n\n";
-
-  // --- serializeImpl() --- standard (mapped fields → empty string)
-  out += std::format("void {}::serializeImpl(std::string &out) const {{\n", sn);
-  out += "  out += '{';\n";
-  {
-    bool first = true;
-    for (auto &f : s.Fields)
-      generateSerializeField(out, f, enumNames, 1, first, opts.PascalCaseFields);
-  }
-  out += "  out += '}';\n";
-  out += "}\n\n";
-
-  // --- serialize(ctx) / serializeImpl(out, ctx) --- context-aware
   if (hasCtx) {
+    // Context-aware serialize only
     std::string ctxParams = ca.contextParams();
     std::string ctxArgs = ca.contextArgs();
 
@@ -797,6 +887,30 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     out += std::format("void {}::serializeImpl(std::string &out, {}) const {{\n", sn, ctxParams);
     out += "  out += '{';\n";
     generateContextSerializeBody(out, s, ca, enumNames, opts);
+    out += "  out += '}';\n";
+    out += "}\n\n";
+  } else {
+    // --- serialize() ---
+    out += std::format("std::string {}::serialize() const {{\n", sn);
+    out += "  std::string out;\n";
+    out += "  serializeImpl(out);\n";
+    out += "  return out;\n";
+    out += "}\n\n";
+
+    // --- serializeImpl() ---
+    out += std::format("void {}::serializeImpl(std::string &out) const {{\n", sn);
+    out += "  out += '{';\n";
+    {
+      bool first = true;
+      for (size_t i = 0; i < s.Fields.size(); i++) {
+        auto &fci = ca.FieldCapture[i];
+        if (fci.kind == CFieldCaptureInfo::MappedInline) {
+          emitMappedInlineSerialize(out, s.Fields[i], fci, 1, first, opts.PascalCaseFields);
+        } else {
+          generateSerializeField(out, s.Fields[i], enumNames, 1, first, opts.PascalCaseFields);
+        }
+      }
+    }
     out += "  out += '}';\n";
     out += "}\n\n";
   }

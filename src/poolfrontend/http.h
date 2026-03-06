@@ -4,6 +4,7 @@
 #include "poolcore/backend.h"
 #include "poolcore/complexMiningStats.h"
 #include "poolapi.idl.h"
+#include "httpFunctions.idl.h"
 #include <p2putils/HttpRequestParse.h>
 
 class CPriceFetcher;
@@ -18,6 +19,14 @@ public:
     }, this);
   }
   void run();
+
+  using FunctionTy = EHttpFunction;
+
+  struct FunctionMeta {
+    bool HasSession;
+    bool IsWrite;
+    bool IsSuperUser;
+  };
 
 private:
   static void readCb(AsyncOpStatus status, aioObject*, size_t size, void *arg) { static_cast<PoolHttpConnection*>(arg)->onRead(status, size); }
@@ -123,19 +132,26 @@ private:
     static constexpr bool NeedSession = true, NeedBackend = false, NeedStatistic = true;
   };
 
-  template<auto Fn>
+  template<FunctionMeta Meta, auto Fn>
   void dispatch() {
     using Traits = HandlerTraits<decltype(Fn)>;
     using T = typename Traits::Request;
     constexpr bool HasMoneyContext = requires { typename T::Capture; typename T::MoneyContext; };
 
-    assert(Context.Function->HasSession == Traits::NeedSession);
+    static_assert(Meta.HasSession == Traits::NeedSession,
+                  "handler session parameter must match function metadata");
     static_assert(!HasMoneyContext || Traits::NeedBackend || Traits::NeedStatistic,
                   "money context requires backend or statistic for coin info lookup");
 
     // Phase 1: Parse
     T req;
-    if constexpr (!Traits::NeedSession && !Traits::NeedBackend && !Traits::NeedStatistic) {
+    typename T::Capture capture;
+    if constexpr (HasMoneyContext) {
+      if (!req.parse(Context.Request.c_str(), Context.Request.size(), capture)) {
+        replyWithStatus("json_format_error");
+        return;
+      }
+    } else if constexpr (!Meta.HasSession && !Traits::NeedBackend && !Traits::NeedStatistic) {
       const char *data = !Context.Request.empty() ? Context.Request.c_str() : "{}";
       size_t size = !Context.Request.empty() ? Context.Request.size() : 2;
       if (!req.parse(data, size)) {
@@ -151,16 +167,16 @@ private:
 
     // Phase 2: Access control and backend/statistic lookup
     [[maybe_unused]] UserManager::UserWithAccessRights tokenInfo;
-    if constexpr (Traits::NeedSession) {
+    if constexpr (Meta.HasSession) {
       std::string targetLogin;
       if constexpr (requires { req.TargetLogin; })
         targetLogin = req.TargetLogin;
-      if (!userManager().validateSession(req.Id, targetLogin, tokenInfo, Context.Function->IsWrite)) {
+      if (!userManager().validateSession(req.Id, targetLogin, tokenInfo, Meta.IsWrite)) {
         replyWithStatus("unknown_id");
         return;
       }
-      if (Context.Function->IsSuperUser) {
-        if (Context.Function->IsWrite) {
+      if constexpr (Meta.IsSuperUser) {
+        if constexpr (Meta.IsWrite) {
           if (tokenInfo.Login != "admin") {
             replyWithStatus("unknown_id");
             return;
@@ -192,13 +208,8 @@ private:
       }
     }
 
-    // Phase 3: Resolve money context (coin already validated by backend/statistic lookup)
+    // Phase 3: Resolve money context
     if constexpr (HasMoneyContext) {
-      typename T::Capture capture;
-      if (!req.parse(Context.Request.c_str(), Context.Request.size(), capture)) {
-        replyWithStatus("json_format_error");
-        return;
-      }
       uint32_t frac;
       if constexpr (Traits::NeedBackend) frac = b->getCoinInfo().FractionalPartSize;
       else frac = st->getCoinInfo().FractionalPartSize;
@@ -223,8 +234,9 @@ private:
       (this->*Fn)(req);
   }
 
-  template<auto Fn>
+  template<FunctionMeta Meta, auto Fn>
   void dispatchEmpty() {
+    static_assert(!Meta.HasSession, "dispatchEmpty is only for plain public functions");
     if (!Context.Request.empty() && Context.Request != "{}") {
       replyWithStatus("json_format_error");
       return;
@@ -239,73 +251,6 @@ private:
     psResolved,
   };
 
-  enum FunctionTy {
-    // Backend functions
-    fnBackendGetConfig,
-    fnBackendGetPPSState,
-    fnBackendManualPayout,
-    fnBackendPoolLuck,
-    fnBackendQueryCoins,
-    fnBackendQueryFoundBlocks,
-    fnBackendQueryPayouts,
-    fnBackendQueryPoolBalance,
-    fnBackendQueryPoolStats,
-    fnBackendQueryPoolStatsHistory,
-    fnBackendQueryPPLNSAcc,
-    fnBackendQueryPPLNSPayouts,
-    fnBackendQueryPPSHistory,
-    fnBackendQueryPPSPayouts,
-    fnBackendQueryPPSPayoutsAcc,
-    fnBackendQueryProfitSwitchCoeff,
-    fnBackendQueryUserBalance,
-    fnBackendQueryUserStats,
-    fnBackendQueryUserStatsHistory,
-    fnBackendQueryWorkerStatsHistory,
-    fnBackendUpdateConfig,
-    fnBackendUpdateProfitSwitchCoeff,
-
-    // Complex mining stats functions
-    fnComplexMiningStatsGetInfo,
-
-    // Instance functions
-    fnInstanceEnumerateAll,
-
-    // User manager functions
-    fnUserAction,
-    fnUserActivate2faInitiate,
-    fnUserAdjustInstantPayoutThreshold,
-    fnUserChangeEmail,
-    fnUserChangeFeePlan,
-    fnUserChangePasswordForce,
-    fnUserChangePasswordInitiate,
-    fnUserCreate,
-    fnUserCreateFeePlan,
-    fnUserCreateForce,
-    fnUserDeactivate2faInitiate,
-    fnUserDeleteFeePlan,
-    fnUserEnumerateAll,
-    fnUserEnumerateFeePlan,
-    fnUserGetCredentials,
-    fnUserGetSettings,
-    fnUserLogin,
-    fnUserLogout,
-    fnUserQueryFeePlan,
-    fnUserQueryMonitoringSession,
-    fnUserRenewFeePlanReferralId,
-    fnUserResendEmail,
-    fnUserUpdateCredentials,
-    fnUserUpdateFeePlan,
-    fnUserUpdateSettings,
-  };
-
-  struct FunctionInfo {
-    FunctionTy Type;
-    bool HasSession;
-    bool IsWrite;
-    bool IsSuperUser;
-  };
-
-  static std::unordered_map<std::string, FunctionInfo> FunctionNameMap_;
 
   PoolHttpServer &Server_;
   aioObject *Socket_;
@@ -318,7 +263,7 @@ private:
   struct {
     int method = hmUnknown;
     ParseState parseState = psUnknown;
-    const FunctionInfo *Function = nullptr;
+    std::optional<FunctionTy> Function;
     std::string Request;
   } Context;
 };

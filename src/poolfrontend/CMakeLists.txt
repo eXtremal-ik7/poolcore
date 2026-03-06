@@ -6,13 +6,22 @@ add_custom_command(
 )
 add_custom_target(generate_poolapi_idl DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/poolapi.idl.h ${CMAKE_CURRENT_BINARY_DIR}/poolapi.idl.cpp)
 
+add_custom_command(
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/httpFunctions.idl.h ${CMAKE_CURRENT_BINARY_DIR}/httpFunctions.idl.cpp
+  COMMAND idltool ${CMAKE_CURRENT_SOURCE_DIR}/httpFunctions.idl -o ${CMAKE_CURRENT_BINARY_DIR}/httpFunctions.idl.h --pascal-case
+  DEPENDS idltool ${CMAKE_CURRENT_SOURCE_DIR}/httpFunctions.idl
+  COMMENT "Generating httpFunctions.idl.h and httpFunctions.idl.cpp"
+)
+add_custom_target(generate_httpFunctions_idl DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/httpFunctions.idl.h ${CMAKE_CURRENT_BINARY_DIR}/httpFunctions.idl.cpp)
+
 add_executable(poolfrontend
   main.cpp
   http.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/poolapi.idl.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/httpFunctions.idl.cpp
   ${GETOPT_SOURCES}
 )
-add_dependencies(poolfrontend generate_poolapi_idl)
+add_dependencies(poolfrontend generate_poolapi_idl generate_httpFunctions_idl)
 target_include_directories(poolfrontend PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
 target_link_whole_archive(poolfrontend ${POOLFRONTEND_EXTRAS})
 target_link_libraries(poolfrontend poolinstances ${LIBRARIES})

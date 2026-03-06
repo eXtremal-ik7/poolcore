@@ -49,6 +49,8 @@ void DbIo<CPPSState>::unserialize(xmstream &src, CPPSState &data)
 
 // CPPSState serialization methods
 
+std::string CPPSState::getPartitionId() const { return partByTime(Time.toUnixTime()); }
+
 void CPPSState::serializeKey(xmstream &stream) const
 {
   dbKeyIoSerialize(stream, Time);
@@ -56,13 +58,18 @@ void CPPSState::serializeKey(xmstream &stream) const
 
 void CPPSState::serializeValue(xmstream &stream) const
 {
+  dbIoSerialize(stream, static_cast<uint32_t>(CurrentRecordVersion));
   DbIo<CPPSState>::serialize(stream, *this);
 }
 
 bool CPPSState::deserializeValue(const void *data, size_t size)
 {
   xmstream stream(const_cast<void*>(data), size);
-  DbIo<CPPSState>::unserialize(stream, *this);
+  uint32_t version;
+  dbIoUnserialize(stream, version);
+  if (version == 1) {
+    DbIo<CPPSState>::unserialize(stream, *this);
+  }
   return !stream.eof();
 }
 

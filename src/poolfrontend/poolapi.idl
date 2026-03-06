@@ -632,21 +632,12 @@ struct BackendGetConfigRequest {
   coin: string;
 }
 
-struct PPSConfig {
-  enabled: bool;
-  poolFee: double;
-  saturationFunction: SaturationFunction;
-  saturationB0: double;
-  saturationANegative: double;
-  saturationAPositive: double;
-  saturationFunctions: [string];
-}
-
 struct BackendGetConfigResponse {
   status: string;
-  pps: PPSConfig;
+  pps: BackendPPS;
   payouts: BackendPayouts;
   swap: BackendSwap;
+  saturationFunctions: [string];
 }
 
 // --- backendUpdateConfig ---
@@ -693,6 +684,11 @@ struct HttpPPSState {
   lastSaturateCoeff: double;
   lastBaseBlockReward: string;
   lastAverageTxFee: string;
+
+  cpp {
+    CHttpPPSState() = default;
+    CHttpPPSState(const CPPSState &pps, unsigned fractionalPartSize);
+  }
 }
 
 struct BackendGetPPSStateResponse {

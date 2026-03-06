@@ -1,4 +1,5 @@
-mapped type money("UInt<384>") : string context(uint32) include "poolcommon/money.h";
+mapped type money("UInt<384>") : string context(uint32) include "poolcommon/mappedTypes.h";
+mapped type unixTime("Timestamp") : int64 include "poolcommon/mappedTypes.h";
 
 enum MiningMode : string {
   pplns,
@@ -60,4 +61,48 @@ struct BackendPayouts {
   regularMinimalPayout: money @5;
   regularPayoutInterval: chrono::hours = 24 @6;
   regularPayoutDayOffset: chrono::hours = 0 @7;
+}
+
+struct PPSBalanceSnapshot {
+  context money;
+  balance: money;
+  totalBlocksFound: double = 0.0;
+  time: unixTime;
+}
+
+struct PPSState {
+  context money;
+  // Pool-side PPS balance: increases when block found (PPS correction from PPLNS),
+  // decreases when PPS rewards are accrued to users.
+  // Can go negative — that's the pool's risk.
+  balance: money;
+  // Reference PPS balance: tracks pure PPS risk without pool fee profit.
+  // Increases by full block reward on block found, decreases by full share cost
+  // (before pool fee deduction). Used for saturation coefficient and min/max tracking.
+  referenceBalance: money;
+  // Base reward of the last known block (subsidy without tx fees, fixed-point 128.256)
+  lastBaseBlockReward: money;
+  // Fractional count of blocks found (only PPS portion of each block)
+  totalBlocksFound: double = 0.0;
+  // Fractional count of orphan blocks (PPS portion)
+  orphanBlocks: double = 0.0;
+  min: PPSBalanceSnapshot;
+  max: PPSBalanceSnapshot;
+  // Last applied saturation coefficient (1.0 = no correction)
+  lastSaturateCoeff: double = 1.0;
+  // Last average transaction fee per block (fixed-point 128.256)
+  lastAverageTxFee: money;
+  // Timestamp of this snapshot (used as kvdb key for history)
+  time: unixTime;
+
+  cpp {
+    enum { CurrentRecordVersion = 1 };
+    static double balanceInBlocks(const UInt<384> &balance, const UInt<384> &baseBlockReward);
+    static double sqLambda(const UInt<384> &balance, const UInt<384> &baseBlockReward, double totalBlocksFound);
+    void updateMinMax(Timestamp now);
+    std::string getPartitionId() const;
+    void serializeKey(class xmstream &stream) const;
+    void serializeValue(class xmstream &stream) const;
+    bool deserializeValue(const void *data, size_t size);
+  }
 }
