@@ -321,13 +321,26 @@ Returns per-coin mining and payout settings for a user.
   "coins": [
     {
       "name": "BTC",
-      "payout": { "mode": "enabled", "address": "1abc...", "instantPayoutThreshold": "0.1" },
-      "mining": { "mode": "PPLNS" },
-      "autoExchange": { "payoutCoinName": "" }
+      "payout": { "mode": "regular", "address": "1abc...", "instantPayoutThreshold": "0.1" },
+      "mining": { "mode": "pplns" },
+      "autoExchange": { "payoutCoinName": "" },
+      "pplnsFee": 1.0,
+      "ppsFee": 2.0
     }
   ]
 }
 ```
+
+Each coin object:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Coin name |
+| `payout` | object | `{mode, address, instantPayoutThreshold}` — mode: `"disabled"`, `"regular"`, `"instant"` |
+| `mining` | object | `{mode}` — `"pplns"` or `"pps"` |
+| `autoExchange` | object | `{payoutCoinName}` |
+| `pplnsFee` | double | Effective PPLNS fee percentage for this user |
+| `ppsFee` | double | Effective PPS fee percentage for this user |
 
 ---
 
@@ -343,8 +356,8 @@ Updates per-coin mining and payout settings. Requires TOTP for address changes i
 | `targetLogin` | string | no | `""` | Target user (admin only) |
 | `coin` | string | yes | | Coin name (e.g. "BTC") |
 | `totp` | string | no | `""` | 2FA code |
-| `payout` | object | no | | `{mode, address, instantPayoutThreshold}` |
-| `mining` | object | no | | `{mode}` — "PPLNS" or "PPS" |
+| `payout` | object | no | | `{mode, address, instantPayoutThreshold}` — mode: `"disabled"`, `"regular"`, `"instant"` |
+| `mining` | object | no | | `{mode}` — `"pplns"` or `"pps"` |
 | `autoExchange` | object | no | | `{payoutCoinName}` |
 
 At least one of `payout`, `mining`, `autoExchange` must be provided.
@@ -402,7 +415,7 @@ Starts 2FA activation. Returns the TOTP secret key for QR code generation.
 
 | Request field | Type | Required | Default | Description |
 |---------------|------|----------|---------|-------------|
-| `sessionId` | string | yes | | Session ID |
+| `id` | string | yes | | Session ID |
 | `targetLogin` | string | no | `""` | Target user (admin only) |
 
 **Response**:
@@ -422,7 +435,7 @@ Starts 2FA deactivation. Sends confirmation email.
 
 | Request field | Type | Required | Default | Description |
 |---------------|------|----------|---------|-------------|
-| `sessionId` | string | yes | | Session ID |
+| `id` | string | yes | | Session ID |
 | `targetLogin` | string | no | `""` | Target user (admin only) |
 
 **Response**: `status`
@@ -496,7 +509,7 @@ For regular users access is limited to linked fee plans.
 |---------------|------|----------|-------------|
 | `id` | string | yes | Session ID |
 | `feePlanId` | string | yes | Fee plan ID |
-| `mode` | string | yes | `"PPLNS"` or `"PPS"` |
+| `mode` | string | yes | `"pplns"` or `"pps"` |
 
 **Response**:
 
@@ -504,7 +517,7 @@ For regular users access is limited to linked fee plans.
 {
   "status": "ok",
   "feePlanId": "default",
-  "mode": "PPLNS",
+  "mode": "pplns",
   "referralId": "abc123...",
   "default": [
     { "userId": "pool", "percentage": 1.0 }
@@ -527,7 +540,7 @@ Updates fee plan configuration for a specific mining mode.
 |---------------|------|----------|-------------|
 | `id` | string | yes | Session ID |
 | `feePlanId` | string | yes | Fee plan ID |
-| `mode` | string | yes | `"PPLNS"` or `"PPS"` |
+| `mode` | string | yes | `"pplns"` or `"pps"` |
 | `default` | array | yes | `[{userId, percentage}]` |
 | `coinSpecific` | array | yes | `[{coinName, config: [{userId, percentage}]}]` |
 
@@ -616,11 +629,21 @@ No request fields required.
       "acceptIncoming": false,
       "acceptOutgoing": false,
       "valueBTC": 1.0,
-      "valueUSD": 60000.0
+      "valueUSD": 60000.0,
+      "height": null,
+      "difficulty": null,
+      "powerUnit": null,
+      "powerMultLog10": null,
+      "powerPPS": null,
+      "dailyPPS": null,
+      "dailyPPSUSD": null,
+      "dailyPPSBTC": null
     }
   ]
 }
 ```
+
+Nullable fields (`valueBTC`, `valueUSD`, `height`, `difficulty`, `powerUnit`, `powerMultLog10`, `powerPPS`, `dailyPPS`, `dailyPPSUSD`, `dailyPPSBTC`) are `null` when data is unavailable. Price fields are populated when a price fetcher is configured; PPS profitability and network fields may be populated by plugins.
 
 ---
 
@@ -967,7 +990,7 @@ Constraint: `(timeTo - timeFrom)` must be divisible by `groupByInterval`. Max 32
 | Field | Type | Description |
 |-------|------|-------------|
 | `status` | string | |
-| `accumulated` | array | `[{time, accumulated}]` — accumulated as decimal string |
+| `payouts` | array | `[{timeLabel, value, valueBTC, valueUSD}]` — money as decimal strings |
 
 ---
 
@@ -1011,7 +1034,12 @@ Returns accumulated PPS payouts grouped by time intervals.
 
 Constraint: `(timeTo - timeFrom)` must be divisible by `groupByInterval`. Max 3200 intervals.
 
-**Response**: same format as `backendQueryPPLNSAcc`
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `payouts` | array | `[{timeLabel, value, valueBTC, valueUSD}]` — money as decimal strings |
 
 ---
 
@@ -1036,11 +1064,10 @@ Returns backend configuration for a coin.
   "pps": {
     "enabled": false,
     "poolFee": 2.0,
-    "saturationFunction": "None",
+    "saturationFunction": "none",
     "saturationB0": 0.0,
     "saturationANegative": 0.0,
-    "saturationAPositive": 0.0,
-    "saturationFunctions": ["None", "Tangent", "Clamp", "Cubic", "Softsign", "Norm", "Atan", "Exp"]
+    "saturationAPositive": 0.0
   },
   "payouts": {
     "instantPayoutsEnabled": true,
@@ -1054,7 +1081,8 @@ Returns backend configuration for a coin.
   "swap": {
     "acceptIncoming": false,
     "acceptOutgoing": false
-  }
+  },
+  "saturationFunctions": ["none", "tanh", "clamp", "cubic", "softsign", "norm", "atan", "exp"]
 }
 ```
 
@@ -1078,7 +1106,7 @@ Updates backend configuration for a coin.
 
 At least one of `pps`, `payouts`, `swap` must be present.
 
-**pps** fields: `enabled`(bool), `poolFee`(double), `saturationFunction`(string), `saturationB0`(double), `saturationANegative`(double), `saturationAPositive`(double)
+**pps** fields: `enabled`(bool), `poolFee`(double), `saturationFunction`(string — `"none"`, `"tanh"`, `"clamp"`, `"cubic"`, `"softsign"`, `"norm"`, `"atan"`, `"exp"`), `saturationB0`(double), `saturationANegative`(double), `saturationAPositive`(double)
 
 **payouts** fields: `instantPayoutsEnabled`(bool), `regularPayoutsEnabled`(bool), `instantMinimalPayout`(string), `instantPayoutInterval`(int64 ms), `regularMinimalPayout`(string), `regularPayoutInterval`(int64 ms), `regularPayoutDayOffset`(int64 ms, default 0)
 
@@ -1104,7 +1132,7 @@ Returns the current PPS pool state.
 ```json
 {
   "status": "ok",
-  "ppsState": {
+  "state": {
     "time": 1700000000,
     "balance": { "value": "1.23456789", "inBlocks": 0.5 },
     "refBalance": { "value": "2.00000000", "inBlocks": 0.8, "sqLambda": 0.1 },

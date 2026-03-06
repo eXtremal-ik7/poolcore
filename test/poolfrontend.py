@@ -136,13 +136,13 @@ class Poolfrontend:
         return self.__call__("userQueryMonitoringSession", data, requiredStatus, debug)
 
     def userActivate2faInitiate(self, sessionId, targetLogin=None, requiredStatus=None, debug=None):
-        data = {"sessionId": sessionId}
+        data = {"id": sessionId}
         if targetLogin is not None:
             data.update({"targetLogin": targetLogin})
         return self.__call__("userActivate2faInitiate", data, requiredStatus, debug)
 
     def userDeactivate2faInitiate(self, sessionId, targetLogin=None, requiredStatus=None, debug=None):
-        data = {"sessionId": sessionId}
+        data = {"id": sessionId}
         if targetLogin is not None:
             data.update({"targetLogin": targetLogin})
         return self.__call__("userDeactivate2faInitiate", data, requiredStatus, debug)
