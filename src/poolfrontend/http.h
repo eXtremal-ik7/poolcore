@@ -22,10 +22,11 @@ public:
 
   using FunctionTy = EHttpFunction;
 
+  enum class EAuthLevel { Public, Session, SuperUser };
+
   struct FunctionMeta {
-    bool HasSession;
+    EAuthLevel Auth;
     bool IsWrite;
-    bool IsSuperUser;
   };
 
 private:
@@ -148,7 +149,8 @@ private:
     using T = typename Traits::Request;
     constexpr bool HasMoneyContext = requires { typename T::Capture; typename T::MoneyContext; };
 
-    static_assert(Meta.HasSession == Traits::NeedSession,
+    constexpr bool HasSession = Meta.Auth != EAuthLevel::Public;
+    static_assert(HasSession == Traits::NeedSession,
                   "handler session parameter must match function metadata");
     static_assert(!HasMoneyContext || Traits::NeedBackend || Traits::NeedStatistic,
                   "money context requires backend or statistic for coin info lookup");
@@ -161,7 +163,7 @@ private:
         replyWithStatus("json_format_error");
         return;
       }
-    } else if constexpr (!Meta.HasSession && !Traits::NeedBackend && !Traits::NeedStatistic) {
+    } else if constexpr (!HasSession && !Traits::NeedBackend && !Traits::NeedStatistic) {
       const char *data = !Context.Request.empty() ? Context.Request.c_str() : "{}";
       size_t size = !Context.Request.empty() ? Context.Request.size() : 2;
       if (!req.parse(data, size)) {
@@ -177,7 +179,7 @@ private:
 
     // Phase 2: Access control and backend/statistic lookup
     [[maybe_unused]] CToken tokenInfo;
-    if constexpr (Meta.HasSession) {
+    if constexpr (HasSession) {
       std::string targetLogin;
       if constexpr (requires { req.TargetLogin; })
         targetLogin = req.TargetLogin;
@@ -185,14 +187,13 @@ private:
         replyWithStatus("unknown_id");
         return;
       }
-      if constexpr (Meta.IsSuperUser) {
+      if constexpr (Meta.Auth == EAuthLevel::SuperUser) {
+        if (!tokenInfo.IsSuperUser) {
+          replyWithStatus("unknown_id");
+          return;
+        }
         if constexpr (Meta.IsWrite) {
-          if (tokenInfo.Login != "admin") {
-            replyWithStatus("unknown_id");
-            return;
-          }
-        } else {
-          if (tokenInfo.Login != "admin" && tokenInfo.Login != "observer") {
+          if (tokenInfo.IsReadOnly) {
             replyWithStatus("unknown_id");
             return;
           }
@@ -246,7 +247,7 @@ private:
 
   template<FunctionMeta Meta, auto Fn>
   void dispatchEmpty() {
-    static_assert(!Meta.HasSession, "dispatchEmpty is only for plain public functions");
+    static_assert(Meta.Auth == EAuthLevel::Public, "dispatchEmpty is only for plain public functions");
     if (!Context.Request.empty() && Context.Request != "{}") {
       replyWithStatus("json_format_error");
       return;

@@ -1515,6 +1515,7 @@ bool UserManager::validateSession(const std::string &id,
                                   CToken &result,
                                   bool needWriteAccess)
 {
+  result.IsSuperUser = false;
   result.IsReadOnly = false;
   Timestamp currentTime = Timestamp::now();
   {
@@ -1535,6 +1536,7 @@ bool UserManager::validateSession(const std::string &id,
   bool isObserver = result.Login == "observer" && !needWriteAccess;
   bool isSuperUser = isAdmin || isObserver;
   if (isSuperUser) {
+    result.IsSuperUser = true;
     result.IsReadOnly = isObserver;
     if (!targetLogin.empty()) {
       result.Login = targetLogin;

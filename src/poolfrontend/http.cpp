@@ -9,6 +9,7 @@
 
 static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction f)
 {
+  using enum PoolHttpConnection::EAuthLevel;
   using F = EHttpFunction;
   switch (f) {
     // Public (no session)
@@ -25,7 +26,7 @@ static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction 
     case F::UserCreate:
     case F::UserLogin:
     case F::UserResendEmail:
-      return {false, false, false};
+      return {Public, false};
 
     // Session, Read
     case F::BackendQueryPayouts:
@@ -44,7 +45,7 @@ static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction 
     case F::UserLogout:
     case F::UserQueryFeePlan:
     case F::UserQueryMonitoringSession:
-      return {true, false, false};
+      return {Session, false};
 
     // Session, Write
     case F::BackendManualPayout:
@@ -52,7 +53,7 @@ static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction 
     case F::UserDeactivate2faInitiate:
     case F::UserUpdateCredentials:
     case F::UserUpdateSettings:
-      return {true, true, false};
+      return {Session, true};
 
     // SuperUser, Read (admin + observer)
     case F::BackendGetConfig:
@@ -60,7 +61,7 @@ static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction 
     case F::BackendQueryPPSHistory:
     case F::BackendQueryProfitSwitchCoeff:
     case F::ComplexMiningStatsGetInfo:
-      return {true, false, true};
+      return {SuperUser, false};
 
     // SuperUser, Write (admin only)
     case F::BackendUpdateConfig:
@@ -73,7 +74,7 @@ static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction 
     case F::UserDeleteFeePlan:
     case F::UserRenewFeePlanReferralId:
     case F::UserUpdateFeePlan:
-      return {true, true, true};
+      return {SuperUser, true};
     default:
       throw "unknown FunctionTy in getFunctionMeta";
   }

@@ -15,7 +15,8 @@ Money values (balances, payouts, thresholds) are formatted as **decimal strings*
 
 When `targetLogin` is provided:
 - Admin/observer can query any user
-- Regular users can only query themselves (targetLogin is ignored or must match own login)
+- Regular users can access other users only on read-only endpoints and only for users linked by fee plan commission rules
+- On write endpoints regular users can act only on themselves
 
 # Table of contents
 
@@ -207,14 +208,14 @@ Invalidates a session.
 
 ### userQueryMonitoringSession
 
-Creates a read-only monitoring session for a user. Admin can create sessions for other users via `targetLogin`.
+Creates a read-only monitoring session for a user.
 
 - **Auth**: session
 
 | Request field | Type | Required | Default | Description |
 |---------------|------|----------|---------|-------------|
 | `id` | string | yes | | Session ID |
-| `targetLogin` | string | no | `""` | Target user (admin only) |
+| `targetLogin` | string | no | `""` | Target user (admin/observer: any, regular: linked users on read-only access) |
 
 **Response**:
 
@@ -264,7 +265,7 @@ Returns user profile information.
 | Request field | Type | Required | Default | Description |
 |---------------|------|----------|---------|-------------|
 | `id` | string | yes | | Session ID |
-| `targetLogin` | string | no | `""` | Target user (admin only) |
+| `targetLogin` | string | no | `""` | Target user (admin/observer: any, regular: linked users on read-only access) |
 
 **Response**:
 
@@ -310,7 +311,7 @@ Returns per-coin mining and payout settings for a user.
 | Request field | Type | Required | Default | Description |
 |---------------|------|----------|---------|-------------|
 | `id` | string | yes | | Session ID |
-| `targetLogin` | string | no | `""` | Target user (admin only) |
+| `targetLogin` | string | no | `""` | Target user (admin/observer: any, regular: linked users on read-only access) |
 
 **Response**:
 
@@ -354,9 +355,10 @@ At least one of `payout`, `mining`, `autoExchange` must be provided.
 
 ### userEnumerateAll
 
-Lists all users with statistics. Admin/observer only.
+Lists users with statistics visible to the caller.
+Admin/observer see all users; regular users see only fee-plan-linked users.
 
-- **Auth**: admin or observer
+- **Auth**: session
 
 | Request field | Type | Required | Default | Description |
 |---------------|------|----------|---------|-------------|
@@ -445,11 +447,13 @@ Sets the global instant payout threshold for a coin. Admin only.
 
 ## Fee plan management
 
-All fee plan endpoints require admin session.
+Read endpoints (`userEnumerateFeePlan`, `userQueryFeePlan`) require session and follow fee-plan visibility rules.
+Write endpoints (`userCreateFeePlan`, `userUpdateFeePlan`, `userDeleteFeePlan`, `userChangeFeePlan`, `userRenewFeePlanReferralId`) require admin session.
 
 ### userEnumerateFeePlan
 
-Lists all fee plan IDs.
+Lists visible fee plan IDs.
+Admin/observer get all plans; regular users get only linked plans.
 
 - **Auth**: session
 
@@ -470,7 +474,7 @@ Lists all fee plan IDs.
 
 Creates a new empty fee plan.
 
-- **Auth**: session
+- **Auth**: admin
 
 | Request field | Type | Required | Description |
 |---------------|------|----------|-------------|
@@ -484,6 +488,7 @@ Creates a new empty fee plan.
 ### userQueryFeePlan
 
 Returns fee plan configuration for a specific mining mode.
+For regular users access is limited to linked fee plans.
 
 - **Auth**: session
 
@@ -516,7 +521,7 @@ Returns fee plan configuration for a specific mining mode.
 
 Updates fee plan configuration for a specific mining mode.
 
-- **Auth**: session
+- **Auth**: admin
 
 | Request field | Type | Required | Description |
 |---------------|------|----------|-------------|
@@ -534,7 +539,7 @@ Updates fee plan configuration for a specific mining mode.
 
 Deletes a fee plan.
 
-- **Auth**: session
+- **Auth**: admin
 
 | Request field | Type | Required | Description |
 |---------------|------|----------|-------------|
@@ -549,7 +554,7 @@ Deletes a fee plan.
 
 Assigns a fee plan to a user.
 
-- **Auth**: session
+- **Auth**: admin
 
 | Request field | Type | Required | Description |
 |---------------|------|----------|-------------|
@@ -565,7 +570,7 @@ Assigns a fee plan to a user.
 
 Regenerates the referral ID for a fee plan.
 
-- **Auth**: session
+- **Auth**: admin
 
 | Request field | Type | Required | Description |
 |---------------|------|----------|-------------|
@@ -589,11 +594,9 @@ Public endpoints for pool information.
 
 Returns information about all supported coins.
 
-- **Auth**: none (optional session for user-specific fee rates)
+- **Auth**: none
 
-| Request field | Type | Required | Default | Description |
-|---------------|------|----------|---------|-------------|
-| `id` | string | no | `""` | Session ID (for fee calculation) |
+No request fields required.
 
 **Response**:
 
@@ -780,7 +783,7 @@ Returns user balance across one or all coins.
 | Request field | Type | Required | Default | Description |
 |---------------|------|----------|---------|-------------|
 | `id` | string | yes | | Session ID |
-| `targetLogin` | string | no | `""` | Target user (admin only) |
+| `targetLogin` | string | no | `""` | Target user (admin/observer: any, regular: linked users on read-only access) |
 | `coin` | string | no | `""` | Coin name (empty = all coins) |
 
 **Response**:

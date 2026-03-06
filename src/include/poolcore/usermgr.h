@@ -16,6 +16,7 @@ class PoolBackend;
 
 struct CToken {
   std::string Login;
+  bool IsSuperUser;
   bool IsReadOnly;
 };
 
