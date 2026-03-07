@@ -25,7 +25,7 @@ enum class EScalarType {
 // How a field is declared
 enum class EFieldKind {
   Required,            // field: Type
-  Optional,            // field: Type = default
+  Optional,            // field: Type = default   — omitted when value == default
   OptionalObject,      // field: Type?          — omitted when nullopt
   NullableObject,      // field: Type??         — null when nullopt
   Array,               // field: [Type]

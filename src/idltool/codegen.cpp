@@ -108,6 +108,20 @@ static bool isArrayLikeField(const CFieldDef &f)
   }
 }
 
+static bool isConditionallySerialized(EFieldKind kind)
+{
+  switch (kind) {
+    case EFieldKind::Optional:
+    case EFieldKind::OptionalObject:
+    case EFieldKind::OptionalArray:
+    case EFieldKind::OptionalFixedArray:
+    case EFieldKind::OptionalVariant:
+      return true;
+    default:
+      return false;
+  }
+}
+
 static std::string contextParamName(const std::string &mappedTypeName, size_t ordinal, size_t totalCount)
 {
   if (totalCount <= 1)
@@ -378,7 +392,7 @@ static void generateParseMappedValue(std::string &out,
                      in, wi.cppType, wi.readMethod, resolveFunc, destExpr, failureCode);
 }
 
-static void emitMappedInlineValueSerialize(std::string &out,
+static void emitMappedInlineValueSerialize(CSerializeCodeBuilder &out,
                                            const std::string &mappedTypeName,
                                            const std::string &mappedWireType,
                                            const std::string &valueExpr,
@@ -387,10 +401,10 @@ static void emitMappedInlineValueSerialize(std::string &out,
   auto wi = getWireTypeInfo(mappedWireType);
   std::string in = indent(ind);
   std::string formatFunc = "__" + mappedTypeName + "Format";
-  out += std::format("{}{}(out, {}({}));\n", in, wi.writeFunc, formatFunc, valueExpr);
+  out.appendRaw(std::format("{}{}(out, {}({}));\n", in, wi.writeFunc, formatFunc, valueExpr));
 }
 
-static void emitMappedInlineNestedArraySerialize(std::string &out,
+static void emitMappedInlineNestedArraySerialize(CSerializeCodeBuilder &out,
                                                  const CFieldCaptureInfo &fci,
                                                  const std::vector<CArrayDim> &dims,
                                                  int dimIndex,
@@ -403,14 +417,14 @@ static void emitMappedInlineNestedArraySerialize(std::string &out,
     return;
   }
 
-  out += std::format("{}out.write('[');\n", in);
+  out.writeLiteral(ind, "[");
   std::string idx = std::format("i{}_", dimIndex);
-  out += std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx);
-  out += std::format("{}  if ({}) out.write(',');\n", in, idx);
+  out.appendRaw(std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx));
+  out.appendRaw(std::format("{}  if ({}) out.write(',');\n", in, idx));
   emitMappedInlineNestedArraySerialize(out, fci, dims, dimIndex + 1,
                                        std::format("{}[{}]", valueExpr, idx), ind + 1);
-  out += std::format("{}}}\n", in);
-  out += std::format("{}out.write(']');\n", in);
+  out.appendRaw(std::format("{}}}\n", in));
+  out.writeLiteral(ind, "]");
 }
 
 // ============================================================================
@@ -1280,7 +1294,7 @@ static void generateResolveImpl(std::string &out, const CStructDef &s,
   out += "}\n\n";
 }
 
-static void emitMappedDirectValueSerialize(std::string &out,
+static void emitMappedDirectValueSerialize(CSerializeCodeBuilder &out,
     const CFieldCaptureInfo &fci,
     const std::string &valueExpr,
     int ind)
@@ -1288,11 +1302,11 @@ static void emitMappedDirectValueSerialize(std::string &out,
   auto wi = getWireTypeInfo(fci.MappedWireType);
   std::string in = indent(ind);
   std::string formatFunc = "__" + fci.MappedTypeName + "Format";
-  out += std::format("{}{}(out, {}({}, {}));\n",
-                     in, wi.writeFunc, formatFunc, valueExpr, fci.DirectCtxParamName);
+  out.appendRaw(std::format("{}{}(out, {}({}, {}));\n",
+                            in, wi.writeFunc, formatFunc, valueExpr, fci.DirectCtxParamName));
 }
 
-static void emitMappedDirectSerializeRecursive(std::string &out,
+static void emitMappedDirectSerializeRecursive(CSerializeCodeBuilder &out,
     const CFieldCaptureInfo &fci,
     const std::vector<CArrayDim> &dims, int dimIndex,
     const std::string &valueExpr,
@@ -1305,14 +1319,14 @@ static void emitMappedDirectSerializeRecursive(std::string &out,
   }
 
   std::string idx = std::format("i{}_s_", dimIndex);
-  out += std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx);
-  out += std::format("{}  if ({}) out.write(',');\n", in, idx);
+  out.appendRaw(std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx));
+  out.appendRaw(std::format("{}  if ({}) out.write(',');\n", in, idx));
   emitMappedDirectSerializeRecursive(out, fci, dims, dimIndex + 1,
                                      std::format("{}[{}]", valueExpr, idx), ind + 1);
-  out += std::format("{}}}\n", in);
+  out.appendRaw(std::format("{}}}\n", in));
 }
 
-static void emitNestedStructSerializeRecursive(std::string &out,
+static void emitNestedStructSerializeRecursive(CSerializeCodeBuilder &out,
     const CFieldCaptureInfo &ci,
     const std::vector<CArrayDim> &dims, int dimIndex,
     const std::string &valueExpr,
@@ -1321,153 +1335,169 @@ static void emitNestedStructSerializeRecursive(std::string &out,
 {
   std::string in = indent(ind);
   if (dimIndex >= (int)dims.size()) {
-    out += std::format("{}{}.serialize(out, {});\n", in, valueExpr, childCtxArgsExpr(ci, ctxIndexVar));
+    out.appendRaw(std::format("{}{}.serialize(out, {});\n", in, valueExpr, childCtxArgsExpr(ci, ctxIndexVar)));
     if (!ctxIndexVar.empty())
-      out += std::format("{}{}++;\n", in, ctxIndexVar);
+      out.appendRaw(std::format("{}{}++;\n", in, ctxIndexVar));
     return;
   }
 
   std::string idx = std::format("i{}_s_", dimIndex);
-  out += std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx);
-  out += std::format("{}  if ({}) out.write(',');\n", in, idx);
+  out.appendRaw(std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx));
+  out.appendRaw(std::format("{}  if ({}) out.write(',');\n", in, idx));
   emitNestedStructSerializeRecursive(out, ci, dims, dimIndex + 1,
                                      std::format("{}[{}]", valueExpr, idx),
                                      ctxIndexVar, ind + 1);
-  out += std::format("{}}}\n", in);
+  out.appendRaw(std::format("{}}}\n", in));
 }
 
 // Serialize a context-free mapped field using its format function
-static void emitMappedInlineSerialize(std::string &out, const CFieldDef &f,
-    const CFieldCaptureInfo &fci, int ind, bool &first, bool pascalCase)
+static void emitMappedInlineSerialize(CSerializeCodeBuilder &out, const CFieldDef &f,
+    const CFieldCaptureInfo &fci, int ind, bool &first, bool pascalCase,
+    bool useRuntimeComma = false, std::string_view commaVar = "")
 {
   std::string in = indent(ind);
   std::string cn = fieldCppName(f.Name, pascalCase);
 
-  auto emitKey = [&](const std::string &jsonKey) {
+  auto emitKey = [&](const std::string &jsonKey, int keyInd = -1) {
+    if (keyInd == -1)
+      keyInd = ind;
+    if (useRuntimeComma) {
+      std::string keyIndent = indent(keyInd);
+      out.appendRaw(std::format("{}if ({}) out.write(',');\n", keyIndent, commaVar));
+      out.appendRaw(std::format("{}{} = true;\n", keyIndent, commaVar));
+      out.writeLiteral(keyInd, std::format("\"{}\":", jsonKey));
+      return;
+    }
+
     if (!first)
-      out += std::format("{}out.write(',');\n", in);
+      out.writeLiteral(keyInd, ",");
     first = false;
-    out += std::format("{}out.write(\"\\\"{}\\\":\");\n", in, jsonKey);
+    out.writeLiteral(keyInd, std::format("\"{}\":", jsonKey));
   };
 
   switch (f.Kind) {
     case EFieldKind::Required:
-    case EFieldKind::Optional:
       emitKey(f.Name);
       emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, cn, ind);
       break;
+    case EFieldKind::Optional: {
+      static const std::unordered_set<std::string> noEnums;
+      std::string def = cppDefault(f, noEnums, pascalCase);
+      if (def.empty()) {
+        emitKey(f.Name);
+        emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, cn, ind);
+        break;
+      }
+
+      out.appendRaw(std::format("{}if ({} != {}) {{\n", in, cn, def));
+      emitKey(f.Name, ind + 1);
+      emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, cn, ind + 1);
+      out.appendRaw(std::format("{}}}\n", in));
+      break;
+    }
     case EFieldKind::OptionalObject:
-      out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-      if (!first)
-        out += std::format("{}  out.write(',');\n", in);
-      out += std::format("{}  out.write(\"\\\"{}\\\":\");\n", in, f.Name);
+      out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+      emitKey(f.Name, ind + 1);
       emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("*{}", cn), ind + 1);
-      first = false;
-      out += std::format("{}}}\n", in);
+      out.appendRaw(std::format("{}}}\n", in));
       break;
     case EFieldKind::NullableObject:
       emitKey(f.Name);
-      out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
       emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("*{}", cn), ind + 1);
-      out += std::format("{}}} else {{\n", in);
-      out += std::format("{}  out.write(\"null\");\n", in);
-      out += std::format("{}}}\n", in);
+      out.appendRaw(std::format("{}}} else {{\n", in));
+      out.writeLiteral(ind + 1, "null");
+      out.appendRaw(std::format("{}}}\n", in));
       break;
     case EFieldKind::Array:
       emitKey(f.Name);
-      out += std::format("{}out.write('[');\n", in);
-      out += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
-      out += std::format("{}  if (i_) out.write(',');\n", in);
+      out.writeLiteral(ind, "[");
+      out.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn));
+      out.appendRaw(std::format("{}  if (i_) out.write(',');\n", in));
       if (f.Type.InnerDims.empty()) {
         emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("{}[i_]", cn), ind + 1);
       } else {
         emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("{}[i_]", cn), ind + 1);
       }
-      out += std::format("{}}}\n", in);
-      out += std::format("{}out.write(']');\n", in);
+      out.appendRaw(std::format("{}}}\n", in));
+      out.writeLiteral(ind, "]");
       break;
     case EFieldKind::OptionalArray:
-      out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-      if (!first)
-        out += std::format("{}  out.write(',');\n", in);
-      out += std::format("{}  out.write(\"\\\"{}\\\":\");\n", in, f.Name);
-      out += std::format("{}  out.write('[');\n", in);
-      out += std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn);
-      out += std::format("{}    if (i_) out.write(',');\n", in);
+      out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+      emitKey(f.Name, ind + 1);
+      out.writeLiteral(ind + 1, "[");
+      out.appendRaw(std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn));
+      out.appendRaw(std::format("{}    if (i_) out.write(',');\n", in));
       if (f.Type.InnerDims.empty()) {
         emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
       } else {
         emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
       }
-      out += std::format("{}  }}\n", in);
-      out += std::format("{}  out.write(']');\n", in);
-      first = false;
-      out += std::format("{}}}\n", in);
+      out.appendRaw(std::format("{}  }}\n", in));
+      out.writeLiteral(ind + 1, "]");
+      out.appendRaw(std::format("{}}}\n", in));
       break;
     case EFieldKind::NullableArray:
       emitKey(f.Name);
-      out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-      out += std::format("{}  out.write('[');\n", in);
-      out += std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn);
-      out += std::format("{}    if (i_) out.write(',');\n", in);
+      out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+      out.writeLiteral(ind + 1, "[");
+      out.appendRaw(std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn));
+      out.appendRaw(std::format("{}    if (i_) out.write(',');\n", in));
       if (f.Type.InnerDims.empty()) {
         emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
       } else {
         emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
       }
-      out += std::format("{}  }}\n", in);
-      out += std::format("{}  out.write(']');\n", in);
-      out += std::format("{}}} else {{\n", in);
-      out += std::format("{}  out.write(\"null\");\n", in);
-      out += std::format("{}}}\n", in);
+      out.appendRaw(std::format("{}  }}\n", in));
+      out.writeLiteral(ind + 1, "]");
+      out.appendRaw(std::format("{}}} else {{\n", in));
+      out.writeLiteral(ind + 1, "null");
+      out.appendRaw(std::format("{}}}\n", in));
       break;
     case EFieldKind::FixedArray:
       emitKey(f.Name);
-      out += std::format("{}out.write('[');\n", in);
-      out += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
-      out += std::format("{}  if (i_) out.write(',');\n", in);
+      out.writeLiteral(ind, "[");
+      out.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn));
+      out.appendRaw(std::format("{}  if (i_) out.write(',');\n", in));
       if (f.Type.InnerDims.empty()) {
         emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("{}[i_]", cn), ind + 1);
       } else {
         emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("{}[i_]", cn), ind + 1);
       }
-      out += std::format("{}}}\n", in);
-      out += std::format("{}out.write(']');\n", in);
+      out.appendRaw(std::format("{}}}\n", in));
+      out.writeLiteral(ind, "]");
       break;
     case EFieldKind::OptionalFixedArray:
-      out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-      if (!first)
-        out += std::format("{}  out.write(',');\n", in);
-      out += std::format("{}  out.write(\"\\\"{}\\\":\");\n", in, f.Name);
-      out += std::format("{}  out.write('[');\n", in);
-      out += std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn);
-      out += std::format("{}    if (i_) out.write(',');\n", in);
+      out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+      emitKey(f.Name, ind + 1);
+      out.writeLiteral(ind + 1, "[");
+      out.appendRaw(std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn));
+      out.appendRaw(std::format("{}    if (i_) out.write(',');\n", in));
       if (f.Type.InnerDims.empty()) {
         emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
       } else {
         emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
       }
-      out += std::format("{}  }}\n", in);
-      out += std::format("{}  out.write(']');\n", in);
-      first = false;
-      out += std::format("{}}}\n", in);
+      out.appendRaw(std::format("{}  }}\n", in));
+      out.writeLiteral(ind + 1, "]");
+      out.appendRaw(std::format("{}}}\n", in));
       break;
     case EFieldKind::NullableFixedArray:
       emitKey(f.Name);
-      out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-      out += std::format("{}  out.write('[');\n", in);
-      out += std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn);
-      out += std::format("{}    if (i_) out.write(',');\n", in);
+      out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+      out.writeLiteral(ind + 1, "[");
+      out.appendRaw(std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn));
+      out.appendRaw(std::format("{}    if (i_) out.write(',');\n", in));
       if (f.Type.InnerDims.empty()) {
         emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
       } else {
         emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
       }
-      out += std::format("{}  }}\n", in);
-      out += std::format("{}  out.write(']');\n", in);
-      out += std::format("{}}} else {{\n", in);
-      out += std::format("{}  out.write(\"null\");\n", in);
-      out += std::format("{}}}\n", in);
+      out.appendRaw(std::format("{}  }}\n", in));
+      out.writeLiteral(ind + 1, "]");
+      out.appendRaw(std::format("{}}} else {{\n", in));
+      out.writeLiteral(ind + 1, "null");
+      out.appendRaw(std::format("{}}}\n", in));
       break;
     default:
       break;
@@ -1475,12 +1505,13 @@ static void emitMappedInlineSerialize(std::string &out, const CFieldDef &f,
 }
 
 // Generate the context-aware serialize body
-static void generateContextSerializeBody(std::string &out, const CStructDef &s,
+static void generateContextSerializeBody(CSerializeCodeBuilder &writer, const CStructDef &s,
     const CContextAnalysis &ca,
     const std::unordered_set<std::string> &enumNames,
     const CCodegenOptions &opts)
 {
   bool first = true;
+  bool runtimeComma = false;
 
   for (size_t i = 0; i < s.Fields.size(); i++) {
     auto &ci = ca.FieldCapture[i];
@@ -1489,69 +1520,86 @@ static void generateContextSerializeBody(std::string &out, const CStructDef &s,
     std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
     auto dims = arrayDims(f);
 
-    auto emitKey = [&](const std::string &jsonKey) {
+    if (!runtimeComma && first && isConditionallySerialized(f.Kind)) {
+      writer.appendRaw(std::format("{}bool __needComma = {};\n", indent(1), first ? "false" : "true"));
+      runtimeComma = true;
+    }
+
+    auto emitKey = [&](const std::string &jsonKey, int keyInd = 1) {
+      if (runtimeComma) {
+        std::string keyIndent = indent(keyInd);
+        writer.appendRaw(std::format("{}if (__needComma) out.write(',');\n", keyIndent));
+        writer.appendRaw(std::format("{}__needComma = true;\n", keyIndent));
+        writer.writeLiteral(keyInd, std::format("\"{}\":", jsonKey));
+        return;
+      }
       if (!first)
-        out += std::format("{}out.write(',');\n", in);
+        writer.writeLiteral(keyInd, ",");
       first = false;
-      out += std::format("{}out.write(\"\\\"{}\\\":\");\n", in, jsonKey);
+      writer.writeLiteral(keyInd, std::format("\"{}\":", jsonKey));
     };
 
     if (ci.kind == CFieldCaptureInfo::MappedDirect) {
       switch (f.Kind) {
         case EFieldKind::Required:
-        case EFieldKind::Optional:
           emitKey(f.Name);
-          emitMappedDirectValueSerialize(out, ci, cn, 1);
+          emitMappedDirectValueSerialize(writer, ci, cn, 1);
           break;
+        case EFieldKind::Optional: {
+          std::string def = cppDefault(f, enumNames, opts.PascalCaseFields);
+          if (def.empty()) {
+            emitKey(f.Name);
+            emitMappedDirectValueSerialize(writer, ci, cn, 1);
+            break;
+          }
+
+          writer.appendRaw(std::format("{}if ({} != {}) {{\n", in, cn, def));
+          emitKey(f.Name, 2);
+          emitMappedDirectValueSerialize(writer, ci, cn, 2);
+          writer.appendRaw(std::format("{}}}\n", in));
+          break;
+        }
         case EFieldKind::OptionalObject:
-          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-          if (!first)
-            out += std::format("{}  out.write(',');\n", in);
-          out += std::format("{}  out.write(\"\\\"{}\\\":\");\n", in, f.Name);
-          emitMappedDirectValueSerialize(out, ci, std::format("*{}", cn), 2);
-          first = false;
-          out += std::format("{}}}\n", in);
+          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+          emitKey(f.Name, 2);
+          emitMappedDirectValueSerialize(writer, ci, std::format("*{}", cn), 2);
+          writer.appendRaw(std::format("{}}}\n", in));
           break;
         case EFieldKind::NullableObject:
           emitKey(f.Name);
-          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-          emitMappedDirectValueSerialize(out, ci, std::format("*{}", cn), 2);
-          out += std::format("{}}} else {{\n", in);
-          out += std::format("{}  out.write(\"null\");\n", in);
-          out += std::format("{}}}\n", in);
+          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+          emitMappedDirectValueSerialize(writer, ci, std::format("*{}", cn), 2);
+          writer.appendRaw(std::format("{}}} else {{\n", in));
+          writer.writeLiteral(2, "null");
+          writer.appendRaw(std::format("{}}}\n", in));
           break;
         case EFieldKind::Array:
         case EFieldKind::FixedArray:
           emitKey(f.Name);
-          out += std::format("{}out.write('[');\n", in);
-          emitMappedDirectSerializeRecursive(out, ci, dims, 0, cn, 1);
-          out += std::format("{}out.write(']');\n", in);
+          writer.writeLiteral(1, "[");
+          emitMappedDirectSerializeRecursive(writer, ci, dims, 0, cn, 1);
+          writer.writeLiteral(1, "]");
           break;
         case EFieldKind::OptionalArray:
         case EFieldKind::OptionalFixedArray: {
-          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-          std::string in2 = indent(2);
-          if (!first)
-            out += std::format("{}out.write(',');\n", in2);
-          out += std::format("{}out.write(\"\\\"{}\\\":\");\n", in2, f.Name);
-          out += std::format("{}out.write('[');\n", in2);
-          emitMappedDirectSerializeRecursive(out, ci, dims, 0, std::format("(*{})", cn), 2);
-          out += std::format("{}out.write(']');\n", in2);
-          first = false;
-          out += std::format("{}}}\n", in);
+          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+          emitKey(f.Name, 2);
+          writer.writeLiteral(2, "[");
+          emitMappedDirectSerializeRecursive(writer, ci, dims, 0, std::format("(*{})", cn), 2);
+          writer.writeLiteral(2, "]");
+          writer.appendRaw(std::format("{}}}\n", in));
           break;
         }
         case EFieldKind::NullableArray:
         case EFieldKind::NullableFixedArray: {
           emitKey(f.Name);
-          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-          std::string in2 = indent(2);
-          out += std::format("{}out.write('[');\n", in2);
-          emitMappedDirectSerializeRecursive(out, ci, dims, 0, std::format("(*{})", cn), 2);
-          out += std::format("{}out.write(']');\n", in2);
-          out += std::format("{}}} else {{\n", in);
-          out += std::format("{}  out.write(\"null\");\n", in);
-          out += std::format("{}}}\n", in);
+          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+          writer.writeLiteral(2, "[");
+          emitMappedDirectSerializeRecursive(writer, ci, dims, 0, std::format("(*{})", cn), 2);
+          writer.writeLiteral(2, "]");
+          writer.appendRaw(std::format("{}}} else {{\n", in));
+          writer.writeLiteral(2, "null");
+          writer.appendRaw(std::format("{}}}\n", in));
           break;
         }
         default:
@@ -1570,73 +1618,64 @@ static void generateContextSerializeBody(std::string &out, const CStructDef &s,
         case EFieldKind::Optional:
           emitKey(f.Name);
           if (dims.empty()) {
-            out += std::format("{}{}.serialize(out, {});\n", in, cn, childCtx);
+            writer.appendRaw(std::format("{}{}.serialize(out, {});\n", in, cn, childCtx));
           } else {
             if (!ctxIndexVar.empty())
-              out += std::format("{}size_t {} = 0;\n", in, ctxIndexVar);
-            out += std::format("{}out.write('[');\n", in);
-            emitNestedStructSerializeRecursive(out, ci, dims, 0, cn, ctxIndexVar, 1);
-            out += std::format("{}out.write(']');\n", in);
+              writer.appendRaw(std::format("{}size_t {} = 0;\n", in, ctxIndexVar));
+            writer.writeLiteral(1, "[");
+            emitNestedStructSerializeRecursive(writer, ci, dims, 0, cn, ctxIndexVar, 1);
+            writer.writeLiteral(1, "]");
           }
           break;
         case EFieldKind::OptionalObject: {
-          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-          std::string in2 = indent(2);
-          if (!first)
-            out += std::format("{}out.write(',');\n", in2);
-          out += std::format("{}out.write(\"\\\"{}\\\":\");\n", in2, f.Name);
-          out += std::format("{}{}->serialize(out, {});\n", in2, cn, childCtx);
-          first = false;
-          out += std::format("{}}}\n", in);
+          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+          emitKey(f.Name, 2);
+          writer.appendRaw(std::format("{}{}->serialize(out, {});\n", indent(2), cn, childCtx));
+          writer.appendRaw(std::format("{}}}\n", in));
           break;
         }
         case EFieldKind::NullableObject: {
           emitKey(f.Name);
-          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-          out += std::format("{}  {}->serialize(out, {});\n", in, cn, childCtx);
-          out += std::format("{}}} else {{\n", in);
-          out += std::format("{}  out.write(\"null\");\n", in);
-          out += std::format("{}}}\n", in);
+          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+          writer.appendRaw(std::format("{}  {}->serialize(out, {});\n", in, cn, childCtx));
+          writer.appendRaw(std::format("{}}} else {{\n", in));
+          writer.writeLiteral(2, "null");
+          writer.appendRaw(std::format("{}}}\n", in));
           break;
         }
         case EFieldKind::Array:
         case EFieldKind::FixedArray:
           emitKey(f.Name);
           if (!ctxIndexVar.empty())
-            out += std::format("{}size_t {} = 0;\n", in, ctxIndexVar);
-          out += std::format("{}out.write('[');\n", in);
-          emitNestedStructSerializeRecursive(out, ci, dims, 0, cn, ctxIndexVar, 1);
-          out += std::format("{}out.write(']');\n", in);
+            writer.appendRaw(std::format("{}size_t {} = 0;\n", in, ctxIndexVar));
+          writer.writeLiteral(1, "[");
+          emitNestedStructSerializeRecursive(writer, ci, dims, 0, cn, ctxIndexVar, 1);
+          writer.writeLiteral(1, "]");
           break;
         case EFieldKind::OptionalArray:
         case EFieldKind::OptionalFixedArray: {
-          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-          std::string in2 = indent(2);
-          if (!first)
-            out += std::format("{}out.write(',');\n", in2);
-          out += std::format("{}out.write(\"\\\"{}\\\":\");\n", in2, f.Name);
+          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+          emitKey(f.Name, 2);
           if (!ctxIndexVar.empty())
-            out += std::format("{}size_t {} = 0;\n", in2, ctxIndexVar);
-          out += std::format("{}out.write('[');\n", in2);
-          emitNestedStructSerializeRecursive(out, ci, dims, 0, std::format("(*{})", cn), ctxIndexVar, 2);
-          out += std::format("{}out.write(']');\n", in2);
-          first = false;
-          out += std::format("{}}}\n", in);
+            writer.appendRaw(std::format("{}size_t {} = 0;\n", indent(2), ctxIndexVar));
+          writer.writeLiteral(2, "[");
+          emitNestedStructSerializeRecursive(writer, ci, dims, 0, std::format("(*{})", cn), ctxIndexVar, 2);
+          writer.writeLiteral(2, "]");
+          writer.appendRaw(std::format("{}}}\n", in));
           break;
         }
         case EFieldKind::NullableArray:
         case EFieldKind::NullableFixedArray: {
           emitKey(f.Name);
-          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-          std::string in2 = indent(2);
+          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
           if (!ctxIndexVar.empty())
-            out += std::format("{}size_t {} = 0;\n", in2, ctxIndexVar);
-          out += std::format("{}out.write('[');\n", in2);
-          emitNestedStructSerializeRecursive(out, ci, dims, 0, std::format("(*{})", cn), ctxIndexVar, 2);
-          out += std::format("{}out.write(']');\n", in2);
-          out += std::format("{}}} else {{\n", in);
-          out += std::format("{}  out.write(\"null\");\n", in);
-          out += std::format("{}}}\n", in);
+            writer.appendRaw(std::format("{}size_t {} = 0;\n", indent(2), ctxIndexVar));
+          writer.writeLiteral(2, "[");
+          emitNestedStructSerializeRecursive(writer, ci, dims, 0, std::format("(*{})", cn), ctxIndexVar, 2);
+          writer.writeLiteral(2, "]");
+          writer.appendRaw(std::format("{}}} else {{\n", in));
+          writer.writeLiteral(2, "null");
+          writer.appendRaw(std::format("{}}}\n", in));
           break;
         }
         default:
@@ -1647,27 +1686,33 @@ static void generateContextSerializeBody(std::string &out, const CStructDef &s,
 
     // Regular field or context-free mapped field
     if (ci.kind == CFieldCaptureInfo::MappedInline)
-      emitMappedInlineSerialize(out, f, ci, 1, first, opts.PascalCaseFields);
+      emitMappedInlineSerialize(writer, f, ci, 1, first, opts.PascalCaseFields, runtimeComma, "__needComma");
     else
-      generateSerializeField(out, f, enumNames, 1, first, opts.PascalCaseFields);
+      generateSerializeField(writer, f, enumNames, 1, first, opts.PascalCaseFields, runtimeComma, "__needComma");
   }
 }
 
-static void generateSerializeBody(std::string &out, const CStructDef &s,
+static void generateSerializeBody(CSerializeCodeBuilder &writer, const CStructDef &s,
     const CContextAnalysis &ca,
     const std::unordered_set<std::string> &enumNames,
     const CCodegenOptions &opts)
 {
   if (ca.hasContext()) {
-    generateContextSerializeBody(out, s, ca, enumNames, opts);
+    generateContextSerializeBody(writer, s, ca, enumNames, opts);
   } else {
     bool first = true;
+    bool runtimeComma = false;
     for (size_t i = 0; i < s.Fields.size(); i++) {
       auto &fci = ca.FieldCapture[i];
+      auto &f = s.Fields[i];
+      if (!runtimeComma && first && isConditionallySerialized(f.Kind)) {
+        writer.appendRaw(std::format("{}bool __needComma = {};\n", indent(1), first ? "false" : "true"));
+        runtimeComma = true;
+      }
       if (fci.kind == CFieldCaptureInfo::MappedInline) {
-        emitMappedInlineSerialize(out, s.Fields[i], fci, 1, first, opts.PascalCaseFields);
+        emitMappedInlineSerialize(writer, f, fci, 1, first, opts.PascalCaseFields, runtimeComma, "__needComma");
       } else {
-        generateSerializeField(out, s.Fields[i], enumNames, 1, first, opts.PascalCaseFields);
+        generateSerializeField(writer, f, enumNames, 1, first, opts.PascalCaseFields, runtimeComma, "__needComma");
       }
     }
   }
@@ -1857,17 +1902,25 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     } else {
       out += std::format("void {}::serialize(xmstream &out) const {{\n", sn);
     }
-    out += "  out.write('{');\n";
-    generateSerializeBody(out, s, ca, enumNames, opts);
-    out += "  out.write('}');\n";
+    {
+      CSerializeCodeBuilder writer(out);
+      writer.writeLiteral(1, "{");
+      generateSerializeBody(writer, s, ca, enumNames, opts);
+      writer.writeLiteral(1, "}");
+      writer.flush();
+    }
     out += "}\n\n";
 
     if (hasBroadcastOverload) {
       CContextAnalysis broadcast = ca.broadcastVariant();
       out += std::format("void {}::serialize(xmstream &out, {}) const {{\n", sn, broadcast.broadcastContextParams());
-      out += "  out.write('{');\n";
-      generateSerializeBody(out, s, broadcast, enumNames, opts);
-      out += "  out.write('}');\n";
+      {
+        CSerializeCodeBuilder writer(out);
+        writer.writeLiteral(1, "{");
+        generateSerializeBody(writer, s, broadcast, enumNames, opts);
+        writer.writeLiteral(1, "}");
+        writer.flush();
+      }
       out += "}\n\n";
     }
   }
@@ -1876,19 +1929,26 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
   if (s.GenerateFlags.SerializeFlat) {
     std::string params = flatSerializeParams(s, ca, enumNames, opts);
     out += std::format("void {}::serialize({}) {{\n", sn, params);
-    out += "  out.write('{');\n";
-    // Reuse same serialize body — parameter names match member names
-    generateSerializeBody(out, s, ca, enumNames, opts);
-    out += "  out.write('}');\n";
+    {
+      CSerializeCodeBuilder writer(out);
+      writer.writeLiteral(1, "{");
+      generateSerializeBody(writer, s, ca, enumNames, opts);
+      writer.writeLiteral(1, "}");
+      writer.flush();
+    }
     out += "}\n\n";
 
     if (hasBroadcastOverload) {
       CContextAnalysis broadcast = ca.broadcastVariant();
       std::string broadcastParams = flatSerializeParams(s, broadcast, enumNames, opts);
       out += std::format("void {}::serialize({}) {{\n", sn, broadcastParams);
-      out += "  out.write('{');\n";
-      generateSerializeBody(out, s, broadcast, enumNames, opts);
-      out += "  out.write('}');\n";
+      {
+        CSerializeCodeBuilder writer(out);
+        writer.writeLiteral(1, "{");
+        generateSerializeBody(writer, s, broadcast, enumNames, opts);
+        writer.writeLiteral(1, "}");
+        writer.flush();
+      }
       out += "}\n\n";
     }
   }

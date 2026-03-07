@@ -9,6 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 static rapidjson::Document parseRapid(const xmstream &stream) {
   rapidjson::Document doc;
@@ -126,6 +127,45 @@ static testing::AssertionResult generatedIdlFails(const std::string &stem, const
   }
 }
 
+static testing::AssertionResult generatedIdlSourceContains(const std::string &stem, const std::string &idlSource,
+    std::initializer_list<std::string> needles) {
+  try {
+    TempDir tempDir(makeTempDir());
+    auto idlPath = tempDir.path() / (stem + ".idl");
+    auto headerPath = tempDir.path() / (stem + ".idl.h");
+    auto sourcePath = tempDir.path() / (stem + ".idl.cpp");
+    auto genLogPath = tempDir.path() / "idltool.log";
+
+    writeTextFile(tempDir.path() / "support.h", "#pragma once\n");
+    writeTextFile(idlPath, idlSource);
+
+    std::string generateCmd =
+      shellQuote(IDLTOOL_BINARY_PATH) + " " +
+      shellQuote(idlPath.string()) + " -o " +
+      shellQuote(headerPath.string());
+    auto genResult = runCommandCapture(generateCmd, genLogPath);
+    if (genResult.ExitCode != 0) {
+      return testing::AssertionFailure()
+        << "idltool failed for " << idlPath.filename().string() << "\n"
+        << genResult.Output;
+    }
+
+    std::string source = readTextFile(sourcePath);
+    for (const std::string &needle : needles) {
+      if (source.find(needle) == std::string::npos) {
+        return testing::AssertionFailure()
+          << "generated source for " << idlPath.filename().string()
+          << " did not contain expected fragment '" << needle << "'\n"
+          << source;
+      }
+    }
+
+    return testing::AssertionSuccess();
+  } catch (const std::exception &e) {
+    return testing::AssertionFailure() << e.what();
+  }
+}
+
 } // namespace
 
 template<typename T>
@@ -197,6 +237,23 @@ TEST(IdlTool, ParseScalarTypes) {
   EXPECT_EQ(t.fieldInt64, 999);
   EXPECT_EQ(t.fieldUint64, 1234u);
   EXPECT_DOUBLE_EQ(t.fieldDouble, 3.14);
+}
+
+TEST(IdlTool, SerializeMergesAdjacentLiteralWrites) {
+  const std::string idl = R"(
+struct MergeWrites {
+  first: string;
+  second: uint32;
+  items: [string];
+}
+)";
+
+  EXPECT_TRUE(generatedIdlSourceContains("merge-writes", idl, {
+    "out.write(\"{\\\"first\\\":\");",
+    "out.write(\",\\\"second\\\":\");",
+    "out.write(\",\\\"items\\\":[\");",
+    "out.write(\"]}\");"
+  }));
 }
 
 TEST(IdlTool, ParseMissingRequired) {
@@ -537,7 +594,7 @@ TEST(IdlTool, SerializeMixedFields) {
   m.required3 = true;
   m.optional1 = "opt";
   m.optional2 = 456;
-  m.optional3 = false;
+  m.optional3 = true;
 
   xmstream stream;
   m.serialize(stream);
@@ -548,7 +605,38 @@ TEST(IdlTool, SerializeMixedFields) {
   EXPECT_EQ(doc["required3"].GetBool(), true);
   EXPECT_STREQ(doc["optional1"].GetString(), "opt");
   EXPECT_EQ(doc["optional2"].GetInt64(), 456);
-  EXPECT_EQ(doc["optional3"].GetBool(), false);
+  EXPECT_EQ(doc["optional3"].GetBool(), true);
+}
+
+TEST(IdlTool, SerializeOptionalDefaultsOmitted) {
+  ScalarDefaults d;
+
+  xmstream stream;
+  d.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc.IsObject());
+  EXPECT_EQ(doc.MemberCount(), 0u);
+
+  std::string json(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  EXPECT_EQ(json, "{}");
+}
+
+TEST(IdlTool, SerializeOnlyLastOptionalFieldPresent) {
+  ScalarDefaults d;
+  d.fieldDouble = 4.5;
+
+  xmstream stream;
+  d.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc.IsObject());
+  EXPECT_EQ(doc.MemberCount(), 1u);
+  ASSERT_TRUE(doc.HasMember("fieldDouble"));
+  EXPECT_DOUBLE_EQ(doc["fieldDouble"].GetDouble(), 4.5);
+
+  std::string json(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  EXPECT_EQ(json, "{\"fieldDouble\":4.5}");
 }
 
 TEST(IdlTool, SerializeEnum) {

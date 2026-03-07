@@ -2,6 +2,7 @@
 
 #include "ast.h"
 #include <string>
+#include <string_view>
 #include <vector>
 #include <optional>
 #include <unordered_set>
@@ -19,6 +20,19 @@ CFieldDef variantAltAsField(const CVariantAlt &alt, const std::string &name = ""
 bool isEnum(const std::string &refName, const std::unordered_set<std::string> &enumNames);
 bool isStructRef(const CFieldDef &f, const std::unordered_set<std::string> &enumNames);
 bool isMappedField(const CFieldDef &f);
+
+struct CSerializeCodeBuilder {
+  explicit CSerializeCodeBuilder(std::string &code);
+
+  void writeLiteral(int ind, std::string_view literal);
+  void appendRaw(std::string_view text);
+  void flush();
+
+private:
+  std::string &Code_;
+  int PendingIndent_ = -1;
+  std::string PendingLiteral_;
+};
 
 // --- Perfect hash ---
 
@@ -38,28 +52,28 @@ void generateEnumDefinitions(std::string &out, const CIdlFile &file, bool pascal
 
 // --- Serialize generation ---
 
-void emitSerializeValue(std::string &code, const CFieldDef &f,
+void emitSerializeValue(CSerializeCodeBuilder &code, const CFieldDef &f,
                         const std::string &valueName,
                         const std::unordered_set<std::string> &enumNames,
                         int ind);
-void emitSerializeArrayElem(std::string &code, const CFieldDef &f,
+void emitSerializeArrayElem(CSerializeCodeBuilder &code, const CFieldDef &f,
                             const std::string &valueName,
                             const std::unordered_set<std::string> &enumNames,
                             int ind);
-void emitSerializeExpr(std::string &code, const CFieldDef &f,
+void emitSerializeExpr(CSerializeCodeBuilder &code, const CFieldDef &f,
                        const std::string &valueName,
                        const std::unordered_set<std::string> &enumNames,
                        int ind);
-void generateSerializeField(std::string &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase = false);
+void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase = false, bool useRuntimeComma = false, std::string_view commaVar = "");
 
 // --- Variant/FixedArray serialize helpers ---
 
-void emitVariantSerialize(std::string &code, const CFieldDef &f,
+void emitVariantSerialize(CSerializeCodeBuilder &code, const CFieldDef &f,
                            const std::string &valueName,
                            const std::unordered_set<std::string> &enumNames,
                            int ind, const std::string &structPrefix = "");
 
-void emitNestedArraySerialize(std::string &code, const CFieldDef &f,
+void emitNestedArraySerialize(CSerializeCodeBuilder &code, const CFieldDef &f,
                                const std::vector<CArrayDim> &dims, int dimIndex,
                                const std::string &valueName,
                                const std::unordered_set<std::string> &enumNames,
