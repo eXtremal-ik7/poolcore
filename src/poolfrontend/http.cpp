@@ -299,7 +299,6 @@ static UserManager::Credentials credentialsFromRequest(const T &req) {
   c.Password = req.Password;
   c.Name = req.Name;
   c.EMail = req.Email;
-  c.TwoFactor = req.Totp;
   c.IsActive = req.IsActive;
   c.IsReadOnly = req.IsReadOnly;
   c.FeePlan = req.FeePlanId;
@@ -323,7 +322,6 @@ void PoolHttpConnection::onUserCreate(const CUserCreateRequest &request)
   credentials.Password = request.Password;
   credentials.Name = request.Name;
   credentials.EMail = request.Email;
-  credentials.TwoFactor = request.Totp;
   credentials.ReferralId = request.ReferralId;
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
@@ -351,7 +349,9 @@ void PoolHttpConnection::onUserCreateForce(const CUserCreateForceRequest &reques
 
 void PoolHttpConnection::onUserResendEmail(const CUserResendEmailRequest &request)
 {
-  UserManager::Credentials credentials = credentialsFromRequest(request);
+  UserManager::Credentials credentials;
+  credentials.Login = request.Login;
+  credentials.Password = request.Password;
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().userResendEmail(std::move(credentials), [this](const char *status) {
@@ -362,7 +362,10 @@ void PoolHttpConnection::onUserResendEmail(const CUserResendEmailRequest &reques
 
 void PoolHttpConnection::onUserLogin(const CUserLoginRequest &request)
 {
-  UserManager::Credentials credentials = credentialsFromRequest(request);
+  UserManager::Credentials credentials;
+  credentials.Login = request.Login;
+  credentials.Password = request.Password;
+  credentials.TwoFactor = request.Totp;
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().userLogin(std::move(credentials), [this](const std::string &sessionId, const char *status, bool isReadOnly) {
@@ -459,7 +462,8 @@ void PoolHttpConnection::onUserGetSettings(const CSessionTargetRequest&, const C
 
 void PoolHttpConnection::onUserUpdateCredentials(const CUserUpdateCredentialsRequest &request, const CToken &token)
 {
-  UserManager::Credentials credentials = credentialsFromRequest(request);
+  UserManager::Credentials credentials;
+  credentials.Name = request.Name;
 
   objectIncrementReference(aioObjectHandle(Socket_), 1);
   Server_.userManager().updateCredentials(token.Login, std::move(credentials), [this](const char *status) {

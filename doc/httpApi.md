@@ -108,7 +108,6 @@ Creates a new user account. If SMTP is enabled, sends an activation email.
 | `password` | string | yes | | Password |
 | `name` | string | no | `""` | Display name |
 | `email` | string | no | `""` | Email address |
-| `totp` | string | no | `""` | 2FA code (if parent user has 2FA) |
 | `referralId` | string | no | `""` | Referral ID for fee plan |
 
 **Response**: `status`
@@ -128,7 +127,6 @@ Admin-only user creation with full control over account flags.
 | `password` | string | no | `""` | Password |
 | `name` | string | no | `""` | Display name |
 | `email` | string | no | `""` | Email address |
-| `totp` | string | no | `""` | 2FA code |
 | `isActive` | bool | no | `false` | Activate immediately |
 | `isReadOnly` | bool | no | `false` | Read-only account |
 | `feePlanId` | string | no | `""` | Assign fee plan (cannot combine with referralId) |
@@ -148,7 +146,6 @@ Resends the activation email for an inactive account.
 |---------------|------|----------|---------|-------------|
 | `login` | string | yes | | Username |
 | `password` | string | yes | | Password |
-| `email` | string | no | `""` | Email address |
 
 **Response**: `status`
 
@@ -284,7 +281,7 @@ Returns user profile information.
 
 ### userUpdateCredentials
 
-Updates user profile (name, email, password).
+Updates user display name.
 
 - **Auth**: session
 
@@ -293,10 +290,6 @@ Updates user profile (name, email, password).
 | `id` | string | yes | | Session ID |
 | `targetLogin` | string | no | `""` | Target user (admin only) |
 | `name` | string | no | `""` | New display name |
-| `email` | string | no | `""` | New email |
-| `password` | string | no | `""` | New password |
-| `isActive` | bool | no | `false` | Activate/deactivate (admin only) |
-| `isReadOnly` | bool | no | `false` | Set read-only (admin only) |
 
 **Response**: `status`
 

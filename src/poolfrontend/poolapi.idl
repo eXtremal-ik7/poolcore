@@ -16,18 +16,6 @@ include "poolcommon/types.idl";
 // Common types
 // ============================================================================
 
-mixin Credentials {
-  login: string = "";
-  password: string = "";
-  name: string = "";
-  email: string = "";
-  totp: string = "";
-  isActive: bool = false;
-  isReadOnly: bool = false;
-  feePlanId: string = "";
-  referralId: string = "";
-}
-
 mixin SessionTarget {
   id: string;                    // session ID
   targetLogin: string = "";
@@ -117,7 +105,6 @@ struct UserCreateRequest {
   password: string;
   name: string = "";
   email: string = "";
-  totp: string = "";
   referralId: string = "";
 }
 
@@ -125,19 +112,29 @@ struct UserCreateRequest {
 struct UserCreateForceRequest {
   .generate(parse);
   id: string;
-  mixin Credentials;
+  login: string = "";
+  password: string = "";
+  name: string = "";
+  email: string = "";
+  isActive: bool = false;
+  isReadOnly: bool = false;
+  feePlanId: string = "";
+  referralId: string = "";
 }
 
 // --- userResendEmail ---
 struct UserResendEmailRequest {
   .generate(parse);
-  mixin Credentials;
+  login: string = "";
+  password: string = "";
 }
 
 // --- userLogin ---
 struct UserLoginRequest {
   .generate(parse);
-  mixin Credentials;
+  login: string;
+  password: string;
+  totp: string = "";
 }
 struct UserLoginResponse {
   .generate(serialize.flat);
@@ -207,7 +204,7 @@ struct UserGetSettingsResponse {
 struct UserUpdateCredentialsRequest {
   .generate(parse);
   mixin SessionTarget;
-  mixin Credentials;
+  name: string = "";
 }
 
 // --- userUpdateSettings ---
