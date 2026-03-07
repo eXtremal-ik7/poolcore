@@ -168,8 +168,7 @@ std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::strin
     std::string vt = variantCppType(f.Type.Alternatives, enumNames, structPrefix);
     switch (f.Kind) {
       case EFieldKind::Variant:         return vt;
-      case EFieldKind::OptionalVariant:
-      case EFieldKind::NullableVariant: return std::format("std::optional<{}>", vt);
+      case EFieldKind::OptionalVariant: return std::format("std::optional<{}>", vt);
       default: return vt;
     }
   }
@@ -192,17 +191,14 @@ std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::strin
     case EFieldKind::Optional:
       return base;
     case EFieldKind::OptionalObject:
-    case EFieldKind::NullableObject:
       return std::format("std::optional<{}>", base);
     case EFieldKind::Array:
       return std::format("std::vector<{}>", base);
     case EFieldKind::OptionalArray:
-    case EFieldKind::NullableArray:
       return std::format("std::optional<std::vector<{}>>", base);
     case EFieldKind::FixedArray:
       return std::format("std::array<{}, {}>", base, f.Type.FixedSize);
     case EFieldKind::OptionalFixedArray:
-    case EFieldKind::NullableFixedArray:
       return std::format("std::optional<std::array<{}, {}>>", base, f.Type.FixedSize);
     default:
       return base;
@@ -599,18 +595,18 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
     }
 
     case EFieldKind::OptionalObject: {
-      code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-      emitKey(f.Name, ind + 1);
-      if (isStructRef(f, enumNames)) {
-        code.appendRaw(std::format("{}{}->serialize(out);\n", indent(ind + 1), cn));
-      } else {
-        emitSerializeValue(code, f, std::format("*{}", cn), enumNames, ind + 1);
+      if (!fieldEmptyOutIsNull(f)) {
+        code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+        emitKey(f.Name, ind + 1);
+        if (isStructRef(f, enumNames)) {
+          code.appendRaw(std::format("{}{}->serialize(out);\n", indent(ind + 1), cn));
+        } else {
+          emitSerializeValue(code, f, std::format("*{}", cn), enumNames, ind + 1);
+        }
+        code.appendRaw(std::format("{}}}\n", in));
+        break;
       }
-      code.appendRaw(std::format("{}}}\n", in));
-      break;
-    }
 
-    case EFieldKind::NullableObject: {
       emitKey(f.Name);
       code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
       if (isStructRef(f, enumNames)) {
@@ -639,23 +635,23 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
     }
 
     case EFieldKind::OptionalArray: {
-      code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-      emitKey(f.Name, ind + 1);
-      code.writeLiteral(ind + 1, "[");
-      code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", indent(ind + 1), cn));
-      code.appendRaw(std::format("{}  if (i_) out.write(',');\n", indent(ind + 1)));
-      if (f.Type.InnerDims.empty()) {
-        emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
-      } else {
-        emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      if (!fieldEmptyOutIsNull(f)) {
+        code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+        emitKey(f.Name, ind + 1);
+        code.writeLiteral(ind + 1, "[");
+        code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", indent(ind + 1), cn));
+        code.appendRaw(std::format("{}  if (i_) out.write(',');\n", indent(ind + 1)));
+        if (f.Type.InnerDims.empty()) {
+          emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+        } else {
+          emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+        }
+        code.appendRaw(std::format("{}}}\n", indent(ind + 1)));
+        code.writeLiteral(ind + 1, "]");
+        code.appendRaw(std::format("{}}}\n", in));
+        break;
       }
-      code.appendRaw(std::format("{}}}\n", indent(ind + 1)));
-      code.writeLiteral(ind + 1, "]");
-      code.appendRaw(std::format("{}}}\n", in));
-      break;
-    }
 
-    case EFieldKind::NullableArray: {
       emitKey(f.Name);
       code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
       code.writeLiteral(ind + 1, "[");
@@ -690,23 +686,23 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
     }
 
     case EFieldKind::OptionalFixedArray: {
-      code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-      emitKey(f.Name, ind + 1);
-      code.writeLiteral(ind + 1, "[");
-      code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", indent(ind + 1), cn));
-      code.appendRaw(std::format("{}  if (i_) out.write(',');\n", indent(ind + 1)));
-      if (f.Type.InnerDims.empty()) {
-        emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
-      } else {
-        emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      if (!fieldEmptyOutIsNull(f)) {
+        code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+        emitKey(f.Name, ind + 1);
+        code.writeLiteral(ind + 1, "[");
+        code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", indent(ind + 1), cn));
+        code.appendRaw(std::format("{}  if (i_) out.write(',');\n", indent(ind + 1)));
+        if (f.Type.InnerDims.empty()) {
+          emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+        } else {
+          emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+        }
+        code.appendRaw(std::format("{}}}\n", indent(ind + 1)));
+        code.writeLiteral(ind + 1, "]");
+        code.appendRaw(std::format("{}}}\n", in));
+        break;
       }
-      code.appendRaw(std::format("{}}}\n", indent(ind + 1)));
-      code.writeLiteral(ind + 1, "]");
-      code.appendRaw(std::format("{}}}\n", in));
-      break;
-    }
 
-    case EFieldKind::NullableFixedArray: {
       emitKey(f.Name);
       code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
       code.writeLiteral(ind + 1, "[");
@@ -732,14 +728,14 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
     }
 
     case EFieldKind::OptionalVariant: {
-      code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-      emitKey(f.Name, ind + 1);
-      emitVariantSerialize(code, f, std::format("*{}", cn), enumNames, ind + 1);
-      code.appendRaw(std::format("{}}}\n", in));
-      break;
-    }
+      if (!fieldEmptyOutIsNull(f)) {
+        code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+        emitKey(f.Name, ind + 1);
+        emitVariantSerialize(code, f, std::format("*{}", cn), enumNames, ind + 1);
+        code.appendRaw(std::format("{}}}\n", in));
+        break;
+      }
 
-    case EFieldKind::NullableVariant: {
       emitKey(f.Name);
       code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
       emitVariantSerialize(code, f, std::format("*{}", cn), enumNames, ind + 1);

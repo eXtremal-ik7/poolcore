@@ -29,6 +29,7 @@
 "ctxgroup"              { return TOK_CTXGROUP; }
 "generate"              { return TOK_GENERATE; }
 "variant"               { return TOK_VARIANT; }
+"optional"              { return TOK_OPTIONAL; }
 
 "cpp" {
     int c;
@@ -118,6 +119,8 @@
 "?"                     { return '?'; }
 "("                     { return '('; }
 ")"                     { return ')'; }
+"<"                     { return '<'; }
+">"                     { return '>'; }
 "-"                     { return '-'; }
 "@"                     { return '@'; }
 "."                     { return '.'; }

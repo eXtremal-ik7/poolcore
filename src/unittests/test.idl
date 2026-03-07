@@ -110,8 +110,8 @@ struct Outer {
 struct OptionalChildren {
   .generate(parse, parse.verbose, serialize);
   name: string;
-  first: Inner?;
-  second: Inner?;
+  first: optional<Inner>;
+  second: optional<Inner>;
 }
 
 // ============================================================================
@@ -133,8 +133,8 @@ struct ArrayFields {
 struct OptionalArrays {
   .generate(parse, parse.verbose, serialize);
   label: string;
-  tags: [string]?;
-  items: [Inner]?;
+  tags: optional<[string]>;
+  items: optional<[Inner]>;
 }
 
 // ============================================================================
@@ -144,8 +144,17 @@ struct OptionalArrays {
 struct NullableScalars {
   .generate(parse, parse.verbose, serialize);
   title: string;
-  note: string??;
-  numbers: [int64]??;
+  note: optional<string>(null_in=allow, empty_out=null);
+  numbers: optional<[int64]>(null_in=allow, empty_out=null);
+}
+
+struct OptionalPolicyScalars {
+  .generate(parse, parse.verbose, serialize);
+  denyOmit: optional<string>;
+  denyNull: optional<string>(empty_out=null);
+  allowOmit: optional<string>(null_in=allow);
+  allowNull: optional<string>(null_in=allow, empty_out=null);
+  requiredNull: optional<string>(null_in=required, empty_out=null);
 }
 
 // ============================================================================
@@ -214,15 +223,15 @@ mapped type ctxCounter32Val("uint32_t") : uint32 context(uint32) include "testMa
 struct InlineMapped {
   .generate(parse, parse.verbose, serialize);
   amount: plainVal;
-  optionalAmount: plainVal?;
-  nullableAmount: plainVal??;
+  optionalAmount: optional<plainVal>;
+  nullableAmount: optional<plainVal>(null_in=allow, empty_out=null);
 }
 
 struct InlineMappedArray {
   .generate(parse, parse.verbose, serialize);
   amounts: [plainVal];
-  optionalAmounts: [plainVal]?;
-  nullableAmounts: [plainVal]??;
+  optionalAmounts: optional<[plainVal]>;
+  nullableAmounts: optional<[plainVal]>(null_in=allow, empty_out=null);
 }
 
 struct CtxChild {
@@ -275,13 +284,13 @@ struct WithUint32Mapped {
 }
 
 // ============================================================================
-// Nullable struct object (Inner?? — emits null when absent, unlike Inner?)
+// Nullable struct object — emits null when absent
 // ============================================================================
 
 struct NullableObject {
   .generate(parse, parse.verbose, serialize);
   title: string;
-  inner: Inner??;
+  inner: optional<Inner>(null_in=allow, empty_out=null);
 }
 
 // ============================================================================
@@ -368,8 +377,8 @@ struct Combined {
   priority: Priority = "low";
   active: bool;
   score: double = 0.0;
-  metadata: Inner?;
-  tags: [string]?;
+  metadata: optional<Inner>;
+  tags: optional<[string]>;
   children: [Inner];
   nested: Outer;
 }
@@ -402,7 +411,7 @@ struct FixedArrayStruct {
 struct OptionalFixedArray {
   .generate(parse, parse.verbose, serialize);
   label: string;
-  data: [int32; 3]?;
+  data: optional<[int32; 3]>;
 }
 
 // ============================================================================
@@ -427,19 +436,19 @@ struct MixedDims {
 struct OptionalMatrix2D {
   .generate(parse, parse.verbose, serialize);
   label: string;
-  grid: [[int32]]?;
+  grid: optional<[[int32]]>;
 }
 
 struct NullableMatrix2D {
   .generate(parse, parse.verbose, serialize);
   label: string;
-  grid: [[int32]]??;
+  grid: optional<[[int32]]>(null_in=allow, empty_out=null);
 }
 
 struct OptionalFixedMatrix {
   .generate(parse, parse.verbose, serialize);
   label: string;
-  mat: [[double; 2]; 2]?;
+  mat: optional<[[double; 2]; 2]>;
 }
 
 // ============================================================================
@@ -475,7 +484,7 @@ struct VariantMultiStruct {
 struct OptionalVariant {
   .generate(parse, parse.verbose, serialize);
   label: string;
-  extra: variant(string, int64)?;
+  extra: optional<variant(string, int64)>;
 }
 
 struct VariantMappedString {

@@ -362,11 +362,17 @@ TEST(IdlTool, ParseOptionalObject) {
   EXPECT_EQ(oc1.first->count, 1);
   EXPECT_FALSE(oc1.second.has_value());
 
-  const char *json2 = R"({"name":"y","first":null,"second":null})";
+  const char *json2 = R"({"name":"y"})";
   OptionalChildren oc2;
   ASSERT_TRUE(oc2.parse(json2, strlen(json2)));
   EXPECT_FALSE(oc2.first.has_value());
   EXPECT_FALSE(oc2.second.has_value());
+}
+
+TEST(IdlTool, ParseOptionalObjectNullRejected) {
+  const char *json = R"({"name":"y","first":null})";
+  OptionalChildren oc;
+  EXPECT_FALSE(oc.parse(json, strlen(json)));
 }
 
 TEST(IdlTool, ParseArray) {
@@ -396,9 +402,7 @@ TEST(IdlTool, ParseOptionalArray) {
 
   const char *json2 = R"({"label":"y","tags":null})";
   OptionalArrays oa2;
-  ASSERT_TRUE(oa2.parse(json2, strlen(json2)));
-  EXPECT_FALSE(oa2.tags.has_value());
-  EXPECT_FALSE(oa2.items.has_value());
+  EXPECT_FALSE(oa2.parse(json2, strlen(json2)));
 
   const char *json3 = R"({"label":"z"})";
   OptionalArrays oa3;
@@ -422,6 +426,32 @@ TEST(IdlTool, ParseNullableScalars) {
   ASSERT_TRUE(s2.parse(json2, strlen(json2)));
   EXPECT_FALSE(s2.note.has_value());
   EXPECT_FALSE(s2.numbers.has_value());
+}
+
+TEST(IdlTool, ParseOptionalPolicyScalars) {
+  const char *json = R"({"denyOmit":"a","denyNull":"b","allowOmit":null,"allowNull":"c","requiredNull":null})";
+  OptionalPolicyScalars s;
+  ASSERT_TRUE(s.parse(json, strlen(json)));
+  ASSERT_TRUE(s.denyOmit.has_value());
+  EXPECT_EQ(*s.denyOmit, "a");
+  ASSERT_TRUE(s.denyNull.has_value());
+  EXPECT_EQ(*s.denyNull, "b");
+  EXPECT_FALSE(s.allowOmit.has_value());
+  ASSERT_TRUE(s.allowNull.has_value());
+  EXPECT_EQ(*s.allowNull, "c");
+  EXPECT_FALSE(s.requiredNull.has_value());
+}
+
+TEST(IdlTool, ParseOptionalPolicyScalarsAbsentAndRequired) {
+  const char *json = R"({"denyOmit":"a","denyNull":"b","allowNull":null})";
+  OptionalPolicyScalars s;
+  EXPECT_FALSE(s.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, ParseOptionalPolicyScalarsNullDenied) {
+  const char *json = R"({"denyOmit":null,"denyNull":"b","requiredNull":"x"})";
+  OptionalPolicyScalars s;
+  EXPECT_FALSE(s.parse(json, strlen(json)));
 }
 
 TEST(IdlTool, ParseMixin) {
@@ -494,6 +524,12 @@ TEST(IdlTool, ParseInlineMappedInvalid) {
   EXPECT_FALSE(m.parse(json, strlen(json)));
 }
 
+TEST(IdlTool, ParseInlineMappedOptionalNullRejected) {
+  const char *json = R"({"amount":"42","optionalAmount":null})";
+  InlineMapped m;
+  EXPECT_FALSE(m.parse(json, strlen(json)));
+}
+
 TEST(IdlTool, ParseInlineMappedArray) {
   const char *json = R"({"amounts":["1","2"],"optionalAmounts":["5"],"nullableAmounts":null})";
   InlineMappedArray m;
@@ -509,6 +545,12 @@ TEST(IdlTool, ParseInlineMappedArray) {
 
 TEST(IdlTool, ParseInlineMappedArrayInvalid) {
   const char *json = R"({"amounts":["1","bad"]})";
+  InlineMappedArray m;
+  EXPECT_FALSE(m.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, ParseInlineMappedArrayOptionalNullRejected) {
+  const char *json = R"({"amounts":["1"],"optionalAmounts":null})";
   InlineMappedArray m;
   EXPECT_FALSE(m.parse(json, strlen(json)));
 }
@@ -757,6 +799,34 @@ TEST(IdlTool, SerializeNullableScalars) {
   ASSERT_TRUE(doc2["numbers"].IsArray());
   EXPECT_EQ(doc2["numbers"].Size(), 2u);
   EXPECT_EQ(doc2["numbers"][0].GetInt64(), 4);
+}
+
+TEST(IdlTool, SerializeOptionalPolicyScalars) {
+  OptionalPolicyScalars s;
+
+  xmstream stream1;
+  s.serialize(stream1);
+  auto doc1 = parseRapid(stream1);
+  ASSERT_FALSE(doc1.HasParseError());
+  EXPECT_FALSE(doc1.HasMember("denyOmit"));
+  ASSERT_TRUE(doc1.HasMember("denyNull"));
+  EXPECT_TRUE(doc1["denyNull"].IsNull());
+  EXPECT_FALSE(doc1.HasMember("allowOmit"));
+  ASSERT_TRUE(doc1.HasMember("allowNull"));
+  EXPECT_TRUE(doc1["allowNull"].IsNull());
+  ASSERT_TRUE(doc1.HasMember("requiredNull"));
+  EXPECT_TRUE(doc1["requiredNull"].IsNull());
+
+  s.denyOmit = "a";
+  s.allowOmit = "b";
+  s.requiredNull = "c";
+  xmstream stream2;
+  s.serialize(stream2);
+  auto doc2 = parseRapid(stream2);
+  ASSERT_FALSE(doc2.HasParseError());
+  EXPECT_STREQ(doc2["denyOmit"].GetString(), "a");
+  EXPECT_STREQ(doc2["allowOmit"].GetString(), "b");
+  EXPECT_STREQ(doc2["requiredNull"].GetString(), "c");
 }
 
 TEST(IdlTool, SerializeInlineMapped) {
@@ -1192,7 +1262,7 @@ TEST(IdlTool, BugChronoArrayVerboseParse) {
 // Coverage gap tests
 // ============================================================================
 
-// --- Nullable struct object (Inner??) ---
+// --- Nullable struct object ---
 
 TEST(IdlTool, ParseNullableObjectPresent) {
   const char *json = R"({"title":"t","inner":{"value":"v","count":1}})";
@@ -1212,7 +1282,6 @@ TEST(IdlTool, ParseNullableObjectNull) {
 }
 
 TEST(IdlTool, ParseNullableObjectAbsent) {
-  // NullableObject (Inner??) — absent field should still succeed (default nullopt)
   const char *json = R"({"title":"t"})";
   NullableObject no;
   ASSERT_TRUE(no.parse(json, strlen(json)));
@@ -1246,7 +1315,7 @@ TEST(IdlTool, SerializeNullableObjectAbsent) {
   no.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
-  // Nullable emits null (unlike optional which omits)
+  // empty_out=null emits null (unlike default optional which omits)
   ASSERT_TRUE(doc.HasMember("inner"));
   EXPECT_TRUE(doc["inner"].IsNull());
 }
@@ -1433,12 +1502,11 @@ TEST(IdlTool, VerboseParseOptionalObjectPresent) {
 }
 
 TEST(IdlTool, VerboseParseOptionalObjectNull) {
-  const char *json = R"({"name":"x","first":null,"second":null})";
+  const char *json = R"({"name":"x","first":null})";
   OptionalChildren oc;
   ParseError error;
-  ASSERT_TRUE(oc.parseVerbose(json, strlen(json), error));
-  EXPECT_FALSE(oc.first.has_value());
-  EXPECT_FALSE(oc.second.has_value());
+  EXPECT_FALSE(oc.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("null is not allowed"), std::string::npos);
 }
 
 TEST(IdlTool, VerboseParseOptionalArrayPresent) {
@@ -1455,8 +1523,8 @@ TEST(IdlTool, VerboseParseOptionalArrayNull) {
   const char *json = R"({"label":"x","tags":null})";
   OptionalArrays oa;
   ParseError error;
-  ASSERT_TRUE(oa.parseVerbose(json, strlen(json), error));
-  EXPECT_FALSE(oa.tags.has_value());
+  EXPECT_FALSE(oa.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("null is not allowed"), std::string::npos);
 }
 
 TEST(IdlTool, VerboseParseNullableScalarsPresent) {
@@ -1477,6 +1545,22 @@ TEST(IdlTool, VerboseParseNullableScalarsNull) {
   ASSERT_TRUE(ns.parseVerbose(json, strlen(json), error));
   EXPECT_FALSE(ns.note.has_value());
   EXPECT_FALSE(ns.numbers.has_value());
+}
+
+TEST(IdlTool, VerboseParseOptionalPolicyScalarsRequiredMissing) {
+  const char *json = R"({"denyOmit":"a"})";
+  OptionalPolicyScalars s;
+  ParseError error;
+  EXPECT_FALSE(s.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("missing required field 'requiredNull'"), std::string::npos);
+}
+
+TEST(IdlTool, VerboseParseOptionalPolicyScalarsNullDenied) {
+  const char *json = R"({"denyOmit":null,"requiredNull":"x"})";
+  OptionalPolicyScalars s;
+  ParseError error;
+  EXPECT_FALSE(s.parseVerbose(json, strlen(json), error));
+  EXPECT_NE(error.message.find("null is not allowed"), std::string::npos);
 }
 
 // --- Large enum (perfect hash path) ---
@@ -1669,7 +1753,7 @@ TEST(IdlTool, SerializeAbsentOptionalObject) {
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   EXPECT_STREQ(doc["name"].GetString(), "empty");
-  // Optional objects (?) should NOT appear in output when absent
+  // Default optional objects should NOT appear in output when absent
   EXPECT_FALSE(doc.HasMember("first"));
   EXPECT_FALSE(doc.HasMember("second"));
 }
@@ -1778,6 +1862,12 @@ TEST(IdlTool, ParseOptionalFixedArrayAbsent) {
   ASSERT_TRUE(t.parse(json, strlen(json)));
   EXPECT_EQ(t.label, "test");
   EXPECT_FALSE(t.data.has_value());
+}
+
+TEST(IdlTool, ParseOptionalFixedArrayNullRejected) {
+  const char *json = R"({"label":"test","data":null})";
+  OptionalFixedArray t;
+  EXPECT_FALSE(t.parse(json, strlen(json)));
 }
 
 TEST(IdlTool, ParseFixedArrayRejectsMissingComma) {
@@ -2156,6 +2246,12 @@ TEST(IdlTool, ParseOptionalVariantInt) {
   EXPECT_EQ(std::get<1>(*t.extra), 123);
 }
 
+TEST(IdlTool, ParseOptionalVariantNullRejected) {
+  const char *json = R"({"label":"hi","extra":null})";
+  OptionalVariant t;
+  EXPECT_FALSE(t.parse(json, strlen(json)));
+}
+
 TEST(IdlTool, SerializeOptionalVariantAbsent) {
   OptionalVariant t;
   t.label = "test";
@@ -2388,6 +2484,50 @@ TEST(IdlTool, VerboseParseVariantMultiStruct) {
   ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
   ASSERT_EQ(t.shape.index(), 0u);
   EXPECT_DOUBLE_EQ(std::get<0>(t.shape).radius, 5.0);
+}
+
+// ============================================================================
+// Optional syntax regression tests
+// ============================================================================
+
+TEST(IdlTool, LegacyOptionalSyntaxRejected) {
+  const std::string idl =
+    "struct Sample {\n"
+    "  .generate(parse);\n"
+    "  value: string?;\n"
+    "}\n";
+
+  EXPECT_TRUE(generatedIdlFails("legacy_optional_syntax", idl));
+}
+
+TEST(IdlTool, OptionalUnknownPolicyRejected) {
+  const std::string idl =
+    "struct Sample {\n"
+    "  .generate(parse);\n"
+    "  value: optional<string>(wat=allow);\n"
+    "}\n";
+
+  EXPECT_TRUE(generatedIdlFails("optional_unknown_policy", idl, "unknown optional<T> policy"));
+}
+
+TEST(IdlTool, OptionalInvalidNullInRejected) {
+  const std::string idl =
+    "struct Sample {\n"
+    "  .generate(parse);\n"
+    "  value: optional<string>(null_in=maybe);\n"
+    "}\n";
+
+  EXPECT_TRUE(generatedIdlFails("optional_invalid_null_in", idl, "invalid value for null_in"));
+}
+
+TEST(IdlTool, OptionalDuplicatePolicyRejected) {
+  const std::string idl =
+    "struct Sample {\n"
+    "  .generate(parse);\n"
+    "  value: optional<string>(null_in=allow, null_in=required);\n"
+    "}\n";
+
+  EXPECT_TRUE(generatedIdlFails("optional_duplicate_policy", idl, "duplicate optional<T> policy"));
 }
 
 // ============================================================================

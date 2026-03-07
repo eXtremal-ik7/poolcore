@@ -22,37 +22,40 @@ enum class EScalarType {
   Hours
 };
 
+enum class ENullInPolicy {
+  Deny,
+  Allow,
+  Required
+};
+
+enum class EEmptyOutPolicy {
+  Omit,
+  Null
+};
+
 // How a field is declared
 enum class EFieldKind {
   Required,            // field: Type
   Optional,            // field: Type = default   — omitted when value == default
-  OptionalObject,      // field: Type?          — omitted when nullopt
-  NullableObject,      // field: Type??         — null when nullopt
+  OptionalObject,      // field: optional<Type>
   Array,               // field: [Type]
-  OptionalArray,       // field: [Type]?        — omitted when nullopt
-  NullableArray,       // field: [Type]??       — null when nullopt
+  OptionalArray,       // field: optional<[Type]>
   FixedArray,          // field: [Type; N]
-  OptionalFixedArray,  // field: [Type; N]?
-  NullableFixedArray,  // field: [Type; N]??
+  OptionalFixedArray,  // field: optional<[Type; N]>
   Variant,             // field: variant(T1, T2, T3)
-  OptionalVariant,     // field: variant(T1, T2, T3)?
-  NullableVariant      // field: variant(T1, T2, T3)??
+  OptionalVariant      // field: optional<variant(T1, T2, T3)>
 };
 
 // Shape of field declaration in IDL
 enum class ETypeShape {
   Plain,                // field: Type
-  OptionalObject,       // field: Type?
-  NullableObject,       // field: Type??
+  OptionalObject,       // field: optional<Type>
   Array,                // field: [Type]
-  OptionalArray,        // field: [Type]?
-  NullableArray,        // field: [Type]??
+  OptionalArray,        // field: optional<[Type]>
   FixedArray,           // field: [Type; N]
-  OptionalFixedArray,   // field: [Type; N]?
-  NullableFixedArray,   // field: [Type; N]??
+  OptionalFixedArray,   // field: optional<[Type; N]>
   Variant,              // field: variant(T1, T2, T3)
-  OptionalVariant,      // field: variant(T1, T2, T3)?
-  NullableVariant       // field: variant(T1, T2, T3)??
+  OptionalVariant       // field: optional<variant(T1, T2, T3)>
 };
 
 // Inner array dimension for multi-dimensional arrays
@@ -82,6 +85,8 @@ struct CFieldType {
   std::string MappedCppType; // C++ type from mapped type definition
   std::string MappedWireType; // JSON wire type from mapped type definition
   ETypeShape Shape = ETypeShape::Plain;
+  ENullInPolicy NullIn = ENullInPolicy::Deny;
+  EEmptyOutPolicy EmptyOut = EEmptyOutPolicy::Omit;
 
   // Fixed-size array: 0 = dynamic, >0 = std::array<T, N>
   int FixedSize = 0;
@@ -112,11 +117,20 @@ struct CDefaultValue {
   bool BoolVal = false;
 };
 
+struct COptionalPolicySpec {
+  ENullInPolicy NullIn = ENullInPolicy::Deny;
+  EEmptyOutPolicy EmptyOut = EEmptyOutPolicy::Omit;
+  bool HasNullIn = false;
+  bool HasEmptyOut = false;
+};
+
 // AST nodes
 struct CFieldDef {
   std::string Name;
   CFieldType Type;
   EFieldKind Kind = EFieldKind::Required;
+  ENullInPolicy NullIn = ENullInPolicy::Deny;
+  EEmptyOutPolicy EmptyOut = EEmptyOutPolicy::Omit;
   CDefaultValue Default;
   int Tag = 0;  // 0 = no tag, 1..63 = tagged field for schema()
   int Line = 0;
@@ -209,3 +223,36 @@ void dumpAst(const CIdlFile &file);
 std::optional<EScalarType> parseScalarType(const std::string &name);
 
 const char *scalarTypeName(EScalarType t);
+
+inline bool isOptionalKind(EFieldKind kind)
+{
+  switch (kind) {
+    case EFieldKind::OptionalObject:
+    case EFieldKind::OptionalArray:
+    case EFieldKind::OptionalFixedArray:
+    case EFieldKind::OptionalVariant:
+      return true;
+    default:
+      return false;
+  }
+}
+
+inline bool isOptionalField(const CFieldDef &f)
+{
+  return isOptionalKind(f.Kind);
+}
+
+inline bool fieldAllowsNullInput(const CFieldDef &f)
+{
+  return isOptionalField(f) && f.NullIn != ENullInPolicy::Deny;
+}
+
+inline bool fieldRequiresPresence(const CFieldDef &f)
+{
+  return isOptionalField(f) && f.NullIn == ENullInPolicy::Required;
+}
+
+inline bool fieldEmptyOutIsNull(const CFieldDef &f)
+{
+  return isOptionalField(f) && f.EmptyOut == EEmptyOutPolicy::Null;
+}

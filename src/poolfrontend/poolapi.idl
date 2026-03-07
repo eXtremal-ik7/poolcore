@@ -6,8 +6,7 @@ include "poolcommon/types.idl";
 // Syntax:
 //   field: type;              — required (error if missing)
 //   field: type = default;    — optional with default value
-//   field: type?;             — optional sub-object (omitted when absent)
-//   field: type??;            — nullable (null when absent)
+//   field: optional<type>;    — std::optional, default null_in=deny, empty_out=omit
 //   field: variant(a, b);     — variant type
 //   [type]                    — array of type
 //   mixin Name;               — inline all fields from another struct
@@ -218,9 +217,9 @@ struct UserUpdateSettingsRequest {
   targetLogin: string = "";
   coin: string;
   totp: string = "";
-  payout: SettingsPayout?;
-  mining: SettingsMining?;
-  autoExchange: SettingsAutoExchange?;
+  payout: optional<SettingsPayout>;
+  mining: optional<SettingsMining>;
+  autoExchange: optional<SettingsAutoExchange>;
 }
 
 // --- userEnumerateAll ---
@@ -457,16 +456,16 @@ struct HttpCoinInfo {
   minimalInstantPayout: string;
   acceptIncoming: bool;
   acceptOutgoing: bool;
-  valueBTC: double??;
-  valueUSD: double??;
-  height: int64??;
-  difficulty: double??;
-  powerUnit: string??;
-  powerMultLog10: int64??;
-  powerPPS: int64??;
-  dailyPPS: string??;
-  dailyPPSUSD: string??;
-  dailyPPSBTC: string??;
+  valueBTC: optional<double>(null_in=allow, empty_out=null);
+  valueUSD: optional<double>(null_in=allow, empty_out=null);
+  height: optional<int64>(null_in=allow, empty_out=null);
+  difficulty: optional<double>(null_in=allow, empty_out=null);
+  powerUnit: optional<string>(null_in=allow, empty_out=null);
+  powerMultLog10: optional<int64>(null_in=allow, empty_out=null);
+  powerPPS: optional<int64>(null_in=allow, empty_out=null);
+  dailyPPS: optional<string>(null_in=allow, empty_out=null);
+  dailyPPSUSD: optional<string>(null_in=allow, empty_out=null);
+  dailyPPSBTC: optional<string>(null_in=allow, empty_out=null);
 }
 
 struct BackendQueryCoinsResponse {
@@ -492,7 +491,7 @@ struct FoundBlock {
   confirmations: int64;
   generatedCoins: string;
   foundBy: string;
-  mergedBlocks: [MergedBlockInfo]?;
+  mergedBlocks: optional<[MergedBlockInfo]>;
 }
 
 struct BackendQueryFoundBlocksResponse {
@@ -656,9 +655,9 @@ struct BackendUpdateConfigRequest {
   .generate(parse);
   id: string;
   coin: string;
-  pps: BackendPPS?;
-  payouts: BackendPayouts?;
-  swap: BackendSwap?;
+  pps: optional<BackendPPS>;
+  payouts: optional<BackendPayouts>;
+  swap: optional<BackendSwap>;
 }
 
 // --- backendGetPPSState ---
@@ -747,7 +746,7 @@ struct InstanceInfo {
   type: string;
   port: int64;
   backends: [string];
-  shareDiff: double?;           // only for protocol == "stratum"
+  shareDiff: optional<double>;  // only for protocol == "stratum"
 }
 
 struct InstanceEnumerateAllResponse {

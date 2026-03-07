@@ -521,9 +521,11 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       break;
     }
 
-    case EFieldKind::OptionalObject:
-    case EFieldKind::NullableObject: {
-      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+    case EFieldKind::OptionalObject: {
+      if (fieldAllowsNullInput(f))
+        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      else
+        out += std::format("{}if (s.readNull()) {{ s.setError(\"field '{}': null is not allowed\"); return false; }}\n", in, ctx);
       if (isStructRef(f, enumNames)) {
         out += std::format("{}else if (!{}.emplace().parseVerboseImpl(s)) return false;\n", in, cn);
       } else {
@@ -535,6 +537,8 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
         generateVerboseParseScalar(out, tmp, enumNames, -1, ind + 1, ctx, false);
         out += std::format("{}}}\n", in);
       }
+      if (foundBit >= 0)
+        out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
       break;
     }
 
@@ -624,9 +628,11 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       break;
     }
 
-    case EFieldKind::OptionalArray:
-    case EFieldKind::NullableArray: {
-      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+    case EFieldKind::OptionalArray: {
+      if (fieldAllowsNullInput(f))
+        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      else
+        out += std::format("{}if (s.readNull()) {{ s.setError(\"field '{}': null is not allowed\"); return false; }}\n", in, ctx);
       out += std::format("{}else {{\n", in);
       out += std::format("{}  {}.emplace();\n", in, cn);
       CFieldDef tmp = f;
@@ -634,6 +640,8 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       tmp.Kind = EFieldKind::Array;
       generateVerboseParseField(out, tmp, enumNames, -1, ind + 1, false);
       out += std::format("{}}}\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
       break;
     }
 
@@ -682,9 +690,11 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       break;
     }
 
-    case EFieldKind::OptionalFixedArray:
-    case EFieldKind::NullableFixedArray: {
-      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+    case EFieldKind::OptionalFixedArray: {
+      if (fieldAllowsNullInput(f))
+        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      else
+        out += std::format("{}if (s.readNull()) {{ s.setError(\"field '{}': null is not allowed\"); return false; }}\n", in, ctx);
       out += std::format("{}else {{\n", in);
       out += std::format("{}  {}.emplace();\n", in, cn);
       CFieldDef tmp = f;
@@ -692,6 +702,8 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       tmp.Kind = EFieldKind::FixedArray;
       generateVerboseParseField(out, tmp, enumNames, -1, ind + 1, false);
       out += std::format("{}}}\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
       break;
     }
 
@@ -704,15 +716,19 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       break;
     }
 
-    case EFieldKind::OptionalVariant:
-    case EFieldKind::NullableVariant: {
-      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+    case EFieldKind::OptionalVariant: {
+      if (fieldAllowsNullInput(f))
+        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      else
+        out += std::format("{}if (s.readNull()) {{ s.setError(\"field '{}': null is not allowed\"); return false; }}\n", in, ctx);
       out += std::format("{}else {{\n", in);
       out += std::format("{}  s.skipWhitespace();\n", in);
       out += std::format("{}  if (s.p >= s.end) {{ s.setError(\"field '{}': expected value\"); return false; }}\n", in, ctx);
       out += std::format("{}  {}.emplace();\n", in, cn);
       generateVerboseVariantParse(out, f, std::format("(*{})", cn), ctx, enumNames, ind + 1);
       out += std::format("{}}}\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
       break;
     }
   }

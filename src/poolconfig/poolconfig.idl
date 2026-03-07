@@ -4,7 +4,7 @@
 // Syntax:
 //   field: type;              — required (error if missing)
 //   field: type = default;    — optional with default value
-//   field: type?;             — optional (may be absent, no default)
+//   field: optional<type>;    — std::optional, default null_in=deny, empty_out=omit
 //   field: variant(a, b);     — variant type
 //   [type]                    — array of type
 
@@ -103,14 +103,14 @@ struct InstanceConfig {
   backends: [string];
   port: uint32;
   shareDiff: double;
-  versionMask: string?;
+  versionMask: optional<string>;
   profitSwitcherEnabled: bool = false;
-  resetWorkOnBlockChange: [string]?;
-  primaryBackends: [string]?;
-  secondaryBackends: [string]?;
-  fixedExtraNonceSize: uint32?;
-  mutableExtraNonceSize: uint32?;
+  resetWorkOnBlockChange: optional<[string]>;
+  primaryBackends: optional<[string]>;
+  secondaryBackends: optional<[string]>;
+  fixedExtraNonceSize: optional<uint32>;
+  mutableExtraNonceSize: optional<uint32>;
   // ZMQ-specific
-  zmqWorkerPort: uint32?;
-  zmqHostName: string?;
+  zmqWorkerPort: optional<uint32>;
+  zmqHostName: optional<string>;
 }

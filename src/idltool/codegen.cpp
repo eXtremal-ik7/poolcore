@@ -98,28 +98,19 @@ static bool isArrayLikeField(const CFieldDef &f)
   switch (f.Kind) {
     case EFieldKind::Array:
     case EFieldKind::OptionalArray:
-    case EFieldKind::NullableArray:
     case EFieldKind::FixedArray:
     case EFieldKind::OptionalFixedArray:
-    case EFieldKind::NullableFixedArray:
       return true;
     default:
       return false;
   }
 }
 
-static bool isConditionallySerialized(EFieldKind kind)
+static bool isConditionallySerialized(const CFieldDef &f)
 {
-  switch (kind) {
-    case EFieldKind::Optional:
-    case EFieldKind::OptionalObject:
-    case EFieldKind::OptionalArray:
-    case EFieldKind::OptionalFixedArray:
-    case EFieldKind::OptionalVariant:
-      return true;
-    default:
-      return false;
-  }
+  if (f.Kind == EFieldKind::Optional)
+    return true;
+  return isOptionalField(f) && !fieldEmptyOutIsNull(f);
 }
 
 static std::string contextParamName(const std::string &mappedTypeName, size_t ordinal, size_t totalCount)
@@ -289,12 +280,10 @@ static std::vector<CArrayDim> arrayDims(const CFieldDef &f)
   switch (f.Kind) {
     case EFieldKind::Array:
     case EFieldKind::OptionalArray:
-    case EFieldKind::NullableArray:
       dims.push_back({});
       break;
     case EFieldKind::FixedArray:
     case EFieldKind::OptionalFixedArray:
-    case EFieldKind::NullableFixedArray:
       dims.push_back({f.Type.FixedSize});
       break;
     default:
@@ -664,9 +653,11 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       break;
     }
 
-    case EFieldKind::OptionalObject:
-    case EFieldKind::NullableObject: {
-      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+    case EFieldKind::OptionalObject: {
+      if (fieldAllowsNullInput(f))
+        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      else
+        out += std::format("{}if (s.readNull()) {{ valid = false; }}\n", in);
       if (isStructRef(f, enumNames)) {
         if (ci && ci->kind == CFieldCaptureInfo::NestedStruct) {
           out += std::format("{}else if (!{}.emplace().parseImpl(s, capture ? &capture->{} : nullptr)) valid = false;\n",
@@ -683,6 +674,8 @@ static void generateParseField(std::string &out, const CFieldDef &f,
         generateParseScalar(out, tmp, enumNames, -1, ind + 1, false, (isMappedField(f) && ci) ? ci : nullptr);
         out += std::format("{}}}\n", in);
       }
+      if (foundBit >= 0)
+        out += std::format("{}if (valid) found |= (uint64_t)1 << {};\n", in, foundBit);
       break;
     }
 
@@ -783,9 +776,11 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       break;
     }
 
-    case EFieldKind::OptionalArray:
-    case EFieldKind::NullableArray: {
-      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+    case EFieldKind::OptionalArray: {
+      if (fieldAllowsNullInput(f))
+        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      else
+        out += std::format("{}if (s.readNull()) {{ valid = false; }}\n", in);
       out += std::format("{}else {{\n", in);
       out += std::format("{}  {}.emplace();\n", in, cn);
       CFieldDef tmp = f;
@@ -793,6 +788,8 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       tmp.Kind = EFieldKind::Array;
       generateParseField(out, tmp, enumNames, -1, ind + 1, false, ci);
       out += std::format("{}}}\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}if (valid) found |= (uint64_t)1 << {};\n", in, foundBit);
       break;
     }
 
@@ -851,9 +848,11 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       break;
     }
 
-    case EFieldKind::OptionalFixedArray:
-    case EFieldKind::NullableFixedArray: {
-      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+    case EFieldKind::OptionalFixedArray: {
+      if (fieldAllowsNullInput(f))
+        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      else
+        out += std::format("{}if (s.readNull()) {{ valid = false; }}\n", in);
       out += std::format("{}else {{\n", in);
       out += std::format("{}  {}.emplace();\n", in, cn);
       CFieldDef tmp = f;
@@ -861,6 +860,8 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       tmp.Kind = EFieldKind::FixedArray;
       generateParseField(out, tmp, enumNames, -1, ind + 1, false, ci);
       out += std::format("{}}}\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}if (valid) found |= (uint64_t)1 << {};\n", in, foundBit);
       break;
     }
 
@@ -873,9 +874,11 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       break;
     }
 
-    case EFieldKind::OptionalVariant:
-    case EFieldKind::NullableVariant: {
-      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+    case EFieldKind::OptionalVariant: {
+      if (fieldAllowsNullInput(f))
+        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      else
+        out += std::format("{}if (s.readNull()) {{ valid = false; }}\n", in);
       out += std::format("{}else {{\n", in);
       out += std::format("{}  s.skipWhitespace();\n", in);
       out += std::format("{}  if (s.p >= s.end) {{ valid = false; }}\n", in);
@@ -884,6 +887,8 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       generateVariantParse(out, f, std::format("(*{})", cn), enumNames, ind + 2);
       out += std::format("{}  }}\n", in);
       out += std::format("{}}}\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}if (valid) found |= (uint64_t)1 << {};\n", in, foundBit);
       break;
     }
   }
@@ -1214,7 +1219,6 @@ static void generateResolveImpl(std::string &out, const CStructDef &s,
           emitMappedDirectResolveRecursive(out, ci, dims, 0, "out." + cn, "capture." + ci.CaptureFieldName, 1);
           break;
         case EFieldKind::OptionalObject:
-        case EFieldKind::NullableObject:
           out += std::format("  if (out.{}.has_value()) {{\n", cn);
           emitMappedDirectResolveRecursive(out, ci, dims, 0,
                                            std::format("(*out.{})", cn),
@@ -1226,9 +1230,7 @@ static void generateResolveImpl(std::string &out, const CStructDef &s,
           emitMappedDirectResolveRecursive(out, ci, dims, 0, "out." + cn, "capture." + ci.CaptureFieldName, 1);
           break;
         case EFieldKind::OptionalArray:
-        case EFieldKind::NullableArray:
         case EFieldKind::OptionalFixedArray:
-        case EFieldKind::NullableFixedArray:
           out += std::format("  if (out.{}.has_value()) {{\n", cn);
           emitMappedDirectResolveRecursive(out, ci, dims, 0,
                                            std::format("(*out.{})", cn),
@@ -1260,7 +1262,6 @@ static void generateResolveImpl(std::string &out, const CStructDef &s,
           }
           break;
         case EFieldKind::OptionalObject:
-        case EFieldKind::NullableObject:
           out += std::format("  if (out.{}.has_value()) {{\n", cn);
           out += std::format("    if (!{}::resolve(*out.{}, capture.{}, {})) return false;\n",
                              childStruct, cn, ci.CaptureFieldName, childCtx);
@@ -1268,10 +1269,8 @@ static void generateResolveImpl(std::string &out, const CStructDef &s,
           break;
         case EFieldKind::Array:
         case EFieldKind::OptionalArray:
-        case EFieldKind::NullableArray:
         case EFieldKind::FixedArray:
         case EFieldKind::OptionalFixedArray:
-        case EFieldKind::NullableFixedArray:
           if (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::FixedArray) {
             emitNestedStructResolveRecursive(out, childStruct, ci, dims, 0,
                                              "out." + cn, "capture." + ci.CaptureFieldName,
@@ -1396,12 +1395,13 @@ static void emitMappedInlineSerialize(CSerializeCodeBuilder &out, const CFieldDe
       break;
     }
     case EFieldKind::OptionalObject:
-      out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-      emitKey(f.Name, ind + 1);
-      emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("*{}", cn), ind + 1);
-      out.appendRaw(std::format("{}}}\n", in));
-      break;
-    case EFieldKind::NullableObject:
+      if (!fieldEmptyOutIsNull(f)) {
+        out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+        emitKey(f.Name, ind + 1);
+        emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("*{}", cn), ind + 1);
+        out.appendRaw(std::format("{}}}\n", in));
+        break;
+      }
       emitKey(f.Name);
       out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
       emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("*{}", cn), ind + 1);
@@ -1423,21 +1423,22 @@ static void emitMappedInlineSerialize(CSerializeCodeBuilder &out, const CFieldDe
       out.writeLiteral(ind, "]");
       break;
     case EFieldKind::OptionalArray:
-      out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-      emitKey(f.Name, ind + 1);
-      out.writeLiteral(ind + 1, "[");
-      out.appendRaw(std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn));
-      out.appendRaw(std::format("{}    if (i_) out.write(',');\n", in));
-      if (f.Type.InnerDims.empty()) {
-        emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
-      } else {
-        emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
+      if (!fieldEmptyOutIsNull(f)) {
+        out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+        emitKey(f.Name, ind + 1);
+        out.writeLiteral(ind + 1, "[");
+        out.appendRaw(std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn));
+        out.appendRaw(std::format("{}    if (i_) out.write(',');\n", in));
+        if (f.Type.InnerDims.empty()) {
+          emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
+        } else {
+          emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
+        }
+        out.appendRaw(std::format("{}  }}\n", in));
+        out.writeLiteral(ind + 1, "]");
+        out.appendRaw(std::format("{}}}\n", in));
+        break;
       }
-      out.appendRaw(std::format("{}  }}\n", in));
-      out.writeLiteral(ind + 1, "]");
-      out.appendRaw(std::format("{}}}\n", in));
-      break;
-    case EFieldKind::NullableArray:
       emitKey(f.Name);
       out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
       out.writeLiteral(ind + 1, "[");
@@ -1468,21 +1469,22 @@ static void emitMappedInlineSerialize(CSerializeCodeBuilder &out, const CFieldDe
       out.writeLiteral(ind, "]");
       break;
     case EFieldKind::OptionalFixedArray:
-      out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-      emitKey(f.Name, ind + 1);
-      out.writeLiteral(ind + 1, "[");
-      out.appendRaw(std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn));
-      out.appendRaw(std::format("{}    if (i_) out.write(',');\n", in));
-      if (f.Type.InnerDims.empty()) {
-        emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
-      } else {
-        emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
+      if (!fieldEmptyOutIsNull(f)) {
+        out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+        emitKey(f.Name, ind + 1);
+        out.writeLiteral(ind + 1, "[");
+        out.appendRaw(std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn));
+        out.appendRaw(std::format("{}    if (i_) out.write(',');\n", in));
+        if (f.Type.InnerDims.empty()) {
+          emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
+        } else {
+          emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
+        }
+        out.appendRaw(std::format("{}  }}\n", in));
+        out.writeLiteral(ind + 1, "]");
+        out.appendRaw(std::format("{}}}\n", in));
+        break;
       }
-      out.appendRaw(std::format("{}  }}\n", in));
-      out.writeLiteral(ind + 1, "]");
-      out.appendRaw(std::format("{}}}\n", in));
-      break;
-    case EFieldKind::NullableFixedArray:
       emitKey(f.Name);
       out.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
       out.writeLiteral(ind + 1, "[");
@@ -1520,7 +1522,7 @@ static void generateContextSerializeBody(CSerializeCodeBuilder &writer, const CS
     std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
     auto dims = arrayDims(f);
 
-    if (!runtimeComma && first && isConditionallySerialized(f.Kind)) {
+    if (!runtimeComma && first && isConditionallySerialized(f)) {
       writer.appendRaw(std::format("{}bool __needComma = {};\n", indent(1), first ? "false" : "true"));
       runtimeComma = true;
     }
@@ -1560,12 +1562,13 @@ static void generateContextSerializeBody(CSerializeCodeBuilder &writer, const CS
           break;
         }
         case EFieldKind::OptionalObject:
-          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-          emitKey(f.Name, 2);
-          emitMappedDirectValueSerialize(writer, ci, std::format("*{}", cn), 2);
-          writer.appendRaw(std::format("{}}}\n", in));
-          break;
-        case EFieldKind::NullableObject:
+          if (!fieldEmptyOutIsNull(f)) {
+            writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+            emitKey(f.Name, 2);
+            emitMappedDirectValueSerialize(writer, ci, std::format("*{}", cn), 2);
+            writer.appendRaw(std::format("{}}}\n", in));
+            break;
+          }
           emitKey(f.Name);
           writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
           emitMappedDirectValueSerialize(writer, ci, std::format("*{}", cn), 2);
@@ -1582,16 +1585,15 @@ static void generateContextSerializeBody(CSerializeCodeBuilder &writer, const CS
           break;
         case EFieldKind::OptionalArray:
         case EFieldKind::OptionalFixedArray: {
-          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-          emitKey(f.Name, 2);
-          writer.writeLiteral(2, "[");
-          emitMappedDirectSerializeRecursive(writer, ci, dims, 0, std::format("(*{})", cn), 2);
-          writer.writeLiteral(2, "]");
-          writer.appendRaw(std::format("{}}}\n", in));
-          break;
-        }
-        case EFieldKind::NullableArray:
-        case EFieldKind::NullableFixedArray: {
+          if (!fieldEmptyOutIsNull(f)) {
+            writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+            emitKey(f.Name, 2);
+            writer.writeLiteral(2, "[");
+            emitMappedDirectSerializeRecursive(writer, ci, dims, 0, std::format("(*{})", cn), 2);
+            writer.writeLiteral(2, "]");
+            writer.appendRaw(std::format("{}}}\n", in));
+            break;
+          }
           emitKey(f.Name);
           writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
           writer.writeLiteral(2, "[");
@@ -1628,13 +1630,13 @@ static void generateContextSerializeBody(CSerializeCodeBuilder &writer, const CS
           }
           break;
         case EFieldKind::OptionalObject: {
-          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-          emitKey(f.Name, 2);
-          writer.appendRaw(std::format("{}{}->serialize(out, {});\n", indent(2), cn, childCtx));
-          writer.appendRaw(std::format("{}}}\n", in));
-          break;
-        }
-        case EFieldKind::NullableObject: {
+          if (!fieldEmptyOutIsNull(f)) {
+            writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+            emitKey(f.Name, 2);
+            writer.appendRaw(std::format("{}{}->serialize(out, {});\n", indent(2), cn, childCtx));
+            writer.appendRaw(std::format("{}}}\n", in));
+            break;
+          }
           emitKey(f.Name);
           writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
           writer.appendRaw(std::format("{}  {}->serialize(out, {});\n", in, cn, childCtx));
@@ -1654,18 +1656,17 @@ static void generateContextSerializeBody(CSerializeCodeBuilder &writer, const CS
           break;
         case EFieldKind::OptionalArray:
         case EFieldKind::OptionalFixedArray: {
-          writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-          emitKey(f.Name, 2);
-          if (!ctxIndexVar.empty())
-            writer.appendRaw(std::format("{}size_t {} = 0;\n", indent(2), ctxIndexVar));
-          writer.writeLiteral(2, "[");
-          emitNestedStructSerializeRecursive(writer, ci, dims, 0, std::format("(*{})", cn), ctxIndexVar, 2);
-          writer.writeLiteral(2, "]");
-          writer.appendRaw(std::format("{}}}\n", in));
-          break;
-        }
-        case EFieldKind::NullableArray:
-        case EFieldKind::NullableFixedArray: {
+          if (!fieldEmptyOutIsNull(f)) {
+            writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+            emitKey(f.Name, 2);
+            if (!ctxIndexVar.empty())
+              writer.appendRaw(std::format("{}size_t {} = 0;\n", indent(2), ctxIndexVar));
+            writer.writeLiteral(2, "[");
+            emitNestedStructSerializeRecursive(writer, ci, dims, 0, std::format("(*{})", cn), ctxIndexVar, 2);
+            writer.writeLiteral(2, "]");
+            writer.appendRaw(std::format("{}}}\n", in));
+            break;
+          }
           emitKey(f.Name);
           writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
           if (!ctxIndexVar.empty())
@@ -1705,7 +1706,7 @@ static void generateSerializeBody(CSerializeCodeBuilder &writer, const CStructDe
     for (size_t i = 0; i < s.Fields.size(); i++) {
       auto &fci = ca.FieldCapture[i];
       auto &f = s.Fields[i];
-      if (!runtimeComma && first && isConditionallySerialized(f.Kind)) {
+      if (!runtimeComma && first && isConditionallySerialized(f)) {
         writer.appendRaw(std::format("{}bool __needComma = {};\n", indent(1), first ? "false" : "true"));
         runtimeComma = true;
       }
@@ -1747,12 +1748,13 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     }
 
     // Count required fields
-    auto isRequired = [](EFieldKind k) {
-      return k == EFieldKind::Required || k == EFieldKind::Array ||
-             k == EFieldKind::FixedArray || k == EFieldKind::Variant;
+    auto isRequired = [](const CFieldDef &f) {
+      return f.Kind == EFieldKind::Required || f.Kind == EFieldKind::Array ||
+             f.Kind == EFieldKind::FixedArray || f.Kind == EFieldKind::Variant ||
+             fieldRequiresPresence(f);
     };
     for (auto &f : s.Fields)
-      if (isRequired(f.Kind))
+      if (isRequired(f))
         requiredCount++;
 
     // Build hash -> field index map
@@ -1765,7 +1767,7 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     // Assign required field bits
     int bitIndex = 0;
     for (size_t i = 0; i < s.Fields.size(); i++)
-      if (isRequired(s.Fields[i].Kind))
+      if (isRequired(s.Fields[i]))
         fieldBitMap[i] = bitIndex++;
   }
 
@@ -1998,7 +2000,7 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
             f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours))
           hasChrono = true;
         if (f.Kind == EFieldKind::FixedArray || f.Kind == EFieldKind::OptionalFixedArray ||
-            f.Kind == EFieldKind::NullableFixedArray || !f.Type.InnerDims.empty()) {
+            !f.Type.InnerDims.empty()) {
           for (auto &dim : f.Type.InnerDims)
             if (dim.FixedSize > 0) hasFixedArray = true;
           if (f.Type.FixedSize > 0) hasFixedArray = true;

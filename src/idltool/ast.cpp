@@ -253,8 +253,7 @@ static bool validateTypes(CIdlFile &file)
 
     for (auto &f : s.Fields) {
       // Validate fixed array sizes
-      if (f.Type.Shape == ETypeShape::FixedArray || f.Type.Shape == ETypeShape::OptionalFixedArray ||
-          f.Type.Shape == ETypeShape::NullableFixedArray) {
+      if (f.Type.Shape == ETypeShape::FixedArray || f.Type.Shape == ETypeShape::OptionalFixedArray) {
         if (f.Type.FixedSize <= 0) {
           fprintf(stderr, "line %d: fixed array size must be > 0 for field '%s'\n", f.Line, f.Name.c_str());
           return false;
@@ -576,34 +575,32 @@ void dumpAst(const CIdlFile &file)
     }
     for (auto &f : s.Fields) {
       printf("  %s: ", f.Name.c_str());
-
-      // Variant fields
-      if (!f.Type.Alternatives.empty()) {
-        auto printAltType = [&](const CVariantAlt &alt) {
-          for (auto &dim : alt.Dims)
-            printf("[");
-          if (alt.IsScalar && alt.RefName.empty())
-            printf("%s", scalarTypeName(alt.Scalar));
-          else if (!alt.RefName.empty())
-            printf("%s", alt.RefName.c_str());
-          for (int d = (int)alt.Dims.size() - 1; d >= 0; d--) {
-            if (alt.Dims[d].FixedSize > 0)
-              printf("; %d]", alt.Dims[d].FixedSize);
-            else
-              printf("]");
-          }
-        };
-
-        printf("variant(");
-        for (size_t i = 0; i < f.Type.Alternatives.size(); i++) {
-          if (i) printf(", ");
-          printAltType(f.Type.Alternatives[i]);
+      auto printAltType = [&](const CVariantAlt &alt) {
+        for (auto &dim : alt.Dims)
+          printf("[");
+        if (alt.IsScalar && alt.RefName.empty())
+          printf("%s", scalarTypeName(alt.Scalar));
+        else if (!alt.RefName.empty())
+          printf("%s", alt.RefName.c_str());
+        for (int d = (int)alt.Dims.size() - 1; d >= 0; d--) {
+          if (alt.Dims[d].FixedSize > 0)
+            printf("; %d]", alt.Dims[d].FixedSize);
+          else
+            printf("]");
         }
-        printf(")");
-        if (f.Kind == EFieldKind::OptionalVariant) printf("?");
-        else if (f.Kind == EFieldKind::NullableVariant) printf("??");
-      } else {
-        // Print inner dimensions + leaf type
+      };
+
+      auto printBareType = [&]() {
+        if (!f.Type.Alternatives.empty()) {
+          printf("variant(");
+          for (size_t i = 0; i < f.Type.Alternatives.size(); i++) {
+            if (i) printf(", ");
+            printAltType(f.Type.Alternatives[i]);
+          }
+          printf(")");
+          return;
+        }
+
         auto printArrayPrefix = [&]() {
           for (auto &dim : f.Type.InnerDims)
             printf("[");
@@ -618,8 +615,7 @@ void dumpAst(const CIdlFile &file)
         };
 
         bool isFixedOrArray = (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::OptionalArray ||
-                                f.Kind == EFieldKind::NullableArray || f.Kind == EFieldKind::FixedArray ||
-                                f.Kind == EFieldKind::OptionalFixedArray || f.Kind == EFieldKind::NullableFixedArray);
+                               f.Kind == EFieldKind::FixedArray || f.Kind == EFieldKind::OptionalFixedArray);
         if (isFixedOrArray) printf("[");
         printArrayPrefix();
 
@@ -636,22 +632,28 @@ void dumpAst(const CIdlFile &file)
           else
             printf("]");
         }
-      }
+      };
 
-      switch (f.Kind) {
-        case EFieldKind::Required: break;
-        case EFieldKind::Optional: break;
-        case EFieldKind::OptionalObject: printf("?"); break;
-        case EFieldKind::NullableObject: printf("??"); break;
-        case EFieldKind::Array: break;
-        case EFieldKind::OptionalArray: printf("?"); break;
-        case EFieldKind::NullableArray: printf("??"); break;
-        case EFieldKind::FixedArray: break;
-        case EFieldKind::OptionalFixedArray: printf("?"); break;
-        case EFieldKind::NullableFixedArray: printf("??"); break;
-        case EFieldKind::Variant: break;
-        case EFieldKind::OptionalVariant: break; // already printed above
-        case EFieldKind::NullableVariant: break; // already printed above
+      if (isOptionalField(f)) {
+        printf("optional<");
+        printBareType();
+        printf(">");
+        bool firstPolicy = true;
+        if (f.NullIn != ENullInPolicy::Deny || f.EmptyOut != EEmptyOutPolicy::Omit) {
+          printf("(");
+          if (f.NullIn != ENullInPolicy::Deny) {
+            const char *value = f.NullIn == ENullInPolicy::Allow ? "allow" : "required";
+            printf("null_in=%s", value);
+            firstPolicy = false;
+          }
+          if (f.EmptyOut != EEmptyOutPolicy::Omit) {
+            if (!firstPolicy) printf(", ");
+            printf("empty_out=null");
+          }
+          printf(")");
+        }
+      } else {
+        printBareType();
       }
       if (f.Default.Kind != EDefaultKind::None) {
         printf(" = ");
