@@ -98,8 +98,22 @@ struct Inner {
   count: int64;
 }
 
+struct InnerWithComments {
+  .generate(parse, parse.verbose, serialize);
+  .extensions(comments);
+  value: string;
+  count: int64;
+}
+
 struct Outer {
   .generate(parse, parse.verbose, serialize);
+  label: string;
+  child: Inner;
+}
+
+struct OuterWithComments {
+  .generate(parse, parse.verbose, serialize);
+  .extensions(comments);
   label: string;
   child: Inner;
 }

@@ -190,7 +190,7 @@ static void generateVerboseNestedArrayParse(std::string &out, const CFieldDef &f
     out += std::format("{}    break;\n", in);
     out += std::format("{}  }}\n", in);
     out += std::format("{}}}\n", in);
-    out += std::format("{}if (!s.expectChar(']')) return false;\n", in);
+    out += std::format("{}if (!s.expectCharNoWs(']')) return false;\n", in);
   }
 }
 
@@ -293,7 +293,7 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
         out += std::format("{}    break;\n", in);
         out += std::format("{}  }}\n", in);
         out += std::format("{}}}\n", in);
-        out += std::format("{}if (!s.expectChar(']')) return false;\n", in);
+        out += std::format("{}if (!s.expectCharNoWs(']')) return false;\n", in);
         if (foundBit >= 0)
           out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
         break;
@@ -358,7 +358,7 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       out += std::format("{}    break;\n", in);
       out += std::format("{}  }}\n", in);
       out += std::format("{}}}\n", in);
-      out += std::format("{}if (!s.expectChar(']')) return false;\n", in);
+      out += std::format("{}if (!s.expectCharNoWs(']')) return false;\n", in);
       if (foundBit >= 0)
         out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
       break;

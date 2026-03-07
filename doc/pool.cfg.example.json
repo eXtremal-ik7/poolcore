@@ -23,6 +23,7 @@
     "smtpUseStartTLS": true
   },
 
+  // coins
   "coins": [
     {
       "name": "BTC",

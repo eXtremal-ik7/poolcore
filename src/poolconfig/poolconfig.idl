@@ -14,6 +14,8 @@
 
 struct PoolFrontendConfig {
   .generate(parse.verbose);
+  .extensions(comments);
+
   poolfrontend: FrontendSettings;
   coins: [CoinConfig];
   instances: [InstanceConfig];

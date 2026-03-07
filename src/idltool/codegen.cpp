@@ -594,7 +594,7 @@ static void generateNestedArrayParse(std::string &out, const CFieldDef &f,
     out += std::format("{}    break;\n", in);
     out += std::format("{}  }}\n", in);
     out += std::format("{}}}\n", in);
-    out += std::format("{}if (!s.expectChar(']')) {{ valid = false; break; }}\n", in);
+    out += std::format("{}if (!s.expectCharNoWs(']')) {{ valid = false; break; }}\n", in);
   }
 }
 
@@ -716,7 +716,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
         out += std::format("{}    break;\n", in);
         out += std::format("{}  }}\n", in);
         out += std::format("{}}}\n", in);
-        out += std::format("{}if (!s.expectChar(']')) valid = false;\n", in);
+        out += std::format("{}if (!s.expectCharNoWs(']')) valid = false;\n", in);
         if (foundBit >= 0)
           out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
         break;
@@ -788,7 +788,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       out += std::format("{}    break;\n", in);
       out += std::format("{}  }}\n", in);
       out += std::format("{}}}\n", in);
-      out += std::format("{}if (!s.expectChar(']')) valid = false;\n", in);
+      out += std::format("{}if (!s.expectCharNoWs(']')) valid = false;\n", in);
       if (foundBit >= 0)
         out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
       break;
@@ -975,7 +975,7 @@ static void generateParseBody(std::string &out, const CStructDef &s,
   out += "      break;\n";
   out += "    }\n";
   out += "  }\n";
-  out += "  if (!s.expectChar('}')) return false;\n";
+  out += "  if (!s.expectCharNoWs('}')) return false;\n";
 
   if (requiredCount > 0) {
     uint64_t mask = ((uint64_t)1 << requiredCount) - 1;
@@ -1089,19 +1089,19 @@ static void generateStructDecl(std::string &out, const CStructDef &s,
   if (s.GenerateFlags.Parse) {
     if (ca.hasContext()) {
       out += "  bool parse(const char *buf, size_t bufSize, Capture &capture);\n";
-      out += "  bool parseImpl(JsonScanner &s, Capture *capture);\n";
+      out += "  template<class Scanner> bool parseImpl(Scanner &s, Capture *capture);\n";
       out += std::format("  static bool resolve({} &out, const Capture &capture, {});\n", sn, ca.contextParams());
       if (hasBroadcastOverload)
         out += std::format("  static bool resolve({} &out, const Capture &capture, {});\n", sn, ca.broadcastContextParams());
     } else {
       out += "  bool parse(const char *buf, size_t bufSize);\n";
-      out += "  bool parseImpl(JsonScanner &s);\n";
+      out += "  template<class Scanner> bool parseImpl(Scanner &s);\n";
     }
   }
 
   if (s.GenerateFlags.ParseVerbose && !ca.hasContext()) {
     out += "  bool parseVerbose(const char *buf, size_t bufSize, ParseError &error);\n";
-    out += "  bool parseVerboseImpl(VerboseJsonScanner &s);\n";
+    out += "  template<class Scanner> bool parseVerboseImpl(Scanner &s);\n";
   }
 
   if (s.GenerateFlags.Serialize) {
@@ -1740,7 +1740,8 @@ static void generateSerializeBody(CSerializeCodeBuilder &writer, const CStructDe
 static void generateStructImpl(std::string &out, const CStructDef &s,
     const std::unordered_set<std::string> &enumNames,
     const CCodegenOptions &opts,
-    const CContextAnalysis &ca)
+    const CContextAnalysis &ca,
+    bool anyComments)
 {
   std::string sn = opts.StructPrefix + s.Name;
   bool hasCtx = ca.hasContext();
@@ -1790,36 +1791,47 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
   }
 
   // --- Parse ---
+  const char *scannerType = s.CommentsEnabled ? "JsonScannerComments" : "JsonScanner";
+  const char *verboseScannerType = s.CommentsEnabled ? "VerboseJsonScannerComments" : "VerboseJsonScanner";
+
   if (s.GenerateFlags.Parse) {
     if (hasCtx) {
       out += std::format("bool {}::parse(const char *buf, size_t bufSize, Capture &capture) {{\n", sn);
-      out += "  JsonScanner s{buf, buf + bufSize};\n";
+      out += std::format("  {} s{{buf, buf + bufSize}};\n", scannerType);
       out += "  if (!parseImpl(s, &capture)) return false;\n";
       out += "  s.skipWhitespace();\n";
       out += "  return s.p == s.end;\n";
       out += "}\n\n";
 
-      out += std::format("bool {}::parseImpl(JsonScanner &s, Capture *capture) {{\n", sn);
+      out += std::format("template<class Scanner>\nbool {}::parseImpl(Scanner &s, Capture *capture) {{\n", sn);
       generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
-      out += "}\n\n";
+      out += "}\n";
+      out += std::format("template bool {}::parseImpl(JsonScanner &, Capture *);\n", sn);
+      if (anyComments)
+        out += std::format("template bool {}::parseImpl(JsonScannerComments &, Capture *);\n", sn);
+      out += "\n";
     } else {
       out += std::format("bool {}::parse(const char *buf, size_t bufSize) {{\n", sn);
-      out += "  JsonScanner s{buf, buf + bufSize};\n";
+      out += std::format("  {} s{{buf, buf + bufSize}};\n", scannerType);
       out += "  if (!parseImpl(s)) return false;\n";
       out += "  s.skipWhitespace();\n";
       out += "  return s.p == s.end;\n";
       out += "}\n\n";
 
-      out += std::format("bool {}::parseImpl(JsonScanner &s) {{\n", sn);
+      out += std::format("template<class Scanner>\nbool {}::parseImpl(Scanner &s) {{\n", sn);
       generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
-      out += "}\n\n";
+      out += "}\n";
+      out += std::format("template bool {}::parseImpl(JsonScanner &);\n", sn);
+      if (anyComments)
+        out += std::format("template bool {}::parseImpl(JsonScannerComments &);\n", sn);
+      out += "\n";
     }
   }
 
   // --- Verbose parse ---
   if (s.GenerateFlags.ParseVerbose && !hasCtx) {
     out += std::format("bool {}::parseVerbose(const char *buf, size_t bufSize, ParseError &error) {{\n", sn);
-    out += "  VerboseJsonScanner s{buf, buf + bufSize, buf, &error};\n";
+    out += std::format("  {} s{{buf, buf + bufSize, buf, &error}};\n", verboseScannerType);
     out += "  if (!parseVerboseImpl(s)) return false;\n";
     out += "  s.skipWhitespace();\n";
     out += "  if (s.p != s.end) {\n";
@@ -1829,7 +1841,7 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     out += "  return true;\n";
     out += "}\n\n";
 
-    out += std::format("bool {}::parseVerboseImpl(VerboseJsonScanner &s) {{\n", sn);
+    out += std::format("template<class Scanner>\nbool {}::parseVerboseImpl(Scanner &s) {{\n", sn);
     out += "  if (!s.expectChar('{')) return false;\n";
     if (requiredCount > 0)
       out += "  uint64_t found = 0;\n";
@@ -1885,7 +1897,7 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     out += "      break;\n";
     out += "    }\n";
     out += "  }\n";
-    out += "  if (!s.expectChar('}')) return false;\n";
+    out += "  if (!s.expectCharNoWs('}')) return false;\n";
 
     if (requiredCount > 0) {
       uint64_t mask = ((uint64_t)1 << requiredCount) - 1;
@@ -1902,7 +1914,11 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     }
 
     out += "  return true;\n";
-    out += "}\n\n";
+    out += "}\n";
+    out += std::format("template bool {}::parseVerboseImpl(VerboseJsonScanner &);\n", sn);
+    if (anyComments)
+      out += std::format("template bool {}::parseVerboseImpl(VerboseJsonScannerComments &);\n", sn);
+    out += "\n";
   }
 
   // --- resolve() ---
@@ -2005,6 +2021,7 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   bool hasTaggedSchema = false;
   bool hasChrono = false;
   bool anyVerbose = false;
+  bool anyComments = false;
   bool anyFlatSerialize = false;
   bool hasFixedArray = false;
   bool hasVariant = false;
@@ -2013,6 +2030,7 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
     if (!s.IsMixin && !s.IsImported) {
       if (s.HasTaggedSchema) hasTaggedSchema = true;
       if (s.GenerateFlags.ParseVerbose) anyVerbose = true;
+      if (s.CommentsEnabled) anyComments = true;
       if (s.GenerateFlags.SerializeFlat) anyFlatSerialize = true;
       if (s.GenerateFlags.Serialize || s.GenerateFlags.SerializeFlat) {
         auto &ca = contextAnalysis[s.Name];
@@ -2072,10 +2090,13 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   // Forward declarations
   header += "class xmstream;\n";
   header += parseErrorCode;
-  header += "template<bool> struct JsonScannerImpl;\n";
-  header += "using JsonScanner = JsonScannerImpl<false>;\n";
-  if (anyVerbose)
-    header += "using VerboseJsonScanner = JsonScannerImpl<true>;\n";
+  header += "template<bool, bool> struct JsonScannerImpl;\n";
+  header += "using JsonScanner = JsonScannerImpl<false, false>;\n";
+  header += "using JsonScannerComments = JsonScannerImpl<false, true>;\n";
+  if (anyVerbose) {
+    header += "using VerboseJsonScanner = JsonScannerImpl<true, false>;\n";
+    header += "using VerboseJsonScannerComments = JsonScannerImpl<true, true>;\n";
+  }
   header += "\n";
 
   // Enums
@@ -2101,7 +2122,8 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   source += "#include \"p2putils/xmstream.h\"\n";
   source += "#include <cstring>\n";
   source += "#include <cstdlib>\n";
-  source += "#include <cinttypes>\n\n";
+  source += "#include <cinttypes>\n";
+  source += "#include <cmath>\n\n";
 
   if (opts.Standalone || anyVerbose)
     source += jsonScannerCode;
@@ -2112,7 +2134,7 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
 
   for (auto &s : file.Structs) {
     if (s.IsMixin || s.IsImported) continue;
-    generateStructImpl(source, s, enumNames, opts, contextAnalysis[s.Name]);
+    generateStructImpl(source, s, enumNames, opts, contextAnalysis[s.Name], anyComments);
   }
 
   return result;

@@ -159,12 +159,17 @@ struct CCppBlock {
   int Line = 0;
 };
 
+struct CExtensionsDecl {
+  bool Comments = false;
+  int Line = 0;
+};
+
 struct CStructDef {
   std::string Name;
   bool IsMixin = false;
   bool IsImported = false;
   bool HasTaggedSchema = false;
-  std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl>> Members;
+  std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl, CExtensionsDecl>> Members;
   // After mixin resolution — flat list of fields
   std::vector<CFieldDef> Fields;
   // Explicit context groups from '.ctxgroup(field1, field2, ...)' members
@@ -174,6 +179,8 @@ struct CStructDef {
   // Generate flags from '.generate(...)' directive
   CGenerateDecl GenerateFlags;
   bool HasGenerateDecl = false;
+  // Extensions from '.extensions(...)' directive
+  bool CommentsEnabled = false;
   int Line = 0;
 };
 

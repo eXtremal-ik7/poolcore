@@ -145,6 +145,7 @@ static bool resolveMixins(CIdlFile &file)
     s.CppBlocks.clear();
     s.GenerateFlags = {};
     s.HasGenerateDecl = false;
+    s.CommentsEnabled = false;
     s.HasTaggedSchema = false;
     std::unordered_set<std::string> fieldNames;
     std::unordered_set<std::string> mixinVisited;
@@ -190,6 +191,8 @@ static bool resolveMixins(CIdlFile &file)
         }
         s.GenerateFlags = *gd;
         s.HasGenerateDecl = true;
+      } else if (auto *ed = std::get_if<CExtensionsDecl>(&member)) {
+        if (ed->Comments) s.CommentsEnabled = true;
       } else if (auto *cpp = std::get_if<CCppBlock>(&member)) {
         s.CppBlocks.push_back(cpp->Code);
       } else {
@@ -624,6 +627,9 @@ void dumpAst(const CIdlFile &file)
         printf("%s", group.FieldNames[i].c_str());
       }
       printf(");\n");
+    }
+    if (s.CommentsEnabled) {
+      printf("  .extensions(comments);\n");
     }
     if (s.HasGenerateDecl) {
       printf("  .generate(");

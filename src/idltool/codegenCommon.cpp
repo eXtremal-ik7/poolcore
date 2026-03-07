@@ -755,7 +755,7 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
 // --- Scanner code ---
 
 const char *jsonScannerCode = R"(
-template<bool Verbose>
+template<bool Verbose, bool Comments = false>
 struct JsonScannerImpl {
   const char *p;
   const char *end;
@@ -777,25 +777,42 @@ struct JsonScannerImpl {
     }
   }
 
-  void skipWhitespace() {
-    while (p < end) {
-      if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') { p++; continue; }
-      if (p + 1 < end && p[0] == '/') {
-        if (p[1] == '/') { p += 2; while (p < end && *p != '\n') p++; continue; }
-        if (p[1] == '*') { p += 2; while (p + 1 < end && !(p[0] == '*' && p[1] == '/')) p++; if (p + 1 < end) p += 2; continue; }
+  __attribute__((always_inline)) void skipWhitespace() {
+    while (p < end && (unsigned char)(*p - 1) < ' ') p++;
+    if constexpr (Comments) {
+      if (__builtin_expect(p + 1 < end && p[0] == '/', 0)) {
+        skipComments();
       }
-      break;
     }
   }
 
-  bool expectChar(char c) {
+  __attribute__((noinline)) void skipComments() {
+    do {
+      if (p[1] == '/') { p += 2; while (p < end && *p != '\n') p++; }
+      else if (p[1] == '*') { p += 2; while (p + 1 < end && !(p[0] == '*' && p[1] == '/')) p++; if (p + 1 < end) p += 2; }
+      else return;
+      while (p < end && (unsigned char)(*p - 1) < ' ') p++;
+    } while (p + 1 < end && p[0] == '/');
+  }
+
+  __attribute__((always_inline)) bool expectChar(char c) {
     skipWhitespace();
     if (p < end && *p == c) { p++; return true; }
+    expectCharError(c);
+    return false;
+  }
+
+  __attribute__((always_inline)) bool expectCharNoWs(char c) {
+    if (p < end && *p == c) { p++; return true; }
+    expectCharError(c);
+    return false;
+  }
+
+  __attribute__((noinline)) void expectCharError(char c) {
     if (p >= end)
       setError(std::string("expected '") + c + "', got end of input");
     else
       setError(std::string("expected '") + c + "', got '" + *p + "'");
-    return false;
   }
 
   bool readString(const char *&str, size_t &len) {
@@ -842,7 +859,16 @@ struct JsonScannerImpl {
     if (p >= end) { setError("expected string, got end of input"); return false; }
     if (*p != '"') { setError(std::string("expected string, got '") + *p + "'"); return false; }
     p++;
-    out.clear();
+    // Fast path: scan for closing quote without escapes
+    const char *start = p;
+    while (p < end && *p != '"' && *p != '\\') p++;
+    if (p < end && *p == '"') {
+      out.assign(start, p - start);
+      p++;
+      return true;
+    }
+    // Slow path: has escapes or unterminated
+    out.assign(start, p - start);
     while (p < end && *p != '"') {
       if (*p == '\\') {
         p++;
@@ -868,7 +894,6 @@ struct JsonScannerImpl {
               if (d0 >= 0 && d1 >= 0 && d2 >= 0 && d3 >= 0) {
                 uint32_t cp = (d0 << 12) | (d1 << 8) | (d2 << 4) | d3;
                 p += 4;
-                // Surrogate pair: high surrogate followed by \uXXXX low surrogate
                 if (cp >= 0xD800 && cp <= 0xDBFF && p + 7 <= end && p[1] == '\\' && p[2] == 'u') {
                   int l0 = hexVal(p[3]), l1 = hexVal(p[4]), l2 = hexVal(p[5]), l3 = hexVal(p[6]);
                   if (l0 >= 0 && l1 >= 0 && l2 >= 0 && l3 >= 0) {
@@ -954,10 +979,43 @@ struct JsonScannerImpl {
   bool readDouble(double &out) {
     skipWhitespace();
     if (p >= end) { setError("expected number, got end of input"); return false; }
-    char *ep;
-    out = strtod(p, &ep);
-    if (ep == p) { setError(std::string("expected number, got '") + *p + "'"); return false; }
-    p = ep;
+    const char *start = p;
+    bool negative = false;
+    if (*p == '-') { negative = true; p++; }
+    if (p >= end || *p < '0' || *p > '9') { p = start; setError(std::string("expected number, got '") + *start + "'"); return false; }
+    uint64_t mantissa = 0;
+    int digits = 0;
+    while (p < end && *p >= '0' && *p <= '9') {
+      if (digits < 18) { mantissa = mantissa * 10 + (*p - '0'); digits++; }
+      p++;
+    }
+    int fracDigits = 0;
+    if (p < end && *p == '.') {
+      p++;
+      while (p < end && *p >= '0' && *p <= '9') {
+        if (digits < 18) { mantissa = mantissa * 10 + (*p - '0'); digits++; fracDigits++; }
+        p++;
+      }
+    }
+    int exp = -fracDigits;
+    if (p < end && (*p == 'e' || *p == 'E')) {
+      p++;
+      bool expNeg = false;
+      if (p < end) { if (*p == '-') { expNeg = true; p++; } else if (*p == '+') p++; }
+      int expVal = 0;
+      while (p < end && *p >= '0' && *p <= '9') { expVal = expVal * 10 + (*p - '0'); p++; }
+      exp += expNeg ? -expVal : expVal;
+    }
+    static constexpr double kPow10[] = {1e0,1e1,1e2,1e3,1e4,1e5,1e6,1e7,1e8,1e9,1e10,1e11,1e12,1e13,1e14,1e15,1e16,1e17,1e18,1e19,1e20,1e21,1e22};
+    out = (double)mantissa;
+    if (exp >= -22 && exp <= 22) {
+      if (exp > 0) out *= kPow10[exp];
+      else if (exp < 0) out /= kPow10[-exp];
+    } else {
+      while (exp > 0) { int step = exp > 22 ? 22 : exp; out *= kPow10[step]; exp -= step; }
+      while (exp < 0) { int step = exp < -22 ? 22 : -exp; out /= kPow10[step]; exp += step; }
+    }
+    if (negative) out = -out;
     return true;
   }
 
@@ -1035,8 +1093,10 @@ struct JsonScannerImpl {
   }
 };
 
-using JsonScanner = JsonScannerImpl<false>;
-using VerboseJsonScanner = JsonScannerImpl<true>;
+using JsonScanner = JsonScannerImpl<false, false>;
+using JsonScannerComments = JsonScannerImpl<false, true>;
+using VerboseJsonScanner = JsonScannerImpl<true, false>;
+using VerboseJsonScannerComments = JsonScannerImpl<true, true>;
 )";
 
 // --- JSON write helpers (static in generated source) ---

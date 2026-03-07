@@ -612,10 +612,39 @@ TEST(IdlTool, ParseWithComments) {
     "  \"value\": \"x\", /* block comment */\n"
     "  \"count\": 1\n"
     "}";
-  Inner inner;
+  InnerWithComments inner;
   ASSERT_TRUE(inner.parse(json, strlen(json)));
   EXPECT_EQ(inner.value, "x");
   EXPECT_EQ(inner.count, 1);
+}
+
+TEST(IdlTool, ParseCommentsRejectedWithoutExtension) {
+  const char *json =
+    "{\n"
+    "  // inline comment\n"
+    "  \"value\": \"x\",\n"
+    "  \"count\": 1\n"
+    "}";
+  Inner inner;
+  EXPECT_FALSE(inner.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, ParseCommentsInNestedStruct) {
+  const char *json =
+    "{\n"
+    "  /* comment before label */\n"
+    "  \"label\": \"test\",\n"
+    "  \"child\": {\n"
+    "    // comment inside nested struct\n"
+    "    \"value\": \"nested\",\n"
+    "    \"count\": 42\n"
+    "  }\n"
+    "}";
+  OuterWithComments outer;
+  ASSERT_TRUE(outer.parse(json, strlen(json)));
+  EXPECT_EQ(outer.label, "test");
+  EXPECT_EQ(outer.child.value, "nested");
+  EXPECT_EQ(outer.child.count, 42);
 }
 
 TEST(IdlTool, ParseTrailingGarbageRejected) {
@@ -3008,4 +3037,107 @@ TEST(IdlTool, TaggedSchemaFlatOnlyEmitsFields) {
     "  y: string @2;\n"
     "}\n",
     {"int32_t x", "std::string y", "schema()"}));
+}
+
+// ============================================================================
+// Double parsing: comprehensive tests for custom fast parser
+// ============================================================================
+
+TEST(IdlTool, ParseDoubleVariousFormats) {
+  auto parseDouble = [](const char *valueStr) -> std::pair<bool, double> {
+    std::string json = std::string(R"({"fieldString":"","fieldBool":false,"fieldInt32":0,"fieldUint32":0,"fieldInt64":0,"fieldUint64":0,"fieldDouble":)") + valueStr + "}";
+    ScalarTypes s;
+    bool ok = s.parse(json.c_str(), json.size());
+    return {ok, s.fieldDouble};
+  };
+  auto parseDoubleWithStrtod = [](const char *valueStr) -> double {
+    char *end = nullptr;
+    double value = std::strtod(valueStr, &end);
+    EXPECT_NE(end, valueStr) << valueStr;
+    EXPECT_EQ(*end, '\0') << valueStr;
+    return value;
+  };
+  auto expectParsesLikeStrtod = [&](const char *valueStr) {
+    auto [ok, v] = parseDouble(valueStr);
+    ASSERT_TRUE(ok) << valueStr;
+    EXPECT_DOUBLE_EQ(v, parseDoubleWithStrtod(valueStr)) << valueStr;
+  };
+
+  // Basic values
+  { auto [ok, v] = parseDouble("0"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, 0.0); }
+  { auto [ok, v] = parseDouble("-0.0"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, 0.0); }
+  { auto [ok, v] = parseDouble("42"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, 42.0); }
+  { auto [ok, v] = parseDouble("-3.14"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, -3.14); }
+  { auto [ok, v] = parseDouble("0.123456789"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, 0.123456789); }
+
+  // Scientific notation
+  { auto [ok, v] = parseDouble("1.5e10"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, 1.5e10); }
+  { auto [ok, v] = parseDouble("2.5e-7"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, 2.5e-7); }
+  { auto [ok, v] = parseDouble("3E5"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, 3e5); }
+  { auto [ok, v] = parseDouble("7.7e+3"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, 7.7e+3); }
+  { auto [ok, v] = parseDouble("-1.23e-4"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, -1.23e-4); }
+
+  // Large/small extremes
+  { auto [ok, v] = parseDouble("1.7976931348623157e+308"); ASSERT_TRUE(ok); EXPECT_DOUBLE_EQ(v, 1.7976931348623157e+308); }
+  { auto [ok, v] = parseDouble("2.2250738585072014e-308"); ASSERT_TRUE(ok); EXPECT_GT(v, 0.0); } // smallest normal double
+  { auto [ok, v] = parseDouble("5e-300"); ASSERT_TRUE(ok); EXPECT_NEAR(v, 5e-300, 1e-315); }
+
+  // Many digits (>18 significant)
+  { auto [ok, v] = parseDouble("1.23456789012345678901234"); ASSERT_TRUE(ok); EXPECT_NEAR(v, 1.2345678901234568, 1e-15); }
+  expectParsesLikeStrtod("1234567890123456789");
+  expectParsesLikeStrtod("0.0000000000000000001");
+
+  // Typical GeoJSON coordinates
+  { auto [ok, v] = parseDouble("-122.422003528379996"); ASSERT_TRUE(ok); EXPECT_NEAR(v, -122.422003528379996, 1e-12); }
+  { auto [ok, v] = parseDouble("37.808480181810997"); ASSERT_TRUE(ok); EXPECT_NEAR(v, 37.808480181810997, 1e-12); }
+
+  // Roundtrip: parse -> serialize -> parse
+  {
+    auto [ok, v] = parseDouble("3.141592653589793");
+    ASSERT_TRUE(ok);
+    ScalarTypes s;
+    s.fieldString = ""; s.fieldBool = false; s.fieldInt32 = 0; s.fieldUint32 = 0;
+    s.fieldInt64 = 0; s.fieldUint64 = 0; s.fieldDouble = v;
+    xmstream stream;
+    s.serialize(stream);
+    ScalarTypes s2;
+    ASSERT_TRUE(s2.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+    EXPECT_NEAR(s.fieldDouble, s2.fieldDouble, 1e-12);
+  }
+
+  // In array context
+  {
+    ArrayFields a;
+    const char *json = R"({"strings":[],"numbers":[],"doubles":[1.1,-2.2,3.3e1,0.0,-0.0,1e-10],"items":[]})";
+    ASSERT_TRUE(a.parse(json, strlen(json)));
+    ASSERT_EQ(a.doubles.size(), 6u);
+    EXPECT_DOUBLE_EQ(a.doubles[0], 1.1);
+    EXPECT_DOUBLE_EQ(a.doubles[1], -2.2);
+    EXPECT_DOUBLE_EQ(a.doubles[2], 33.0);
+    EXPECT_DOUBLE_EQ(a.doubles[3], 0.0);
+    EXPECT_DOUBLE_EQ(a.doubles[4], 0.0);
+    EXPECT_NEAR(a.doubles[5], 1e-10, 1e-25);
+  }
+
+  // Fixed-size array
+  {
+    FixedArrayScalar f;
+    const char *json = R"({"coords":[-122.4,37.8,0.0],"flags":[true,false]})";
+    ASSERT_TRUE(f.parse(json, strlen(json)));
+    EXPECT_DOUBLE_EQ(f.coords[0], -122.4);
+    EXPECT_DOUBLE_EQ(f.coords[1], 37.8);
+    EXPECT_DOUBLE_EQ(f.coords[2], 0.0);
+  }
+
+  // Reject non-numeric
+  { auto [ok, v] = parseDouble("\"notanumber\""); EXPECT_FALSE(ok); }
+
+  // Verbose reject
+  {
+    ScalarTypes s;
+    ParseError err;
+    const char *json = R"({"fieldString":"","fieldBool":false,"fieldInt32":0,"fieldUint32":0,"fieldInt64":0,"fieldUint64":0,"fieldDouble":"bad"})";
+    EXPECT_FALSE(s.parseVerbose(json, strlen(json), err));
+    EXPECT_FALSE(err.message.empty());
+  }
 }

@@ -112,7 +112,8 @@
   COptionalPolicySpec *optionalPolicy;
   CDefaultValue *defaultVal;
   int tagVal;
-  std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl>> *memberList;
+  CExtensionsDecl *extensionsDecl;
+  std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl, CExtensionsDecl>> *memberList;
   std::vector<CFieldDef> *fieldList;
   std::vector<std::string> *stringList;
   std::vector<CVariantAlt> *variantAlts;
@@ -120,7 +121,7 @@
 
 %token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW TOK_INCLUDE
 %token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_GENERATE TOK_VARIANT TOK_CTXGROUP
-%token TOK_OPTIONAL
+%token TOK_OPTIONAL TOK_EXTENSIONS
 %token <strVal> TOK_CPP_BLOCK
 %token <strVal> TOK_IDENTIFIER TOK_STRING_LITERAL
 %token <strVal> TOK_CHRONO_SECONDS TOK_CHRONO_MINUTES TOK_CHRONO_HOURS
@@ -144,7 +145,7 @@
 %type <variantAlts> variant_alts variant_tail
 
 %destructor { free($$); } <strVal>
-%destructor { delete $$; } <structDef> <enumDef> <includeDef> <mappedDef> <fieldDef> <fieldType> <optionalPolicy> <defaultVal> <memberList> <fieldList> <stringList> <variantAlts>
+%destructor { delete $$; } <structDef> <enumDef> <includeDef> <mappedDef> <fieldDef> <fieldType> <optionalPolicy> <defaultVal> <extensionsDecl> <memberList> <fieldList> <stringList> <variantAlts>
 
 %%
 
@@ -260,7 +261,7 @@ enum_def:
 
 member_list:
     /* empty */ {
-      $$ = new std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl>>();
+      $$ = new std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl, CExtensionsDecl>>();
     }
   | member_list TOK_MIXIN TOK_IDENTIFIER ';' {
       $$ = $1;
@@ -291,6 +292,18 @@ member_list:
                ("unknown generate flag: " + flag).c_str()); YYERROR; }
       }
       $$->push_back(std::move(gd));
+      delete $5;
+    }
+  | member_list '.' TOK_EXTENSIONS '(' generate_flag_list ')' ';' {
+      $$ = $1;
+      CExtensionsDecl ed;
+      ed.Line = @2.first_line;
+      for (auto &flag : *$5) {
+        if (flag == "comments") ed.Comments = true;
+        else { yyerror(&@5, file, scanner,
+               ("unknown extension: " + flag).c_str()); YYERROR; }
+      }
+      $$->push_back(std::move(ed));
       delete $5;
     }
   | member_list field {
@@ -331,6 +344,7 @@ field_name:
   | TOK_CTXGROUP   { $$ = strdup("ctxgroup"); }
   | TOK_MAPPED     { $$ = strdup("mapped"); }
   | TOK_GENERATE   { $$ = strdup("generate"); }
+  | TOK_EXTENSIONS { $$ = strdup("extensions"); }
   | TOK_VARIANT    { $$ = strdup("variant"); }
   ;
 

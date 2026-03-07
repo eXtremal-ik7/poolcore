@@ -28,6 +28,7 @@
 "context"               { return TOK_CONTEXT; }
 "ctxgroup"              { return TOK_CTXGROUP; }
 "generate"              { return TOK_GENERATE; }
+"extensions"            { return TOK_EXTENSIONS; }
 "variant"               { return TOK_VARIANT; }
 "optional"              { return TOK_OPTIONAL; }
 
