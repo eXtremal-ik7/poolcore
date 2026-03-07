@@ -217,7 +217,7 @@ std::string cppDefault(const CFieldDef &f, const std::unordered_set<std::string>
     case EDefaultKind::String: {
       if (!f.Type.RefName.empty() && enumNames.count(f.Type.RefName))
         return std::format("E{}::{}", f.Type.RefName, fieldCppName(f.Default.StringVal, pascalCase));
-      return std::format("\"{}\"", f.Default.StringVal);
+      return cppStringLiteral(f.Default.StringVal);
     }
     case EDefaultKind::Int: {
       if (f.Type.IsScalar && isChronoType(f.Type.Scalar))
@@ -406,36 +406,40 @@ void emitSerializeArrayElem(CSerializeCodeBuilder &code, const CFieldDef &f,
   emitSerializeValue(code, f, valueName, enumNames, ind);
 }
 
-static void emitMappedInlineValueSerialize(CSerializeCodeBuilder &code,
-                                           const std::string &mappedTypeName,
-                                           const std::string &mappedWireType,
-                                           const std::string &valueName,
-                                           int ind)
+WireTypeInfo getWireTypeInfo(const std::string &wireType)
 {
-  std::string in = indent(ind);
-  std::string formatFunc = "__" + mappedTypeName + "Format";
-  if (mappedWireType == "string") {
-    code.appendRaw(std::format("{}jsonWriteString(out, {}({}));\n", in, formatFunc, valueName));
-  } else if (mappedWireType == "bool") {
-    code.appendRaw(std::format("{}jsonWriteBool(out, {}({}));\n", in, formatFunc, valueName));
-  } else if (mappedWireType == "double") {
-    code.appendRaw(std::format("{}jsonWriteDouble(out, {}({}));\n", in, formatFunc, valueName));
-  } else if (mappedWireType == "uint32" || mappedWireType == "uint64") {
-    code.appendRaw(std::format("{}jsonWriteUInt(out, {}({}));\n", in, formatFunc, valueName));
-  } else {
-    code.appendRaw(std::format("{}jsonWriteInt(out, {}({}));\n", in, formatFunc, valueName));
-  }
+  if (wireType == "string") return {"readStringValue", "jsonWriteString", "std::string"};
+  if (wireType == "int64")  return {"readInt64", "jsonWriteInt", "int64_t"};
+  if (wireType == "uint64") return {"readUInt64", "jsonWriteUInt", "uint64_t"};
+  if (wireType == "int32")  return {"readInt32", "jsonWriteInt", "int32_t"};
+  if (wireType == "uint32") return {"readUInt32", "jsonWriteUInt", "uint32_t"};
+  if (wireType == "double") return {"readDouble", "jsonWriteDouble", "double"};
+  if (wireType == "bool")   return {"readBool", "jsonWriteBool", "bool"};
+  return {"readStringValue", "jsonWriteString", "std::string"};
 }
 
-static void emitMappedInlineNestedArraySerialize(CSerializeCodeBuilder &code,
-                                                 const CFieldDef &f,
-                                                 const std::vector<CArrayDim> &dims, int dimIndex,
-                                                 const std::string &valueName,
-                                                 int ind)
+void emitMappedInlineValueSerialize(CSerializeCodeBuilder &code,
+                                    const std::string &mappedTypeName,
+                                    const std::string &mappedWireType,
+                                    const std::string &valueName,
+                                    int ind)
+{
+  auto wi = getWireTypeInfo(mappedWireType);
+  std::string in = indent(ind);
+  std::string formatFunc = "__" + mappedTypeName + "Format";
+  code.appendRaw(std::format("{}{}(out, {}({}));\n", in, wi.writeFunc, formatFunc, valueName));
+}
+
+void emitMappedInlineNestedArraySerialize(CSerializeCodeBuilder &code,
+                                          const std::string &mappedTypeName,
+                                          const std::string &mappedWireType,
+                                          const std::vector<CArrayDim> &dims, int dimIndex,
+                                          const std::string &valueName,
+                                          int ind)
 {
   std::string in = indent(ind);
   if (dimIndex >= (int)dims.size()) {
-    emitMappedInlineValueSerialize(code, f.Type.RefName, f.Type.MappedWireType, valueName, ind);
+    emitMappedInlineValueSerialize(code, mappedTypeName, mappedWireType, valueName, ind);
     return;
   }
 
@@ -443,7 +447,7 @@ static void emitMappedInlineNestedArraySerialize(CSerializeCodeBuilder &code,
   std::string idx = std::format("i{}_", dimIndex);
   code.appendRaw(std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueName, idx));
   code.appendRaw(std::format("{}  if ({}) out.write(',');\n", in, idx));
-  emitMappedInlineNestedArraySerialize(code, f, dims, dimIndex + 1,
+  emitMappedInlineNestedArraySerialize(code, mappedTypeName, mappedWireType, dims, dimIndex + 1,
                                        std::format("{}[{}]", valueName, idx), ind + 1);
   code.appendRaw(std::format("{}}}\n", in));
   code.writeLiteral(ind, "]");
@@ -464,7 +468,8 @@ void emitSerializeExpr(CSerializeCodeBuilder &code, const CFieldDef &f,
         emitMappedInlineValueSerialize(code, f.Type.RefName, f.Type.MappedWireType,
                                        std::format("{}[i_]", valueName), ind + 1);
       } else {
-        emitMappedInlineNestedArraySerialize(code, f, f.Type.InnerDims, 0,
+        emitMappedInlineNestedArraySerialize(code, f.Type.RefName, f.Type.MappedWireType,
+                                             f.Type.InnerDims, 0,
                                              std::format("{}[i_]", valueName), ind + 1);
       }
     } else if (f.Type.InnerDims.empty()) {
@@ -750,9 +755,27 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
 // --- Scanner code ---
 
 const char *jsonScannerCode = R"(
-struct JsonScanner {
+template<bool Verbose>
+struct JsonScannerImpl {
   const char *p;
   const char *end;
+  const char *begin = nullptr;
+  ParseError *error = nullptr;
+
+  void computePosition(int &row, int &col) const {
+    row = 1; col = 1;
+    for (const char *c = begin; c < p; c++) {
+      if (*c == '\n') { row++; col = 1; } else col++;
+    }
+  }
+
+  void setError([[maybe_unused]] const std::string &msg) {
+    if constexpr (Verbose) {
+      if (!error || !error->message.empty()) return;
+      computePosition(error->row, error->col);
+      error->message = msg;
+    }
+  }
 
   void skipWhitespace() {
     while (p < end) {
@@ -768,19 +791,24 @@ struct JsonScanner {
   bool expectChar(char c) {
     skipWhitespace();
     if (p < end && *p == c) { p++; return true; }
+    if (p >= end)
+      setError(std::string("expected '") + c + "', got end of input");
+    else
+      setError(std::string("expected '") + c + "', got '" + *p + "'");
     return false;
   }
 
   bool readString(const char *&str, size_t &len) {
     skipWhitespace();
-    if (p >= end || *p != '"') return false;
+    if (p >= end) { setError("expected string, got end of input"); return false; }
+    if (*p != '"') { setError(std::string("expected string, got '") + *p + "'"); return false; }
     p++;
     str = p;
     while (p < end && *p != '"') {
-      if (*p == '\\') { p++; if (p < end) p++; else return false; }
+      if (*p == '\\') { p++; if (p < end) p++; else { setError("unterminated string"); return false; } }
       else p++;
     }
-    if (p >= end) return false;
+    if (p >= end) { setError("unterminated string"); return false; }
     len = p - str;
     p++;
     return true;
@@ -788,19 +816,21 @@ struct JsonScanner {
 
   bool readStringHash(const char *&str, size_t &len, uint32_t &hash, uint32_t seed, uint32_t mult) {
     skipWhitespace();
-    if (p >= end || *p != '"') return false;
+    if (p >= end) { setError("expected string, got end of input"); return false; }
+    if (*p != '"') { setError(std::string("expected string, got '") + *p + "'"); return false; }
     p++;
     str = p;
     uint32_t h = seed;
     while (p < end && *p != '"') {
       if (*p == '\\') {
         h = h * mult + (unsigned char)*p; p++;
-        if (p < end) { h = h * mult + (unsigned char)*p; p++; } else return false;
+        if (p < end) { h = h * mult + (unsigned char)*p; p++; }
+        else { setError("unterminated string"); return false; }
       } else {
         h = h * mult + (unsigned char)*p; p++;
       }
     }
-    if (p >= end) return false;
+    if (p >= end) { setError("unterminated string"); return false; }
     len = p - str;
     hash = h;
     p++;
@@ -809,13 +839,14 @@ struct JsonScanner {
 
   bool readStringValue(std::string &out) {
     skipWhitespace();
-    if (p >= end || *p != '"') return false;
+    if (p >= end) { setError("expected string, got end of input"); return false; }
+    if (*p != '"') { setError(std::string("expected string, got '") + *p + "'"); return false; }
     p++;
     out.clear();
     while (p < end && *p != '"') {
       if (*p == '\\') {
         p++;
-        if (p >= end) return false;
+        if (p >= end) { setError("unterminated string"); return false; }
         switch (*p) {
           case '"': out += '"'; break;
           case '\\': out += '\\'; break;
@@ -836,17 +867,33 @@ struct JsonScanner {
               int d0 = hexVal(p[1]), d1 = hexVal(p[2]), d2 = hexVal(p[3]), d3 = hexVal(p[4]);
               if (d0 >= 0 && d1 >= 0 && d2 >= 0 && d3 >= 0) {
                 uint32_t cp = (d0 << 12) | (d1 << 8) | (d2 << 4) | d3;
+                p += 4;
+                // Surrogate pair: high surrogate followed by \uXXXX low surrogate
+                if (cp >= 0xD800 && cp <= 0xDBFF && p + 7 <= end && p[1] == '\\' && p[2] == 'u') {
+                  int l0 = hexVal(p[3]), l1 = hexVal(p[4]), l2 = hexVal(p[5]), l3 = hexVal(p[6]);
+                  if (l0 >= 0 && l1 >= 0 && l2 >= 0 && l3 >= 0) {
+                    uint32_t low = (l0 << 12) | (l1 << 8) | (l2 << 4) | l3;
+                    if (low >= 0xDC00 && low <= 0xDFFF) {
+                      cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+                      p += 6;
+                    }
+                  }
+                }
                 if (cp < 0x80) {
                   out += (char)cp;
                 } else if (cp < 0x800) {
                   out += (char)(0xC0 | (cp >> 6));
                   out += (char)(0x80 | (cp & 0x3F));
-                } else {
+                } else if (cp < 0x10000) {
                   out += (char)(0xE0 | (cp >> 12));
                   out += (char)(0x80 | ((cp >> 6) & 0x3F));
                   out += (char)(0x80 | (cp & 0x3F));
+                } else {
+                  out += (char)(0xF0 | (cp >> 18));
+                  out += (char)(0x80 | ((cp >> 12) & 0x3F));
+                  out += (char)(0x80 | ((cp >> 6) & 0x3F));
+                  out += (char)(0x80 | (cp & 0x3F));
                 }
-                p += 4;
               } else {
                 out += '\\'; out += 'u';
               }
@@ -862,28 +909,28 @@ struct JsonScanner {
         out += *p++;
       }
     }
-    if (p >= end) return false;
+    if (p >= end) { setError("unterminated string"); return false; }
     p++;
     return true;
   }
 
   bool readInt64(int64_t &out) {
     skipWhitespace();
-    if (p >= end) return false;
+    if (p >= end) { setError("expected integer, got end of input"); return false; }
     char *ep;
     out = strtoll(p, &ep, 10);
-    if (ep == p) return false;
+    if (ep == p) { setError(std::string("expected integer, got '") + *p + "'"); return false; }
     p = ep;
     return true;
   }
 
   bool readUInt64(uint64_t &out) {
     skipWhitespace();
-    if (p >= end) return false;
-    if (*p == '-') return false;
+    if (p >= end) { setError("expected integer, got end of input"); return false; }
+    if (*p == '-') { setError("expected unsigned integer, got negative value"); return false; }
     char *ep;
     out = strtoull(p, &ep, 10);
-    if (ep == p) return false;
+    if (ep == p) { setError(std::string("expected integer, got '") + *p + "'"); return false; }
     p = ep;
     return true;
   }
@@ -891,7 +938,7 @@ struct JsonScanner {
   bool readInt32(int32_t &out) {
     int64_t v;
     if (!readInt64(v)) return false;
-    if (v < INT32_MIN || v > INT32_MAX) return false;
+    if (v < INT32_MIN || v > INT32_MAX) { setError("integer out of int32 range"); return false; }
     out = (int32_t)v;
     return true;
   }
@@ -899,17 +946,17 @@ struct JsonScanner {
   bool readUInt32(uint32_t &out) {
     uint64_t v;
     if (!readUInt64(v)) return false;
-    if (v > UINT32_MAX) return false;
+    if (v > UINT32_MAX) { setError("integer out of uint32 range"); return false; }
     out = (uint32_t)v;
     return true;
   }
 
   bool readDouble(double &out) {
     skipWhitespace();
-    if (p >= end) return false;
+    if (p >= end) { setError("expected number, got end of input"); return false; }
     char *ep;
     out = strtod(p, &ep);
-    if (ep == p) return false;
+    if (ep == p) { setError(std::string("expected number, got '") + *p + "'"); return false; }
     p = ep;
     return true;
   }
@@ -922,6 +969,10 @@ struct JsonScanner {
     if (end - p >= 5 && memcmp(p, "false", 5) == 0) {
       p += 5; out = false; return true;
     }
+    if (p >= end)
+      setError("expected boolean, got end of input");
+    else
+      setError(std::string("expected boolean, got '") + *p + "'");
     return false;
   }
 
@@ -935,7 +986,7 @@ struct JsonScanner {
 
   bool skipValue() {
     skipWhitespace();
-    if (p >= end) return false;
+    if (p >= end) { setError("unexpected end of input"); return false; }
     switch (*p) {
       case '"': { const char *s; size_t l; return readString(s, l); }
       case '{': {
@@ -965,12 +1016,12 @@ struct JsonScanner {
         }
         return expectChar(']');
       }
-      case 't': return (end - p >= 4 && memcmp(p, "true", 4) == 0) ? (p += 4, true) : false;
-      case 'f': return (end - p >= 5 && memcmp(p, "false", 5) == 0) ? (p += 5, true) : false;
-      case 'n': return (end - p >= 4 && memcmp(p, "null", 4) == 0) ? (p += 4, true) : false;
+      case 't': return (end - p >= 4 && memcmp(p, "true", 4) == 0) ? (p += 4, true) : (setError("invalid literal"), false);
+      case 'f': return (end - p >= 5 && memcmp(p, "false", 5) == 0) ? (p += 5, true) : (setError("invalid literal"), false);
+      case 'n': return (end - p >= 4 && memcmp(p, "null", 4) == 0) ? (p += 4, true) : (setError("invalid literal"), false);
       default: {
         if (*p == '-') p++;
-        if (p >= end || (*p < '0' || *p > '9')) return false;
+        if (p >= end || (*p < '0' || *p > '9')) { setError("expected value"); return false; }
         while (p < end && *p >= '0' && *p <= '9') p++;
         if (p < end && *p == '.') { p++; while (p < end && *p >= '0' && *p <= '9') p++; }
         if (p < end && (*p == 'e' || *p == 'E')) {
@@ -983,6 +1034,9 @@ struct JsonScanner {
     }
   }
 };
+
+using JsonScanner = JsonScannerImpl<false>;
+using VerboseJsonScanner = JsonScannerImpl<true>;
 )";
 
 // --- JSON write helpers (static in generated source) ---

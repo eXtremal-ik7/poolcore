@@ -528,6 +528,11 @@ default_value:
       $$->Kind = EDefaultKind::Float;
       $$->FloatVal = $1;
     }
+  | '-' TOK_FLOAT_LITERAL {
+      $$ = new CDefaultValue();
+      $$->Kind = EDefaultKind::Float;
+      $$->FloatVal = -$2;
+    }
   | TOK_TRUE {
       $$ = new CDefaultValue();
       $$->Kind = EDefaultKind::Bool;

@@ -116,9 +116,16 @@ static bool processIncludesImpl(CIdlFile &file, const std::vector<std::string> &
   return true;
 }
 
-bool processIncludes(CIdlFile &file, const std::vector<std::string> &includePaths)
+bool processIncludes(CIdlFile &file, const std::vector<std::string> &includePaths, const char *rootFile)
 {
   std::unordered_set<std::string> visited;
+  // Seed with the root file so that circular includes back to root are skipped
+  if (rootFile) {
+    std::error_code ec;
+    auto canonical = std::filesystem::canonical(rootFile, ec);
+    if (!ec)
+      visited.insert(canonical.string());
+  }
   return processIncludesImpl(file, includePaths, visited);
 }
 
@@ -206,21 +213,44 @@ static bool resolveMixins(CIdlFile &file)
 
 static bool validateTypes(CIdlFile &file)
 {
-  // Build indices (include both local and imported)
+  // Build indices (include both local and imported), checking for duplicates
+  std::unordered_set<std::string> allNames; // cross-kind duplicate check
   std::unordered_set<std::string> structNames;
   std::unordered_set<std::string> enumNames;
   std::unordered_set<std::string> mappedNames;
   std::unordered_map<std::string, CEnumDef *> enumIndex;
 
-  for (auto &s : file.Structs)
-    if (!s.IsMixin)
-      structNames.insert(s.Name);
+  for (auto &s : file.Structs) {
+    if (s.IsMixin) continue;
+    if (!allNames.insert(s.Name).second) {
+      fprintf(stderr, "line %d: duplicate type name '%s'\n", s.Line, s.Name.c_str());
+      return false;
+    }
+    structNames.insert(s.Name);
+  }
   for (auto &e : file.Enums) {
+    if (!allNames.insert(e.Name).second) {
+      fprintf(stderr, "line %d: duplicate type name '%s'\n", e.Line, e.Name.c_str());
+      return false;
+    }
+    // Check for duplicate enum values
+    std::unordered_set<std::string> valuesSeen;
+    for (auto &v : e.Values) {
+      if (!valuesSeen.insert(v).second) {
+        fprintf(stderr, "line %d: duplicate enum value '%s' in '%s'\n", e.Line, v.c_str(), e.Name.c_str());
+        return false;
+      }
+    }
     enumNames.insert(e.Name);
     enumIndex[e.Name] = &e;
   }
-  for (auto &ext : file.MappedTypes)
+  for (auto &ext : file.MappedTypes) {
+    if (!allNames.insert(ext.Name).second) {
+      fprintf(stderr, "line %d: duplicate type name '%s'\n", ext.Line, ext.Name.c_str());
+      return false;
+    }
     mappedNames.insert(ext.Name);
+  }
 
   // Build mapped type index for context validation
   std::unordered_map<std::string, CMappedTypeDef *> mappedIndex;
@@ -300,9 +330,46 @@ static bool validateTypes(CIdlFile &file)
       }
 
       // Validate defaults
-      if (f.Default.Kind == EDefaultKind::String && f.Type.IsScalar) {
+      if (f.Default.Kind != EDefaultKind::None && f.Type.IsScalar) {
+        bool ok = false;
+        bool isChrono = f.Type.Scalar == EScalarType::Seconds ||
+                        f.Type.Scalar == EScalarType::Minutes ||
+                        f.Type.Scalar == EScalarType::Hours;
+        bool isInt = f.Type.Scalar == EScalarType::Int32 || f.Type.Scalar == EScalarType::Uint32 ||
+                     f.Type.Scalar == EScalarType::Int64 || f.Type.Scalar == EScalarType::Uint64;
+
+        switch (f.Default.Kind) {
+          case EDefaultKind::String:
+            // String default allowed for string and enum fields
+            ok = f.Type.Scalar == EScalarType::String || !f.Type.RefName.empty();
+            break;
+          case EDefaultKind::Int:
+            // Int default allowed for integer, double, and chrono fields
+            ok = isInt || f.Type.Scalar == EScalarType::Double || isChrono;
+            break;
+          case EDefaultKind::Float:
+            ok = f.Type.Scalar == EScalarType::Double;
+            break;
+          case EDefaultKind::Bool:
+            ok = f.Type.Scalar == EScalarType::Bool;
+            break;
+          case EDefaultKind::RuntimeNow:
+          case EDefaultKind::RuntimeNowOffset:
+            ok = isChrono || isInt;
+            break;
+          default:
+            ok = true;
+            break;
+        }
+
+        if (!ok) {
+          fprintf(stderr, "line %d: incompatible default for field '%s'\n",
+                  f.Line, f.Name.c_str());
+          return false;
+        }
+
         // String default for enum → validate value
-        if (!f.Type.RefName.empty()) {
+        if (f.Default.Kind == EDefaultKind::String && !f.Type.RefName.empty()) {
           auto it = enumIndex.find(f.Type.RefName);
           if (it != enumIndex.end()) {
             auto &vals = it->second->Values;

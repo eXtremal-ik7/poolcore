@@ -211,7 +211,8 @@ struct CIdlFile {
 bool parseIdlFile(const char *filename, CIdlFile &out);
 
 // Process include directives: parse included files, merge imported types
-bool processIncludes(CIdlFile &file, const std::vector<std::string> &includePaths);
+// rootFile is the path of the main IDL file (used to prevent self-inclusion cycles)
+bool processIncludes(CIdlFile &file, const std::vector<std::string> &includePaths, const char *rootFile);
 
 // Post-process AST: resolve mixins, validate types, topological sort
 bool resolveAst(CIdlFile &file);

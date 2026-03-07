@@ -60,6 +60,7 @@ struct ScalarDefaults {
   fieldInt64: int64 = 0;
   fieldUint64: uint64 = 100;
   fieldDouble: double = 3.14;
+  fieldNegDouble: double = -3.14;
 }
 
 // ============================================================================

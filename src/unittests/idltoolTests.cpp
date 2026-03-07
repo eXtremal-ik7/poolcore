@@ -166,6 +166,44 @@ static testing::AssertionResult generatedIdlSourceContains(const std::string &st
   }
 }
 
+static testing::AssertionResult generatedIdlHeaderContains(const std::string &stem, const std::string &idlSource,
+    std::initializer_list<std::string> needles) {
+  try {
+    TempDir tempDir(makeTempDir());
+    auto idlPath = tempDir.path() / (stem + ".idl");
+    auto headerPath = tempDir.path() / (stem + ".idl.h");
+    auto genLogPath = tempDir.path() / "idltool.log";
+
+    writeTextFile(tempDir.path() / "support.h", "#pragma once\n");
+    writeTextFile(idlPath, idlSource);
+
+    std::string generateCmd =
+      shellQuote(IDLTOOL_BINARY_PATH) + " " +
+      shellQuote(idlPath.string()) + " -o " +
+      shellQuote(headerPath.string());
+    auto genResult = runCommandCapture(generateCmd, genLogPath);
+    if (genResult.ExitCode != 0) {
+      return testing::AssertionFailure()
+        << "idltool failed for " << idlPath.filename().string() << "\n"
+        << genResult.Output;
+    }
+
+    std::string header = readTextFile(headerPath);
+    for (const std::string &needle : needles) {
+      if (header.find(needle) == std::string::npos) {
+        return testing::AssertionFailure()
+          << "generated header for " << idlPath.filename().string()
+          << " did not contain expected fragment '" << needle << "'\n"
+          << header;
+      }
+    }
+
+    return testing::AssertionSuccess();
+  } catch (const std::exception &e) {
+    return testing::AssertionFailure() << e.what();
+  }
+}
+
 static testing::AssertionResult generatedIdlSourceOmits(const std::string &stem, const std::string &idlSource,
     std::initializer_list<std::string> needles) {
   try {
@@ -350,6 +388,7 @@ TEST(IdlTool, ParseDefaults) {
   EXPECT_EQ(d.fieldInt64, 0);
   EXPECT_EQ(d.fieldUint64, 100u);
   EXPECT_DOUBLE_EQ(d.fieldDouble, 3.14);
+  EXPECT_DOUBLE_EQ(d.fieldNegDouble, -3.14);
 }
 
 TEST(IdlTool, ParseDefaultsOverride) {
@@ -1280,6 +1319,25 @@ TEST(IdlTool, BugUnicodeEscape) {
   ASSERT_TRUE(inner.parse(json, strlen(json)));
   // \u0041 = 'A', should be decoded
   EXPECT_EQ(inner.value, "helloAworld");
+}
+
+// Bug: surrogate pairs (\uD83D\uDE00 = U+1F600 😀) are not combined;
+// each half is independently encoded as a 3-byte BMP sequence (invalid UTF-8).
+TEST(IdlTool, BugSurrogatePair) {
+  // \uD83D\uDE00 is JSON encoding for U+1F600 (grinning face emoji)
+  const char *json = R"({"value":"\uD83D\uDE00","count":1})";
+  Inner inner;
+  ASSERT_TRUE(inner.parse(json, strlen(json)));
+  // U+1F600 in UTF-8: F0 9F 98 80
+  EXPECT_EQ(inner.value, "\xF0\x9F\x98\x80");
+}
+
+TEST(IdlTool, BugSurrogatePairVerbose) {
+  const char *json = R"({"value":"\uD83D\uDE00","count":1})";
+  Inner inner;
+  ParseError error;
+  ASSERT_TRUE(inner.parseVerbose(json, strlen(json), error));
+  EXPECT_EQ(inner.value, "\xF0\x9F\x98\x80");
 }
 
 // Issue 3: readInt32/readUInt32 silently truncate values out of range
@@ -2608,6 +2666,76 @@ TEST(IdlTool, OptionalDuplicatePolicyRejected) {
 }
 
 // ============================================================================
+// Default type mismatch validation
+// ============================================================================
+
+TEST(IdlTool, DefaultIntOnStringRejected) {
+  EXPECT_TRUE(generatedIdlFails("default_int_on_string",
+    "struct Bad { .generate(parse); value: string = 1; }\n",
+    "incompatible default"));
+}
+
+TEST(IdlTool, DefaultStringOnIntRejected) {
+  EXPECT_TRUE(generatedIdlFails("default_string_on_int",
+    "struct Bad { .generate(parse); value: int32 = \"hello\"; }\n",
+    "incompatible default"));
+}
+
+TEST(IdlTool, DefaultBoolOnIntRejected) {
+  EXPECT_TRUE(generatedIdlFails("default_bool_on_int",
+    "struct Bad { .generate(parse); value: int32 = true; }\n",
+    "incompatible default"));
+}
+
+TEST(IdlTool, DefaultIntOnBoolRejected) {
+  EXPECT_TRUE(generatedIdlFails("default_int_on_bool",
+    "struct Bad { .generate(parse); value: bool = 0; }\n",
+    "incompatible default"));
+}
+
+TEST(IdlTool, DefaultStringOnDoubleRejected) {
+  EXPECT_TRUE(generatedIdlFails("default_string_on_double",
+    "struct Bad { .generate(parse); value: double = \"nope\"; }\n",
+    "incompatible default"));
+}
+
+TEST(IdlTool, DefaultFloatOnStringRejected) {
+  EXPECT_TRUE(generatedIdlFails("default_float_on_string",
+    "struct Bad { .generate(parse); value: string = 3.14; }\n",
+    "incompatible default"));
+}
+
+TEST(IdlTool, DefaultStringOnBoolRejected) {
+  EXPECT_TRUE(generatedIdlFails("default_string_on_bool",
+    "struct Bad { .generate(parse); value: bool = \"yes\"; }\n",
+    "incompatible default"));
+}
+
+TEST(IdlTool, DefaultBoolOnDoubleRejected) {
+  EXPECT_TRUE(generatedIdlFails("default_bool_on_double",
+    "struct Bad { .generate(parse); value: double = false; }\n",
+    "incompatible default"));
+}
+
+TEST(IdlTool, DefaultFloatOnIntRejected) {
+  EXPECT_TRUE(generatedIdlFails("default_float_on_int",
+    "struct Bad { .generate(parse); value: int64 = 3.14; }\n",
+    "incompatible default"));
+}
+
+TEST(IdlTool, DefaultIntOnDoubleAllowed) {
+  // Int literal on double field is reasonable (3 → 3.0)
+  EXPECT_FALSE(generatedIdlFails("default_int_on_double",
+    "struct OK { .generate(parse); value: double = 3; }\n"));
+}
+
+TEST(IdlTool, DefaultFloatOnChronoRejected) {
+  EXPECT_TRUE(generatedIdlFails("default_float_on_chrono",
+    "struct Bad { .generate(parse); value: chrono::seconds = 3.14; }\n",
+    "incompatible default"));
+}
+
+// ============================================================================
 // Schema parser regression tests
 // ============================================================================
 
@@ -2621,4 +2749,263 @@ TEST(IdlTool, LegacyContextDirectiveRejected) {
     "}\n";
 
   EXPECT_TRUE(generatedIdlFails("legacy_context_directive", idl));
+}
+
+// ============================================================================
+// Bool/null word boundary tests
+// ============================================================================
+
+TEST(IdlTool, LiteralWordBoundary) {
+  // --- reject: no word boundary after bool/null literals ---
+
+  // "trueX"
+  {
+    const char *json = R"({"fieldString":"a","fieldBool":trueX,"fieldInt32":0,"fieldUint32":0,"fieldInt64":0,"fieldUint64":0,"fieldDouble":0})";
+    ScalarTypes t;
+    EXPECT_FALSE(t.parse(json, strlen(json)));
+  }
+  // "falsehood"
+  {
+    const char *json = R"({"fieldString":"a","fieldBool":falsehood,"fieldInt32":0,"fieldUint32":0,"fieldInt64":0,"fieldUint64":0,"fieldDouble":0})";
+    ScalarTypes t;
+    EXPECT_FALSE(t.parse(json, strlen(json)));
+  }
+  // "true1"
+  {
+    const char *json = R"({"fieldString":"a","fieldBool":true1,"fieldInt32":0,"fieldUint32":0,"fieldInt64":0,"fieldUint64":0,"fieldDouble":0})";
+    ScalarTypes t;
+    EXPECT_FALSE(t.parse(json, strlen(json)));
+  }
+  // "nullify" for nullable scalar
+  {
+    const char *json = R"({"title":"a","note":nullify})";
+    NullableScalars s;
+    EXPECT_FALSE(s.parse(json, strlen(json)));
+  }
+  // "nullX" for nullable object
+  {
+    const char *json = R"({"title":"a","inner":nullX})";
+    NullableObject s;
+    EXPECT_FALSE(s.parse(json, strlen(json)));
+  }
+  // "null1"
+  {
+    const char *json = R"({"title":"a","note":null1})";
+    NullableScalars s;
+    EXPECT_FALSE(s.parse(json, strlen(json)));
+  }
+  // variant(string, int64, bool) with "trueish"
+  {
+    const char *json = R"({"value":trueish})";
+    VariantScalars v;
+    EXPECT_FALSE(v.parse(json, strlen(json)));
+  }
+  // verbose: bool
+  {
+    const char *json = R"({"fieldString":"a","fieldBool":trueX,"fieldInt32":0,"fieldUint32":0,"fieldInt64":0,"fieldUint64":0,"fieldDouble":0})";
+    ScalarTypes t;
+    ParseError error;
+    EXPECT_FALSE(t.parseVerbose(json, strlen(json), error));
+    EXPECT_FALSE(error.message.empty());
+  }
+  // verbose: null
+  {
+    const char *json = R"({"title":"a","note":nullify})";
+    NullableScalars s;
+    ParseError error;
+    EXPECT_FALSE(s.parseVerbose(json, strlen(json), error));
+    EXPECT_FALSE(error.message.empty());
+  }
+
+  // --- accept: valid boundaries (comma, }, whitespace, end-of-input) ---
+
+  {
+    const char *json = R"({"required1":"a","required2":1,"required3":true,"optional3":false})";
+    MixedFields m;
+    ASSERT_TRUE(m.parse(json, strlen(json)));
+    EXPECT_TRUE(m.required3);
+    EXPECT_FALSE(m.optional3);
+  }
+  {
+    const char *json = R"({"required1":"a","required2":1,"required3":true})";
+    MixedFields m;
+    ASSERT_TRUE(m.parse(json, strlen(json)));
+    EXPECT_TRUE(m.required3);
+  }
+  {
+    const char *json = R"({"required1":"a","required2":1,"required3":true })";
+    MixedFields m;
+    ASSERT_TRUE(m.parse(json, strlen(json)));
+    EXPECT_TRUE(m.required3);
+  }
+  {
+    const char *json = R"({"title":"a","note":null,"numbers":null})";
+    NullableScalars s;
+    ASSERT_TRUE(s.parse(json, strlen(json)));
+    EXPECT_FALSE(s.note.has_value());
+  }
+  {
+    const char *json = R"({"title":"a","note":null})";
+    NullableScalars s;
+    ASSERT_TRUE(s.parse(json, strlen(json)));
+    EXPECT_FALSE(s.note.has_value());
+  }
+  {
+    const char *json = R"({"title":"a","note":null ,"numbers":null})";
+    NullableScalars s;
+    ASSERT_TRUE(s.parse(json, strlen(json)));
+    EXPECT_FALSE(s.note.has_value());
+  }
+}
+
+// ============================================================================
+// Negative float defaults
+// ============================================================================
+
+TEST(IdlTool, ParseNegativeFloatDefault) {
+  ScalarDefaults d;
+  const char *json = R"({})";
+  ASSERT_TRUE(d.parse(json, strlen(json)));
+  EXPECT_DOUBLE_EQ(d.fieldNegDouble, -3.14);
+}
+
+TEST(IdlTool, ParseNegativeFloatDefaultOverride) {
+  const char *json = R"({"fieldNegDouble":-99.5})";
+  ScalarDefaults d;
+  ASSERT_TRUE(d.parse(json, strlen(json)));
+  EXPECT_DOUBLE_EQ(d.fieldNegDouble, -99.5);
+}
+
+TEST(IdlTool, SerializeNegativeFloatDefault) {
+  ScalarDefaults d;
+  d.fieldNegDouble = -2.718;
+
+  xmstream stream;
+  d.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc.HasMember("fieldNegDouble"));
+  EXPECT_DOUBLE_EQ(doc["fieldNegDouble"].GetDouble(), -2.718);
+}
+
+// ============================================================================
+// Duplicate definition validation
+// ============================================================================
+
+TEST(IdlTool, DuplicateStructRejected) {
+  EXPECT_TRUE(generatedIdlFails("dup_struct", R"(
+struct Foo { .generate(parse); x: int32; }
+struct Foo { .generate(parse); y: int32; }
+)", "duplicate"));
+}
+
+TEST(IdlTool, DuplicateEnumRejected) {
+  EXPECT_TRUE(generatedIdlFails("dup_enum", R"(
+enum Color : string { red, green, blue }
+enum Color : string { cyan, magenta }
+struct S { .generate(parse); c: Color; }
+)", "duplicate"));
+}
+
+TEST(IdlTool, DuplicateMappedTypeRejected) {
+  EXPECT_TRUE(generatedIdlFails("dup_mapped", R"(
+mapped type money("int64_t") : string include "support.h";
+mapped type money("double") : string include "support.h";
+struct S { .generate(parse); v: money; }
+)", "duplicate"));
+}
+
+TEST(IdlTool, DuplicateEnumValueRejected) {
+  EXPECT_TRUE(generatedIdlFails("dup_enum_val", R"(
+enum Color : string { red, green, red }
+struct S { .generate(parse); c: Color; }
+)", "duplicate"));
+}
+
+TEST(IdlTool, NameCollisionStructEnumRejected) {
+  EXPECT_TRUE(generatedIdlFails("name_clash_struct_enum", R"(
+struct Foo { .generate(parse); x: int32; }
+enum Foo : string { a, b }
+)", "duplicate"));
+}
+
+TEST(IdlTool, NameCollisionStructMappedRejected) {
+  EXPECT_TRUE(generatedIdlFails("name_clash_struct_mapped", R"(
+struct Foo { .generate(parse); x: int32; }
+mapped type Foo("int64_t") : string include "support.h";
+)", "duplicate"));
+}
+
+TEST(IdlTool, NameCollisionEnumMappedRejected) {
+  EXPECT_TRUE(generatedIdlFails("name_clash_enum_mapped", R"(
+enum Foo : string { a, b }
+mapped type Foo("int64_t") : string include "support.h";
+struct S { .generate(parse); x: int32; }
+)", "duplicate"));
+}
+
+// ============================================================================
+// Include cycle: root file self-include
+// ============================================================================
+
+TEST(IdlTool, SelfIncludeSilentlyIgnored) {
+  // A file that includes itself should not cause duplicated types or errors.
+  // The root file is seeded into visited, so the self-include is skipped.
+  try {
+    TempDir tempDir(makeTempDir());
+    auto idlPath = tempDir.path() / "self.idl";
+    auto headerPath = tempDir.path() / "self.idl.h";
+    auto genLogPath = tempDir.path() / "idltool.log";
+
+    writeTextFile(tempDir.path() / "support.h", "#pragma once\n");
+    writeTextFile(idlPath,
+      "include \"self.idl\";\n"
+      "struct Foo { .generate(parse); x: int32; }\n");
+
+    std::string generateCmd =
+      shellQuote(IDLTOOL_BINARY_PATH) + " " +
+      shellQuote(idlPath.string()) + " -o " +
+      shellQuote(headerPath.string());
+    auto genResult = runCommandCapture(generateCmd, genLogPath);
+    EXPECT_EQ(genResult.ExitCode, 0)
+      << "idltool failed for self-include:\n" << genResult.Output;
+  } catch (const std::exception &e) {
+    FAIL() << e.what();
+  }
+}
+
+// ============================================================================
+// String default C++ escaping
+// ============================================================================
+
+TEST(IdlTool, StringDefaultWithSpecialCharsEscaped) {
+  // The IDL lexer preserves escape sequences raw in StringVal.
+  // cppStringLiteral() must re-escape them for valid C++.
+  // IDL "hello\"world" → StringVal = hello\"world → C++ "hello\\\"world"
+  // IDL "back\\slash"  → StringVal = back\\slash  → C++ "back\\\\slash"
+  EXPECT_TRUE(generatedIdlSourceContains("str_escape_default",
+    R"(
+struct Escaped {
+  .generate(parse, serialize);
+  a: string = "hello\"world";
+  b: string = "back\\slash";
+}
+)", {R"("hello\\\"world")", R"("back\\\\slash")"}));
+}
+
+// ============================================================================
+// Tagged schema with serialize.flat only must still emit fields
+// ============================================================================
+
+TEST(IdlTool, TaggedSchemaFlatOnlyEmitsFields) {
+  // A struct with only .generate(serialize.flat) and tagged fields
+  // must still emit member declarations in the header, because
+  // schema() references &Struct::member.
+  EXPECT_TRUE(generatedIdlHeaderContains("tagged_flat_only",
+    "struct Tagged {\n"
+    "  .generate(serialize.flat);\n"
+    "  x: int32 @1;\n"
+    "  y: string @2;\n"
+    "}\n",
+    {"int32_t x", "std::string y", "schema()"}));
 }

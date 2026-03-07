@@ -65,7 +65,7 @@ int main(int argc, char **argv)
   }
 
   // Process includes
-  if (!processIncludes(file, includePaths))
+  if (!processIncludes(file, includePaths, inputFile))
     return 1;
 
   // Resolve

@@ -50,6 +50,28 @@ std::optional<CPerfectHash> findPerfectHash(const std::vector<std::string> &keys
 void generateEnumDeclarations(std::string &out, const CIdlFile &file, bool pascalCase = false);
 void generateEnumDefinitions(std::string &out, const CIdlFile &file, bool pascalCase = false);
 
+// --- Wire type info ---
+
+struct WireTypeInfo {
+  const char *readMethod;  // JsonScanner method
+  const char *writeFunc;   // jsonWrite* function
+  const char *cppType;     // C++ wire type
+};
+
+WireTypeInfo getWireTypeInfo(const std::string &wireType);
+
+void emitMappedInlineValueSerialize(CSerializeCodeBuilder &code,
+                                    const std::string &mappedTypeName,
+                                    const std::string &mappedWireType,
+                                    const std::string &valueName,
+                                    int ind);
+void emitMappedInlineNestedArraySerialize(CSerializeCodeBuilder &code,
+                                          const std::string &mappedTypeName,
+                                          const std::string &mappedWireType,
+                                          const std::vector<CArrayDim> &dims, int dimIndex,
+                                          const std::string &valueName,
+                                          int ind);
+
 // --- Serialize generation ---
 
 void emitSerializeValue(CSerializeCodeBuilder &code, const CFieldDef &f,
