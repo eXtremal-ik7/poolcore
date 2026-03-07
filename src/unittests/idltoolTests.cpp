@@ -3141,3 +3141,133 @@ TEST(IdlTool, ParseDoubleVariousFormats) {
     EXPECT_FALSE(err.message.empty());
   }
 }
+
+TEST(IdlTool, SerializeDoubleMatchesSnprintf) {
+  // Helper: serialize a double via idltool and extract the value string
+  auto serializeDouble = [](double v) -> std::string {
+    ScalarTypes s{};
+    s.fieldString = "";
+    s.fieldBool = false;
+    s.fieldInt32 = 0;
+    s.fieldUint32 = 0;
+    s.fieldInt64 = 0;
+    s.fieldUint64 = 0;
+    s.fieldDouble = v;
+    xmstream stream;
+    s.serialize(stream);
+    std::string json(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+    // Extract fieldDouble value from JSON
+    auto pos = json.find("\"fieldDouble\":");
+    EXPECT_NE(pos, std::string::npos) << "fieldDouble not found in: " << json;
+    pos += strlen("\"fieldDouble\":");
+    auto end = json.find_first_of(",}", pos);
+    return json.substr(pos, end - pos);
+  };
+
+  auto snprintfDouble = [](double v) -> std::string {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%.12g", v);
+    return buf;
+  };
+
+  auto expectMatch = [&](double v) {
+    std::string got = serializeDouble(v);
+    std::string expected = snprintfDouble(v);
+    EXPECT_EQ(got, expected) << "for value " << std::format("{:.17g}", v)
+                             << " got=\"" << got << "\" expected=\"" << expected << "\"";
+  };
+
+  // Basic values
+  expectMatch(0.0);
+  expectMatch(1.0);
+  expectMatch(-1.0);
+  expectMatch(0.5);
+  expectMatch(-0.5);
+  expectMatch(42.0);
+  expectMatch(-42.0);
+  expectMatch(3.14);
+  expectMatch(-3.14);
+  expectMatch(0.1);
+  expectMatch(0.01);
+  expectMatch(0.001);
+
+  // Boundary: fixed vs exponential (%g uses %e when exp < -4 or exp >= precision)
+  expectMatch(0.0001);       // exp=-4, fixed
+  expectMatch(0.00001);      // exp=-5, exponential
+  expectMatch(99999999999.0);   // exp=10, fixed
+  expectMatch(999999999999.0);  // exp=11, fixed (last fixed)
+  expectMatch(1000000000000.0); // exp=12, exponential
+  expectMatch(1e12);
+  expectMatch(1e-4);
+  expectMatch(1e-5);
+
+  // Powers of 10 (full range)
+  for (int i = -307; i <= 308; i++) {
+    expectMatch(pow(10.0, i));
+  }
+
+  // Typical GeoJSON coordinates
+  expectMatch(-122.42200352825247);
+  expectMatch(37.80848009696542);
+  expectMatch(0.0);
+  expectMatch(-122.4);
+  expectMatch(37.8);
+
+  // Extreme doubles
+  expectMatch(1.7976931348623157e+308);  // DBL_MAX
+  expectMatch(2.2250738585072014e-308);  // DBL_MIN (smallest normal)
+  expectMatch(5e-324);                    // smallest subnormal
+  expectMatch(-1.7976931348623157e+308);
+  expectMatch(-2.2250738585072014e-308);
+
+  // Values near rounding boundaries
+  expectMatch(1.5);
+  expectMatch(2.5);
+  expectMatch(0.15);
+  expectMatch(0.25);
+  expectMatch(1.0000000000005);  // 13th digit = 5 (round-to-even test)
+  expectMatch(1.0000000000015);
+
+  // Large/small with many significant digits
+  expectMatch(1.23456789012e0);
+  expectMatch(1.23456789012e5);
+  expectMatch(1.23456789012e10);
+  expectMatch(1.23456789012e-5);
+  expectMatch(1.23456789012e-10);
+  expectMatch(1.23456789012e100);
+  expectMatch(1.23456789012e-100);
+  expectMatch(1.23456789012e200);
+  expectMatch(1.23456789012e-200);
+
+  // Negative zero
+  expectMatch(-0.0);
+
+  // Integer values
+  expectMatch(1.0);
+  expectMatch(100.0);
+  expectMatch(1000000.0);
+  expectMatch(123456789.0);
+  expectMatch(123456789012.0);
+
+  // Roundtrip: serialize -> parse -> compare
+  {
+    double values[] = {3.141592653589793, -122.42200352825247, 1e-10, 1e20, 0.0, -0.0};
+    for (double v : values) {
+      ScalarTypes s{};
+      s.fieldString = "";
+      s.fieldBool = false;
+      s.fieldInt32 = 0;
+      s.fieldUint32 = 0;
+      s.fieldInt64 = 0;
+      s.fieldUint64 = 0;
+      s.fieldDouble = v;
+      xmstream stream;
+      s.serialize(stream);
+      ScalarTypes s2;
+      ASSERT_TRUE(s2.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()))
+        << "roundtrip parse failed for " << v;
+      EXPECT_NEAR(s.fieldDouble, s2.fieldDouble, std::abs(v) * 1e-10 + 1e-300)
+        << "roundtrip precision loss for " << v;
+    }
+  }
+}
