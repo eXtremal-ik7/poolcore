@@ -25,7 +25,6 @@ enum SaturationFunction : string {
 }
 
 struct SettingsPayout {
-  .context(money);
   mode: PayoutMode = "disabled" @1;
   address: string = "" @2;
   instantPayoutThreshold: money @3;
@@ -69,7 +68,8 @@ struct BackendSwap {
 }
 
 struct BackendPayouts {
-  .context(money);
+  .ctxgroup(instantMinimalPayout, regularMinimalPayout);
+
   instantPayoutsEnabled: bool = true @1;
   regularPayoutsEnabled: bool = true @2;
   instantMinimalPayout: money @3;
@@ -80,14 +80,13 @@ struct BackendPayouts {
 }
 
 struct PPSBalanceSnapshot {
-  .context(money);
   balance: money;
   totalBlocksFound: double = 0.0;
   time: unixTime;
 }
 
 struct PPSState {
-  .context(money);
+  .ctxgroup(balance, referenceBalance, lastBaseBlockReward, min, max, lastAverageTxFee);
   // Pool-side PPS balance: increases when block found (PPS correction from PPLNS),
   // decreases when PPS rewards are accrued to users.
   // Can go negative — that's the pool's risk.
@@ -130,7 +129,6 @@ struct MergedBlockInfo {
 }
 
 struct PPLNSPayoutEntry {
-  .context(money);
   startTime: unixTime;
   endTime: unixTime;
   hash: string;
@@ -141,7 +139,6 @@ struct PPLNSPayoutEntry {
 }
 
 struct PPSPayoutEntry {
-  .context(money);
   startTime: unixTime;
   endTime: unixTime;
   value: money;
@@ -150,7 +147,6 @@ struct PPSPayoutEntry {
 }
 
 struct AccumulatedPayoutEntry {
-  .context(money);
   timeLabel: int64;
   value: money;
   valueBTC: moneyBTC;

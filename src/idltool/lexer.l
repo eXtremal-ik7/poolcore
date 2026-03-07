@@ -26,6 +26,7 @@
 "mapped"                { return TOK_MAPPED; }
 "type"                  { return TOK_TYPE; }
 "context"               { return TOK_CONTEXT; }
+"ctxgroup"              { return TOK_CTXGROUP; }
 "generate"              { return TOK_GENERATE; }
 "variant"               { return TOK_VARIANT; }
 

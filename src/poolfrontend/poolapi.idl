@@ -588,7 +588,6 @@ struct BackendQueryPPLNSPayoutsRequest {
 
 struct BackendQueryPPLNSPayoutsResponse {
   .generate(serialize.flat);
-  .context(money);
   status: string;
   payouts: [PPLNSPayoutEntry];
 }
@@ -604,7 +603,6 @@ struct BackendQueryPPLNSAccRequest {
 
 struct BackendQueryPayoutsAccResponse {
   .generate(serialize.flat);
-  .context(money);
   status: string;
   payouts: [AccumulatedPayoutEntry];
 }
@@ -621,7 +619,6 @@ struct BackendQueryPPSPayoutsRequest {
 
 struct BackendQueryPPSPayoutsResponse {
   .generate(serialize.flat);
-  .context(money);
   status: string;
   payouts: [PPSPayoutEntry];
 }

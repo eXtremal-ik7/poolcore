@@ -91,49 +91,15 @@ static CommandResult runCommandCapture(const std::string &command, const std::fi
   return result;
 }
 
-static const char *kCompileProbeSupportHeader = R"(#pragma once
-#include <cstdint>
-#include <string>
-
-inline bool __aValResolve(const std::string &raw, uint32_t ctx, int64_t &out) {
-  out = static_cast<int64_t>(raw.size()) + ctx;
-  return true;
-}
-
-inline std::string __aValFormat(int64_t val, uint32_t ctx) {
-  return std::to_string(val + ctx);
-}
-
-inline bool __bValResolve(const std::string &raw, uint32_t ctx, int64_t &out) {
-  out = static_cast<int64_t>(raw.size()) + ctx;
-  return true;
-}
-
-inline std::string __bValFormat(int64_t val, uint32_t ctx) {
-  return std::to_string(val + ctx);
-}
-
-inline bool __numValResolve(uint32_t raw, uint32_t ctx, uint32_t &out) {
-  out = raw + ctx;
-  return true;
-}
-
-inline uint32_t __numValFormat(uint32_t val, uint32_t ctx) {
-  return val + ctx;
-}
-)";
-
-static testing::AssertionResult generatedIdlCompiles(const std::string &stem, const std::string &idlSource) {
+static testing::AssertionResult generatedIdlFails(const std::string &stem, const std::string &idlSource,
+    const std::string &needle = "") {
   try {
     TempDir tempDir(makeTempDir());
     auto idlPath = tempDir.path() / (stem + ".idl");
     auto headerPath = tempDir.path() / (stem + ".idl.h");
-    auto sourcePath = tempDir.path() / (stem + ".idl.cpp");
-    auto objectPath = tempDir.path() / (stem + ".idl.o");
     auto genLogPath = tempDir.path() / "idltool.log";
-    auto compileLogPath = tempDir.path() / "compile.log";
 
-    writeTextFile(tempDir.path() / "support.h", kCompileProbeSupportHeader);
+    writeTextFile(tempDir.path() / "support.h", "#pragma once\n");
     writeTextFile(idlPath, idlSource);
 
     std::string generateCmd =
@@ -141,27 +107,17 @@ static testing::AssertionResult generatedIdlCompiles(const std::string &stem, co
       shellQuote(idlPath.string()) + " -o " +
       shellQuote(headerPath.string());
     auto genResult = runCommandCapture(generateCmd, genLogPath);
-    if (genResult.ExitCode != 0) {
+    if (genResult.ExitCode == 0) {
       return testing::AssertionFailure()
-        << "idltool failed for " << idlPath.filename().string() << "\n"
+        << "idltool unexpectedly succeeded for " << idlPath.filename().string() << "\n"
         << genResult.Output;
     }
 
-    std::string compileCmd =
-      std::string("c++ -std=gnu++20 ") +
-      "-I" + shellQuote(tempDir.path().string()) + " " +
-      "-I" + shellQuote(std::string(PROJECT_SOURCE_DIR) + "/include") + " " +
-      "-I" + shellQuote(std::string(PROJECT_SOURCE_DIR) + "/../dependencies/libp2p/src/include") + " " +
-      "-I" + shellQuote(PROJECT_BINARY_DIR) + " " +
-      "-I" + shellQuote(std::string(PROJECT_BINARY_DIR) + "/include") + " " +
-      "-I" + shellQuote(std::string(PROJECT_BINARY_DIR) + "/_deps/libp2p-build/include") + " " +
-      "-c " + shellQuote(sourcePath.string()) + " " +
-      "-o " + shellQuote(objectPath.string());
-    auto compileResult = runCommandCapture(compileCmd, compileLogPath);
-    if (compileResult.ExitCode != 0) {
+    if (!needle.empty() && genResult.Output.find(needle) == std::string::npos) {
       return testing::AssertionFailure()
-        << "generated code did not compile for " << idlPath.filename().string() << "\n"
-        << compileResult.Output;
+        << "idltool failed for " << idlPath.filename().string()
+        << ", but output did not contain expected fragment '" << needle << "'\n"
+        << genResult.Output;
     }
 
     return testing::AssertionSuccess();
@@ -171,6 +127,60 @@ static testing::AssertionResult generatedIdlCompiles(const std::string &stem, co
 }
 
 } // namespace
+
+template<typename T>
+concept ParseSerializeWithNoCtx = requires(T value,
+                                           const typename T::Capture &capture,
+                                           xmstream &out) {
+  value.serialize(out);
+  T::resolve(value, capture);
+};
+
+template<typename T>
+concept ParseSerializeWithOneCtx = requires(T value,
+                                            const typename T::Capture &capture,
+                                            xmstream &out) {
+  value.serialize(out, uint32_t{});
+  T::resolve(value, capture, uint32_t{});
+};
+
+template<typename T>
+concept ParseSerializeWithTwoCtx = requires(T value,
+                                            const typename T::Capture &capture,
+                                            xmstream &out) {
+  value.serialize(out, uint32_t{}, uint32_t{});
+  T::resolve(value, capture, uint32_t{}, uint32_t{});
+};
+
+template<typename TParent, typename TField>
+concept FlatSerializeWithOneCtx = requires(const TField &field, xmstream &out) {
+  TParent::serialize(out, field, uint32_t{});
+};
+
+template<typename TParent, typename TField>
+concept FlatSerializeWithTwoCtx = requires(const TField &field, xmstream &out) {
+  TParent::serialize(out, field, uint32_t{}, uint32_t{});
+};
+
+static_assert(ParseSerializeWithOneCtx<CtxFixedArrayParent>);
+static_assert(!ParseSerializeWithNoCtx<CtxFixedArrayParent>);
+
+static_assert(ParseSerializeWithOneCtx<CtxFixedMatrixParent>);
+static_assert(!ParseSerializeWithNoCtx<CtxFixedMatrixParent>);
+
+static_assert(ParseSerializeWithOneCtx<CtxDirectMappedArrayParent>);
+static_assert(!ParseSerializeWithNoCtx<CtxDirectMappedArrayParent>);
+
+static_assert(ParseSerializeWithOneCtx<CtxNumericWireParent>);
+static_assert(!ParseSerializeWithNoCtx<CtxNumericWireParent>);
+
+static_assert(ParseSerializeWithTwoCtx<CtxDuplicateMappedGroupsParent>);
+static_assert(!ParseSerializeWithOneCtx<CtxDuplicateMappedGroupsParent>);
+static_assert(FlatSerializeWithTwoCtx<CtxDuplicateMappedGroupsParent, CtxDuplicateMappedGroupsChild>);
+static_assert(!FlatSerializeWithOneCtx<CtxDuplicateMappedGroupsParent, CtxDuplicateMappedGroupsChild>);
+
+static_assert(ParseSerializeWithTwoCtx<CtxMultipleDependenciesParent>);
+static_assert(!ParseSerializeWithOneCtx<CtxMultipleDependenciesParent>);
 
 // ============================================================================
 // Parse tests
@@ -943,8 +953,8 @@ TEST(IdlTool, DiagTrailingGarbage) {
 // ============================================================================
 
 TEST(IdlTool, ContextVectorSerialize) {
-  // CtxChild has context testVal (uint32 context).
-  // CtxVectorParent has items: [CtxChild] → serialize takes vector<uint32_t>.
+  // CtxChild has a single context field, so it gets an implicit own group.
+  // CtxVectorParent wraps that child in an array, so it takes vector<uint32_t>.
   CtxVectorParent parent;
   parent.items.resize(3);
   parent.items[0].value = 12345;
@@ -1472,6 +1482,52 @@ TEST(IdlTool, ContextScalarResolve) {
   ASSERT_TRUE(CtxScalarParent::resolve(parent, capture, ctx));
   EXPECT_EQ(parent.child.value, 12345);
   EXPECT_EQ(parent.child.label, "item");
+}
+
+TEST(IdlTool, ContextSplitGroupsSerialize) {
+  CtxSplitAmountsParent parent;
+  parent.leftAmounts = {12345, 600};
+  parent.rightAmounts = {67890, 7000};
+
+  xmstream stream;
+  parent.serialize(stream, 2, 3);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["leftAmounts"].IsArray());
+  ASSERT_TRUE(doc["rightAmounts"].IsArray());
+  EXPECT_STREQ(doc["leftAmounts"][0].GetString(), "123.45");
+  EXPECT_STREQ(doc["leftAmounts"][1].GetString(), "6.00");
+  EXPECT_STREQ(doc["rightAmounts"][0].GetString(), "67.890");
+  EXPECT_STREQ(doc["rightAmounts"][1].GetString(), "7.000");
+}
+
+TEST(IdlTool, ContextSplitGroupsResolve) {
+  const char *json = R"({"leftAmounts":["123.45","6.00"],"rightAmounts":["67.890","7.000"]})";
+
+  CtxSplitAmountsParent parent;
+  CtxSplitAmountsParent::Capture capture;
+  ASSERT_TRUE(parent.parse(json, strlen(json), capture));
+
+  ASSERT_TRUE(CtxSplitAmountsParent::resolve(parent, capture, 2, 3));
+  ASSERT_EQ(parent.leftAmounts.size(), 2u);
+  ASSERT_EQ(parent.rightAmounts.size(), 2u);
+  EXPECT_EQ(parent.leftAmounts[0], 12345);
+  EXPECT_EQ(parent.leftAmounts[1], 600);
+  EXPECT_EQ(parent.rightAmounts[0], 67890);
+  EXPECT_EQ(parent.rightAmounts[1], 7000);
+}
+
+TEST(IdlTool, ContextSharedGroupSerialize) {
+  CtxSharedAmountsParent parent;
+  parent.leftAmounts = {12345};
+  parent.rightAmounts = {67890};
+
+  xmstream stream;
+  parent.serialize(stream, 3);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_STREQ(doc["leftAmounts"][0].GetString(), "12.345");
+  EXPECT_STREQ(doc["rightAmounts"][0].GetString(), "67.890");
 }
 
 // --- Roundtrip optional/nullable ---
@@ -2247,82 +2303,17 @@ TEST(IdlTool, VerboseParseVariantMultiStruct) {
 }
 
 // ============================================================================
-// Schema compile regression tests
+// Schema parser regression tests
 // ============================================================================
 
-TEST(IdlTool, ContextFixedArraySchemaCompiles) {
-  std::string idl =
-    "mapped type testVal(\"int64_t\") : string context(uint32) include \"" + std::string(UNITTEST_SOURCE_DIR) + "/testMappedTypes.h\";\n"
-    "struct Child {\n"
+TEST(IdlTool, LegacyContextDirectiveRejected) {
+  const std::string idl =
+    "mapped type testVal(\"int64_t\") : string context(uint32) include \"support.h\";\n"
+    "struct Parent {\n"
     "  .generate(parse, serialize);\n"
     "  .context(testVal);\n"
     "  value: testVal;\n"
-    "  label: string;\n"
-    "}\n"
-    "struct Parent {\n"
-    "  .generate(parse, serialize);\n"
-    "  items: [Child; 2];\n"
     "}\n";
 
-  EXPECT_TRUE(generatedIdlCompiles("context_fixed_array", idl));
-}
-
-TEST(IdlTool, ContextFixedMatrixSchemaCompiles) {
-  std::string idl =
-    "mapped type testVal(\"int64_t\") : string context(uint32) include \"" + std::string(UNITTEST_SOURCE_DIR) + "/testMappedTypes.h\";\n"
-    "struct Child {\n"
-    "  .generate(parse, serialize);\n"
-    "  .context(testVal);\n"
-    "  value: testVal;\n"
-    "  label: string;\n"
-    "}\n"
-    "struct Parent {\n"
-    "  .generate(parse, serialize);\n"
-    "  grid: [[Child; 2]; 2];\n"
-    "}\n";
-
-  EXPECT_TRUE(generatedIdlCompiles("context_fixed_matrix", idl));
-}
-
-TEST(IdlTool, ContextDirectMappedArraySchemaCompiles) {
-  std::string idl =
-    "mapped type testVal(\"int64_t\") : string context(uint32) include \"" + std::string(UNITTEST_SOURCE_DIR) + "/testMappedTypes.h\";\n"
-    "struct Parent {\n"
-    "  .generate(parse, serialize);\n"
-    "  .context(testVal);\n"
-    "  items: [testVal];\n"
-    "}\n";
-
-  EXPECT_TRUE(generatedIdlCompiles("context_direct_mapped_array", idl));
-}
-
-TEST(IdlTool, ContextNumericWireTypeSchemaCompiles) {
-  const std::string idl =
-    "mapped type numVal(\"uint32_t\") : uint32 context(uint32) include \"support.h\";\n"
-    "struct Parent {\n"
-    "  .generate(parse, serialize);\n"
-    "  .context(numVal);\n"
-    "  value: numVal;\n"
-    "}\n";
-
-  EXPECT_TRUE(generatedIdlCompiles("context_numeric_wire", idl));
-}
-
-TEST(IdlTool, ContextMultipleDependenciesSchemaCompiles) {
-  const std::string idl =
-    "mapped type aVal(\"int64_t\") : string context(uint32) include \"support.h\";\n"
-    "mapped type bVal(\"int64_t\") : string context(uint32) include \"support.h\";\n"
-    "struct Child {\n"
-    "  .generate(parse, serialize);\n"
-    "  .context(aVal);\n"
-    "  .context(bVal);\n"
-    "  left: aVal;\n"
-    "  right: bVal;\n"
-    "}\n"
-    "struct Parent {\n"
-    "  .generate(parse, serialize);\n"
-    "  child: Child;\n"
-    "}\n";
-
-  EXPECT_TRUE(generatedIdlCompiles("context_multiple_dependencies", idl));
+  EXPECT_TRUE(generatedIdlFails("legacy_context_directive", idl));
 }

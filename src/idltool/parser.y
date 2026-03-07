@@ -43,14 +43,14 @@
   CFieldType *fieldType;
   CDefaultValue *defaultVal;
   int tagVal;
-  std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock, CGenerateDecl>> *memberList;
+  std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl>> *memberList;
   std::vector<CFieldDef> *fieldList;
   std::vector<std::string> *stringList;
   std::vector<CVariantAlt> *variantAlts;
 }
 
 %token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW TOK_INCLUDE
-%token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_GENERATE TOK_VARIANT
+%token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_GENERATE TOK_VARIANT TOK_CTXGROUP
 %token <strVal> TOK_CPP_BLOCK
 %token <strVal> TOK_IDENTIFIER TOK_STRING_LITERAL
 %token <strVal> TOK_CHRONO_SECONDS TOK_CHRONO_MINUTES TOK_CHRONO_HOURS
@@ -68,7 +68,7 @@
 %type <strVal> type_name field_name
 %type <memberList> member_list
 %type <fieldList> mixin_field_list
-%type <stringList> enum_values generate_flag_list
+%type <stringList> enum_values generate_flag_list field_name_list
 %type <strVal> generate_flag
 %type <variantAlts> variant_alts variant_tail
 
@@ -189,7 +189,7 @@ enum_def:
 
 member_list:
     /* empty */ {
-      $$ = new std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock, CGenerateDecl>>();
+      $$ = new std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl>>();
     }
   | member_list TOK_MIXIN TOK_IDENTIFIER ';' {
       $$ = $1;
@@ -199,13 +199,13 @@ member_list:
       $$->push_back(std::move(ref));
       free($3);
     }
-  | member_list '.' TOK_CONTEXT '(' TOK_IDENTIFIER ')' ';' {
+  | member_list '.' TOK_CTXGROUP '(' field_name_list ')' ';' {
       $$ = $1;
-      CContextDecl cd;
-      cd.MappedTypeName = $5;
-      cd.Line = @2.first_line;
-      $$->push_back(std::move(cd));
-      free($5);
+      CCtxGroupDecl cg;
+      cg.FieldNames = std::move(*$5);
+      cg.Line = @2.first_line;
+      $$->push_back(std::move(cg));
+      delete $5;
     }
   | member_list '.' TOK_GENERATE '(' generate_flag_list ')' ';' {
       $$ = $1;
@@ -257,9 +257,23 @@ field_name:
     TOK_IDENTIFIER { $$ = $1; }
   | TOK_TYPE       { $$ = strdup("type"); }
   | TOK_CONTEXT    { $$ = strdup("context"); }
+  | TOK_CTXGROUP   { $$ = strdup("ctxgroup"); }
   | TOK_MAPPED     { $$ = strdup("mapped"); }
   | TOK_GENERATE   { $$ = strdup("generate"); }
   | TOK_VARIANT    { $$ = strdup("variant"); }
+  ;
+
+field_name_list:
+    field_name {
+      $$ = new std::vector<std::string>();
+      $$->push_back($1);
+      free($1);
+    }
+  | field_name_list ',' field_name {
+      $$ = $1;
+      $$->push_back($3);
+      free($3);
+    }
   ;
 
 field:

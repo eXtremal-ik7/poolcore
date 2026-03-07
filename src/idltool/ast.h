@@ -127,8 +127,8 @@ struct CMixinRef {
   int Line = 0;
 };
 
-struct CContextDecl {
-  std::string MappedTypeName;
+struct CCtxGroupDecl {
+  std::vector<std::string> FieldNames;
   int Line = 0;
 };
 
@@ -150,11 +150,11 @@ struct CStructDef {
   bool IsMixin = false;
   bool IsImported = false;
   bool HasTaggedSchema = false;
-  std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock, CGenerateDecl>> Members;
+  std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl>> Members;
   // After mixin resolution — flat list of fields
   std::vector<CFieldDef> Fields;
-  // Context declarations from '.context(money)' members
-  std::vector<std::string> ContextDecls;
+  // Explicit context groups from '.ctxgroup(field1, field2, ...)' members
+  std::vector<CCtxGroupDecl> ContextGroups;
   // Raw C++ code blocks to emit inside the struct
   std::vector<std::string> CppBlocks;
   // Generate flags from '.generate(...)' directive

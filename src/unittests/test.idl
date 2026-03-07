@@ -206,7 +206,10 @@ struct Level0 {
 // ============================================================================
 
 mapped type testVal("int64_t") : string context(uint32) include "testMappedTypes.h";
+mapped type aVal("int64_t") : string context(uint32) include "testMappedTypes.h";
+mapped type bVal("int64_t") : string context(uint32) include "testMappedTypes.h";
 mapped type plainVal("int64_t") : string include "testMappedTypes.h";
+mapped type ctxCounter32Val("uint32_t") : uint32 context(uint32) include "testMappedTypes.h";
 
 struct InlineMapped {
   .generate(parse, parse.verbose, serialize);
@@ -224,7 +227,6 @@ struct InlineMappedArray {
 
 struct CtxChild {
   .generate(parse, serialize);
-  .context(testVal);
   value: testVal;
   label: string;
 }
@@ -233,6 +235,26 @@ struct CtxChild {
 struct CtxVectorParent {
   .generate(parse, serialize);
   items: [CtxChild];
+}
+
+struct CtxFixedArrayParent {
+  .generate(parse, serialize);
+  items: [CtxChild; 2];
+}
+
+struct CtxFixedMatrixParent {
+  .generate(parse, serialize);
+  grid: [[CtxChild; 2]; 2];
+}
+
+struct CtxDirectMappedArrayParent {
+  .generate(parse, serialize);
+  items: [testVal];
+}
+
+struct CtxNumericWireParent {
+  .generate(parse, serialize);
+  value: ctxCounter32Val;
 }
 
 // ============================================================================
@@ -288,6 +310,42 @@ struct WithStatus {
 struct CtxScalarParent {
   .generate(parse, serialize);
   child: CtxChild;
+}
+
+struct CtxSplitAmountsParent {
+  .generate(parse, serialize);
+  leftAmounts: [testVal];
+  rightAmounts: [testVal];
+}
+
+struct CtxSharedAmountsParent {
+  .generate(parse, serialize);
+  .ctxgroup(leftAmounts, rightAmounts);
+  leftAmounts: [testVal];
+  rightAmounts: [testVal];
+}
+
+struct CtxDuplicateMappedGroupsChild {
+  .generate(parse, serialize);
+  left: testVal;
+  right: testVal;
+}
+
+struct CtxDuplicateMappedGroupsParent {
+  .generate(parse, serialize, serialize.flat);
+  child: CtxDuplicateMappedGroupsChild;
+}
+
+struct CtxMultipleDependenciesChild {
+  .generate(parse, serialize);
+  .ctxgroup(left, right);
+  left: aVal;
+  right: bVal;
+}
+
+struct CtxMultipleDependenciesParent {
+  .generate(parse, serialize);
+  child: CtxMultipleDependenciesChild;
 }
 
 // ============================================================================

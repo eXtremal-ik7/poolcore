@@ -20,6 +20,8 @@ struct CFieldCaptureInfo {
   std::string MappedWireType;    // JSON wire type (e.g. "int64", "string")
   std::string DirectCtxParamName; // for MappedDirect: external param name (e.g. "moneyCtx")
   struct ChildContextArg {
+    std::string MappedTypeName;
+    size_t SlotOrdinal = 0;
     std::string ParamName;
     bool IsVector = false;
   };
@@ -31,6 +33,7 @@ struct CContextAnalysis {
   struct ContextNeed {
     std::string MappedTypeName;   // IDL name, e.g. "money"
     std::string CppContextType;   // e.g. "uint32_t"
+    size_t SlotOrdinal = 0;       // stable slot index among same-type contexts in this struct
     std::string ParamName;        // e.g. "moneyCtx"
     bool IsVector = false;        // true = pass as const std::vector<T>&
   };
@@ -40,6 +43,13 @@ struct CContextAnalysis {
   std::vector<CFieldCaptureInfo> FieldCapture;
 
   bool hasContext() const { return !Needs.empty(); }
+  bool hasVectorContext() const {
+    for (auto &n : Needs) {
+      if (n.IsVector)
+        return true;
+    }
+    return false;
+  }
 
   std::string contextParams() const {
     std::string result;
@@ -61,7 +71,54 @@ struct CContextAnalysis {
     }
     return result;
   }
+
+  std::string broadcastContextParams() const {
+    std::string result;
+    for (auto &n : Needs) {
+      if (!result.empty()) result += ", ";
+      result += n.CppContextType + " " + n.ParamName;
+    }
+    return result;
+  }
+
+  CContextAnalysis broadcastVariant() const {
+    CContextAnalysis result = *this;
+    for (auto &need : result.Needs)
+      need.IsVector = false;
+    for (auto &fieldCapture : result.FieldCapture) {
+      for (auto &arg : fieldCapture.ChildCtxArgs)
+        arg.IsVector = false;
+    }
+    return result;
+  }
 };
+
+static bool isArrayLikeField(const CFieldDef &f)
+{
+  switch (f.Kind) {
+    case EFieldKind::Array:
+    case EFieldKind::OptionalArray:
+    case EFieldKind::NullableArray:
+    case EFieldKind::FixedArray:
+    case EFieldKind::OptionalFixedArray:
+    case EFieldKind::NullableFixedArray:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static std::string contextParamName(const std::string &mappedTypeName, size_t ordinal, size_t totalCount)
+{
+  if (totalCount <= 1)
+    return mappedTypeName + "Ctx";
+  return std::format("{}Ctx{}", mappedTypeName, ordinal + 1);
+}
+
+static std::string contextSlotKey(const std::string &mappedTypeName, size_t slotOrdinal)
+{
+  return std::format("{}#{}", mappedTypeName, slotOrdinal);
+}
 
 static CContextAnalysis analyzeContext(const CStructDef &s, bool pascalCase,
     const std::unordered_map<std::string, const CMappedTypeDef *> &mappedTypes,
@@ -70,79 +127,141 @@ static CContextAnalysis analyzeContext(const CStructDef &s, bool pascalCase,
   CContextAnalysis a;
   a.FieldCapture.resize(s.Fields.size());
 
-  std::unordered_set<std::string> contextDeclSet(s.ContextDecls.begin(), s.ContextDecls.end());
-  std::unordered_set<std::string> needsSet;
+  std::vector<bool> fieldNeedsContext(s.Fields.size(), false);
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    auto &f = s.Fields[i];
+    if (f.Type.IsMapped) {
+      auto it = mappedTypes.find(f.Type.RefName);
+      if (it != mappedTypes.end() && it->second->ContextType)
+        fieldNeedsContext[i] = true;
+      continue;
+    }
 
-  // Add needs from context declarations (direct mapped fields)
-  for (auto &cd : s.ContextDecls) {
-    auto it = mappedTypes.find(cd);
-    if (it != mappedTypes.end() && it->second->ContextType) {
-      if (needsSet.insert(cd).second) {
-        a.Needs.push_back({cd, cppScalarType(*it->second->ContextType), cd + "Ctx"});
-      }
+    if (!f.Type.RefName.empty() && !f.Type.IsScalar) {
+      auto cit = childAnalysis.find(f.Type.RefName);
+      if (cit != childAnalysis.end() && cit->second.hasContext())
+        fieldNeedsContext[i] = true;
     }
   }
 
-  // Mark direct mapped fields with context
+  std::unordered_map<std::string, size_t> fieldToGroup;
+  for (size_t groupIndex = 0; groupIndex < s.ContextGroups.size(); groupIndex++) {
+    for (auto &fieldName : s.ContextGroups[groupIndex].FieldNames)
+      fieldToGroup[fieldName] = groupIndex;
+  }
+
+  size_t groupCount = s.ContextGroups.size();
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    if (fieldNeedsContext[i] && !fieldToGroup.contains(s.Fields[i].Name))
+      fieldToGroup[s.Fields[i].Name] = groupCount++;
+  }
+
+  struct CGroupNeed {
+    std::string MappedTypeName;
+    std::string CppContextType;
+    size_t SourceSlotOrdinal = 0;
+    bool HasScalarUse = false;
+    bool HasVectorUse = false;
+  };
+  std::vector<std::vector<CGroupNeed>> groupNeeds(groupCount);
+
+  auto mergeGroupNeed = [&](size_t groupIndex, const std::string &mappedTypeName,
+                            const std::string &cppContextType, size_t sourceSlotOrdinal, bool isVector) {
+    for (auto &need : groupNeeds[groupIndex]) {
+      if (need.MappedTypeName == mappedTypeName && need.SourceSlotOrdinal == sourceSlotOrdinal) {
+        if (isVector)
+          need.HasVectorUse = true;
+        else
+          need.HasScalarUse = true;
+        return;
+      }
+    }
+    CGroupNeed need;
+    need.MappedTypeName = mappedTypeName;
+    need.CppContextType = cppContextType;
+    need.SourceSlotOrdinal = sourceSlotOrdinal;
+    if (isVector)
+      need.HasVectorUse = true;
+    else
+      need.HasScalarUse = true;
+    groupNeeds[groupIndex].push_back(std::move(need));
+  };
+
   for (size_t i = 0; i < s.Fields.size(); i++) {
     auto &f = s.Fields[i];
-    if (f.Type.IsMapped && contextDeclSet.count(f.Type.RefName)) {
+    auto fieldGroupIt = fieldToGroup.find(f.Name);
+    bool hasGroup = fieldGroupIt != fieldToGroup.end();
+
+    if (f.Type.IsMapped) {
       auto it = mappedTypes.find(f.Type.RefName);
-      if (it != mappedTypes.end()) {
+      if (it != mappedTypes.end() && it->second->ContextType) {
         a.FieldCapture[i].kind = CFieldCaptureInfo::MappedDirect;
         a.FieldCapture[i].CaptureFieldName = fieldCppName(f.Name, pascalCase);
         a.FieldCapture[i].MappedTypeName = f.Type.RefName;
         a.FieldCapture[i].MappedWireType = !f.Type.MappedWireType.empty() ? f.Type.MappedWireType : it->second->JsonWireType;
-        a.FieldCapture[i].DirectCtxParamName = f.Type.RefName + "Ctx";
+        if (hasGroup) {
+          mergeGroupNeed(fieldGroupIt->second, f.Type.RefName, cppScalarType(*it->second->ContextType), 0, false);
+        }
+        continue;
       }
-    }
-  }
 
-  // Mark context-free mapped fields (inline resolve/format, no capture needed)
-  for (size_t i = 0; i < s.Fields.size(); i++) {
-    auto &f = s.Fields[i];
-    if (f.Type.IsMapped && a.FieldCapture[i].kind == CFieldCaptureInfo::None) {
-      auto it = mappedTypes.find(f.Type.RefName);
-      if (it != mappedTypes.end() && !it->second->ContextType) {
+      if (it != mappedTypes.end()) {
         a.FieldCapture[i].kind = CFieldCaptureInfo::MappedInline;
         a.FieldCapture[i].CaptureFieldName = fieldCppName(f.Name, pascalCase);
         a.FieldCapture[i].MappedTypeName = f.Type.RefName;
         a.FieldCapture[i].MappedWireType = !f.Type.MappedWireType.empty() ? f.Type.MappedWireType : it->second->JsonWireType;
       }
+      continue;
     }
-  }
 
-  // Check nested struct/array fields for context propagation
-  for (size_t i = 0; i < s.Fields.size(); i++) {
-    auto &f = s.Fields[i];
-    if (!f.Type.RefName.empty() && !f.Type.IsMapped && !f.Type.IsScalar) {
+    if (!f.Type.RefName.empty() && !f.Type.IsScalar) {
       auto cit = childAnalysis.find(f.Type.RefName);
       if (cit != childAnalysis.end() && cit->second.hasContext()) {
         a.FieldCapture[i].kind = CFieldCaptureInfo::NestedStruct;
         a.FieldCapture[i].CaptureFieldName = fieldCppName(f.Name, pascalCase);
-
-        bool isArray = (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::OptionalArray || f.Kind == EFieldKind::NullableArray ||
-                        f.Kind == EFieldKind::FixedArray || f.Kind == EFieldKind::OptionalFixedArray || f.Kind == EFieldKind::NullableFixedArray);
-
         for (auto &need : cit->second.Needs) {
-          // If parent declares the same context, broadcast scalar to array children
-          bool parentDeclares = contextDeclSet.count(need.MappedTypeName) > 0;
-          bool promoteToVector = isArray && !parentDeclares;
-
-          a.FieldCapture[i].ChildCtxArgs.push_back({need.ParamName, promoteToVector});
-          if (needsSet.insert(need.MappedTypeName).second) {
-            auto inheritedNeed = need;
-            if (promoteToVector)
-              inheritedNeed.IsVector = true;
-            a.Needs.push_back(inheritedNeed);
-          } else if (promoteToVector) {
-            // Promote existing need to vector
-            for (auto &n : a.Needs) {
-              if (n.MappedTypeName == need.MappedTypeName)
-                n.IsVector = true;
-            }
-          }
+          bool needVector = need.IsVector || isArrayLikeField(f);
+          a.FieldCapture[i].ChildCtxArgs.push_back({need.MappedTypeName, need.SlotOrdinal, "", needVector});
+          if (hasGroup)
+            mergeGroupNeed(fieldGroupIt->second, need.MappedTypeName, need.CppContextType, need.SlotOrdinal, needVector);
         }
+      }
+    }
+  }
+
+  std::unordered_map<std::string, size_t> perTypeGroupCount;
+  for (auto &group : groupNeeds) {
+    for (auto &need : group)
+      perTypeGroupCount[need.MappedTypeName]++;
+  }
+
+  std::unordered_map<std::string, size_t> perTypeOrdinal;
+  std::vector<std::unordered_map<std::string, std::string>> groupParamNames(groupNeeds.size());
+  std::vector<std::unordered_map<std::string, bool>> groupParamVector(groupNeeds.size());
+  for (size_t groupIndex = 0; groupIndex < groupNeeds.size(); groupIndex++) {
+    for (auto &need : groupNeeds[groupIndex]) {
+      size_t ordinal = perTypeOrdinal[need.MappedTypeName]++;
+      std::string paramName = contextParamName(need.MappedTypeName, ordinal, perTypeGroupCount[need.MappedTypeName]);
+      bool useVector = need.HasVectorUse && !need.HasScalarUse;
+      std::string slotKey = contextSlotKey(need.MappedTypeName, need.SourceSlotOrdinal);
+      groupParamNames[groupIndex][slotKey] = paramName;
+      groupParamVector[groupIndex][slotKey] = useVector;
+      a.Needs.push_back({need.MappedTypeName, need.CppContextType, ordinal, paramName, useVector});
+    }
+  }
+
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    auto groupIt = fieldToGroup.find(s.Fields[i].Name);
+    if (groupIt == fieldToGroup.end())
+      continue;
+    auto &capture = a.FieldCapture[i];
+    if (capture.kind == CFieldCaptureInfo::MappedDirect) {
+      capture.DirectCtxParamName = groupParamNames[groupIt->second][contextSlotKey(capture.MappedTypeName, 0)];
+    } else if (capture.kind == CFieldCaptureInfo::NestedStruct) {
+      for (auto &arg : capture.ChildCtxArgs) {
+        std::string slotKey = contextSlotKey(arg.MappedTypeName, arg.SlotOrdinal);
+        arg.ParamName = groupParamNames[groupIt->second][slotKey];
+        arg.IsVector = groupParamVector[groupIt->second][slotKey];
       }
     }
   }
@@ -591,6 +710,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
                              in, wi.cppType, cn, wi.readMethod, resolveFunc, cn);
         } else if (ci && ci->kind == CFieldCaptureInfo::MappedDirect) {
           out += std::format("{}    if (capture) capture->{}.emplace_back();\n", in, ci->CaptureFieldName);
+          out += std::format("{}    {}.emplace_back();\n", in, cn);
           generateDirectMappedCaptureRead(out, *ci, std::format("capture->{}.back()", ci->CaptureFieldName), ind + 2, "valid = false; break");
         } else {
           out += std::format("{}    if (!s.skipValue()) {{ valid = false; break; }}\n", in);
@@ -892,6 +1012,7 @@ static void generateStructDecl(std::string &out, const CStructDef &s,
 {
   std::string sn = opts.StructPrefix + s.Name;
   bool needMembers = s.GenerateFlags.Parse || s.GenerateFlags.ParseVerbose || s.GenerateFlags.Serialize;
+  bool hasBroadcastOverload = ca.hasContext() && ca.hasVectorContext();
 
   out += std::format("struct {} {{\n", sn);
 
@@ -905,8 +1026,11 @@ static void generateStructDecl(std::string &out, const CStructDef &s,
 
   // Context type aliases — if context AND any codegen
   if (ca.hasContext() && (s.GenerateFlags.Parse || s.GenerateFlags.Serialize || s.GenerateFlags.SerializeFlat)) {
-    for (auto &n : ca.Needs)
-      out += std::format("  using {}Context = {};\n", capitalizeFirst(n.MappedTypeName), n.CppContextType);
+    std::unordered_set<std::string> emittedAliases;
+    for (auto &n : ca.Needs) {
+      if (emittedAliases.insert(n.MappedTypeName).second)
+        out += std::format("  using {}Context = {};\n", capitalizeFirst(n.MappedTypeName), n.CppContextType);
+    }
   }
   out += "\n";
 
@@ -930,6 +1054,8 @@ static void generateStructDecl(std::string &out, const CStructDef &s,
       out += "  bool parse(const char *buf, size_t bufSize, Capture &capture);\n";
       out += "  bool parseImpl(JsonScanner &s, Capture *capture);\n";
       out += std::format("  static bool resolve({} &out, const Capture &capture, {});\n", sn, ca.contextParams());
+      if (hasBroadcastOverload)
+        out += std::format("  static bool resolve({} &out, const Capture &capture, {});\n", sn, ca.broadcastContextParams());
     } else {
       out += "  bool parse(const char *buf, size_t bufSize);\n";
       out += "  bool parseImpl(JsonScanner &s);\n";
@@ -942,15 +1068,22 @@ static void generateStructDecl(std::string &out, const CStructDef &s,
   }
 
   if (s.GenerateFlags.Serialize) {
-    if (ca.hasContext())
+    if (ca.hasContext()) {
       out += std::format("  void serialize(xmstream &out, {}) const;\n", ca.contextParams());
-    else
+      if (hasBroadcastOverload)
+        out += std::format("  void serialize(xmstream &out, {}) const;\n", ca.broadcastContextParams());
+    } else
       out += "  void serialize(xmstream &out) const;\n";
   }
 
   if (s.GenerateFlags.SerializeFlat) {
     std::string params = flatSerializeParams(s, ca, enumNames, opts);
     out += std::format("  static void serialize({});\n", params);
+    if (hasBroadcastOverload) {
+      CContextAnalysis broadcast = ca.broadcastVariant();
+      std::string broadcastParams = flatSerializeParams(s, broadcast, enumNames, opts);
+      out += std::format("  static void serialize({});\n", broadcastParams);
+    }
   }
 
   // Tagged schema
@@ -1547,6 +1680,7 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
 {
   std::string sn = opts.StructPrefix + s.Name;
   bool hasCtx = ca.hasContext();
+  bool hasBroadcastOverload = hasCtx && ca.hasVectorContext();
   bool needParse = s.GenerateFlags.Parse || s.GenerateFlags.ParseVerbose;
 
   // Compute perfect hash (needed for parse/parseVerbose)
@@ -1707,8 +1841,13 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
   }
 
   // --- resolve() ---
-  if (s.GenerateFlags.Parse && hasCtx)
+  if (s.GenerateFlags.Parse && hasCtx) {
     generateResolveImpl(out, s, ca, enumNames, opts);
+    if (hasBroadcastOverload) {
+      CContextAnalysis broadcast = ca.broadcastVariant();
+      generateResolveImpl(out, s, broadcast, enumNames, opts);
+    }
+  }
 
   // --- serialize (member) ---
   if (s.GenerateFlags.Serialize) {
@@ -1722,6 +1861,15 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     generateSerializeBody(out, s, ca, enumNames, opts);
     out += "  out.write('}');\n";
     out += "}\n\n";
+
+    if (hasBroadcastOverload) {
+      CContextAnalysis broadcast = ca.broadcastVariant();
+      out += std::format("void {}::serialize(xmstream &out, {}) const {{\n", sn, broadcast.broadcastContextParams());
+      out += "  out.write('{');\n";
+      generateSerializeBody(out, s, broadcast, enumNames, opts);
+      out += "  out.write('}');\n";
+      out += "}\n\n";
+    }
   }
 
   // --- serialize (flat static) ---
@@ -1733,6 +1881,16 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     generateSerializeBody(out, s, ca, enumNames, opts);
     out += "  out.write('}');\n";
     out += "}\n\n";
+
+    if (hasBroadcastOverload) {
+      CContextAnalysis broadcast = ca.broadcastVariant();
+      std::string broadcastParams = flatSerializeParams(s, broadcast, enumNames, opts);
+      out += std::format("void {}::serialize({}) {{\n", sn, broadcastParams);
+      out += "  out.write('{');\n";
+      generateSerializeBody(out, s, broadcast, enumNames, opts);
+      out += "  out.write('}');\n";
+      out += "}\n\n";
+    }
   }
 }
 

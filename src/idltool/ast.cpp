@@ -134,6 +134,11 @@ static bool resolveMixins(CIdlFile &file)
   // Resolve each struct
   for (auto &s : file.Structs) {
     s.Fields.clear();
+    s.ContextGroups.clear();
+    s.CppBlocks.clear();
+    s.GenerateFlags = {};
+    s.HasGenerateDecl = false;
+    s.HasTaggedSchema = false;
     std::unordered_set<std::string> fieldNames;
     std::unordered_set<std::string> mixinVisited;
 
@@ -169,8 +174,8 @@ static bool resolveMixins(CIdlFile &file)
           }
           s.Fields.push_back(field);
         }
-      } else if (auto *ctx = std::get_if<CContextDecl>(&member)) {
-        s.ContextDecls.push_back(ctx->MappedTypeName);
+      } else if (auto *ctxGroup = std::get_if<CCtxGroupDecl>(&member)) {
+        s.ContextGroups.push_back(*ctxGroup);
       } else if (auto *gd = std::get_if<CGenerateDecl>(&member)) {
         if (s.HasGenerateDecl) {
           fprintf(stderr, "line %d: duplicate .generate() directive\n", gd->Line);
@@ -223,31 +228,7 @@ static bool validateTypes(CIdlFile &file)
     mappedIndex[m.Name] = &m;
 
   for (auto &s : file.Structs) {
-    if (s.IsMixin || s.IsImported) continue;
-
-    // Validate parse.verbose not used with context
-    if (s.GenerateFlags.ParseVerbose && !s.ContextDecls.empty()) {
-      fprintf(stderr, "struct '%s': parse.verbose not supported with context\n", s.Name.c_str());
-      return false;
-    }
-
-    // Validate context declarations
-    for (auto &cd : s.ContextDecls) {
-      auto it = mappedIndex.find(cd);
-      if (it == mappedIndex.end()) {
-        fprintf(stderr, "struct '%s': context declaration references unknown mapped type '%s'\n",
-                s.Name.c_str(), cd.c_str());
-        return false;
-      }
-      if (!it->second->ContextType) {
-        fprintf(stderr, "struct '%s': mapped type '%s' has no context type\n",
-                s.Name.c_str(), cd.c_str());
-        return false;
-      }
-    }
-
-    // Validate that structs with direct mapped+context fields have the required context decl
-    std::unordered_set<std::string> contextDeclSet(s.ContextDecls.begin(), s.ContextDecls.end());
+    if (s.IsMixin) continue;
 
     // Helper lambda: resolve a single type reference (scalar, struct, enum, mapped)
     auto resolveRef = [&](const std::string &refName, bool isScalar, int line, const char *fieldName,
@@ -258,13 +239,6 @@ static bool validateTypes(CIdlFile &file)
         outIsMapped = true;
         outMappedCppType = mappedIndex[refName]->CppType;
         outMappedWireType = mappedIndex[refName]->JsonWireType;
-        auto mi = mappedIndex.find(refName);
-        if (mi != mappedIndex.end() && mi->second->ContextType && !contextDeclSet.count(refName)) {
-          fprintf(stderr, "line %d: field '%s' uses mapped type '%s' which has context, "
-                  "but struct '%s' has no 'context %s;' declaration\n",
-                  line, fieldName, refName.c_str(), s.Name.c_str(), refName.c_str());
-          return false;
-        }
       } else {
         bool found = structNames.count(refName) || enumNames.count(refName);
         if (!found) {
@@ -471,9 +445,92 @@ static bool topologicalSort(CIdlFile &file)
   return true;
 }
 
+struct CStructContextSummary {
+  bool HasContext = false;
+};
+
+static bool validateContextGroups(CIdlFile &file)
+{
+  std::unordered_map<std::string, CMappedTypeDef *> mappedIndex;
+  for (auto &m : file.MappedTypes)
+    mappedIndex[m.Name] = &m;
+
+  std::unordered_map<std::string, CStructContextSummary> summaries;
+
+  for (auto &s : file.Structs) {
+    if (s.IsMixin)
+      continue;
+
+    std::unordered_map<std::string, size_t> fieldIndex;
+    for (size_t i = 0; i < s.Fields.size(); i++)
+      fieldIndex[s.Fields[i].Name] = i;
+
+    std::vector<bool> fieldNeedsContext(s.Fields.size(), false);
+    bool hasContext = false;
+    for (size_t i = 0; i < s.Fields.size(); i++) {
+      auto &f = s.Fields[i];
+      if (f.Type.IsMapped) {
+        auto mi = mappedIndex.find(f.Type.RefName);
+        if (mi != mappedIndex.end() && mi->second->ContextType) {
+          fieldNeedsContext[i] = true;
+          hasContext = true;
+        }
+      } else if (!f.Type.IsScalar && !f.Type.RefName.empty()) {
+        auto si = summaries.find(f.Type.RefName);
+        if (si != summaries.end() && si->second.HasContext) {
+          fieldNeedsContext[i] = true;
+          hasContext = true;
+        }
+      }
+    }
+
+    if (s.GenerateFlags.ParseVerbose && hasContext) {
+      fprintf(stderr, "struct '%s': parse.verbose not supported with context\n", s.Name.c_str());
+      return false;
+    }
+
+    std::vector<int> fieldGroupIndex(s.Fields.size(), -1);
+    for (size_t groupIndex = 0; groupIndex < s.ContextGroups.size(); groupIndex++) {
+      auto &group = s.ContextGroups[groupIndex];
+      for (auto &fieldName : group.FieldNames) {
+        auto it = fieldIndex.find(fieldName);
+        if (it == fieldIndex.end()) {
+          fprintf(stderr, "line %d: .ctxgroup references unknown field '%s' in struct '%s'\n",
+                  group.Line, fieldName.c_str(), s.Name.c_str());
+          return false;
+        }
+        if (fieldGroupIndex[it->second] != -1) {
+          fprintf(stderr, "line %d: field '%s' is listed in multiple .ctxgroup directives in struct '%s'\n",
+                  group.Line, fieldName.c_str(), s.Name.c_str());
+          return false;
+        }
+        fieldGroupIndex[it->second] = (int)groupIndex;
+      }
+    }
+
+    for (size_t i = 0; i < s.Fields.size(); i++) {
+      auto &f = s.Fields[i];
+      if (fieldGroupIndex[i] != -1 && !fieldNeedsContext[i]) {
+        fprintf(stderr, "line %d: field '%s' is listed in .ctxgroup but does not require context in struct '%s'\n",
+                f.Line, f.Name.c_str(), s.Name.c_str());
+        return false;
+      }
+    }
+
+    if (!hasContext && !s.ContextGroups.empty()) {
+      fprintf(stderr, "struct '%s': .ctxgroup is only allowed for fields that require context\n", s.Name.c_str());
+      return false;
+    }
+
+    summaries[s.Name].HasContext = hasContext;
+  }
+
+  return true;
+}
+
 bool resolveAst(CIdlFile &file)
 {
-  return resolveMixins(file) && validateTypes(file) && topologicalSort(file);
+  return resolveMixins(file) && validateTypes(file) && topologicalSort(file) && validateContextGroups(file);
 }
 
 void dumpAst(const CIdlFile &file)
@@ -494,8 +551,14 @@ void dumpAst(const CIdlFile &file)
   }
   for (auto &s : file.Structs) {
     printf("%s %s {\n", s.IsMixin ? "mixin" : "struct", s.Name.c_str());
-    for (auto &cd : s.ContextDecls)
-      printf("  .context(%s);\n", cd.c_str());
+    for (auto &group : s.ContextGroups) {
+      printf("  .ctxgroup(");
+      for (size_t i = 0; i < group.FieldNames.size(); i++) {
+        if (i) printf(", ");
+        printf("%s", group.FieldNames[i].c_str());
+      }
+      printf(");\n");
+    }
     if (s.HasGenerateDecl) {
       printf("  .generate(");
       bool first = true;

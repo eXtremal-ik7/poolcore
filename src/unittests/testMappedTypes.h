@@ -38,6 +38,26 @@ inline std::string __testValFormat(int64_t val, uint32_t ctx)
   return result + fracStr;
 }
 
+inline bool __aValResolve(const std::string &raw, uint32_t ctx, int64_t &out)
+{
+  return __testValResolve(raw, ctx, out);
+}
+
+inline std::string __aValFormat(int64_t val, uint32_t ctx)
+{
+  return __testValFormat(val, ctx);
+}
+
+inline bool __bValResolve(const std::string &raw, uint32_t ctx, int64_t &out)
+{
+  return __testValResolve(raw, ctx, out);
+}
+
+inline std::string __bValFormat(int64_t val, uint32_t ctx)
+{
+  return __testValFormat(val, ctx);
+}
+
 // Context-free mapped type: int64_t <-> decimal string
 inline bool __plainValResolve(const std::string &raw, int64_t &out)
 {
@@ -72,4 +92,15 @@ inline bool __counter32ValResolve(uint32_t raw, uint32_t &out)
 inline uint32_t __counter32ValFormat(uint32_t val)
 {
   return val;
+}
+
+inline bool __ctxCounter32ValResolve(uint32_t raw, uint32_t ctx, uint32_t &out)
+{
+  out = raw + ctx;
+  return true;
+}
+
+inline uint32_t __ctxCounter32ValFormat(uint32_t val, uint32_t ctx)
+{
+  return val + ctx;
 }
