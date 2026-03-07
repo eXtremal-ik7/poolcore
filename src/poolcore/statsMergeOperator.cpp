@@ -2,11 +2,11 @@
 #include "poolcore/statsData.h"
 #include "p2putils/xmstream.h"
 
-bool CWorkSummaryMergeOperator::Merge(const rocksdb::Slice &key,
+bool CWorkSummaryMergeOperator::Merge(const rocksdb::Slice &,
                                       const rocksdb::Slice *existing_value,
                                       const rocksdb::Slice &value,
                                       std::string *new_value,
-                                      rocksdb::Logger *logger) const
+                                      rocksdb::Logger *) const
 {
   if (!existing_value) {
     new_value->assign(value.data(), value.size());

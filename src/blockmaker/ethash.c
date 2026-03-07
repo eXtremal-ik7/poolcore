@@ -5,12 +5,6 @@
 #include <string.h>
 
 #if defined(__GNUC__) || defined(__clang__)
-static inline uint32_t xswapu32(uint32_t value) { return __builtin_bswap32(value); }
-#elif defined(_MSC_VER)
-static inline int32_t xswapu32(int32_t value) { return _byteswap_ulong(value); }
-#endif
-
-#if defined(__GNUC__) || defined(__clang__)
 __thread uint8_t CachedSeed[32];
 __thread unsigned CachedEpochNumber;
 #elif defined(_MSC_VER)
@@ -19,6 +13,11 @@ __declspec(thread) unsigned CachedEpochNumber;
 #endif
 
 #if (IS_BIGENDIAN == 1)
+#if defined(__GNUC__) || defined(__clang__)
+static inline uint32_t xswapu32(uint32_t value) { return __builtin_bswap32(value); }
+#elif defined(_MSC_VER)
+static inline int32_t xswapu32(int32_t value) { return _byteswap_ulong(value); }
+#endif
 static inline uint32_t xletohu32(uint32_t x) { return xswapu32(x); }
 #else
 static inline uint32_t xletohu32(uint32_t x) { return x; }

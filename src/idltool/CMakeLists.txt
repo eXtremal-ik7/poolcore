@@ -12,3 +12,10 @@ add_executable(idltool
   ${FLEX_IdlLexer_OUTPUTS} ${BISON_IdlParser_OUTPUTS})
 target_include_directories(idltool PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+
+# Flex/Bison output is generated code; keep -Wextra for idltool sources and
+# suppress only the known warnings emitted by the generated files.
+set_source_files_properties(${FLEX_IdlLexer_OUTPUTS}
+  PROPERTIES COMPILE_OPTIONS "-Wno-sign-compare")
+set_source_files_properties(${BISON_IdlParser_OUTPUTS}
+  PROPERTIES COMPILE_OPTIONS "-Wno-unused-but-set-variable")

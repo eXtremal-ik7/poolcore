@@ -90,7 +90,7 @@ struct CStatsSeriesSingle {
 
 public:
   CStatsSeriesSingle(const std::string &cachePath, std::chrono::minutes gridInterval, std::chrono::minutes keepTime)
-    : CachePath_(cachePath), GridInterval_(gridInterval), KeepTime_(keepTime), Series_(gridInterval, keepTime) {}
+    : CachePath_(cachePath), GridInterval_(gridInterval), Series_(gridInterval, keepTime) {}
 
   CStatsSeries& series() { return Series_; }
   const CStatsSeries& series() const { return Series_; }
@@ -117,7 +117,6 @@ private:
 
   std::string CachePath_;
   std::chrono::minutes GridInterval_;
-  std::chrono::minutes KeepTime_;
   CStatsSeries Series_;
   uint64_t LastSavedMsgId_ = 0;
   uint64_t LastAcceptedMsgId_ = 0;

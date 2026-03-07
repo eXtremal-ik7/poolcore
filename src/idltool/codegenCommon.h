@@ -71,7 +71,7 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
 void emitVariantSerialize(CSerializeCodeBuilder &code, const CFieldDef &f,
                            const std::string &valueName,
                            const std::unordered_set<std::string> &enumNames,
-                           int ind, const std::string &structPrefix = "");
+                           int ind);
 
 void emitNestedArraySerialize(CSerializeCodeBuilder &code, const CFieldDef &f,
                                const std::vector<CArrayDim> &dims, int dimIndex,
@@ -82,4 +82,18 @@ void emitNestedArraySerialize(CSerializeCodeBuilder &code, const CFieldDef &f,
 // --- Scanner code strings ---
 
 extern const char *jsonScannerCode;
-extern const char *jsonHelperCode;
+
+struct CJsonHelperUsage {
+  bool WriteString = false;
+  bool WriteInt = false;
+  bool WriteUInt = false;
+  bool WriteDouble = false;
+  bool WriteBool = false;
+
+  bool any() const
+  {
+    return WriteString || WriteInt || WriteUInt || WriteDouble || WriteBool;
+  }
+};
+
+std::string generateJsonHelperCode(const CJsonHelperUsage &usage);

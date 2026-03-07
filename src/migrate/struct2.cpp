@@ -332,6 +332,10 @@ void ShareLogIo<CShareV1>::unserialize(xmstream &out, CShareV1 &data)
 {
   uint32_t version;
   version = out.readle<uint32_t>();
+  if (version != CShareV1::CurrentRecordVersion) {
+    out.seekEnd(0, true);
+    return;
+  }
   data.UniqueShareId = out.readle<uint64_t>();
   DbIo<std::string>::unserialize(out, data.userId);
   DbIo<std::string>::unserialize(out, data.workerId);

@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "poolcommon/bech32.h"
+#include <algorithm>
 #include <assert.h>
 #include <stdint.h>
 #include <string>
@@ -330,7 +331,7 @@ std::string Encode(const std::string& hrp, const std::vector<uint8_t>& values) {
     // First ensure that the HRP is all lowercase. BIP-173 requires an encoder
     // to return a lowercase Bech32 string, but if given an uppercase HRP, the
     // result will always be invalid.
-    for (const char& c : hrp) assert(c < 'A' || c > 'Z');
+    assert(std::none_of(hrp.begin(), hrp.end(), [](char c) { return c >= 'A' && c <= 'Z'; }));
     std::vector<uint8_t> checksum = CreateChecksum(hrp, values);
     std::vector<uint8_t> combined = Cat(values, checksum);
     std::string ret = hrp + '1';

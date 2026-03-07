@@ -334,6 +334,75 @@ static std::string childCtxArgsExpr(const CFieldCaptureInfo &ci,
   return result;
 }
 
+static void markJsonHelperForScalar(CJsonHelperUsage &usage, EScalarType scalar)
+{
+  switch (scalar) {
+    case EScalarType::String:
+      usage.WriteString = true;
+      break;
+    case EScalarType::Bool:
+      usage.WriteBool = true;
+      break;
+    case EScalarType::Int32:
+    case EScalarType::Int64:
+    case EScalarType::Seconds:
+    case EScalarType::Minutes:
+    case EScalarType::Hours:
+      usage.WriteInt = true;
+      break;
+    case EScalarType::Uint32:
+    case EScalarType::Uint64:
+      usage.WriteUInt = true;
+      break;
+    case EScalarType::Double:
+      usage.WriteDouble = true;
+      break;
+  }
+}
+
+static void markJsonHelperForWireType(CJsonHelperUsage &usage, const std::string &wireType)
+{
+  if (wireType == "string")
+    usage.WriteString = true;
+  else if (wireType == "bool")
+    usage.WriteBool = true;
+  else if (wireType == "double")
+    usage.WriteDouble = true;
+  else if (wireType == "uint32" || wireType == "uint64")
+    usage.WriteUInt = true;
+  else
+    usage.WriteInt = true;
+}
+
+static void collectSerializeHelpersForField(CJsonHelperUsage &usage,
+    const CFieldDef &f,
+    const CFieldCaptureInfo &ci,
+    const std::unordered_set<std::string> &enumNames)
+{
+  if (!f.Type.Alternatives.empty()) {
+    for (auto &alt : f.Type.Alternatives) {
+      CFieldDef tmp = variantAltAsField(alt);
+      collectSerializeHelpersForField(usage, tmp, CFieldCaptureInfo{}, enumNames);
+    }
+    return;
+  }
+
+  if (ci.kind == CFieldCaptureInfo::MappedDirect || ci.kind == CFieldCaptureInfo::MappedInline) {
+    markJsonHelperForWireType(usage, ci.MappedWireType);
+    return;
+  }
+
+  if (f.Type.IsMapped) {
+    markJsonHelperForWireType(usage, f.Type.MappedWireType);
+    return;
+  }
+
+  if (isStructRef(f, enumNames) || isEnum(f.Type.RefName, enumNames))
+    return;
+
+  markJsonHelperForScalar(usage, f.Type.Scalar);
+}
+
 // Wire type info for context-free mapped types
 struct WireTypeInfo {
   const char *readMethod;  // JsonScanner method
@@ -1990,11 +2059,17 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   bool anyFlatSerialize = false;
   bool hasFixedArray = false;
   bool hasVariant = false;
+  CJsonHelperUsage jsonHelperUsage;
   for (auto &s : file.Structs) {
     if (!s.IsMixin && !s.IsImported) {
       if (s.HasTaggedSchema) hasTaggedSchema = true;
       if (s.GenerateFlags.ParseVerbose) anyVerbose = true;
       if (s.GenerateFlags.SerializeFlat) anyFlatSerialize = true;
+      if (s.GenerateFlags.Serialize || s.GenerateFlags.SerializeFlat) {
+        auto &ca = contextAnalysis[s.Name];
+        for (size_t i = 0; i < s.Fields.size(); i++)
+          collectSerializeHelpersForField(jsonHelperUsage, s.Fields[i], ca.FieldCapture[i], enumNames);
+      }
       for (auto &f : s.Fields) {
         if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
             f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours))
@@ -2083,7 +2158,7 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
     source += jsonScannerCode;
   if (anyVerbose)
     source += verboseJsonScannerCode;
-  source += jsonHelperCode;
+  source += generateJsonHelperCode(jsonHelperUsage);
   source += "\n";
 
   generateEnumDefinitions(source, file, opts.PascalCaseFields);

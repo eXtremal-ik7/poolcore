@@ -576,7 +576,7 @@ void dumpAst(const CIdlFile &file)
     for (auto &f : s.Fields) {
       printf("  %s: ", f.Name.c_str());
       auto printAltType = [&](const CVariantAlt &alt) {
-        for (auto &dim : alt.Dims)
+        for (size_t i = 0; i < alt.Dims.size(); i++)
           printf("[");
         if (alt.IsScalar && alt.RefName.empty())
           printf("%s", scalarTypeName(alt.Scalar));
@@ -602,7 +602,7 @@ void dumpAst(const CIdlFile &file)
         }
 
         auto printArrayPrefix = [&]() {
-          for (auto &dim : f.Type.InnerDims)
+          for (size_t i = 0; i < f.Type.InnerDims.size(); i++)
             printf("[");
         };
         auto printArraySuffix = [&]() {

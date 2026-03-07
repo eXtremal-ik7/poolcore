@@ -166,6 +166,45 @@ static testing::AssertionResult generatedIdlSourceContains(const std::string &st
   }
 }
 
+static testing::AssertionResult generatedIdlSourceOmits(const std::string &stem, const std::string &idlSource,
+    std::initializer_list<std::string> needles) {
+  try {
+    TempDir tempDir(makeTempDir());
+    auto idlPath = tempDir.path() / (stem + ".idl");
+    auto headerPath = tempDir.path() / (stem + ".idl.h");
+    auto sourcePath = tempDir.path() / (stem + ".idl.cpp");
+    auto genLogPath = tempDir.path() / "idltool.log";
+
+    writeTextFile(tempDir.path() / "support.h", "#pragma once\n");
+    writeTextFile(idlPath, idlSource);
+
+    std::string generateCmd =
+      shellQuote(IDLTOOL_BINARY_PATH) + " " +
+      shellQuote(idlPath.string()) + " -o " +
+      shellQuote(headerPath.string());
+    auto genResult = runCommandCapture(generateCmd, genLogPath);
+    if (genResult.ExitCode != 0) {
+      return testing::AssertionFailure()
+        << "idltool failed for " << idlPath.filename().string() << "\n"
+        << genResult.Output;
+    }
+
+    std::string source = readTextFile(sourcePath);
+    for (const std::string &needle : needles) {
+      if (source.find(needle) != std::string::npos) {
+        return testing::AssertionFailure()
+          << "generated source for " << idlPath.filename().string()
+          << " unexpectedly contained fragment '" << needle << "'\n"
+          << source;
+      }
+    }
+
+    return testing::AssertionSuccess();
+  } catch (const std::exception &e) {
+    return testing::AssertionFailure() << e.what();
+  }
+}
+
 } // namespace
 
 template<typename T>
@@ -253,6 +292,44 @@ struct MergeWrites {
     "out.write(\",\\\"second\\\":\");",
     "out.write(\",\\\"items\\\":[\");",
     "out.write(\"]}\");"
+  }));
+}
+
+TEST(IdlTool, EmitOnlyUsedJsonWriteHelpers) {
+  const std::string idl = R"(
+struct BoolOnly {
+  .generate(serialize);
+  enabled: bool;
+}
+)";
+
+  EXPECT_TRUE(generatedIdlSourceContains("bool-only-serialize", idl, {
+    "static void jsonWriteBool("
+  }));
+  EXPECT_TRUE(generatedIdlSourceOmits("bool-only-serialize", idl, {
+    "static char jsonHexDigit(",
+    "static void jsonWriteString(",
+    "static void jsonWriteInt(",
+    "static void jsonWriteUInt(",
+    "static void jsonWriteDouble("
+  }));
+}
+
+TEST(IdlTool, OmitJsonWriteHelpersWithoutSerializeGeneration) {
+  const std::string idl = R"(
+struct ParseOnly {
+  .generate(parse);
+  count: uint64;
+}
+)";
+
+  EXPECT_TRUE(generatedIdlSourceOmits("parse-only-no-serialize", idl, {
+    "static char jsonHexDigit(",
+    "static void jsonWriteString(",
+    "static void jsonWriteInt(",
+    "static void jsonWriteUInt(",
+    "static void jsonWriteDouble(",
+    "static void jsonWriteBool("
   }));
 }
 

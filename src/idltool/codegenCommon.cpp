@@ -85,7 +85,7 @@ std::string fieldCppName(const std::string &name, bool pascalCase)
 }
 
 // Build base type name for a single type reference (scalar/struct/enum/mapped)
-static std::string baseTypeName(bool isScalar, bool isMapped,
+static std::string baseTypeName(bool isMapped,
     EScalarType scalar, const std::string &refName,
     const std::string &mappedCppType,
     const std::unordered_set<std::string> &enumNames,
@@ -139,11 +139,11 @@ std::string cppVariantAltType(const CVariantAlt &alt,
     const std::string &structPrefix)
 {
   if (!alt.Dims.empty()) {
-    return wrapArrayDims(baseTypeName(alt.IsScalar, alt.IsMapped, alt.Scalar, alt.RefName,
+    return wrapArrayDims(baseTypeName(alt.IsMapped, alt.Scalar, alt.RefName,
                                       alt.MappedCppType, enumNames, structPrefix),
                          alt.Dims);
   }
-  return baseTypeName(alt.IsScalar, alt.IsMapped, alt.Scalar, alt.RefName,
+  return baseTypeName(alt.IsMapped, alt.Scalar, alt.RefName,
                       alt.MappedCppType, enumNames, structPrefix);
 }
 
@@ -173,7 +173,7 @@ std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::strin
     }
   }
 
-  std::string base = baseTypeName(f.Type.IsScalar, f.Type.IsMapped, f.Type.Scalar,
+  std::string base = baseTypeName(f.Type.IsMapped, f.Type.Scalar,
                                    f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix);
 
   // Multi-dimensional: wrap from innermost to outermost
@@ -492,7 +492,7 @@ void emitSerializeExpr(CSerializeCodeBuilder &code, const CFieldDef &f,
 void emitVariantSerialize(CSerializeCodeBuilder &code, const CFieldDef &f,
                            const std::string &valueName,
                            const std::unordered_set<std::string> &enumNames,
-                           int ind, const std::string &structPrefix)
+                           int ind)
 {
   std::string in = indent(ind);
   code.appendRaw(std::format("{}switch (({}).index()) {{\n", in, valueName));
@@ -987,8 +987,16 @@ struct JsonScanner {
 
 // --- JSON write helpers (static in generated source) ---
 
-const char *jsonHelperCode = R"(
-static char jsonHexDigit(uint8_t b) {
+std::string generateJsonHelperCode(const CJsonHelperUsage &usage)
+{
+  if (!usage.any())
+    return "";
+
+  std::string out;
+  out += "// --- JSON write helpers (static in generated source) ---\n\n";
+
+  if (usage.WriteString) {
+    out += R"(static char jsonHexDigit(uint8_t b) {
   return b < 10 ? '0' + b : 'a' + b - 10;
 }
 
@@ -1017,25 +1025,46 @@ static void jsonWriteString(xmstream &out, std::string_view value) {
   out.write('"');
 }
 
-static void jsonWriteInt(xmstream &out, int64_t v) {
+)";
+  }
+
+  if (usage.WriteInt) {
+    out += R"(static void jsonWriteInt(xmstream &out, int64_t v) {
   char buf[24];
   int n = snprintf(buf, sizeof(buf), "%" PRId64, v);
   out.write(buf, n);
 }
 
-static void jsonWriteUInt(xmstream &out, uint64_t v) {
+)";
+  }
+
+  if (usage.WriteUInt) {
+    out += R"(static void jsonWriteUInt(xmstream &out, uint64_t v) {
   char buf[24];
   int n = snprintf(buf, sizeof(buf), "%" PRIu64, v);
   out.write(buf, n);
 }
 
-static void jsonWriteDouble(xmstream &out, double v) {
+)";
+  }
+
+  if (usage.WriteDouble) {
+    out += R"(static void jsonWriteDouble(xmstream &out, double v) {
   char buf[64];
   int n = snprintf(buf, sizeof(buf), "%.12g", v);
   out.write(buf, n);
 }
 
-static void jsonWriteBool(xmstream &out, bool v) {
+)";
+  }
+
+  if (usage.WriteBool) {
+    out += R"(static void jsonWriteBool(xmstream &out, bool v) {
   out.write(v ? "true" : "false");
 }
+
 )";
+  }
+
+  return out;
+}

@@ -40,14 +40,6 @@ static void diff_to_target_equi(uint32_t *target, double diff)
   }
 }
 
-static inline double target_to_diff_equi(const UInt<256> &target)
-{
-  uint32_t m = static_cast<uint32_t>(target.data()[3] >> 24);
-  if (!m)
-    return 0.0;
-  return static_cast<double>(0xffff0000UL) / m;
-}
-
 inline constexpr size_t equihash_solution_size(unsigned int N, unsigned int K) {
     return (1 << K)*(N/(K+1)+1)/8;
 }
@@ -62,7 +54,7 @@ static void EhIndexToArray(const eh_index i, unsigned char* array)
     memcpy(array, &bei, sizeof(eh_index));
 }
 
-static void ExpandArray(const unsigned char* in, size_t in_len, unsigned char* out, size_t out_len, size_t bit_len, size_t byte_pad = 0)
+static void ExpandArray(const unsigned char* in, size_t in_len, unsigned char* out, [[maybe_unused]] size_t out_len, size_t bit_len, size_t byte_pad = 0)
 {
     assert(bit_len >= 8);
     assert(8*sizeof(uint32_t) >= 7+bit_len);
@@ -844,4 +836,3 @@ void Stratum::buildSendTargetMessage(xmstream &stream, double difficulty)
 }
 
 }
-
