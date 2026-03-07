@@ -3,6 +3,7 @@
 #include "p2putils/xmstream.h"
 #include "rapidjson/document.h"
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
