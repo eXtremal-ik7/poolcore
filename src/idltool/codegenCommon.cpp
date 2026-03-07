@@ -942,21 +942,60 @@ struct JsonScannerImpl {
   bool readInt64(int64_t &out) {
     skipWhitespace();
     if (p >= end) { setError("expected integer, got end of input"); return false; }
-    char *ep;
-    out = strtoll(p, &ep, 10);
-    if (ep == p) { setError(std::string("expected integer, got '") + *p + "'"); return false; }
-    p = ep;
+    const char *start = p;
+    bool negative = false;
+    if (*p == '-') { negative = true; p++; }
+    if (p >= end || (unsigned)(*p - '0') >= 10) {
+      p = start; setError(std::string("expected integer, got '") + *start + "'"); return false;
+    }
+    uint64_t val = 0;
+    const char *digitStart = p;
+    while (p < end && (unsigned)(*p - '0') < 10) {
+      val = val * 10 + (*p - '0');
+      p++;
+    }
+    int nDigits = (int)(p - digitStart);
+    if (__builtin_expect(nDigits <= 18, 1)) {
+      // <= 18 digits: no overflow possible
+    } else if (nDigits == 19) {
+      if (negative) {
+        if (val > 9223372036854775808ULL) { p = start; setError("integer overflow"); return false; }
+      } else {
+        if (val > 9223372036854775807ULL) { p = start; setError("integer overflow"); return false; }
+      }
+    } else {
+      p = start; setError("integer overflow"); return false;
+    }
+    out = negative ? -static_cast<int64_t>(val) : static_cast<int64_t>(val);
     return true;
   }
 
   bool readUInt64(uint64_t &out) {
     skipWhitespace();
     if (p >= end) { setError("expected integer, got end of input"); return false; }
+    const char *start = p;
     if (*p == '-') { setError("expected unsigned integer, got negative value"); return false; }
-    char *ep;
-    out = strtoull(p, &ep, 10);
-    if (ep == p) { setError(std::string("expected integer, got '") + *p + "'"); return false; }
-    p = ep;
+    if ((unsigned)(*p - '0') >= 10) {
+      setError(std::string("expected integer, got '") + *p + "'"); return false;
+    }
+    uint64_t val = 0;
+    const char *digitStart = p;
+    while (p < end && (unsigned)(*p - '0') < 10) {
+      val = val * 10 + (*p - '0');
+      p++;
+    }
+    int nDigits = (int)(p - digitStart);
+    if (__builtin_expect(nDigits <= 19, 1)) {
+      // <= 19 digits: no overflow possible (max 19-digit = 9.9e18 < UINT64_MAX)
+    } else if (nDigits == 20) {
+      // 20 digits: valid only if first digit is '1' and no wrap-around
+      if (*digitStart > '1' || val < 10000000000000000000ULL) {
+        p = start; setError("integer overflow"); return false;
+      }
+    } else {
+      p = start; setError("integer overflow"); return false;
+    }
+    out = val;
     return true;
   }
 
@@ -1176,9 +1215,20 @@ static void jsonWriteString(xmstream &out, std::string_view value) {
 
   if (usage.WriteInt) {
     out += R"(static void jsonWriteInt(xmstream &out, int64_t v) {
-  char buf[24];
-  int n = snprintf(buf, sizeof(buf), "%" PRId64, v);
-  out.write(buf, n);
+  char buf[21];
+  char *p = buf + sizeof(buf);
+  uint64_t uv;
+  if (v < 0) {
+    uv = -static_cast<uint64_t>(v);
+  } else if (v == 0) {
+    out.write('0');
+    return;
+  } else {
+    uv = static_cast<uint64_t>(v);
+  }
+  while (uv > 0) { *--p = '0' + static_cast<char>(uv % 10); uv /= 10; }
+  if (v < 0) *--p = '-';
+  out.write(p, buf + sizeof(buf) - p);
 }
 
 )";
@@ -1186,9 +1236,11 @@ static void jsonWriteString(xmstream &out, std::string_view value) {
 
   if (usage.WriteUInt) {
     out += R"(static void jsonWriteUInt(xmstream &out, uint64_t v) {
-  char buf[24];
-  int n = snprintf(buf, sizeof(buf), "%" PRIu64, v);
-  out.write(buf, n);
+  if (v == 0) { out.write('0'); return; }
+  char buf[20];
+  char *p = buf + sizeof(buf);
+  while (v > 0) { *--p = '0' + static_cast<char>(v % 10); v /= 10; }
+  out.write(p, buf + sizeof(buf) - p);
 }
 
 )";

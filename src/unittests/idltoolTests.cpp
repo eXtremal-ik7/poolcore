@@ -3271,3 +3271,177 @@ TEST(IdlTool, SerializeDoubleMatchesSnprintf) {
     }
   }
 }
+
+TEST(IdlTool, ParseIntVariousFormats) {
+  auto parseInt64 = [](const char *valueStr) -> std::pair<bool, int64_t> {
+    std::string json = std::string(R"({"fieldString":"","fieldBool":false,"fieldInt32":0,"fieldUint32":0,"fieldInt64":)") + valueStr + R"(,"fieldUint64":0,"fieldDouble":0})";
+    ScalarTypes s;
+    bool ok = s.parse(json.c_str(), json.size());
+    return {ok, s.fieldInt64};
+  };
+  auto parseUint64 = [](const char *valueStr) -> std::pair<bool, uint64_t> {
+    std::string json = std::string(R"({"fieldString":"","fieldBool":false,"fieldInt32":0,"fieldUint32":0,"fieldInt64":0,"fieldUint64":)") + valueStr + R"(,"fieldDouble":0})";
+    ScalarTypes s;
+    bool ok = s.parse(json.c_str(), json.size());
+    return {ok, s.fieldUint64};
+  };
+
+  // Basic int64
+  { auto [ok, v] = parseInt64("0"); ASSERT_TRUE(ok); EXPECT_EQ(v, 0); }
+  { auto [ok, v] = parseInt64("1"); ASSERT_TRUE(ok); EXPECT_EQ(v, 1); }
+  { auto [ok, v] = parseInt64("-1"); ASSERT_TRUE(ok); EXPECT_EQ(v, -1); }
+  { auto [ok, v] = parseInt64("42"); ASSERT_TRUE(ok); EXPECT_EQ(v, 42); }
+  { auto [ok, v] = parseInt64("-42"); ASSERT_TRUE(ok); EXPECT_EQ(v, -42); }
+  { auto [ok, v] = parseInt64("123456789"); ASSERT_TRUE(ok); EXPECT_EQ(v, 123456789LL); }
+
+  // 18-digit (fast path boundary)
+  { auto [ok, v] = parseInt64("999999999999999999"); ASSERT_TRUE(ok); EXPECT_EQ(v, 999999999999999999LL); }
+  { auto [ok, v] = parseInt64("-999999999999999999"); ASSERT_TRUE(ok); EXPECT_EQ(v, -999999999999999999LL); }
+
+  // 19-digit
+  { auto [ok, v] = parseInt64("1000000000000000000"); ASSERT_TRUE(ok); EXPECT_EQ(v, 1000000000000000000LL); }
+  { auto [ok, v] = parseInt64("-1000000000000000000"); ASSERT_TRUE(ok); EXPECT_EQ(v, -1000000000000000000LL); }
+
+  // INT64_MAX = 9223372036854775807
+  { auto [ok, v] = parseInt64("9223372036854775807"); ASSERT_TRUE(ok); EXPECT_EQ(v, INT64_MAX); }
+  // INT64_MIN = -9223372036854775808
+  { auto [ok, v] = parseInt64("-9223372036854775808"); ASSERT_TRUE(ok); EXPECT_EQ(v, INT64_MIN); }
+
+  // Overflow: INT64_MAX + 1
+  { auto [ok, v] = parseInt64("9223372036854775808"); EXPECT_FALSE(ok); (void)v; }
+  // Overflow: INT64_MIN - 1
+  { auto [ok, v] = parseInt64("-9223372036854775809"); EXPECT_FALSE(ok); (void)v; }
+  // 20-digit: always overflow for int64
+  { auto [ok, v] = parseInt64("10000000000000000000"); EXPECT_FALSE(ok); (void)v; }
+  { auto [ok, v] = parseInt64("-10000000000000000000"); EXPECT_FALSE(ok); (void)v; }
+  // 21-digit
+  { auto [ok, v] = parseInt64("100000000000000000000"); EXPECT_FALSE(ok); (void)v; }
+
+  // IEEE 754 bit patterns from citylots_int.json
+  { auto [ok, v] = parseInt64("-4585056937269909242"); ASSERT_TRUE(ok); EXPECT_EQ(v, -4585056937269909242LL); }
+  { auto [ok, v] = parseInt64("4630517887836878971"); ASSERT_TRUE(ok); EXPECT_EQ(v, 4630517887836878971LL); }
+
+  // Reject non-numeric
+  { auto [ok, v] = parseInt64("\"abc\""); EXPECT_FALSE(ok); (void)v; }
+  { auto [ok, v] = parseInt64("true"); EXPECT_FALSE(ok); (void)v; }
+
+  // Basic uint64
+  { auto [ok, v] = parseUint64("0"); ASSERT_TRUE(ok); EXPECT_EQ(v, 0u); }
+  { auto [ok, v] = parseUint64("1"); ASSERT_TRUE(ok); EXPECT_EQ(v, 1u); }
+  { auto [ok, v] = parseUint64("42"); ASSERT_TRUE(ok); EXPECT_EQ(v, 42u); }
+
+  // 19-digit
+  { auto [ok, v] = parseUint64("9999999999999999999"); ASSERT_TRUE(ok); EXPECT_EQ(v, 9999999999999999999ULL); }
+
+  // 20-digit: UINT64_MAX = 18446744073709551615
+  { auto [ok, v] = parseUint64("18446744073709551615"); ASSERT_TRUE(ok); EXPECT_EQ(v, UINT64_MAX); }
+  { auto [ok, v] = parseUint64("10000000000000000000"); ASSERT_TRUE(ok); EXPECT_EQ(v, 10000000000000000000ULL); }
+
+  // Overflow: UINT64_MAX + 1
+  { auto [ok, v] = parseUint64("18446744073709551616"); EXPECT_FALSE(ok); (void)v; }
+  // 20-digit starting with '2'
+  { auto [ok, v] = parseUint64("20000000000000000000"); EXPECT_FALSE(ok); (void)v; }
+  // 21-digit
+  { auto [ok, v] = parseUint64("100000000000000000000"); EXPECT_FALSE(ok); (void)v; }
+
+  // Reject negative for uint64
+  { auto [ok, v] = parseUint64("-1"); EXPECT_FALSE(ok); (void)v; }
+}
+
+TEST(IdlTool, SerializeIntMatchesSnprintf) {
+  auto serializeField = [](int64_t iv, uint64_t uv) -> std::string {
+    ScalarTypes s{};
+    s.fieldString = "";
+    s.fieldBool = false;
+    s.fieldInt32 = 0;
+    s.fieldUint32 = 0;
+    s.fieldInt64 = iv;
+    s.fieldUint64 = uv;
+    s.fieldDouble = 0;
+    xmstream stream;
+    s.serialize(stream);
+    return std::string(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  };
+
+  auto extractField = [](const std::string &json, const char *key) -> std::string {
+    std::string needle = std::string("\"") + key + "\":";
+    auto pos = json.find(needle);
+    if (pos == std::string::npos) return "";
+    pos += needle.size();
+    auto end = json.find_first_of(",}", pos);
+    return json.substr(pos, end - pos);
+  };
+
+  auto expectInt64Match = [&](int64_t v) {
+    std::string json = serializeField(v, 0);
+    std::string got = extractField(json, "fieldInt64");
+    char expected[24];
+    snprintf(expected, sizeof(expected), "%" PRId64, v);
+    EXPECT_EQ(got, expected) << "int64 mismatch for " << v;
+  };
+
+  auto expectUint64Match = [&](uint64_t v) {
+    std::string json = serializeField(0, v);
+    std::string got = extractField(json, "fieldUint64");
+    char expected[24];
+    snprintf(expected, sizeof(expected), "%" PRIu64, v);
+    EXPECT_EQ(got, expected) << "uint64 mismatch for " << v;
+  };
+
+  // int64 serialization
+  expectInt64Match(0);
+  expectInt64Match(1);
+  expectInt64Match(-1);
+  expectInt64Match(42);
+  expectInt64Match(-42);
+  expectInt64Match(123456789);
+  expectInt64Match(-123456789);
+  expectInt64Match(999999999999999999LL);
+  expectInt64Match(-999999999999999999LL);
+  expectInt64Match(1000000000000000000LL);
+  expectInt64Match(-1000000000000000000LL);
+  expectInt64Match(INT64_MAX);
+  expectInt64Match(INT64_MIN);
+  // IEEE 754 bit patterns
+  expectInt64Match(-4585056937269909242LL);
+  expectInt64Match(4630517887836878971LL);
+  // Powers of 10
+  for (int64_t v = 1; v <= 1000000000000000000LL; v *= 10) {
+    expectInt64Match(v);
+    expectInt64Match(-v);
+  }
+
+  // uint64 serialization
+  expectUint64Match(0);
+  expectUint64Match(1);
+  expectUint64Match(42);
+  expectUint64Match(123456789);
+  expectUint64Match(9999999999999999999ULL);
+  expectUint64Match(10000000000000000000ULL);
+  expectUint64Match(UINT64_MAX);
+  // Powers of 10
+  for (uint64_t v = 1; v <= 10000000000000000000ULL; v *= 10) {
+    expectUint64Match(v);
+  }
+
+  // Roundtrip: serialize -> parse -> compare
+  {
+    int64_t values[] = {0, 1, -1, INT64_MAX, INT64_MIN, -4585056937269909242LL, 4630517887836878971LL};
+    for (int64_t v : values) {
+      ScalarTypes s{};
+      s.fieldString = "";
+      s.fieldBool = false;
+      s.fieldInt32 = 0;
+      s.fieldUint32 = 0;
+      s.fieldInt64 = v;
+      s.fieldUint64 = 0;
+      s.fieldDouble = 0;
+      xmstream stream;
+      s.serialize(stream);
+      ScalarTypes s2;
+      ASSERT_TRUE(s2.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()))
+        << "roundtrip parse failed for " << v;
+      EXPECT_EQ(s.fieldInt64, s2.fieldInt64) << "roundtrip mismatch for " << v;
+    }
+  }
+}
