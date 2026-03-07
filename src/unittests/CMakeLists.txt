@@ -17,6 +17,12 @@ add_custom_target(generate_test_idl DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/test.idl
 add_dependencies(unittests generate_test_idl)
 
 target_include_directories(unittests PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(unittests PRIVATE
+  UNITTEST_SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"
+  PROJECT_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}\"
+  PROJECT_BINARY_DIR=\"${PROJECT_BINARY_DIR}\"
+  IDLTOOL_BINARY_PATH=\"$<TARGET_FILE:idltool>\"
+)
 
 target_link_libraries(unittests
   GTest::gtest

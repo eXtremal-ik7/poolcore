@@ -17,10 +17,13 @@ struct CFieldCaptureInfo {
   Kind kind = None;
   std::string CaptureFieldName;  // field name in the Capture struct
   std::string MappedTypeName;    // for MappedDirect/MappedInline: which mapped type (for resolve/format function names)
-  std::string MappedWireType;    // for MappedInline: JSON wire type (e.g. "int64", "string")
-  // For NestedStruct: how to pass context to child
-  std::string ChildCtxParamName;   // external param name (e.g., "moneyCtx")
-  bool ChildCtxIsVector = false;   // true = use [i_] indexing in array loop
+  std::string MappedWireType;    // JSON wire type (e.g. "int64", "string")
+  std::string DirectCtxParamName; // for MappedDirect: external param name (e.g. "moneyCtx")
+  struct ChildContextArg {
+    std::string ParamName;
+    bool IsVector = false;
+  };
+  std::vector<ChildContextArg> ChildCtxArgs; // for NestedStruct
 };
 
 // Per-struct context analysis result
@@ -84,9 +87,14 @@ static CContextAnalysis analyzeContext(const CStructDef &s, bool pascalCase,
   for (size_t i = 0; i < s.Fields.size(); i++) {
     auto &f = s.Fields[i];
     if (f.Type.IsMapped && contextDeclSet.count(f.Type.RefName)) {
-      a.FieldCapture[i].kind = CFieldCaptureInfo::MappedDirect;
-      a.FieldCapture[i].CaptureFieldName = fieldCppName(f.Name, pascalCase);
-      a.FieldCapture[i].MappedTypeName = f.Type.RefName;
+      auto it = mappedTypes.find(f.Type.RefName);
+      if (it != mappedTypes.end()) {
+        a.FieldCapture[i].kind = CFieldCaptureInfo::MappedDirect;
+        a.FieldCapture[i].CaptureFieldName = fieldCppName(f.Name, pascalCase);
+        a.FieldCapture[i].MappedTypeName = f.Type.RefName;
+        a.FieldCapture[i].MappedWireType = !f.Type.MappedWireType.empty() ? f.Type.MappedWireType : it->second->JsonWireType;
+        a.FieldCapture[i].DirectCtxParamName = f.Type.RefName + "Ctx";
+      }
     }
   }
 
@@ -113,15 +121,15 @@ static CContextAnalysis analyzeContext(const CStructDef &s, bool pascalCase,
         a.FieldCapture[i].kind = CFieldCaptureInfo::NestedStruct;
         a.FieldCapture[i].CaptureFieldName = fieldCppName(f.Name, pascalCase);
 
-        bool isArray = (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::OptionalArray || f.Kind == EFieldKind::NullableArray);
+        bool isArray = (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::OptionalArray || f.Kind == EFieldKind::NullableArray ||
+                        f.Kind == EFieldKind::FixedArray || f.Kind == EFieldKind::OptionalFixedArray || f.Kind == EFieldKind::NullableFixedArray);
 
         for (auto &need : cit->second.Needs) {
           // If parent declares the same context, broadcast scalar to array children
           bool parentDeclares = contextDeclSet.count(need.MappedTypeName) > 0;
           bool promoteToVector = isArray && !parentDeclares;
 
-          a.FieldCapture[i].ChildCtxParamName = need.ParamName;
-          a.FieldCapture[i].ChildCtxIsVector = promoteToVector;
+          a.FieldCapture[i].ChildCtxArgs.push_back({need.ParamName, promoteToVector});
           if (needsSet.insert(need.MappedTypeName).second) {
             auto inheritedNeed = need;
             if (promoteToVector)
@@ -142,13 +150,66 @@ static CContextAnalysis analyzeContext(const CStructDef &s, bool pascalCase,
   return a;
 }
 
-// Generate the expression to pass context to a nested child
-static std::string childCtxExpr(const CFieldCaptureInfo &ci,
-                                 const std::string &indexVar)
+static std::vector<CArrayDim> arrayDims(const CFieldDef &f)
 {
-  if (ci.ChildCtxIsVector && !indexVar.empty())
-    return ci.ChildCtxParamName + "[" + indexVar + "]";
-  return ci.ChildCtxParamName;
+  std::vector<CArrayDim> dims;
+  switch (f.Kind) {
+    case EFieldKind::Array:
+    case EFieldKind::OptionalArray:
+    case EFieldKind::NullableArray:
+      dims.push_back({});
+      break;
+    case EFieldKind::FixedArray:
+    case EFieldKind::OptionalFixedArray:
+    case EFieldKind::NullableFixedArray:
+      dims.push_back({f.Type.FixedSize});
+      break;
+    default:
+      break;
+  }
+  dims.insert(dims.end(), f.Type.InnerDims.begin(), f.Type.InnerDims.end());
+  return dims;
+}
+
+static std::string wrapDimsType(std::string baseType, const std::vector<CArrayDim> &dims)
+{
+  for (int i = (int)dims.size() - 1; i >= 0; i--) {
+    if (dims[i].FixedSize > 0)
+      baseType = std::format("std::array<{}, {}>", baseType, dims[i].FixedSize);
+    else
+      baseType = std::format("std::vector<{}>", baseType);
+  }
+  return baseType;
+}
+
+static std::string captureFieldType(const CFieldDef &f, const std::string &baseType)
+{
+  return wrapDimsType(baseType, arrayDims(f));
+}
+
+static bool hasVectorChildContext(const CFieldCaptureInfo &ci)
+{
+  for (auto &arg : ci.ChildCtxArgs) {
+    if (arg.IsVector)
+      return true;
+  }
+  return false;
+}
+
+// Generate the expression list to pass context to a nested child
+static std::string childCtxArgsExpr(const CFieldCaptureInfo &ci,
+                                    const std::string &indexExpr)
+{
+  std::string result;
+  for (auto &arg : ci.ChildCtxArgs) {
+    if (!result.empty())
+      result += ", ";
+    if (arg.IsVector && !indexExpr.empty())
+      result += arg.ParamName + "[" + indexExpr + "]";
+    else
+      result += arg.ParamName;
+  }
+  return result;
 }
 
 // Wire type info for context-free mapped types
@@ -163,10 +224,74 @@ static WireTypeInfo getWireTypeInfo(const std::string &wireType) {
   if (wireType == "int64")  return {"readInt64", "jsonWriteInt", "int64_t"};
   if (wireType == "uint64") return {"readUInt64", "jsonWriteUInt", "uint64_t"};
   if (wireType == "int32")  return {"readInt32", "jsonWriteInt", "int32_t"};
-  if (wireType == "uint32") return {"readUInt32", "jsonWriteInt", "uint32_t"};
+  if (wireType == "uint32") return {"readUInt32", "jsonWriteUInt", "uint32_t"};
   if (wireType == "double") return {"readDouble", "jsonWriteDouble", "double"};
   if (wireType == "bool")   return {"readBool", "jsonWriteBool", "bool"};
   return {"readStringValue", "jsonWriteString", "std::string"};
+}
+
+static void generateDirectMappedCaptureRead(std::string &out,
+                                            const CFieldCaptureInfo &ci,
+                                            const std::string &captureExpr,
+                                            int ind,
+                                            const std::string &failureCode)
+{
+  auto wi = getWireTypeInfo(ci.MappedWireType);
+  std::string in = indent(ind);
+  out += std::format("{}if (capture) {{\n", in);
+  out += std::format("{}  if (!s.{}({})) {{ {}; }}\n", in, wi.readMethod, captureExpr, failureCode);
+  out += std::format("{}}} else {{\n", in);
+  out += std::format("{}  if (!s.skipValue()) {{ {}; }}\n", in, failureCode);
+  out += std::format("{}}}\n", in);
+}
+
+static void generateParseMappedValue(std::string &out,
+                                     const std::string &mappedTypeName,
+                                     const std::string &mappedWireType,
+                                     const std::string &destExpr,
+                                     int ind,
+                                     const std::string &failureCode)
+{
+  auto wi = getWireTypeInfo(mappedWireType);
+  std::string in = indent(ind);
+  std::string resolveFunc = "__" + mappedTypeName + "Resolve";
+  out += std::format("{}{{ {} _tmp; if (!s.{}(_tmp) || !{}(_tmp, {})) {{ {}; }} }}\n",
+                     in, wi.cppType, wi.readMethod, resolveFunc, destExpr, failureCode);
+}
+
+static void emitMappedInlineValueSerialize(std::string &out,
+                                           const std::string &mappedTypeName,
+                                           const std::string &mappedWireType,
+                                           const std::string &valueExpr,
+                                           int ind)
+{
+  auto wi = getWireTypeInfo(mappedWireType);
+  std::string in = indent(ind);
+  std::string formatFunc = "__" + mappedTypeName + "Format";
+  out += std::format("{}{}(out, {}({}));\n", in, wi.writeFunc, formatFunc, valueExpr);
+}
+
+static void emitMappedInlineNestedArraySerialize(std::string &out,
+                                                 const CFieldCaptureInfo &fci,
+                                                 const std::vector<CArrayDim> &dims,
+                                                 int dimIndex,
+                                                 const std::string &valueExpr,
+                                                 int ind)
+{
+  std::string in = indent(ind);
+  if (dimIndex >= (int)dims.size()) {
+    emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, valueExpr, ind);
+    return;
+  }
+
+  out += std::format("{}out.write('[');\n", in);
+  std::string idx = std::format("i{}_", dimIndex);
+  out += std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx);
+  out += std::format("{}  if ({}) out.write(',');\n", in, idx);
+  emitMappedInlineNestedArraySerialize(out, fci, dims, dimIndex + 1,
+                                       std::format("{}[{}]", valueExpr, idx), ind + 1);
+  out += std::format("{}}}\n", in);
+  out += std::format("{}out.write(']');\n", in);
 }
 
 // ============================================================================
@@ -183,8 +308,9 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
   // Mapped field
   if (isMappedField(f)) {
     if (ci && ci->kind == CFieldCaptureInfo::MappedDirect) {
+      auto wi = getWireTypeInfo(ci->MappedWireType);
       out += std::format("{}if (capture) {{\n", in);
-      out += std::format("{}  if (!s.readStringValue(capture->{})) valid = false;\n", in, ci->CaptureFieldName);
+      out += std::format("{}  if (!s.{}(capture->{})) valid = false;\n", in, wi.readMethod, ci->CaptureFieldName);
       if (foundBit >= 0)
         out += std::format("{}  else found |= (uint64_t)1 << {};\n", in, foundBit);
       out += std::format("{}}} else {{\n", in);
@@ -192,18 +318,16 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
       if (foundBit >= 0)
         out += std::format("{}  else found |= (uint64_t)1 << {};\n", in, foundBit);
       out += std::format("{}}}\n", in);
-    } else if (ci && ci->kind == CFieldCaptureInfo::MappedInline) {
-      auto wi = getWireTypeInfo(ci->MappedWireType);
-      std::string resolveFunc = "__" + ci->MappedTypeName + "Resolve";
+    } else {
+      std::string mappedTypeName = (ci && ci->kind == CFieldCaptureInfo::MappedInline) ? ci->MappedTypeName : f.Type.RefName;
+      std::string mappedWireType = (ci && !ci->MappedWireType.empty()) ? ci->MappedWireType : f.Type.MappedWireType;
+      auto wi = getWireTypeInfo(mappedWireType);
+      std::string resolveFunc = "__" + mappedTypeName + "Resolve";
       out += std::format("{}{{ {} _tmp; if (!s.{}(_tmp) || !{}(_tmp, {})) valid = false;\n",
                          in, wi.cppType, wi.readMethod, resolveFunc, cn);
       if (foundBit >= 0)
         out += std::format("{}  else found |= (uint64_t)1 << {};\n", in, foundBit);
       out += std::format("{}}}\n", in);
-    } else {
-      out += std::format("{}if (!s.skipValue()) valid = false;\n", in);
-      if (foundBit >= 0)
-        out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
     }
     return;
   }
@@ -244,6 +368,141 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
   out += std::format("{}if (!s.{}({})) valid = false;\n", in, readMethod, cn);
   if (foundBit >= 0)
     out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
+}
+
+// Generate nested array parse code for multi-dimensional arrays
+static void generateNestedArrayParse(std::string &out, const CFieldDef &f,
+    const std::unordered_set<std::string> &enumNames,
+    const std::vector<CArrayDim> &dims, int dimIndex,
+    const std::string &containerExpr,
+    const std::string &captureExpr,
+    int ind,
+    const CFieldCaptureInfo *ci = nullptr)
+{
+  std::string in = indent(ind);
+
+  if (dimIndex >= (int)dims.size()) {
+    // Leaf element: parse scalar/struct/enum into containerExpr
+    if (isMappedField(f)) {
+      if (ci && ci->kind == CFieldCaptureInfo::MappedDirect) {
+        generateDirectMappedCaptureRead(out, *ci, captureExpr, ind, "valid = false; break");
+      } else {
+        generateParseMappedValue(out, f.Type.RefName, f.Type.MappedWireType, containerExpr, ind, "valid = false; break");
+      }
+    } else if (isStructRef(f, enumNames)) {
+      if (ci && ci->kind == CFieldCaptureInfo::NestedStruct) {
+        out += std::format("{}if (!{}.parseImpl(s, capture ? &{} : nullptr)) {{ valid = false; break; }}\n",
+                           in, containerExpr, captureExpr);
+      } else {
+        out += std::format("{}if (!{}.parseImpl(s)) {{ valid = false; break; }}\n", in, containerExpr);
+      }
+    } else if (isEnum(f.Type.RefName, enumNames)) {
+      out += std::format("{}{{ const char *eStr; size_t eLen;\n", in);
+      out += std::format("{}  if (!s.readString(eStr, eLen) || !parseE{}(eStr, eLen, {})) {{ valid = false; break; }} }}\n",
+                         in, f.Type.RefName, containerExpr);
+    } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
+               f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
+      std::string chronoType = cppScalarType(f.Type.Scalar);
+      out += std::format("{}{{ int64_t _t; if (!s.readInt64(_t)) {{ valid = false; break; }} {} = {}(_t); }}\n",
+                         in, containerExpr, chronoType);
+    } else {
+      const char *readMethod = "readInt64";
+      switch (f.Type.Scalar) {
+        case EScalarType::String: readMethod = "readStringValue"; break;
+        case EScalarType::Bool:   readMethod = "readBool"; break;
+        case EScalarType::Int32:  readMethod = "readInt32"; break;
+        case EScalarType::Uint32: readMethod = "readUInt32"; break;
+        case EScalarType::Int64:  readMethod = "readInt64"; break;
+        case EScalarType::Uint64: readMethod = "readUInt64"; break;
+        case EScalarType::Double: readMethod = "readDouble"; break;
+        default: break;
+      }
+      out += std::format("{}if (!s.{}({})) {{ valid = false; break; }}\n", in, readMethod, containerExpr);
+    }
+    return;
+  }
+
+  auto &dim = dims[dimIndex];
+  std::string idx = std::format("i{}_", dimIndex);
+
+  if (dim.FixedSize > 0) {
+    // Fixed inner dimension
+    out += std::format("{}if (!s.expectChar('[')) {{ valid = false; break; }}\n", in);
+    out += std::format("{}for (size_t {} = 0; {} < {}; {}++) {{\n", in, idx, idx, dim.FixedSize, idx);
+    out += std::format("{}  if ({} > 0 && !s.expectChar(',')) {{ valid = false; break; }}\n", in, idx);
+    generateNestedArrayParse(out, f, enumNames, dims, dimIndex + 1,
+                             std::format("{}[{}]", containerExpr, idx),
+                             std::format("{}[{}]", captureExpr, idx),
+                             ind + 1, ci);
+    out += std::format("{}}}\n", in);
+    out += std::format("{}if (!s.expectChar(']')) {{ valid = false; break; }}\n", in);
+  } else {
+    // Dynamic inner dimension
+    out += std::format("{}if (!s.expectChar('[')) {{ valid = false; break; }}\n", in);
+    out += std::format("{}s.skipWhitespace();\n", in);
+    out += std::format("{}if (s.p < s.end && *s.p != ']') {{\n", in);
+    out += std::format("{}  for (;;) {{\n", in);
+    if (ci && (ci->kind == CFieldCaptureInfo::MappedDirect || ci->kind == CFieldCaptureInfo::NestedStruct))
+      out += std::format("{}    if (capture) {}.emplace_back();\n", in, captureExpr);
+    out += std::format("{}    {}.emplace_back();\n", in, containerExpr);
+    generateNestedArrayParse(out, f, enumNames, dims, dimIndex + 1,
+                             std::format("{}.back()", containerExpr),
+                             std::format("{}.back()", captureExpr),
+                             ind + 2, ci);
+    out += std::format("{}    s.skipWhitespace();\n", in);
+    out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; continue; }}\n", in);
+    out += std::format("{}    break;\n", in);
+    out += std::format("{}  }}\n", in);
+    out += std::format("{}}}\n", in);
+    out += std::format("{}if (!s.expectChar(']')) {{ valid = false; break; }}\n", in);
+  }
+}
+
+static void generateParseField(std::string &out, const CFieldDef &f,
+    const std::unordered_set<std::string> &enumNames, int foundBit, int ind,
+    bool pascalCase, const CFieldCaptureInfo *ci);
+
+static void generateVariantParseAttempt(std::string &out, const CVariantAlt &alt,
+    size_t altIndex, const std::string &varName,
+    const std::unordered_set<std::string> &enumNames, int ind)
+{
+  std::string in = indent(ind);
+  std::string altVar = std::format("__variantAlt{}_value", altIndex);
+  CFieldDef tmp = variantAltAsField(alt, altVar);
+
+  out += std::format("{}if (!matched) {{\n", in);
+  out += std::format("{}  const char *saved = s.p;\n", in);
+  out += std::format("{}  std::remove_reference_t<decltype(std::get<{}>({}))> {}{{}};\n", in, altIndex, varName, altVar);
+  out += std::format("{}  bool altOk = ([&]() -> bool {{\n", in);
+  out += std::format("{}    bool valid = true;\n", in);
+  out += std::format("{}    do {{\n", in);
+  generateParseField(out, tmp, enumNames, -1, ind + 2, false, nullptr);
+  out += std::format("{}    }} while (false);\n", in);
+  out += std::format("{}    return valid;\n", in);
+  out += std::format("{}  }})();\n", in);
+  out += std::format("{}  if (altOk && __variantBoundary(s.p)) {{\n", in);
+  out += std::format("{}    {}.emplace<{}>(std::move({}));\n", in, varName, altIndex, altVar);
+  out += std::format("{}    matched = true;\n", in);
+  out += std::format("{}  }} else {{\n", in);
+  out += std::format("{}    s.p = saved;\n", in);
+  out += std::format("{}  }}\n", in);
+  out += std::format("{}}}\n", in);
+}
+
+// Generate parse code for a variant field using ordered backtracking.
+static void generateVariantParse(std::string &out, const CFieldDef &f,
+    const std::string &varName,
+    const std::unordered_set<std::string> &enumNames, int ind)
+{
+  std::string in = indent(ind);
+  out += std::format("{}auto __variantBoundary = [&](const char *p_) {{\n", in);
+  out += std::format("{}  return p_ >= s.end || *p_ == ',' || *p_ == ']' || *p_ == '}}' ||\n", in);
+  out += std::format("{}         *p_ == ' ' || *p_ == '\\t' || *p_ == '\\r' || *p_ == '\\n';\n", in);
+  out += std::format("{}}};\n", in);
+  out += std::format("{}bool matched = false;\n", in);
+  for (size_t i = 0; i < f.Type.Alternatives.size(); i++)
+    generateVariantParseAttempt(out, f.Type.Alternatives[i], i, varName, enumNames, ind);
+  out += std::format("{}if (!matched) valid = false;\n", in);
 }
 
 static void generateParseField(std::string &out, const CFieldDef &f,
@@ -295,6 +554,30 @@ static void generateParseField(std::string &out, const CFieldDef &f,
     }
 
     case EFieldKind::Array: {
+      if (!f.Type.InnerDims.empty()) {
+        // Multi-dimensional array: parse outermost dynamic array, then nest
+        out += std::format("{}if (!s.expectChar('[')) {{ valid = false; break; }}\n", in);
+        out += std::format("{}s.skipWhitespace();\n", in);
+        out += std::format("{}if (s.p < s.end && *s.p != ']') {{\n", in);
+        out += std::format("{}  for (;;) {{\n", in);
+        if (ci && (ci->kind == CFieldCaptureInfo::MappedDirect || ci->kind == CFieldCaptureInfo::NestedStruct))
+          out += std::format("{}    if (capture) capture->{}.emplace_back();\n", in, ci->CaptureFieldName);
+        out += std::format("{}    {}.emplace_back();\n", in, cn);
+        generateNestedArrayParse(out, f, enumNames, f.Type.InnerDims, 0,
+                                 std::format("{}.back()", cn),
+                                 ci ? std::format("capture->{}.back()", ci->CaptureFieldName) : "",
+                                 ind + 2, ci);
+        out += std::format("{}    s.skipWhitespace();\n", in);
+        out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; continue; }}\n", in);
+        out += std::format("{}    break;\n", in);
+        out += std::format("{}  }}\n", in);
+        out += std::format("{}}}\n", in);
+        out += std::format("{}if (!s.expectChar(']')) valid = false;\n", in);
+        if (foundBit >= 0)
+          out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
+        break;
+      }
+
       out += std::format("{}if (!s.expectChar('[')) {{ valid = false; break; }}\n", in);
       out += std::format("{}s.skipWhitespace();\n", in);
       out += std::format("{}if (s.p < s.end && *s.p != ']') {{\n", in);
@@ -306,6 +589,9 @@ static void generateParseField(std::string &out, const CFieldDef &f,
           std::string resolveFunc = "__" + ci->MappedTypeName + "Resolve";
           out += std::format("{}    {{ {} _tmp; {}.emplace_back(); if (!s.{}(_tmp) || !{}(_tmp, {}.back())) {{ valid = false; break; }} }}\n",
                              in, wi.cppType, cn, wi.readMethod, resolveFunc, cn);
+        } else if (ci && ci->kind == CFieldCaptureInfo::MappedDirect) {
+          out += std::format("{}    if (capture) capture->{}.emplace_back();\n", in, ci->CaptureFieldName);
+          generateDirectMappedCaptureRead(out, *ci, std::format("capture->{}.back()", ci->CaptureFieldName), ind + 2, "valid = false; break");
         } else {
           out += std::format("{}    if (!s.skipValue()) {{ valid = false; break; }}\n", in);
           out += std::format("{}    valid = false; break;\n", in);
@@ -372,6 +658,97 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       tmp.Name = std::format("(*{})", cn);
       tmp.Kind = EFieldKind::Array;
       generateParseField(out, tmp, enumNames, -1, ind + 1, false, ci);
+      out += std::format("{}}}\n", in);
+      break;
+    }
+
+    case EFieldKind::FixedArray: {
+      out += std::format("{}if (!s.expectChar('[')) {{ valid = false; break; }}\n", in);
+      out += std::format("{}for (size_t i_ = 0; i_ < {}; i_++) {{\n", in, f.Type.FixedSize);
+      out += std::format("{}  if (i_ > 0 && !s.expectChar(',')) {{ valid = false; break; }}\n", in);
+
+      if (!f.Type.InnerDims.empty()) {
+        generateNestedArrayParse(out, f, enumNames, f.Type.InnerDims, 0,
+                                 std::format("{}[i_]", cn),
+                                 ci ? std::format("capture->{}[i_]", ci->CaptureFieldName) : "",
+                                 ind + 1, ci);
+      } else if (isMappedField(f)) {
+        if (ci && ci->kind == CFieldCaptureInfo::MappedDirect) {
+          generateDirectMappedCaptureRead(out, *ci, std::format("capture->{}[i_]", ci->CaptureFieldName), ind + 1, "valid = false; break");
+        } else {
+          generateParseMappedValue(out, f.Type.RefName, f.Type.MappedWireType,
+                                   std::format("{}[i_]", cn), ind + 1, "valid = false; break");
+        }
+      } else if (isStructRef(f, enumNames)) {
+        if (ci && ci->kind == CFieldCaptureInfo::NestedStruct) {
+          out += std::format("{}  if (!{}[i_].parseImpl(s, capture ? &capture->{}[i_] : nullptr)) {{ valid = false; break; }}\n",
+                             in, cn, ci->CaptureFieldName);
+        } else {
+          out += std::format("{}  if (!{}[i_].parseImpl(s)) {{ valid = false; break; }}\n", in, cn);
+        }
+      } else if (isEnum(f.Type.RefName, enumNames)) {
+        out += std::format("{}  {{ const char *eStr; size_t eLen;\n", in);
+        out += std::format("{}    if (!s.readString(eStr, eLen) || !parseE{}(eStr, eLen, {}[i_])) {{ valid = false; break; }} }}\n",
+                           in, f.Type.RefName, cn);
+      } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
+                 f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
+        std::string chronoType = cppScalarType(f.Type.Scalar);
+        out += std::format("{}  {{ int64_t _t; if (!s.readInt64(_t)) {{ valid = false; break; }} {}[i_] = {}(_t); }}\n",
+                           in, cn, chronoType);
+      } else {
+        const char *readMethod = nullptr;
+        switch (f.Type.Scalar) {
+          case EScalarType::String: readMethod = "readStringValue"; break;
+          case EScalarType::Bool:   readMethod = "readBool"; break;
+          case EScalarType::Int32:  readMethod = "readInt32"; break;
+          case EScalarType::Uint32: readMethod = "readUInt32"; break;
+          case EScalarType::Int64:  readMethod = "readInt64"; break;
+          case EScalarType::Uint64: readMethod = "readUInt64"; break;
+          case EScalarType::Double: readMethod = "readDouble"; break;
+          default: readMethod = "readInt64"; break;
+        }
+        out += std::format("{}  if (!s.{}({}[i_])) {{ valid = false; break; }}\n", in, readMethod, cn);
+      }
+
+      out += std::format("{}}}\n", in);
+      out += std::format("{}if (!s.expectChar(']')) valid = false;\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
+      break;
+    }
+
+    case EFieldKind::OptionalFixedArray:
+    case EFieldKind::NullableFixedArray: {
+      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      out += std::format("{}else {{\n", in);
+      out += std::format("{}  {}.emplace();\n", in, cn);
+      CFieldDef tmp = f;
+      tmp.Name = std::format("(*{})", cn);
+      tmp.Kind = EFieldKind::FixedArray;
+      generateParseField(out, tmp, enumNames, -1, ind + 1, false, ci);
+      out += std::format("{}}}\n", in);
+      break;
+    }
+
+    case EFieldKind::Variant: {
+      out += std::format("{}s.skipWhitespace();\n", in);
+      out += std::format("{}if (s.p >= s.end) {{ valid = false; break; }}\n", in);
+      generateVariantParse(out, f, cn, enumNames, ind);
+      if (foundBit >= 0)
+        out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
+      break;
+    }
+
+    case EFieldKind::OptionalVariant:
+    case EFieldKind::NullableVariant: {
+      out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      out += std::format("{}else {{\n", in);
+      out += std::format("{}  s.skipWhitespace();\n", in);
+      out += std::format("{}  if (s.p >= s.end) {{ valid = false; }}\n", in);
+      out += std::format("{}  else {{\n", in);
+      out += std::format("{}    {}.emplace();\n", in, cn);
+      generateVariantParse(out, f, std::format("(*{})", cn), enumNames, ind + 2);
+      out += std::format("{}  }}\n", in);
       out += std::format("{}}}\n", in);
       break;
     }
@@ -463,14 +840,11 @@ static void generateCaptureFields(std::string &out, const CStructDef &s,
     auto &ci = ca.FieldCapture[i];
     auto &f = s.Fields[i];
     if (ci.kind == CFieldCaptureInfo::MappedDirect) {
-      out += std::format("    std::string {};\n", ci.CaptureFieldName);
+      std::string wireType = getWireTypeInfo(ci.MappedWireType).cppType;
+      out += std::format("    {} {};\n", captureFieldType(f, wireType), ci.CaptureFieldName);
     } else if (ci.kind == CFieldCaptureInfo::NestedStruct) {
       std::string childCapture = opts.StructPrefix + f.Type.RefName + "::Capture";
-      bool isArray = (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::OptionalArray || f.Kind == EFieldKind::NullableArray);
-      if (isArray)
-        out += std::format("    std::vector<{}> {};\n", childCapture, ci.CaptureFieldName);
-      else
-        out += std::format("    {} {};\n", childCapture, ci.CaptureFieldName);
+      out += std::format("    {} {};\n", captureFieldType(f, childCapture), ci.CaptureFieldName);
     }
   }
 }
@@ -616,14 +990,63 @@ static void generateStructDecl(std::string &out, const CStructDef &s,
 // Code generation — implementations (source)
 // ============================================================================
 
+static void emitMappedDirectResolveRecursive(std::string &out,
+    const CFieldCaptureInfo &ci,
+    const std::vector<CArrayDim> &dims, int dimIndex,
+    const std::string &valueExpr,
+    const std::string &captureExpr,
+    int ind)
+{
+  std::string in = indent(ind);
+  if (dimIndex >= (int)dims.size()) {
+    std::string resolveFunc = "__" + ci.MappedTypeName + "Resolve";
+    out += std::format("{}if (!{}({}, {}, {})) return false;\n",
+                       in, resolveFunc, captureExpr, ci.DirectCtxParamName, valueExpr);
+    return;
+  }
+
+  std::string idx = std::format("i{}_r_", dimIndex);
+  out += std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx);
+  emitMappedDirectResolveRecursive(out, ci, dims, dimIndex + 1,
+                                   std::format("{}[{}]", valueExpr, idx),
+                                   std::format("{}[{}]", captureExpr, idx),
+                                   ind + 1);
+  out += std::format("{}}}\n", in);
+}
+
+static void emitNestedStructResolveRecursive(std::string &out,
+    const std::string &childStruct,
+    const CFieldCaptureInfo &ci,
+    const std::vector<CArrayDim> &dims, int dimIndex,
+    const std::string &valueExpr,
+    const std::string &captureExpr,
+    const std::string &ctxIndexVar,
+    int ind)
+{
+  std::string in = indent(ind);
+  if (dimIndex >= (int)dims.size()) {
+    out += std::format("{}if (!{}::resolve({}, {}, {})) return false;\n",
+                       in, childStruct, valueExpr, captureExpr, childCtxArgsExpr(ci, ctxIndexVar));
+    if (!ctxIndexVar.empty())
+      out += std::format("{}{}++;\n", in, ctxIndexVar);
+    return;
+  }
+
+  std::string idx = std::format("i{}_r_", dimIndex);
+  out += std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx);
+  emitNestedStructResolveRecursive(out, childStruct, ci, dims, dimIndex + 1,
+                                   std::format("{}[{}]", valueExpr, idx),
+                                   std::format("{}[{}]", captureExpr, idx),
+                                   ctxIndexVar, ind + 1);
+  out += std::format("{}}}\n", in);
+}
 
 static void generateResolveImpl(std::string &out, const CStructDef &s,
     const CContextAnalysis &ca,
-    const std::unordered_set<std::string> &enumNames,
+    const std::unordered_set<std::string> &,
     const CCodegenOptions &opts)
 {
   std::string sn = opts.StructPrefix + s.Name;
-  std::string ctxArgs = ca.contextArgs();
 
   if (ca.hasContext())
     out += std::format("bool {}::resolve({} &out, const Capture &capture, {}) {{\n",
@@ -635,43 +1058,86 @@ static void generateResolveImpl(std::string &out, const CStructDef &s,
     auto &ci = ca.FieldCapture[i];
     auto &f = s.Fields[i];
     std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+    auto dims = arrayDims(f);
 
     if (ci.kind == CFieldCaptureInfo::MappedDirect) {
-      std::string resolveFunc = "__" + ci.MappedTypeName + "Resolve";
-      out += std::format("  if (!{}(capture.{}, {}, out.{})) return false;\n",
-                         resolveFunc, ci.CaptureFieldName, ctxArgs, cn);
+      switch (f.Kind) {
+        case EFieldKind::Required:
+        case EFieldKind::Optional:
+          emitMappedDirectResolveRecursive(out, ci, dims, 0, "out." + cn, "capture." + ci.CaptureFieldName, 1);
+          break;
+        case EFieldKind::OptionalObject:
+        case EFieldKind::NullableObject:
+          out += std::format("  if (out.{}.has_value()) {{\n", cn);
+          emitMappedDirectResolveRecursive(out, ci, dims, 0,
+                                           std::format("(*out.{})", cn),
+                                           "capture." + ci.CaptureFieldName, 2);
+          out += "  }\n";
+          break;
+        case EFieldKind::Array:
+        case EFieldKind::FixedArray:
+          emitMappedDirectResolveRecursive(out, ci, dims, 0, "out." + cn, "capture." + ci.CaptureFieldName, 1);
+          break;
+        case EFieldKind::OptionalArray:
+        case EFieldKind::NullableArray:
+        case EFieldKind::OptionalFixedArray:
+        case EFieldKind::NullableFixedArray:
+          out += std::format("  if (out.{}.has_value()) {{\n", cn);
+          emitMappedDirectResolveRecursive(out, ci, dims, 0,
+                                           std::format("(*out.{})", cn),
+                                           "capture." + ci.CaptureFieldName, 2);
+          out += "  }\n";
+          break;
+        default:
+          break;
+      }
     } else if (ci.kind == CFieldCaptureInfo::NestedStruct) {
       std::string childStruct = opts.StructPrefix + f.Type.RefName;
-      std::string cce0 = childCtxExpr(ci, "");
-      std::string cceI = childCtxExpr(ci, "i");
+      std::string childCtx = childCtxArgsExpr(ci, "");
+      std::string ctxIndexVar;
+      if (!dims.empty() && hasVectorChildContext(ci)) {
+        ctxIndexVar = std::format("__ctxIdx{}_", i);
+        out += std::format("  size_t {} = 0;\n", ctxIndexVar);
+      }
 
       switch (f.Kind) {
         case EFieldKind::Required:
         case EFieldKind::Optional:
-          out += std::format("  if (!{}::resolve(out.{}, capture.{}, {})) return false;\n",
-                             childStruct, cn, ci.CaptureFieldName, cce0);
+          if (dims.empty()) {
+            out += std::format("  if (!{}::resolve(out.{}, capture.{}, {})) return false;\n",
+                               childStruct, cn, ci.CaptureFieldName, childCtx);
+          } else {
+            emitNestedStructResolveRecursive(out, childStruct, ci, dims, 0,
+                                             "out." + cn, "capture." + ci.CaptureFieldName,
+                                             ctxIndexVar, 1);
+          }
           break;
         case EFieldKind::OptionalObject:
         case EFieldKind::NullableObject:
           out += std::format("  if (out.{}.has_value()) {{\n", cn);
           out += std::format("    if (!{}::resolve(*out.{}, capture.{}, {})) return false;\n",
-                             childStruct, cn, ci.CaptureFieldName, cce0);
+                             childStruct, cn, ci.CaptureFieldName, childCtx);
           out += "  }\n";
           break;
         case EFieldKind::Array:
-          out += std::format("  for (size_t i = 0; i < out.{}.size(); i++) {{\n", cn);
-          out += std::format("    if (!{}::resolve(out.{}[i], capture.{}[i], {})) return false;\n",
-                             childStruct, cn, ci.CaptureFieldName, cceI);
-          out += "  }\n";
-          break;
         case EFieldKind::OptionalArray:
         case EFieldKind::NullableArray:
-          out += std::format("  if (out.{}.has_value()) {{\n", cn);
-          out += std::format("    for (size_t i = 0; i < out.{}->size(); i++) {{\n", cn);
-          out += std::format("      if (!{}::resolve((*out.{})[i], capture.{}[i], {})) return false;\n",
-                             childStruct, cn, ci.CaptureFieldName, cceI);
-          out += "    }\n";
-          out += "  }\n";
+        case EFieldKind::FixedArray:
+        case EFieldKind::OptionalFixedArray:
+        case EFieldKind::NullableFixedArray:
+          if (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::FixedArray) {
+            emitNestedStructResolveRecursive(out, childStruct, ci, dims, 0,
+                                             "out." + cn, "capture." + ci.CaptureFieldName,
+                                             ctxIndexVar, 1);
+          } else {
+            out += std::format("  if (out.{}.has_value()) {{\n", cn);
+            emitNestedStructResolveRecursive(out, childStruct, ci, dims, 0,
+                                             std::format("(*out.{})", cn), "capture." + ci.CaptureFieldName,
+                                             ctxIndexVar, 2);
+            out += "  }\n";
+          }
+          break;
+        default:
           break;
       }
     }
@@ -681,14 +1147,68 @@ static void generateResolveImpl(std::string &out, const CStructDef &s,
   out += "}\n\n";
 }
 
+static void emitMappedDirectValueSerialize(std::string &out,
+    const CFieldCaptureInfo &fci,
+    const std::string &valueExpr,
+    int ind)
+{
+  auto wi = getWireTypeInfo(fci.MappedWireType);
+  std::string in = indent(ind);
+  std::string formatFunc = "__" + fci.MappedTypeName + "Format";
+  out += std::format("{}{}(out, {}({}, {}));\n",
+                     in, wi.writeFunc, formatFunc, valueExpr, fci.DirectCtxParamName);
+}
+
+static void emitMappedDirectSerializeRecursive(std::string &out,
+    const CFieldCaptureInfo &fci,
+    const std::vector<CArrayDim> &dims, int dimIndex,
+    const std::string &valueExpr,
+    int ind)
+{
+  std::string in = indent(ind);
+  if (dimIndex >= (int)dims.size()) {
+    emitMappedDirectValueSerialize(out, fci, valueExpr, ind);
+    return;
+  }
+
+  std::string idx = std::format("i{}_s_", dimIndex);
+  out += std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx);
+  out += std::format("{}  if ({}) out.write(',');\n", in, idx);
+  emitMappedDirectSerializeRecursive(out, fci, dims, dimIndex + 1,
+                                     std::format("{}[{}]", valueExpr, idx), ind + 1);
+  out += std::format("{}}}\n", in);
+}
+
+static void emitNestedStructSerializeRecursive(std::string &out,
+    const CFieldCaptureInfo &ci,
+    const std::vector<CArrayDim> &dims, int dimIndex,
+    const std::string &valueExpr,
+    const std::string &ctxIndexVar,
+    int ind)
+{
+  std::string in = indent(ind);
+  if (dimIndex >= (int)dims.size()) {
+    out += std::format("{}{}.serialize(out, {});\n", in, valueExpr, childCtxArgsExpr(ci, ctxIndexVar));
+    if (!ctxIndexVar.empty())
+      out += std::format("{}{}++;\n", in, ctxIndexVar);
+    return;
+  }
+
+  std::string idx = std::format("i{}_s_", dimIndex);
+  out += std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueExpr, idx);
+  out += std::format("{}  if ({}) out.write(',');\n", in, idx);
+  emitNestedStructSerializeRecursive(out, ci, dims, dimIndex + 1,
+                                     std::format("{}[{}]", valueExpr, idx),
+                                     ctxIndexVar, ind + 1);
+  out += std::format("{}}}\n", in);
+}
+
 // Serialize a context-free mapped field using its format function
 static void emitMappedInlineSerialize(std::string &out, const CFieldDef &f,
     const CFieldCaptureInfo &fci, int ind, bool &first, bool pascalCase)
 {
   std::string in = indent(ind);
   std::string cn = fieldCppName(f.Name, pascalCase);
-  auto wi = getWireTypeInfo(fci.MappedWireType);
-  std::string formatFunc = "__" + fci.MappedTypeName + "Format";
 
   auto emitKey = [&](const std::string &jsonKey) {
     if (!first)
@@ -701,21 +1221,21 @@ static void emitMappedInlineSerialize(std::string &out, const CFieldDef &f,
     case EFieldKind::Required:
     case EFieldKind::Optional:
       emitKey(f.Name);
-      out += std::format("{}{}(out, {}({}));\n", in, wi.writeFunc, formatFunc, cn);
+      emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, cn, ind);
       break;
     case EFieldKind::OptionalObject:
       out += std::format("{}if ({}.has_value()) {{\n", in, cn);
       if (!first)
         out += std::format("{}  out.write(',');\n", in);
       out += std::format("{}  out.write(\"\\\"{}\\\":\");\n", in, f.Name);
-      out += std::format("{}  {}(out, {}(*{}));\n", in, wi.writeFunc, formatFunc, cn);
+      emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("*{}", cn), ind + 1);
       first = false;
       out += std::format("{}}}\n", in);
       break;
     case EFieldKind::NullableObject:
       emitKey(f.Name);
       out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-      out += std::format("{}  {}(out, {}(*{}));\n", in, wi.writeFunc, formatFunc, cn);
+      emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("*{}", cn), ind + 1);
       out += std::format("{}}} else {{\n", in);
       out += std::format("{}  out.write(\"null\");\n", in);
       out += std::format("{}}}\n", in);
@@ -725,7 +1245,11 @@ static void emitMappedInlineSerialize(std::string &out, const CFieldDef &f,
       out += std::format("{}out.write('[');\n", in);
       out += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
       out += std::format("{}  if (i_) out.write(',');\n", in);
-      out += std::format("{}  {}(out, {}({}[i_]));\n", in, wi.writeFunc, formatFunc, cn);
+      if (f.Type.InnerDims.empty()) {
+        emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("{}[i_]", cn), ind + 1);
+      } else {
+        emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("{}[i_]", cn), ind + 1);
+      }
       out += std::format("{}}}\n", in);
       out += std::format("{}out.write(']');\n", in);
       break;
@@ -737,7 +1261,11 @@ static void emitMappedInlineSerialize(std::string &out, const CFieldDef &f,
       out += std::format("{}  out.write('[');\n", in);
       out += std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn);
       out += std::format("{}    if (i_) out.write(',');\n", in);
-      out += std::format("{}    {}(out, {}((*{})[i_]));\n", in, wi.writeFunc, formatFunc, cn);
+      if (f.Type.InnerDims.empty()) {
+        emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
+      } else {
+        emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
+      }
       out += std::format("{}  }}\n", in);
       out += std::format("{}  out.write(']');\n", in);
       first = false;
@@ -749,12 +1277,66 @@ static void emitMappedInlineSerialize(std::string &out, const CFieldDef &f,
       out += std::format("{}  out.write('[');\n", in);
       out += std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn);
       out += std::format("{}    if (i_) out.write(',');\n", in);
-      out += std::format("{}    {}(out, {}((*{})[i_]));\n", in, wi.writeFunc, formatFunc, cn);
+      if (f.Type.InnerDims.empty()) {
+        emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
+      } else {
+        emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
+      }
       out += std::format("{}  }}\n", in);
       out += std::format("{}  out.write(']');\n", in);
       out += std::format("{}}} else {{\n", in);
       out += std::format("{}  out.write(\"null\");\n", in);
       out += std::format("{}}}\n", in);
+      break;
+    case EFieldKind::FixedArray:
+      emitKey(f.Name);
+      out += std::format("{}out.write('[');\n", in);
+      out += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
+      out += std::format("{}  if (i_) out.write(',');\n", in);
+      if (f.Type.InnerDims.empty()) {
+        emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("{}[i_]", cn), ind + 1);
+      } else {
+        emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("{}[i_]", cn), ind + 1);
+      }
+      out += std::format("{}}}\n", in);
+      out += std::format("{}out.write(']');\n", in);
+      break;
+    case EFieldKind::OptionalFixedArray:
+      out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      if (!first)
+        out += std::format("{}  out.write(',');\n", in);
+      out += std::format("{}  out.write(\"\\\"{}\\\":\");\n", in, f.Name);
+      out += std::format("{}  out.write('[');\n", in);
+      out += std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn);
+      out += std::format("{}    if (i_) out.write(',');\n", in);
+      if (f.Type.InnerDims.empty()) {
+        emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
+      } else {
+        emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
+      }
+      out += std::format("{}  }}\n", in);
+      out += std::format("{}  out.write(']');\n", in);
+      first = false;
+      out += std::format("{}}}\n", in);
+      break;
+    case EFieldKind::NullableFixedArray:
+      emitKey(f.Name);
+      out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      out += std::format("{}  out.write('[');\n", in);
+      out += std::format("{}  for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in, cn);
+      out += std::format("{}    if (i_) out.write(',');\n", in);
+      if (f.Type.InnerDims.empty()) {
+        emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, std::format("(*{})[i_]", cn), ind + 2);
+      } else {
+        emitMappedInlineNestedArraySerialize(out, fci, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), ind + 2);
+      }
+      out += std::format("{}  }}\n", in);
+      out += std::format("{}  out.write(']');\n", in);
+      out += std::format("{}}} else {{\n", in);
+      out += std::format("{}  out.write(\"null\");\n", in);
+      out += std::format("{}}}\n", in);
+      break;
+    default:
       break;
   }
 }
@@ -765,7 +1347,6 @@ static void generateContextSerializeBody(std::string &out, const CStructDef &s,
     const std::unordered_set<std::string> &enumNames,
     const CCodegenOptions &opts)
 {
-  std::string ctxArgs = ca.contextArgs();
   bool first = true;
 
   for (size_t i = 0; i < s.Fields.size(); i++) {
@@ -773,6 +1354,7 @@ static void generateContextSerializeBody(std::string &out, const CStructDef &s,
     auto &f = s.Fields[i];
     std::string in = indent(1);
     std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+    auto dims = arrayDims(f);
 
     auto emitKey = [&](const std::string &jsonKey) {
       if (!first)
@@ -782,20 +1364,87 @@ static void generateContextSerializeBody(std::string &out, const CStructDef &s,
     };
 
     if (ci.kind == CFieldCaptureInfo::MappedDirect) {
-      std::string formatFunc = "__" + ci.MappedTypeName + "Format";
-      emitKey(f.Name);
-      out += std::format("{}jsonWriteString(out, {}({}, {}));\n", in, formatFunc, cn, ctxArgs);
-      continue;
-    }
-
-    if (ci.kind == CFieldCaptureInfo::NestedStruct) {
-      std::string cce0 = childCtxExpr(ci, "");
-      std::string cceI = childCtxExpr(ci, "i_");
       switch (f.Kind) {
         case EFieldKind::Required:
         case EFieldKind::Optional:
           emitKey(f.Name);
-          out += std::format("{}{}.serialize(out, {});\n", in, cn, cce0);
+          emitMappedDirectValueSerialize(out, ci, cn, 1);
+          break;
+        case EFieldKind::OptionalObject:
+          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+          if (!first)
+            out += std::format("{}  out.write(',');\n", in);
+          out += std::format("{}  out.write(\"\\\"{}\\\":\");\n", in, f.Name);
+          emitMappedDirectValueSerialize(out, ci, std::format("*{}", cn), 2);
+          first = false;
+          out += std::format("{}}}\n", in);
+          break;
+        case EFieldKind::NullableObject:
+          emitKey(f.Name);
+          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+          emitMappedDirectValueSerialize(out, ci, std::format("*{}", cn), 2);
+          out += std::format("{}}} else {{\n", in);
+          out += std::format("{}  out.write(\"null\");\n", in);
+          out += std::format("{}}}\n", in);
+          break;
+        case EFieldKind::Array:
+        case EFieldKind::FixedArray:
+          emitKey(f.Name);
+          out += std::format("{}out.write('[');\n", in);
+          emitMappedDirectSerializeRecursive(out, ci, dims, 0, cn, 1);
+          out += std::format("{}out.write(']');\n", in);
+          break;
+        case EFieldKind::OptionalArray:
+        case EFieldKind::OptionalFixedArray: {
+          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+          std::string in2 = indent(2);
+          if (!first)
+            out += std::format("{}out.write(',');\n", in2);
+          out += std::format("{}out.write(\"\\\"{}\\\":\");\n", in2, f.Name);
+          out += std::format("{}out.write('[');\n", in2);
+          emitMappedDirectSerializeRecursive(out, ci, dims, 0, std::format("(*{})", cn), 2);
+          out += std::format("{}out.write(']');\n", in2);
+          first = false;
+          out += std::format("{}}}\n", in);
+          break;
+        }
+        case EFieldKind::NullableArray:
+        case EFieldKind::NullableFixedArray: {
+          emitKey(f.Name);
+          out += std::format("{}if ({}.has_value()) {{\n", in, cn);
+          std::string in2 = indent(2);
+          out += std::format("{}out.write('[');\n", in2);
+          emitMappedDirectSerializeRecursive(out, ci, dims, 0, std::format("(*{})", cn), 2);
+          out += std::format("{}out.write(']');\n", in2);
+          out += std::format("{}}} else {{\n", in);
+          out += std::format("{}  out.write(\"null\");\n", in);
+          out += std::format("{}}}\n", in);
+          break;
+        }
+        default:
+          break;
+      }
+      continue;
+    }
+
+    if (ci.kind == CFieldCaptureInfo::NestedStruct) {
+      std::string childCtx = childCtxArgsExpr(ci, "");
+      std::string ctxIndexVar;
+      if (!dims.empty() && hasVectorChildContext(ci))
+        ctxIndexVar = std::format("__ctxIdx{}_", i);
+      switch (f.Kind) {
+        case EFieldKind::Required:
+        case EFieldKind::Optional:
+          emitKey(f.Name);
+          if (dims.empty()) {
+            out += std::format("{}{}.serialize(out, {});\n", in, cn, childCtx);
+          } else {
+            if (!ctxIndexVar.empty())
+              out += std::format("{}size_t {} = 0;\n", in, ctxIndexVar);
+            out += std::format("{}out.write('[');\n", in);
+            emitNestedStructSerializeRecursive(out, ci, dims, 0, cn, ctxIndexVar, 1);
+            out += std::format("{}out.write(']');\n", in);
+          }
           break;
         case EFieldKind::OptionalObject: {
           out += std::format("{}if ({}.has_value()) {{\n", in, cn);
@@ -803,7 +1452,7 @@ static void generateContextSerializeBody(std::string &out, const CStructDef &s,
           if (!first)
             out += std::format("{}out.write(',');\n", in2);
           out += std::format("{}out.write(\"\\\"{}\\\":\");\n", in2, f.Name);
-          out += std::format("{}{}->serialize(out, {});\n", in2, cn, cce0);
+          out += std::format("{}{}->serialize(out, {});\n", in2, cn, childCtx);
           first = false;
           out += std::format("{}}}\n", in);
           break;
@@ -811,52 +1460,54 @@ static void generateContextSerializeBody(std::string &out, const CStructDef &s,
         case EFieldKind::NullableObject: {
           emitKey(f.Name);
           out += std::format("{}if ({}.has_value()) {{\n", in, cn);
-          out += std::format("{}  {}->serialize(out, {});\n", in, cn, cce0);
+          out += std::format("{}  {}->serialize(out, {});\n", in, cn, childCtx);
           out += std::format("{}}} else {{\n", in);
           out += std::format("{}  out.write(\"null\");\n", in);
           out += std::format("{}}}\n", in);
           break;
         }
         case EFieldKind::Array:
+        case EFieldKind::FixedArray:
           emitKey(f.Name);
+          if (!ctxIndexVar.empty())
+            out += std::format("{}size_t {} = 0;\n", in, ctxIndexVar);
           out += std::format("{}out.write('[');\n", in);
-          out += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
-          out += std::format("{}  if (i_) out.write(',');\n", in);
-          out += std::format("{}  {}[i_].serialize(out, {});\n", in, cn, cceI);
-          out += std::format("{}}}\n", in);
+          emitNestedStructSerializeRecursive(out, ci, dims, 0, cn, ctxIndexVar, 1);
           out += std::format("{}out.write(']');\n", in);
           break;
-        case EFieldKind::OptionalArray: {
+        case EFieldKind::OptionalArray:
+        case EFieldKind::OptionalFixedArray: {
           out += std::format("{}if ({}.has_value()) {{\n", in, cn);
           std::string in2 = indent(2);
           if (!first)
             out += std::format("{}out.write(',');\n", in2);
           out += std::format("{}out.write(\"\\\"{}\\\":\");\n", in2, f.Name);
+          if (!ctxIndexVar.empty())
+            out += std::format("{}size_t {} = 0;\n", in2, ctxIndexVar);
           out += std::format("{}out.write('[');\n", in2);
-          out += std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in2, cn);
-          out += std::format("{}  if (i_) out.write(',');\n", in2);
-          out += std::format("{}  (*{})[i_].serialize(out, {});\n", in2, cn, cceI);
-          out += std::format("{}}}\n", in2);
+          emitNestedStructSerializeRecursive(out, ci, dims, 0, std::format("(*{})", cn), ctxIndexVar, 2);
           out += std::format("{}out.write(']');\n", in2);
           first = false;
           out += std::format("{}}}\n", in);
           break;
         }
-        case EFieldKind::NullableArray: {
+        case EFieldKind::NullableArray:
+        case EFieldKind::NullableFixedArray: {
           emitKey(f.Name);
           out += std::format("{}if ({}.has_value()) {{\n", in, cn);
           std::string in2 = indent(2);
+          if (!ctxIndexVar.empty())
+            out += std::format("{}size_t {} = 0;\n", in2, ctxIndexVar);
           out += std::format("{}out.write('[');\n", in2);
-          out += std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in2, cn);
-          out += std::format("{}  if (i_) out.write(',');\n", in2);
-          out += std::format("{}  (*{})[i_].serialize(out, {});\n", in2, cn, cceI);
-          out += std::format("{}}}\n", in2);
+          emitNestedStructSerializeRecursive(out, ci, dims, 0, std::format("(*{})", cn), ctxIndexVar, 2);
           out += std::format("{}out.write(']');\n", in2);
           out += std::format("{}}} else {{\n", in);
           out += std::format("{}  out.write(\"null\");\n", in);
           out += std::format("{}}}\n", in);
           break;
         }
+        default:
+          break;
       }
       continue;
     }
@@ -918,7 +1569,8 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
 
     // Count required fields
     auto isRequired = [](EFieldKind k) {
-      return k == EFieldKind::Required || k == EFieldKind::Array;
+      return k == EFieldKind::Required || k == EFieldKind::Array ||
+             k == EFieldKind::FixedArray || k == EFieldKind::Variant;
     };
     for (auto &f : s.Fields)
       if (isRequired(f.Kind))
@@ -1116,6 +1768,8 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   bool hasChrono = false;
   bool anyVerbose = false;
   bool anyFlatSerialize = false;
+  bool hasFixedArray = false;
+  bool hasVariant = false;
   for (auto &s : file.Structs) {
     if (!s.IsMixin && !s.IsImported) {
       if (s.HasTaggedSchema) hasTaggedSchema = true;
@@ -1125,6 +1779,14 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
         if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
             f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours))
           hasChrono = true;
+        if (f.Kind == EFieldKind::FixedArray || f.Kind == EFieldKind::OptionalFixedArray ||
+            f.Kind == EFieldKind::NullableFixedArray || !f.Type.InnerDims.empty()) {
+          for (auto &dim : f.Type.InnerDims)
+            if (dim.FixedSize > 0) hasFixedArray = true;
+          if (f.Type.FixedSize > 0) hasFixedArray = true;
+        }
+        if (!f.Type.Alternatives.empty())
+          hasVariant = true;
       }
     }
   }
@@ -1139,6 +1801,12 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   header += "#include <ctime>\n";
   if (hasChrono)
     header += "#include <chrono>\n";
+  if (hasFixedArray)
+    header += "#include <array>\n";
+  if (hasVariant) {
+    header += "#include <variant>\n";
+    header += "#include <type_traits>\n";
+  }
   if (anyFlatSerialize)
     header += "#include <string_view>\n";
   if (hasTaggedSchema)

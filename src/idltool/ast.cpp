@@ -249,32 +249,81 @@ static bool validateTypes(CIdlFile &file)
     // Validate that structs with direct mapped+context fields have the required context decl
     std::unordered_set<std::string> contextDeclSet(s.ContextDecls.begin(), s.ContextDecls.end());
 
+    // Helper lambda: resolve a single type reference (scalar, struct, enum, mapped)
+    auto resolveRef = [&](const std::string &refName, bool isScalar, int line, const char *fieldName,
+                          bool &outIsScalar, bool &outIsMapped,
+                          std::string &outMappedCppType, std::string &outMappedWireType) -> bool {
+      if (isScalar || refName.empty()) return true;
+      if (mappedNames.count(refName)) {
+        outIsMapped = true;
+        outMappedCppType = mappedIndex[refName]->CppType;
+        outMappedWireType = mappedIndex[refName]->JsonWireType;
+        auto mi = mappedIndex.find(refName);
+        if (mi != mappedIndex.end() && mi->second->ContextType && !contextDeclSet.count(refName)) {
+          fprintf(stderr, "line %d: field '%s' uses mapped type '%s' which has context, "
+                  "but struct '%s' has no 'context %s;' declaration\n",
+                  line, fieldName, refName.c_str(), s.Name.c_str(), refName.c_str());
+          return false;
+        }
+      } else {
+        bool found = structNames.count(refName) || enumNames.count(refName);
+        if (!found) {
+          fprintf(stderr, "line %d: unknown type '%s' for field '%s'\n", line, refName.c_str(), fieldName);
+          return false;
+        }
+        if (enumNames.count(refName))
+          outIsScalar = true;
+      }
+      return true;
+    };
+
     for (auto &f : s.Fields) {
-      if (!f.Type.IsScalar && !f.Type.RefName.empty()) {
-        if (mappedNames.count(f.Type.RefName)) {
-          f.Type.IsMapped = true;
-          f.Type.MappedCppType = mappedIndex[f.Type.RefName]->CppType;
-          f.Type.MappedWireType = mappedIndex[f.Type.RefName]->JsonWireType;
-          // If this mapped type has context, struct must declare it
-          auto mi = mappedIndex.find(f.Type.RefName);
-          if (mi != mappedIndex.end() && mi->second->ContextType && !contextDeclSet.count(f.Type.RefName)) {
-            fprintf(stderr, "line %d: field '%s' uses mapped type '%s' which has context, "
-                    "but struct '%s' has no 'context %s;' declaration\n",
-                    f.Line, f.Name.c_str(), f.Type.RefName.c_str(), s.Name.c_str(), f.Type.RefName.c_str());
+      // Validate fixed array sizes
+      if (f.Type.Shape == ETypeShape::FixedArray || f.Type.Shape == ETypeShape::OptionalFixedArray ||
+          f.Type.Shape == ETypeShape::NullableFixedArray) {
+        if (f.Type.FixedSize <= 0) {
+          fprintf(stderr, "line %d: fixed array size must be > 0 for field '%s'\n", f.Line, f.Name.c_str());
+          return false;
+        }
+      }
+      for (auto &dim : f.Type.InnerDims) {
+        if (dim.FixedSize < 0) {
+          fprintf(stderr, "line %d: inner array dimension size must be >= 0 for field '%s'\n", f.Line, f.Name.c_str());
+          return false;
+        }
+      }
+
+      // Variant fields
+      if (!f.Type.Alternatives.empty()) {
+        if (f.Default.Kind != EDefaultKind::None) {
+          fprintf(stderr, "line %d: defaults not supported on variant field '%s'\n", f.Line, f.Name.c_str());
+          return false;
+        }
+
+        // Resolve each alternative
+        for (auto &alt : f.Type.Alternatives) {
+          if (!resolveRef(alt.RefName, alt.IsScalar, f.Line, f.Name.c_str(),
+                          alt.IsScalar, alt.IsMapped, alt.MappedCppType, alt.MappedWireType))
             return false;
-          }
-        } else {
-          bool found = structNames.count(f.Type.RefName) || enumNames.count(f.Type.RefName);
-          if (!found) {
-            fprintf(stderr, "line %d: unknown type '%s' for field '%s'\n",
-                    f.Line, f.Type.RefName.c_str(), f.Name.c_str());
-            return false;
-          }
-          // Mark if it's an enum
-          if (enumNames.count(f.Type.RefName)) {
-            f.Type.IsScalar = true; // enums are parsed as strings
+          // Reject mapped types with context in variants
+          if (alt.IsMapped) {
+            auto mi = mappedIndex.find(alt.RefName);
+            if (mi != mappedIndex.end() && mi->second->ContextType) {
+              fprintf(stderr, "line %d: variant alternative '%s' is a mapped type with context (not supported)\n",
+                      f.Line, alt.RefName.c_str());
+              return false;
+            }
           }
         }
+
+        continue; // skip normal ref resolution for variant fields
+      }
+
+      // Normal (non-variant) field
+      if (!f.Type.IsScalar && !f.Type.RefName.empty()) {
+        if (!resolveRef(f.Type.RefName, f.Type.IsScalar, f.Line, f.Name.c_str(),
+                        f.Type.IsScalar, f.Type.IsMapped, f.Type.MappedCppType, f.Type.MappedWireType))
+          return false;
       }
 
       // Validate defaults
@@ -353,6 +402,14 @@ static bool topologicalSort(CIdlFile &file)
       if (!f.Type.RefName.empty() && !enumNames.count(f.Type.RefName) &&
           !importedNames.count(f.Type.RefName) && !mappedNames.count(f.Type.RefName)) {
         deps[s.Name].insert(f.Type.RefName);
+      }
+      // Variant alternatives may reference structs
+      for (auto &alt : f.Type.Alternatives) {
+        if (!alt.RefName.empty() && !alt.IsScalar && !alt.IsMapped &&
+            !enumNames.count(alt.RefName) && !importedNames.count(alt.RefName) &&
+            !mappedNames.count(alt.RefName)) {
+          deps[s.Name].insert(alt.RefName);
+        }
       }
     }
   }
@@ -456,18 +513,82 @@ void dumpAst(const CIdlFile &file)
     }
     for (auto &f : s.Fields) {
       printf("  %s: ", f.Name.c_str());
-      if (f.Type.IsScalar && f.Type.RefName.empty())
-        printf("%s", scalarTypeName(f.Type.Scalar));
-      else if (!f.Type.RefName.empty())
-        printf("%s", f.Type.RefName.c_str());
+
+      // Variant fields
+      if (!f.Type.Alternatives.empty()) {
+        auto printAltType = [&](const CVariantAlt &alt) {
+          for (auto &dim : alt.Dims)
+            printf("[");
+          if (alt.IsScalar && alt.RefName.empty())
+            printf("%s", scalarTypeName(alt.Scalar));
+          else if (!alt.RefName.empty())
+            printf("%s", alt.RefName.c_str());
+          for (int d = (int)alt.Dims.size() - 1; d >= 0; d--) {
+            if (alt.Dims[d].FixedSize > 0)
+              printf("; %d]", alt.Dims[d].FixedSize);
+            else
+              printf("]");
+          }
+        };
+
+        printf("variant(");
+        for (size_t i = 0; i < f.Type.Alternatives.size(); i++) {
+          if (i) printf(", ");
+          printAltType(f.Type.Alternatives[i]);
+        }
+        printf(")");
+        if (f.Kind == EFieldKind::OptionalVariant) printf("?");
+        else if (f.Kind == EFieldKind::NullableVariant) printf("??");
+      } else {
+        // Print inner dimensions + leaf type
+        auto printArrayPrefix = [&]() {
+          for (auto &dim : f.Type.InnerDims)
+            printf("[");
+        };
+        auto printArraySuffix = [&]() {
+          for (int i = (int)f.Type.InnerDims.size() - 1; i >= 0; i--) {
+            if (f.Type.InnerDims[i].FixedSize > 0)
+              printf("; %d]", f.Type.InnerDims[i].FixedSize);
+            else
+              printf("]");
+          }
+        };
+
+        bool isFixedOrArray = (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::OptionalArray ||
+                                f.Kind == EFieldKind::NullableArray || f.Kind == EFieldKind::FixedArray ||
+                                f.Kind == EFieldKind::OptionalFixedArray || f.Kind == EFieldKind::NullableFixedArray);
+        if (isFixedOrArray) printf("[");
+        printArrayPrefix();
+
+        if (f.Type.IsScalar && f.Type.RefName.empty())
+          printf("%s", scalarTypeName(f.Type.Scalar));
+        else if (!f.Type.RefName.empty())
+          printf("%s", f.Type.RefName.c_str());
+
+        printArraySuffix();
+
+        if (isFixedOrArray) {
+          if (f.Type.FixedSize > 0)
+            printf("; %d]", f.Type.FixedSize);
+          else
+            printf("]");
+        }
+      }
+
       switch (f.Kind) {
         case EFieldKind::Required: break;
         case EFieldKind::Optional: break;
         case EFieldKind::OptionalObject: printf("?"); break;
         case EFieldKind::NullableObject: printf("??"); break;
-        case EFieldKind::Array: printf("[]"); break;
-        case EFieldKind::OptionalArray: printf("[]?"); break;
-        case EFieldKind::NullableArray: printf("[]??"); break;
+        case EFieldKind::Array: break;
+        case EFieldKind::OptionalArray: printf("?"); break;
+        case EFieldKind::NullableArray: printf("??"); break;
+        case EFieldKind::FixedArray: break;
+        case EFieldKind::OptionalFixedArray: printf("?"); break;
+        case EFieldKind::NullableFixedArray: printf("??"); break;
+        case EFieldKind::Variant: break;
+        case EFieldKind::OptionalVariant: break; // already printed above
+        case EFieldKind::NullableVariant: break; // already printed above
       }
       if (f.Default.Kind != EDefaultKind::None) {
         printf(" = ");

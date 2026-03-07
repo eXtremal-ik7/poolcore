@@ -8,6 +8,7 @@ include "poolcommon/types.idl";
 //   field: type = default;    — optional with default value
 //   field: type?;             — optional sub-object (omitted when absent)
 //   field: type??;            — nullable (null when absent)
+//   field: variant(a, b);     — variant type
 //   [type]                    — array of type
 //   mixin Name;               — inline all fields from another struct
 //   enum Name : type { ... }  — enumeration with allowed values

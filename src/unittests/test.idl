@@ -240,10 +240,16 @@ struct CtxVectorParent {
 // ============================================================================
 
 mapped type counterVal("uint64_t") : uint64 include "testMappedTypes.h";
+mapped type counter32Val("uint32_t") : uint32 include "testMappedTypes.h";
 
 struct WithUint64Mapped {
   .generate(parse, serialize);
   counter: counterVal;
+}
+
+struct WithUint32Mapped {
+  .generate(parse, serialize);
+  counter: counter32Val;
 }
 
 // ============================================================================
@@ -318,4 +324,128 @@ struct FlatResponse {
   .generate(serialize.flat);
   status: string;
   items: [Inner];
+}
+
+// ============================================================================
+// Fixed-size arrays
+// ============================================================================
+
+struct FixedArrayScalar {
+  .generate(parse, parse.verbose, serialize);
+  coords: [double; 3];
+  flags: [bool; 2];
+}
+
+struct FixedArrayStruct {
+  .generate(parse, parse.verbose, serialize);
+  pair: [Inner; 2];
+}
+
+struct OptionalFixedArray {
+  .generate(parse, parse.verbose, serialize);
+  label: string;
+  data: [int32; 3]?;
+}
+
+// ============================================================================
+// Multi-dimensional arrays
+// ============================================================================
+
+struct Matrix2D {
+  .generate(parse, parse.verbose, serialize);
+  grid: [[int32]];
+}
+
+struct FixedMatrix {
+  .generate(parse, parse.verbose, serialize);
+  mat: [[double; 3]; 2];
+}
+
+struct MixedDims {
+  .generate(parse, parse.verbose, serialize);
+  rows: [[int32; 2]];
+}
+
+struct OptionalMatrix2D {
+  .generate(parse, parse.verbose, serialize);
+  label: string;
+  grid: [[int32]]?;
+}
+
+struct NullableMatrix2D {
+  .generate(parse, parse.verbose, serialize);
+  label: string;
+  grid: [[int32]]??;
+}
+
+struct OptionalFixedMatrix {
+  .generate(parse, parse.verbose, serialize);
+  label: string;
+  mat: [[double; 2]; 2]?;
+}
+
+// ============================================================================
+// Variant fields
+// ============================================================================
+
+struct VariantScalars {
+  .generate(parse, parse.verbose, serialize);
+  value: variant(string, int64, bool);
+}
+
+struct VariantWithStruct {
+  .generate(parse, parse.verbose, serialize);
+  data: variant(Inner, string);
+}
+
+struct ShapeCircle {
+  .generate(parse, parse.verbose, serialize);
+  radius: double;
+}
+
+struct ShapeRect {
+  .generate(parse, parse.verbose, serialize);
+  width: double;
+  height: double;
+}
+
+struct VariantMultiStruct {
+  .generate(parse, parse.verbose, serialize);
+  shape: variant(ShapeCircle, ShapeRect);
+}
+
+struct OptionalVariant {
+  .generate(parse, parse.verbose, serialize);
+  label: string;
+  extra: variant(string, int64)?;
+}
+
+struct VariantMappedString {
+  .generate(parse, parse.verbose, serialize);
+  data: variant(plainVal, bool);
+}
+
+struct VariantMappedUInt {
+  .generate(parse, parse.verbose, serialize);
+  data: variant(counterVal, bool);
+}
+
+struct VariantUInt64OrDouble {
+  .generate(parse, parse.verbose, serialize);
+  value: variant(uint64, double);
+}
+
+struct VariantMappedUIntOrDouble {
+  .generate(parse, parse.verbose, serialize);
+  value: variant(counterVal, double);
+}
+
+struct VariantTensorThenMatrix {
+  .generate(parse, parse.verbose, serialize);
+  value: variant([[[double]]], [[double]]);
+}
+
+struct VariantMatrixThenTensor {
+  .generate(parse, parse.verbose, serialize);
+  value: variant([[double]], [[[double]]]);
 }

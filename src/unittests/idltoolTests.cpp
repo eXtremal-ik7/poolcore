@@ -2,12 +2,175 @@
 #include "test.idl.h"
 #include "p2putils/xmstream.h"
 #include "rapidjson/document.h"
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 
 static rapidjson::Document parseRapid(const xmstream &stream) {
   rapidjson::Document doc;
   doc.Parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
   return doc;
 }
+
+namespace {
+
+struct CommandResult {
+  int ExitCode = -1;
+  std::string Output;
+};
+
+class TempDir {
+public:
+  explicit TempDir(std::filesystem::path path) : Path_(std::move(path)) {}
+
+  ~TempDir() {
+    std::error_code ec;
+    std::filesystem::remove_all(Path_, ec);
+  }
+
+  const std::filesystem::path &path() const { return Path_; }
+
+private:
+  std::filesystem::path Path_;
+};
+
+static std::filesystem::path makeTempDir() {
+  static uint64_t counter = 0;
+  const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+  auto base = std::filesystem::temp_directory_path();
+
+  for (uint64_t attempt = 0; attempt < 1024; ++attempt) {
+    auto dir = base / ("poolcore-idltool-tests-" + std::to_string(now) + "-" + std::to_string(counter++));
+    std::error_code ec;
+    if (std::filesystem::create_directory(dir, ec))
+      return dir;
+  }
+
+  throw std::runtime_error("failed to create temporary directory");
+}
+
+static void writeTextFile(const std::filesystem::path &path, const std::string &content) {
+  std::ofstream out(path, std::ios::binary);
+  if (!out)
+    throw std::runtime_error("failed to open " + path.string());
+  out << content;
+  if (!out)
+    throw std::runtime_error("failed to write " + path.string());
+}
+
+static std::string readTextFile(const std::filesystem::path &path) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in)
+    throw std::runtime_error("failed to open " + path.string());
+  std::ostringstream buffer;
+  buffer << in.rdbuf();
+  return buffer.str();
+}
+
+static std::string shellQuote(const std::string &value) {
+  std::string quoted = "'";
+  for (char ch : value) {
+    if (ch == '\'')
+      quoted += "'\\''";
+    else
+      quoted += ch;
+  }
+  quoted += "'";
+  return quoted;
+}
+
+static CommandResult runCommandCapture(const std::string &command, const std::filesystem::path &logPath) {
+  CommandResult result;
+  std::string wrapped = command + " > " + shellQuote(logPath.string()) + " 2>&1";
+  result.ExitCode = std::system(wrapped.c_str());
+  result.Output = readTextFile(logPath);
+  return result;
+}
+
+static const char *kCompileProbeSupportHeader = R"(#pragma once
+#include <cstdint>
+#include <string>
+
+inline bool __aValResolve(const std::string &raw, uint32_t ctx, int64_t &out) {
+  out = static_cast<int64_t>(raw.size()) + ctx;
+  return true;
+}
+
+inline std::string __aValFormat(int64_t val, uint32_t ctx) {
+  return std::to_string(val + ctx);
+}
+
+inline bool __bValResolve(const std::string &raw, uint32_t ctx, int64_t &out) {
+  out = static_cast<int64_t>(raw.size()) + ctx;
+  return true;
+}
+
+inline std::string __bValFormat(int64_t val, uint32_t ctx) {
+  return std::to_string(val + ctx);
+}
+
+inline bool __numValResolve(uint32_t raw, uint32_t ctx, uint32_t &out) {
+  out = raw + ctx;
+  return true;
+}
+
+inline uint32_t __numValFormat(uint32_t val, uint32_t ctx) {
+  return val + ctx;
+}
+)";
+
+static testing::AssertionResult generatedIdlCompiles(const std::string &stem, const std::string &idlSource) {
+  try {
+    TempDir tempDir(makeTempDir());
+    auto idlPath = tempDir.path() / (stem + ".idl");
+    auto headerPath = tempDir.path() / (stem + ".idl.h");
+    auto sourcePath = tempDir.path() / (stem + ".idl.cpp");
+    auto objectPath = tempDir.path() / (stem + ".idl.o");
+    auto genLogPath = tempDir.path() / "idltool.log";
+    auto compileLogPath = tempDir.path() / "compile.log";
+
+    writeTextFile(tempDir.path() / "support.h", kCompileProbeSupportHeader);
+    writeTextFile(idlPath, idlSource);
+
+    std::string generateCmd =
+      shellQuote(IDLTOOL_BINARY_PATH) + " " +
+      shellQuote(idlPath.string()) + " -o " +
+      shellQuote(headerPath.string());
+    auto genResult = runCommandCapture(generateCmd, genLogPath);
+    if (genResult.ExitCode != 0) {
+      return testing::AssertionFailure()
+        << "idltool failed for " << idlPath.filename().string() << "\n"
+        << genResult.Output;
+    }
+
+    std::string compileCmd =
+      std::string("c++ -std=gnu++20 ") +
+      "-I" + shellQuote(tempDir.path().string()) + " " +
+      "-I" + shellQuote(std::string(PROJECT_SOURCE_DIR) + "/include") + " " +
+      "-I" + shellQuote(std::string(PROJECT_SOURCE_DIR) + "/../dependencies/libp2p/src/include") + " " +
+      "-I" + shellQuote(PROJECT_BINARY_DIR) + " " +
+      "-I" + shellQuote(std::string(PROJECT_BINARY_DIR) + "/include") + " " +
+      "-I" + shellQuote(std::string(PROJECT_BINARY_DIR) + "/_deps/libp2p-build/include") + " " +
+      "-c " + shellQuote(sourcePath.string()) + " " +
+      "-o " + shellQuote(objectPath.string());
+    auto compileResult = runCommandCapture(compileCmd, compileLogPath);
+    if (compileResult.ExitCode != 0) {
+      return testing::AssertionFailure()
+        << "generated code did not compile for " << idlPath.filename().string() << "\n"
+        << compileResult.Output;
+    }
+
+    return testing::AssertionSuccess();
+  } catch (const std::exception &e) {
+    return testing::AssertionFailure() << e.what();
+  }
+}
+
+} // namespace
 
 // ============================================================================
 // Parse tests
@@ -852,6 +1015,18 @@ TEST(IdlTool, BugUint64WireSerialize) {
   EXPECT_EQ(json.find('-'), std::string::npos) << "Large uint64 serialized as negative: " << json;
 }
 
+TEST(IdlTool, BugUint32WireSerialize) {
+  WithUint32Mapped m;
+  m.counter = 4000000000U;
+
+  xmstream stream;
+  m.serialize(stream);
+  auto doc = parseRapid(stream);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["counter"].IsUint());
+  EXPECT_EQ(doc["counter"].GetUint(), 4000000000U);
+}
+
 // Issue 2: \uXXXX escape handling drops hex digits, produces literal '\u'
 // instead of decoding the Unicode codepoint.
 TEST(IdlTool, BugUnicodeEscape) {
@@ -1373,4 +1548,781 @@ TEST(IdlTool, FlatSerialize) {
   ASSERT_EQ(doc["items"].Size(), 1u);
   EXPECT_STREQ(doc["items"][0]["value"].GetString(), "hello");
   EXPECT_EQ(doc["items"][0]["count"].GetInt64(), 42);
+}
+
+// ============================================================================
+// Fixed-size array tests
+// ============================================================================
+
+TEST(IdlTool, ParseFixedArrayScalar) {
+  const char *json = R"({"coords":[1.0,2.0,3.0],"flags":[true,false]})";
+  FixedArrayScalar t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_DOUBLE_EQ(t.coords[0], 1.0);
+  EXPECT_DOUBLE_EQ(t.coords[1], 2.0);
+  EXPECT_DOUBLE_EQ(t.coords[2], 3.0);
+  EXPECT_EQ(t.flags[0], true);
+  EXPECT_EQ(t.flags[1], false);
+}
+
+TEST(IdlTool, SerializeFixedArrayScalar) {
+  FixedArrayScalar t;
+  t.coords = {1.5, 2.5, 3.5};
+  t.flags = {false, true};
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["coords"].IsArray());
+  ASSERT_EQ(doc["coords"].Size(), 3u);
+  EXPECT_DOUBLE_EQ(doc["coords"][0].GetDouble(), 1.5);
+  EXPECT_DOUBLE_EQ(doc["coords"][1].GetDouble(), 2.5);
+  EXPECT_DOUBLE_EQ(doc["coords"][2].GetDouble(), 3.5);
+  ASSERT_TRUE(doc["flags"].IsArray());
+  EXPECT_EQ(doc["flags"][0].GetBool(), false);
+  EXPECT_EQ(doc["flags"][1].GetBool(), true);
+}
+
+TEST(IdlTool, RoundtripFixedArrayScalar) {
+  FixedArrayScalar t;
+  t.coords = {10.0, 20.0, 30.0};
+  t.flags = {true, true};
+  xmstream out;
+  t.serialize(out);
+  FixedArrayScalar t2;
+  ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  EXPECT_DOUBLE_EQ(t2.coords[0], 10.0);
+  EXPECT_DOUBLE_EQ(t2.coords[1], 20.0);
+  EXPECT_DOUBLE_EQ(t2.coords[2], 30.0);
+  EXPECT_EQ(t2.flags[0], true);
+  EXPECT_EQ(t2.flags[1], true);
+}
+
+TEST(IdlTool, ParseFixedArrayStruct) {
+  const char *json = R"({"pair":[{"value":"a","count":1},{"value":"b","count":2}]})";
+  FixedArrayStruct t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_EQ(t.pair[0].value, "a");
+  EXPECT_EQ(t.pair[0].count, 1);
+  EXPECT_EQ(t.pair[1].value, "b");
+  EXPECT_EQ(t.pair[1].count, 2);
+}
+
+TEST(IdlTool, VerboseParseFixedArrayScalar) {
+  const char *json = R"({"coords":[1.0,2.0,3.0],"flags":[true,false]})";
+  FixedArrayScalar t;
+  ParseError err;
+  ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
+  EXPECT_DOUBLE_EQ(t.coords[0], 1.0);
+  EXPECT_DOUBLE_EQ(t.coords[2], 3.0);
+}
+
+TEST(IdlTool, ParseOptionalFixedArrayPresent) {
+  const char *json = R"({"label":"test","data":[10,20,30]})";
+  OptionalFixedArray t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_EQ(t.label, "test");
+  ASSERT_TRUE(t.data.has_value());
+  EXPECT_EQ((*t.data)[0], 10);
+  EXPECT_EQ((*t.data)[1], 20);
+  EXPECT_EQ((*t.data)[2], 30);
+}
+
+TEST(IdlTool, ParseOptionalFixedArrayAbsent) {
+  const char *json = R"({"label":"test"})";
+  OptionalFixedArray t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_EQ(t.label, "test");
+  EXPECT_FALSE(t.data.has_value());
+}
+
+TEST(IdlTool, ParseFixedArrayRejectsMissingComma) {
+  const char *json = R"({"coords":[1.0 2.0,3.0],"flags":[true,false]})";
+  FixedArrayScalar t;
+  EXPECT_FALSE(t.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, VerboseParseFixedArrayRejectsMissingComma) {
+  const char *json = R"({"coords":[1.0 2.0,3.0],"flags":[true,false]})";
+  FixedArrayScalar t;
+  ParseError err;
+  EXPECT_FALSE(t.parseVerbose(json, strlen(json), err));
+}
+
+TEST(IdlTool, ParseFixedMatrixRejectsMissingInnerComma) {
+  const char *json = R"({"mat":[[1.0,2.0 3.0],[4.0,5.0,6.0]]})";
+  FixedMatrix t;
+  EXPECT_FALSE(t.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, VerboseParseFixedMatrixRejectsMissingInnerComma) {
+  const char *json = R"({"mat":[[1.0,2.0 3.0],[4.0,5.0,6.0]]})";
+  FixedMatrix t;
+  ParseError err;
+  EXPECT_FALSE(t.parseVerbose(json, strlen(json), err));
+}
+
+// ============================================================================
+// Multi-dimensional array tests
+// ============================================================================
+
+TEST(IdlTool, ParseMatrix2D) {
+  const char *json = R"({"grid":[[1,2,3],[4,5,6]]})";
+  Matrix2D t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.grid.size(), 2u);
+  ASSERT_EQ(t.grid[0].size(), 3u);
+  EXPECT_EQ(t.grid[0][0], 1);
+  EXPECT_EQ(t.grid[0][2], 3);
+  EXPECT_EQ(t.grid[1][0], 4);
+  EXPECT_EQ(t.grid[1][2], 6);
+}
+
+TEST(IdlTool, SerializeMatrix2D) {
+  Matrix2D t;
+  t.grid = {{1, 2}, {3, 4, 5}};
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_EQ(doc["grid"].Size(), 2u);
+  ASSERT_EQ(doc["grid"][0].Size(), 2u);
+  EXPECT_EQ(doc["grid"][0][0].GetInt(), 1);
+  EXPECT_EQ(doc["grid"][1][2].GetInt(), 5);
+}
+
+TEST(IdlTool, RoundtripMatrix2D) {
+  Matrix2D t;
+  t.grid = {{10, 20}, {30}};
+  xmstream out;
+  t.serialize(out);
+  Matrix2D t2;
+  ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_EQ(t2.grid.size(), 2u);
+  EXPECT_EQ(t2.grid[0][0], 10);
+  EXPECT_EQ(t2.grid[0][1], 20);
+  EXPECT_EQ(t2.grid[1][0], 30);
+}
+
+TEST(IdlTool, ParseFixedMatrix) {
+  const char *json = R"({"mat":[[1.0,2.0,3.0],[4.0,5.0,6.0]]})";
+  FixedMatrix t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_DOUBLE_EQ(t.mat[0][0], 1.0);
+  EXPECT_DOUBLE_EQ(t.mat[0][2], 3.0);
+  EXPECT_DOUBLE_EQ(t.mat[1][0], 4.0);
+  EXPECT_DOUBLE_EQ(t.mat[1][2], 6.0);
+}
+
+TEST(IdlTool, SerializeFixedMatrix) {
+  FixedMatrix t;
+  t.mat = {{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}}};
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_EQ(doc["mat"].Size(), 2u);
+  ASSERT_EQ(doc["mat"][0].Size(), 3u);
+  EXPECT_DOUBLE_EQ(doc["mat"][0][0].GetDouble(), 1.0);
+  EXPECT_DOUBLE_EQ(doc["mat"][1][2].GetDouble(), 6.0);
+}
+
+TEST(IdlTool, ParseMixedDims) {
+  const char *json = R"({"rows":[[10,20],[30,40],[50,60]]})";
+  MixedDims t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.rows.size(), 3u);
+  EXPECT_EQ(t.rows[0][0], 10);
+  EXPECT_EQ(t.rows[0][1], 20);
+  EXPECT_EQ(t.rows[2][0], 50);
+  EXPECT_EQ(t.rows[2][1], 60);
+}
+
+TEST(IdlTool, RoundtripMixedDims) {
+  MixedDims t;
+  t.rows = {{{1, 2}}, {{3, 4}}};
+  xmstream out;
+  t.serialize(out);
+  MixedDims t2;
+  ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_EQ(t2.rows.size(), 2u);
+  EXPECT_EQ(t2.rows[0][0], 1);
+  EXPECT_EQ(t2.rows[1][1], 4);
+}
+
+TEST(IdlTool, VerboseParseMatrix2D) {
+  const char *json = R"({"grid":[[1,2],[3,4]]})";
+  Matrix2D t;
+  ParseError err;
+  ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
+  ASSERT_EQ(t.grid.size(), 2u);
+  EXPECT_EQ(t.grid[0][0], 1);
+  EXPECT_EQ(t.grid[1][1], 4);
+}
+
+TEST(IdlTool, SerializeOptionalMatrix2DPresent) {
+  OptionalMatrix2D t;
+  t.label = "m";
+  t.grid = std::vector<std::vector<int32_t>>{{1, 2}, {3, 4, 5}};
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_STREQ(doc["label"].GetString(), "m");
+  ASSERT_TRUE(doc["grid"].IsArray());
+  ASSERT_EQ(doc["grid"].Size(), 2u);
+  EXPECT_EQ(doc["grid"][0][1].GetInt(), 2);
+  EXPECT_EQ(doc["grid"][1][2].GetInt(), 5);
+}
+
+TEST(IdlTool, SerializeOptionalMatrix2DAbsent) {
+  OptionalMatrix2D t;
+  t.label = "m";
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_FALSE(doc.HasMember("grid"));
+}
+
+TEST(IdlTool, SerializeNullableMatrix2DNull) {
+  NullableMatrix2D t;
+  t.label = "m";
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc.HasMember("grid"));
+  EXPECT_TRUE(doc["grid"].IsNull());
+}
+
+TEST(IdlTool, RoundtripOptionalFixedMatrix) {
+  OptionalFixedMatrix t;
+  t.label = "fixed";
+  t.mat = std::array<std::array<double, 2>, 2>{{{{1.0, 2.0}}, {{3.0, 4.0}}}};
+  xmstream out;
+  t.serialize(out);
+  OptionalFixedMatrix t2;
+  ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_TRUE(t2.mat.has_value());
+  EXPECT_DOUBLE_EQ((*t2.mat)[0][0], 1.0);
+  EXPECT_DOUBLE_EQ((*t2.mat)[1][1], 4.0);
+}
+
+// ============================================================================
+// Variant tests
+// ============================================================================
+
+TEST(IdlTool, ParseVariantString) {
+  const char *json = R"({"value":"hello"})";
+  VariantScalars t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.value.index(), 0u); // string
+  EXPECT_EQ(std::get<0>(t.value), "hello");
+}
+
+TEST(IdlTool, ParseVariantInt) {
+  const char *json = R"({"value":42})";
+  VariantScalars t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.value.index(), 1u); // int64
+  EXPECT_EQ(std::get<1>(t.value), 42);
+}
+
+TEST(IdlTool, ParseVariantBool) {
+  const char *json = R"({"value":true})";
+  VariantScalars t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.value.index(), 2u); // bool
+  EXPECT_EQ(std::get<2>(t.value), true);
+}
+
+TEST(IdlTool, SerializeVariantString) {
+  VariantScalars t;
+  t.value = std::string("world");
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_STREQ(doc["value"].GetString(), "world");
+}
+
+TEST(IdlTool, SerializeVariantInt) {
+  VariantScalars t;
+  t.value = (int64_t)99;
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_EQ(doc["value"].GetInt64(), 99);
+}
+
+TEST(IdlTool, SerializeVariantBool) {
+  VariantScalars t;
+  t.value = false;
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_EQ(doc["value"].GetBool(), false);
+}
+
+TEST(IdlTool, RoundtripVariantScalars) {
+  // String
+  {
+    VariantScalars t;
+    t.value = std::string("test");
+    xmstream out;
+    t.serialize(out);
+    VariantScalars t2;
+    ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+    ASSERT_EQ(t2.value.index(), 0u);
+    EXPECT_EQ(std::get<0>(t2.value), "test");
+  }
+  // Int
+  {
+    VariantScalars t;
+    t.value = (int64_t)-100;
+    xmstream out;
+    t.serialize(out);
+    VariantScalars t2;
+    ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+    ASSERT_EQ(t2.value.index(), 1u);
+    EXPECT_EQ(std::get<1>(t2.value), -100);
+  }
+}
+
+TEST(IdlTool, ParseVariantWithStruct) {
+  // Struct alternative
+  const char *json1 = R"({"data":{"value":"x","count":5}})";
+  VariantWithStruct t1;
+  ASSERT_TRUE(t1.parse(json1, strlen(json1)));
+  ASSERT_EQ(t1.data.index(), 0u); // Inner
+  EXPECT_EQ(std::get<0>(t1.data).value, "x");
+  EXPECT_EQ(std::get<0>(t1.data).count, 5);
+
+  // String alternative
+  const char *json2 = R"({"data":"plaintext"})";
+  VariantWithStruct t2;
+  ASSERT_TRUE(t2.parse(json2, strlen(json2)));
+  ASSERT_EQ(t2.data.index(), 1u); // string
+  EXPECT_EQ(std::get<1>(t2.data), "plaintext");
+}
+
+TEST(IdlTool, SerializeVariantWithStruct) {
+  VariantWithStruct t;
+  Inner inner;
+  inner.value = "v";
+  inner.count = 7;
+  t.data = inner;
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["data"].IsObject());
+  EXPECT_STREQ(doc["data"]["value"].GetString(), "v");
+  EXPECT_EQ(doc["data"]["count"].GetInt64(), 7);
+}
+
+TEST(IdlTool, ParseVariantMultiStruct) {
+  // Circle (discriminated by "radius" field)
+  const char *json1 = R"({"shape":{"radius":5.0}})";
+  VariantMultiStruct t1;
+  ASSERT_TRUE(t1.parse(json1, strlen(json1)));
+  ASSERT_EQ(t1.shape.index(), 0u); // ShapeCircle
+  EXPECT_DOUBLE_EQ(std::get<0>(t1.shape).radius, 5.0);
+
+  // Rect (discriminated by "width" or "height" field)
+  const char *json2 = R"({"shape":{"width":10.0,"height":20.0}})";
+  VariantMultiStruct t2;
+  ASSERT_TRUE(t2.parse(json2, strlen(json2)));
+  ASSERT_EQ(t2.shape.index(), 1u); // ShapeRect
+  EXPECT_DOUBLE_EQ(std::get<1>(t2.shape).width, 10.0);
+  EXPECT_DOUBLE_EQ(std::get<1>(t2.shape).height, 20.0);
+}
+
+TEST(IdlTool, SerializeVariantMultiStruct) {
+  VariantMultiStruct t;
+  ShapeCircle c;
+  c.radius = 3.0;
+  t.shape = c;
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["shape"].IsObject());
+  EXPECT_DOUBLE_EQ(doc["shape"]["radius"].GetDouble(), 3.0);
+}
+
+TEST(IdlTool, RoundtripVariantMultiStruct) {
+  // Circle roundtrip
+  {
+    VariantMultiStruct t;
+    ShapeCircle c;
+    c.radius = 7.5;
+    t.shape = c;
+    xmstream out;
+    t.serialize(out);
+    VariantMultiStruct t2;
+    ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+    ASSERT_EQ(t2.shape.index(), 0u);
+    EXPECT_DOUBLE_EQ(std::get<0>(t2.shape).radius, 7.5);
+  }
+  // Rect roundtrip
+  {
+    VariantMultiStruct t;
+    ShapeRect r;
+    r.width = 4.0;
+    r.height = 6.0;
+    t.shape = r;
+    xmstream out;
+    t.serialize(out);
+    VariantMultiStruct t2;
+    ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+    ASSERT_EQ(t2.shape.index(), 1u);
+    EXPECT_DOUBLE_EQ(std::get<1>(t2.shape).width, 4.0);
+    EXPECT_DOUBLE_EQ(std::get<1>(t2.shape).height, 6.0);
+  }
+}
+
+TEST(IdlTool, ParseOptionalVariantPresent) {
+  const char *json = R"({"label":"hi","extra":"bonus"})";
+  OptionalVariant t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_EQ(t.label, "hi");
+  ASSERT_TRUE(t.extra.has_value());
+  ASSERT_EQ(t.extra->index(), 0u); // string
+  EXPECT_EQ(std::get<0>(*t.extra), "bonus");
+}
+
+TEST(IdlTool, ParseOptionalVariantAbsent) {
+  const char *json = R"({"label":"hi"})";
+  OptionalVariant t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_EQ(t.label, "hi");
+  EXPECT_FALSE(t.extra.has_value());
+}
+
+TEST(IdlTool, ParseOptionalVariantInt) {
+  const char *json = R"({"label":"hi","extra":123})";
+  OptionalVariant t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_TRUE(t.extra.has_value());
+  ASSERT_EQ(t.extra->index(), 1u); // int64
+  EXPECT_EQ(std::get<1>(*t.extra), 123);
+}
+
+TEST(IdlTool, SerializeOptionalVariantAbsent) {
+  OptionalVariant t;
+  t.label = "test";
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_STREQ(doc["label"].GetString(), "test");
+  EXPECT_FALSE(doc.HasMember("extra"));
+}
+
+TEST(IdlTool, SerializeOptionalVariantPresent) {
+  OptionalVariant t;
+  t.label = "test";
+  t.extra = std::variant<std::string, int64_t>(std::string("val"));
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_STREQ(doc["extra"].GetString(), "val");
+}
+
+TEST(IdlTool, ParseVariantMappedString) {
+  const char *json = R"({"data":"42"})";
+  VariantMappedString t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.data.index(), 0u);
+  EXPECT_EQ(std::get<0>(t.data), 42);
+}
+
+TEST(IdlTool, SerializeVariantMappedString) {
+  VariantMappedString t;
+  t.data = int64_t(73);
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["data"].IsString());
+  EXPECT_STREQ(doc["data"].GetString(), "73");
+}
+
+TEST(IdlTool, ParseVariantMappedUInt) {
+  const char *json = R"({"data":1234567890123})";
+  VariantMappedUInt t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.data.index(), 0u);
+  EXPECT_EQ(std::get<0>(t.data), 1234567890123ULL);
+}
+
+TEST(IdlTool, SerializeVariantMappedUInt) {
+  VariantMappedUInt t;
+  t.data = uint64_t(1234567890123ULL);
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["data"].IsUint64());
+  EXPECT_EQ(doc["data"].GetUint64(), 1234567890123ULL);
+}
+
+TEST(IdlTool, VerboseParseVariantMappedUInt) {
+  const char *json = R"({"data":77})";
+  VariantMappedUInt t;
+  ParseError err;
+  ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
+  ASSERT_EQ(t.data.index(), 0u);
+  EXPECT_EQ(std::get<0>(t.data), 77ULL);
+}
+
+TEST(IdlTool, ParseVariantUInt64OrDoubleNegativeFallsBackToDouble) {
+  const char *json = R"({"value":-1})";
+  VariantUInt64OrDouble t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.value.index(), 1u);
+  EXPECT_DOUBLE_EQ(std::get<1>(t.value), -1.0);
+}
+
+TEST(IdlTool, VerboseParseVariantUInt64OrDoubleNegativeFallsBackToDouble) {
+  const char *json = R"({"value":-1})";
+  VariantUInt64OrDouble t;
+  ParseError err;
+  ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
+  ASSERT_EQ(t.value.index(), 1u);
+  EXPECT_DOUBLE_EQ(std::get<1>(t.value), -1.0);
+}
+
+TEST(IdlTool, ParseVariantMappedUIntOrDoubleNegativeFallsBackToDouble) {
+  const char *json = R"({"value":-1})";
+  VariantMappedUIntOrDouble t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.value.index(), 1u);
+  EXPECT_DOUBLE_EQ(std::get<1>(t.value), -1.0);
+}
+
+TEST(IdlTool, VerboseParseVariantMappedUIntOrDoubleNegativeFallsBackToDouble) {
+  const char *json = R"({"value":-1})";
+  VariantMappedUIntOrDouble t;
+  ParseError err;
+  ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
+  ASSERT_EQ(t.value.index(), 1u);
+  EXPECT_DOUBLE_EQ(std::get<1>(t.value), -1.0);
+}
+
+TEST(IdlTool, ParseVariantTensorThenMatrixAmbiguousEmptyPrefersFirst) {
+  const char *json = R"({"value":[]})";
+  VariantTensorThenMatrix t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.value.index(), 0u);
+  EXPECT_TRUE(std::get<0>(t.value).empty());
+}
+
+TEST(IdlTool, ParseVariantTensorThenMatrixFallsBackToMatrix) {
+  const char *json = R"({"value":[[1.0,2.0],[3.0]]})";
+  VariantTensorThenMatrix t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.value.index(), 1u);
+  const auto &matrix = std::get<1>(t.value);
+  ASSERT_EQ(matrix.size(), 2u);
+  ASSERT_EQ(matrix[0].size(), 2u);
+  EXPECT_DOUBLE_EQ(matrix[0][0], 1.0);
+  EXPECT_DOUBLE_EQ(matrix[0][1], 2.0);
+  ASSERT_EQ(matrix[1].size(), 1u);
+  EXPECT_DOUBLE_EQ(matrix[1][0], 3.0);
+}
+
+TEST(IdlTool, VerboseParseVariantTensorThenMatrixFallsBackToMatrix) {
+  const char *json = R"({"value":[[1.0,2.0],[3.0]]})";
+  VariantTensorThenMatrix t;
+  ParseError err;
+  ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
+  ASSERT_EQ(t.value.index(), 1u);
+  EXPECT_DOUBLE_EQ(std::get<1>(t.value)[0][1], 2.0);
+}
+
+TEST(IdlTool, ParseVariantTensorThenMatrixRejectsOneDimensionalArray) {
+  const char *json = R"({"value":[1.0]})";
+  VariantTensorThenMatrix t;
+  EXPECT_FALSE(t.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, ParseVariantMatrixThenTensorAmbiguousEmptyPrefersFirst) {
+  const char *json = R"({"value":[]})";
+  VariantMatrixThenTensor t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.value.index(), 0u);
+  EXPECT_TRUE(std::get<0>(t.value).empty());
+}
+
+TEST(IdlTool, ParseVariantMatrixThenTensorFallsBackToTensor) {
+  const char *json = R"({"value":[[[1.0],[2.0]],[[3.0]]]})";
+  VariantMatrixThenTensor t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  ASSERT_EQ(t.value.index(), 1u);
+  const auto &tensor = std::get<1>(t.value);
+  ASSERT_EQ(tensor.size(), 2u);
+  ASSERT_EQ(tensor[0].size(), 2u);
+  ASSERT_EQ(tensor[0][0].size(), 1u);
+  EXPECT_DOUBLE_EQ(tensor[0][0][0], 1.0);
+  EXPECT_DOUBLE_EQ(tensor[0][1][0], 2.0);
+  ASSERT_EQ(tensor[1].size(), 1u);
+  EXPECT_DOUBLE_EQ(tensor[1][0][0], 3.0);
+}
+
+TEST(IdlTool, VerboseParseVariantMatrixThenTensorFallsBackToTensor) {
+  const char *json = R"({"value":[[[1.0]]]})";
+  VariantMatrixThenTensor t;
+  ParseError err;
+  ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
+  ASSERT_EQ(t.value.index(), 1u);
+  EXPECT_DOUBLE_EQ(std::get<1>(t.value)[0][0][0], 1.0);
+}
+
+TEST(IdlTool, ParseVariantMatrixThenTensorRejectsOneDimensionalArray) {
+  const char *json = R"({"value":[1.0]})";
+  VariantMatrixThenTensor t;
+  EXPECT_FALSE(t.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, SerializeVariantTensorThenMatrixFirstAlternative) {
+  VariantTensorThenMatrix t;
+  std::vector<std::vector<std::vector<double>>> tensor = {{{1.0, 2.0}}, {{3.0}}};
+  t.value = tensor;
+  xmstream out;
+  t.serialize(out);
+  auto doc = parseRapid(out);
+  ASSERT_FALSE(doc.HasParseError());
+  ASSERT_TRUE(doc["value"].IsArray());
+  ASSERT_EQ(doc["value"].Size(), 2u);
+  ASSERT_EQ(doc["value"][0].Size(), 1u);
+  ASSERT_EQ(doc["value"][0][0].Size(), 2u);
+  EXPECT_DOUBLE_EQ(doc["value"][0][0][0].GetDouble(), 1.0);
+  EXPECT_DOUBLE_EQ(doc["value"][1][0][0].GetDouble(), 3.0);
+}
+
+TEST(IdlTool, RoundtripVariantMatrixThenTensorTensorAlternative) {
+  VariantMatrixThenTensor t;
+  std::vector<std::vector<std::vector<double>>> tensor = {{{4.0}}, {{5.0, 6.0}}};
+  t.value = tensor;
+  xmstream out;
+  t.serialize(out);
+  VariantMatrixThenTensor t2;
+  ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_EQ(t2.value.index(), 1u);
+  EXPECT_DOUBLE_EQ(std::get<1>(t2.value)[0][0][0], 4.0);
+  EXPECT_DOUBLE_EQ(std::get<1>(t2.value)[1][0][1], 6.0);
+}
+
+TEST(IdlTool, VerboseParseVariantString) {
+  const char *json = R"({"value":"hello"})";
+  VariantScalars t;
+  ParseError err;
+  ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
+  ASSERT_EQ(t.value.index(), 0u);
+  EXPECT_EQ(std::get<0>(t.value), "hello");
+}
+
+TEST(IdlTool, VerboseParseVariantInt) {
+  const char *json = R"({"value":42})";
+  VariantScalars t;
+  ParseError err;
+  ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
+  ASSERT_EQ(t.value.index(), 1u);
+  EXPECT_EQ(std::get<1>(t.value), 42);
+}
+
+TEST(IdlTool, VerboseParseVariantMultiStruct) {
+  const char *json = R"({"shape":{"radius":5.0}})";
+  VariantMultiStruct t;
+  ParseError err;
+  ASSERT_TRUE(t.parseVerbose(json, strlen(json), err));
+  ASSERT_EQ(t.shape.index(), 0u);
+  EXPECT_DOUBLE_EQ(std::get<0>(t.shape).radius, 5.0);
+}
+
+// ============================================================================
+// Schema compile regression tests
+// ============================================================================
+
+TEST(IdlTool, ContextFixedArraySchemaCompiles) {
+  std::string idl =
+    "mapped type testVal(\"int64_t\") : string context(uint32) include \"" + std::string(UNITTEST_SOURCE_DIR) + "/testMappedTypes.h\";\n"
+    "struct Child {\n"
+    "  .generate(parse, serialize);\n"
+    "  .context(testVal);\n"
+    "  value: testVal;\n"
+    "  label: string;\n"
+    "}\n"
+    "struct Parent {\n"
+    "  .generate(parse, serialize);\n"
+    "  items: [Child; 2];\n"
+    "}\n";
+
+  EXPECT_TRUE(generatedIdlCompiles("context_fixed_array", idl));
+}
+
+TEST(IdlTool, ContextFixedMatrixSchemaCompiles) {
+  std::string idl =
+    "mapped type testVal(\"int64_t\") : string context(uint32) include \"" + std::string(UNITTEST_SOURCE_DIR) + "/testMappedTypes.h\";\n"
+    "struct Child {\n"
+    "  .generate(parse, serialize);\n"
+    "  .context(testVal);\n"
+    "  value: testVal;\n"
+    "  label: string;\n"
+    "}\n"
+    "struct Parent {\n"
+    "  .generate(parse, serialize);\n"
+    "  grid: [[Child; 2]; 2];\n"
+    "}\n";
+
+  EXPECT_TRUE(generatedIdlCompiles("context_fixed_matrix", idl));
+}
+
+TEST(IdlTool, ContextDirectMappedArraySchemaCompiles) {
+  std::string idl =
+    "mapped type testVal(\"int64_t\") : string context(uint32) include \"" + std::string(UNITTEST_SOURCE_DIR) + "/testMappedTypes.h\";\n"
+    "struct Parent {\n"
+    "  .generate(parse, serialize);\n"
+    "  .context(testVal);\n"
+    "  items: [testVal];\n"
+    "}\n";
+
+  EXPECT_TRUE(generatedIdlCompiles("context_direct_mapped_array", idl));
+}
+
+TEST(IdlTool, ContextNumericWireTypeSchemaCompiles) {
+  const std::string idl =
+    "mapped type numVal(\"uint32_t\") : uint32 context(uint32) include \"support.h\";\n"
+    "struct Parent {\n"
+    "  .generate(parse, serialize);\n"
+    "  .context(numVal);\n"
+    "  value: numVal;\n"
+    "}\n";
+
+  EXPECT_TRUE(generatedIdlCompiles("context_numeric_wire", idl));
+}
+
+TEST(IdlTool, ContextMultipleDependenciesSchemaCompiles) {
+  const std::string idl =
+    "mapped type aVal(\"int64_t\") : string context(uint32) include \"support.h\";\n"
+    "mapped type bVal(\"int64_t\") : string context(uint32) include \"support.h\";\n"
+    "struct Child {\n"
+    "  .generate(parse, serialize);\n"
+    "  .context(aVal);\n"
+    "  .context(bVal);\n"
+    "  left: aVal;\n"
+    "  right: bVal;\n"
+    "}\n"
+    "struct Parent {\n"
+    "  .generate(parse, serialize);\n"
+    "  child: Child;\n"
+    "}\n";
+
+  EXPECT_TRUE(generatedIdlCompiles("context_multiple_dependencies", idl));
 }

@@ -24,23 +24,53 @@ enum class EScalarType {
 
 // How a field is declared
 enum class EFieldKind {
-  Required,        // field: Type
-  Optional,        // field: Type = default
-  OptionalObject,  // field: Type?          — omitted when nullopt
-  NullableObject,  // field: Type??         — null when nullopt
-  Array,           // field: [Type]
-  OptionalArray,   // field: [Type]?        — omitted when nullopt
-  NullableArray    // field: [Type]??       — null when nullopt
+  Required,            // field: Type
+  Optional,            // field: Type = default
+  OptionalObject,      // field: Type?          — omitted when nullopt
+  NullableObject,      // field: Type??         — null when nullopt
+  Array,               // field: [Type]
+  OptionalArray,       // field: [Type]?        — omitted when nullopt
+  NullableArray,       // field: [Type]??       — null when nullopt
+  FixedArray,          // field: [Type; N]
+  OptionalFixedArray,  // field: [Type; N]?
+  NullableFixedArray,  // field: [Type; N]??
+  Variant,             // field: variant(T1, T2, T3)
+  OptionalVariant,     // field: variant(T1, T2, T3)?
+  NullableVariant      // field: variant(T1, T2, T3)??
 };
 
 // Shape of field declaration in IDL
 enum class ETypeShape {
-  Plain,           // field: Type
-  OptionalObject,  // field: Type?
-  NullableObject,  // field: Type??
-  Array,           // field: [Type]
-  OptionalArray,   // field: [Type]?
-  NullableArray    // field: [Type]??
+  Plain,                // field: Type
+  OptionalObject,       // field: Type?
+  NullableObject,       // field: Type??
+  Array,                // field: [Type]
+  OptionalArray,        // field: [Type]?
+  NullableArray,        // field: [Type]??
+  FixedArray,           // field: [Type; N]
+  OptionalFixedArray,   // field: [Type; N]?
+  NullableFixedArray,   // field: [Type; N]??
+  Variant,              // field: variant(T1, T2, T3)
+  OptionalVariant,      // field: variant(T1, T2, T3)?
+  NullableVariant       // field: variant(T1, T2, T3)??
+};
+
+// Inner array dimension for multi-dimensional arrays
+struct CArrayDim {
+  int FixedSize = 0; // 0 = dynamic (std::vector), >0 = fixed (std::array)
+};
+
+// A single alternative in a variant type
+struct CVariantAlt {
+  bool IsScalar = false;
+  EScalarType Scalar = EScalarType::String;
+  std::string RefName;
+  bool IsMapped = false;
+  std::string MappedCppType;
+  std::string MappedWireType;
+  std::vector<CArrayDim> Dims; // outermost first for array alternatives
+  // Kept for compatibility with existing AST dump/logic; backtracking parse does not require it.
+  std::string DiscriminatingField;
 };
 
 // Type of a field — scalar or reference to struct/enum/mapped
@@ -52,6 +82,15 @@ struct CFieldType {
   std::string MappedCppType; // C++ type from mapped type definition
   std::string MappedWireType; // JSON wire type from mapped type definition
   ETypeShape Shape = ETypeShape::Plain;
+
+  // Fixed-size array: 0 = dynamic, >0 = std::array<T, N>
+  int FixedSize = 0;
+
+  // Inner dimensions for multi-dimensional arrays (outermost first)
+  std::vector<CArrayDim> InnerDims;
+
+  // Variant alternatives (non-empty → variant type)
+  std::vector<CVariantAlt> Alternatives;
 };
 
 // Default value kinds

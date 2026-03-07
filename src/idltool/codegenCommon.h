@@ -11,8 +11,10 @@
 std::string indent(int level);
 std::string cppScalarType(EScalarType t);
 std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::string> &enumNames, const std::string &structPrefix = "");
+std::string cppVariantAltType(const CVariantAlt &alt, const std::unordered_set<std::string> &enumNames, const std::string &structPrefix = "");
 std::string cppDefault(const CFieldDef &f, const std::unordered_set<std::string> &enumNames, bool pascalCase = false);
 std::string fieldCppName(const std::string &name, bool pascalCase);
+CFieldDef variantAltAsField(const CVariantAlt &alt, const std::string &name = "");
 
 bool isEnum(const std::string &refName, const std::unordered_set<std::string> &enumNames);
 bool isStructRef(const CFieldDef &f, const std::unordered_set<std::string> &enumNames);
@@ -44,7 +46,24 @@ void emitSerializeArrayElem(std::string &code, const CFieldDef &f,
                             const std::string &valueName,
                             const std::unordered_set<std::string> &enumNames,
                             int ind);
+void emitSerializeExpr(std::string &code, const CFieldDef &f,
+                       const std::string &valueName,
+                       const std::unordered_set<std::string> &enumNames,
+                       int ind);
 void generateSerializeField(std::string &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase = false);
+
+// --- Variant/FixedArray serialize helpers ---
+
+void emitVariantSerialize(std::string &code, const CFieldDef &f,
+                           const std::string &valueName,
+                           const std::unordered_set<std::string> &enumNames,
+                           int ind, const std::string &structPrefix = "");
+
+void emitNestedArraySerialize(std::string &code, const CFieldDef &f,
+                               const std::vector<CArrayDim> &dims, int dimIndex,
+                               const std::string &valueName,
+                               const std::unordered_set<std::string> &enumNames,
+                               int ind);
 
 // --- Scanner code strings ---
 

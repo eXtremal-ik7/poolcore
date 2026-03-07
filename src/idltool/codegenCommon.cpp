@@ -37,18 +37,107 @@ std::string fieldCppName(const std::string &name, bool pascalCase)
   return result;
 }
 
+// Build base type name for a single type reference (scalar/struct/enum/mapped)
+static std::string baseTypeName(bool isScalar, bool isMapped,
+    EScalarType scalar, const std::string &refName,
+    const std::string &mappedCppType,
+    const std::unordered_set<std::string> &enumNames,
+    const std::string &structPrefix)
+{
+  if (isMapped)
+    return mappedCppType;
+  if (!refName.empty()) {
+    if (enumNames.count(refName))
+      return "E" + refName;
+    return structPrefix + refName;
+  }
+  return cppScalarType(scalar);
+}
+
+static std::string wrapArrayDims(std::string baseType, const std::vector<CArrayDim> &dims)
+{
+  for (int i = (int)dims.size() - 1; i >= 0; i--) {
+    if (dims[i].FixedSize > 0)
+      baseType = std::format("std::array<{}, {}>", baseType, dims[i].FixedSize);
+    else
+      baseType = std::format("std::vector<{}>", baseType);
+  }
+  return baseType;
+}
+
+CFieldDef variantAltAsField(const CVariantAlt &alt, const std::string &name)
+{
+  CFieldDef f;
+  f.Name = name;
+  f.Type.IsScalar = alt.IsScalar;
+  f.Type.IsMapped = alt.IsMapped;
+  f.Type.Scalar = alt.Scalar;
+  f.Type.RefName = alt.RefName;
+  f.Type.MappedCppType = alt.MappedCppType;
+  f.Type.MappedWireType = alt.MappedWireType;
+  if (!alt.Dims.empty()) {
+    f.Type.InnerDims.assign(alt.Dims.begin() + 1, alt.Dims.end());
+    if (alt.Dims[0].FixedSize > 0) {
+      f.Kind = EFieldKind::FixedArray;
+      f.Type.FixedSize = alt.Dims[0].FixedSize;
+    } else {
+      f.Kind = EFieldKind::Array;
+    }
+  }
+  return f;
+}
+
+std::string cppVariantAltType(const CVariantAlt &alt,
+    const std::unordered_set<std::string> &enumNames,
+    const std::string &structPrefix)
+{
+  if (!alt.Dims.empty()) {
+    return wrapArrayDims(baseTypeName(alt.IsScalar, alt.IsMapped, alt.Scalar, alt.RefName,
+                                      alt.MappedCppType, enumNames, structPrefix),
+                         alt.Dims);
+  }
+  return baseTypeName(alt.IsScalar, alt.IsMapped, alt.Scalar, alt.RefName,
+                      alt.MappedCppType, enumNames, structPrefix);
+}
+
+// Build the variant type from alternatives
+static std::string variantCppType(const std::vector<CVariantAlt> &alts,
+    const std::unordered_set<std::string> &enumNames,
+    const std::string &structPrefix)
+{
+  std::string result = "std::variant<";
+  for (size_t i = 0; i < alts.size(); i++) {
+    if (i) result += ", ";
+    result += cppVariantAltType(alts[i], enumNames, structPrefix);
+  }
+  result += ">";
+  return result;
+}
+
 std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::string> &enumNames, const std::string &structPrefix)
 {
-  std::string base;
-  if (f.Type.IsMapped) {
-    base = f.Type.MappedCppType;
-  } else if (!f.Type.RefName.empty()) {
-    if (enumNames.count(f.Type.RefName))
-      base = "E" + f.Type.RefName;
-    else
-      base = structPrefix + f.Type.RefName;
-  } else {
-    base = cppScalarType(f.Type.Scalar);
+  // Variant types
+  if (!f.Type.Alternatives.empty()) {
+    std::string vt = variantCppType(f.Type.Alternatives, enumNames, structPrefix);
+    switch (f.Kind) {
+      case EFieldKind::Variant:         return vt;
+      case EFieldKind::OptionalVariant:
+      case EFieldKind::NullableVariant: return std::format("std::optional<{}>", vt);
+      default: return vt;
+    }
+  }
+
+  std::string base = baseTypeName(f.Type.IsScalar, f.Type.IsMapped, f.Type.Scalar,
+                                   f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix);
+
+  // Multi-dimensional: wrap from innermost to outermost
+  if (!f.Type.InnerDims.empty()) {
+    for (int d = (int)f.Type.InnerDims.size() - 1; d >= 0; d--) {
+      if (f.Type.InnerDims[d].FixedSize > 0)
+        base = std::format("std::array<{}, {}>", base, f.Type.InnerDims[d].FixedSize);
+      else
+        base = std::format("std::vector<{}>", base);
+    }
   }
 
   switch (f.Kind) {
@@ -63,8 +152,14 @@ std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::strin
     case EFieldKind::OptionalArray:
     case EFieldKind::NullableArray:
       return std::format("std::optional<std::vector<{}>>", base);
+    case EFieldKind::FixedArray:
+      return std::format("std::array<{}, {}>", base, f.Type.FixedSize);
+    case EFieldKind::OptionalFixedArray:
+    case EFieldKind::NullableFixedArray:
+      return std::format("std::optional<std::array<{}, {}>>", base, f.Type.FixedSize);
+    default:
+      return base;
   }
-  return base;
 }
 
 static bool isChronoType(EScalarType t)
@@ -266,6 +361,132 @@ void emitSerializeArrayElem(std::string &code, const CFieldDef &f,
   emitSerializeValue(code, f, valueName, enumNames, ind);
 }
 
+static void emitMappedInlineValueSerialize(std::string &code,
+                                           const std::string &mappedTypeName,
+                                           const std::string &mappedWireType,
+                                           const std::string &valueName,
+                                           int ind)
+{
+  std::string in = indent(ind);
+  std::string formatFunc = "__" + mappedTypeName + "Format";
+  if (mappedWireType == "string") {
+    code += std::format("{}jsonWriteString(out, {}({}));\n", in, formatFunc, valueName);
+  } else if (mappedWireType == "bool") {
+    code += std::format("{}jsonWriteBool(out, {}({}));\n", in, formatFunc, valueName);
+  } else if (mappedWireType == "double") {
+    code += std::format("{}jsonWriteDouble(out, {}({}));\n", in, formatFunc, valueName);
+  } else if (mappedWireType == "uint32" || mappedWireType == "uint64") {
+    code += std::format("{}jsonWriteUInt(out, {}({}));\n", in, formatFunc, valueName);
+  } else {
+    code += std::format("{}jsonWriteInt(out, {}({}));\n", in, formatFunc, valueName);
+  }
+}
+
+static void emitMappedInlineNestedArraySerialize(std::string &code,
+                                                 const CFieldDef &f,
+                                                 const std::vector<CArrayDim> &dims, int dimIndex,
+                                                 const std::string &valueName,
+                                                 int ind)
+{
+  std::string in = indent(ind);
+  if (dimIndex >= (int)dims.size()) {
+    emitMappedInlineValueSerialize(code, f.Type.RefName, f.Type.MappedWireType, valueName, ind);
+    return;
+  }
+
+  code += std::format("{}out.write('[');\n", in);
+  std::string idx = std::format("i{}_", dimIndex);
+  code += std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueName, idx);
+  code += std::format("{}  if ({}) out.write(',');\n", in, idx);
+  emitMappedInlineNestedArraySerialize(code, f, dims, dimIndex + 1,
+                                       std::format("{}[{}]", valueName, idx), ind + 1);
+  code += std::format("{}}}\n", in);
+  code += std::format("{}out.write(']');\n", in);
+}
+
+void emitSerializeExpr(std::string &code, const CFieldDef &f,
+                       const std::string &valueName,
+                       const std::unordered_set<std::string> &enumNames,
+                       int ind)
+{
+  std::string in = indent(ind);
+  if (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::FixedArray) {
+    code += std::format("{}out.write('[');\n", in);
+    code += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, valueName);
+    code += std::format("{}  if (i_) out.write(',');\n", in);
+    if (isMappedField(f)) {
+      if (f.Type.InnerDims.empty()) {
+        emitMappedInlineValueSerialize(code, f.Type.RefName, f.Type.MappedWireType,
+                                       std::format("{}[i_]", valueName), ind + 1);
+      } else {
+        emitMappedInlineNestedArraySerialize(code, f, f.Type.InnerDims, 0,
+                                             std::format("{}[i_]", valueName), ind + 1);
+      }
+    } else if (f.Type.InnerDims.empty()) {
+      emitSerializeArrayElem(code, f, std::format("{}[i_]", valueName), enumNames, ind + 1);
+    } else {
+      emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("{}[i_]", valueName), enumNames, ind + 1);
+    }
+    code += std::format("{}}}\n", in);
+    code += std::format("{}out.write(']');\n", in);
+    return;
+  }
+
+  if (isMappedField(f)) {
+    emitMappedInlineValueSerialize(code, f.Type.RefName, f.Type.MappedWireType, valueName, ind);
+    return;
+  }
+  if (isStructRef(f, enumNames)) {
+    code += std::format("{}{}.serialize(out);\n", in, valueName);
+    return;
+  }
+  emitSerializeValue(code, f, valueName, enumNames, ind);
+}
+
+// Serialize a variant value (already extracted from the field)
+void emitVariantSerialize(std::string &code, const CFieldDef &f,
+                           const std::string &valueName,
+                           const std::unordered_set<std::string> &enumNames,
+                           int ind, const std::string &structPrefix)
+{
+  std::string in = indent(ind);
+  code += std::format("{}switch (({}).index()) {{\n", in, valueName);
+  for (size_t i = 0; i < f.Type.Alternatives.size(); i++) {
+    auto &alt = f.Type.Alternatives[i];
+    CFieldDef tmp = variantAltAsField(alt);
+    code += std::format("{}  case {}: {{\n", in, i);
+    std::string getter = std::format("std::get<{}>({})", i, valueName);
+    emitSerializeExpr(code, tmp, getter, enumNames, ind + 2);
+    code += std::format("{}    break;\n", in);
+    code += std::format("{}  }}\n", in);
+  }
+  code += std::format("{}}}\n", in);
+}
+
+// Serialize nested multi-dimensional arrays
+void emitNestedArraySerialize(std::string &code, const CFieldDef &f,
+                               const std::vector<CArrayDim> &dims, int dimIndex,
+                               const std::string &valueName,
+                               const std::unordered_set<std::string> &enumNames,
+                               int ind)
+{
+  std::string in = indent(ind);
+  if (dimIndex >= (int)dims.size()) {
+    // Leaf: serialize element
+    emitSerializeArrayElem(code, f, valueName, enumNames, ind);
+    return;
+  }
+
+  code += std::format("{}out.write('[');\n", in);
+  std::string idx = std::format("i{}_", dimIndex);
+  code += std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueName, idx);
+  code += std::format("{}  if ({}) out.write(',');\n", in, idx);
+  std::string elemExpr = std::format("{}[{}]", valueName, idx);
+  emitNestedArraySerialize(code, f, dims, dimIndex + 1, elemExpr, enumNames, ind + 1);
+  code += std::format("{}}}\n", in);
+  code += std::format("{}out.write(']');\n", in);
+}
+
 void generateSerializeField(std::string &code, const CFieldDef &f, const std::unordered_set<std::string> &enumNames, int ind, bool &first, bool pascalCase)
 {
   std::string in = indent(ind);
@@ -329,12 +550,22 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
 
     case EFieldKind::Array: {
       emitKey(f.Name);
-      code += std::format("{}out.write('[');\n", in);
-      code += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
-      code += std::format("{}  if (i_) out.write(',');\n", in);
-      emitSerializeArrayElem(code, f, std::format("{}[i_]", cn), enumNames, ind + 1);
-      code += std::format("{}}}\n", in);
-      code += std::format("{}out.write(']');\n", in);
+      if (f.Type.InnerDims.empty()) {
+        code += std::format("{}out.write('[');\n", in);
+        code += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
+        code += std::format("{}  if (i_) out.write(',');\n", in);
+        emitSerializeArrayElem(code, f, std::format("{}[i_]", cn), enumNames, ind + 1);
+        code += std::format("{}}}\n", in);
+        code += std::format("{}out.write(']');\n", in);
+      } else {
+        // Multi-dimensional: outer is dynamic vector
+        code += std::format("{}out.write('[');\n", in);
+        code += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
+        code += std::format("{}  if (i_) out.write(',');\n", in);
+        emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("{}[i_]", cn), enumNames, ind + 1);
+        code += std::format("{}}}\n", in);
+        code += std::format("{}out.write(']');\n", in);
+      }
       break;
     }
 
@@ -347,7 +578,11 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
       code += std::format("{}out.write('[');\n", in2);
       code += std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in2, cn);
       code += std::format("{}  if (i_) out.write(',');\n", in2);
-      emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      if (f.Type.InnerDims.empty()) {
+        emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      } else {
+        emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      }
       code += std::format("{}}}\n", in2);
       code += std::format("{}out.write(']');\n", in2);
       first = false;
@@ -362,9 +597,97 @@ void generateSerializeField(std::string &code, const CFieldDef &f, const std::un
       code += std::format("{}out.write('[');\n", in2);
       code += std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in2, cn);
       code += std::format("{}  if (i_) out.write(',');\n", in2);
-      emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      if (f.Type.InnerDims.empty()) {
+        emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      } else {
+        emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      }
       code += std::format("{}}}\n", in2);
       code += std::format("{}out.write(']');\n", in2);
+      code += std::format("{}}} else {{\n", in);
+      code += std::format("{}out.write(\"null\");\n", indent(ind + 1));
+      code += std::format("{}}}\n", in);
+      break;
+    }
+
+    case EFieldKind::FixedArray: {
+      emitKey(f.Name);
+      code += std::format("{}out.write('[');\n", in);
+      code += std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn);
+      code += std::format("{}  if (i_) out.write(',');\n", in);
+      if (f.Type.InnerDims.empty()) {
+        emitSerializeArrayElem(code, f, std::format("{}[i_]", cn), enumNames, ind + 1);
+      } else {
+        emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("{}[i_]", cn), enumNames, ind + 1);
+      }
+      code += std::format("{}}}\n", in);
+      code += std::format("{}out.write(']');\n", in);
+      break;
+    }
+
+    case EFieldKind::OptionalFixedArray: {
+      code += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      std::string in2 = indent(ind + 1);
+      if (!first)
+        code += std::format("{}out.write(',');\n", in2);
+      code += std::format("{}out.write(\"\\\"{}\\\":\");\n", in2, f.Name);
+      code += std::format("{}out.write('[');\n", in2);
+      code += std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in2, cn);
+      code += std::format("{}  if (i_) out.write(',');\n", in2);
+      if (f.Type.InnerDims.empty()) {
+        emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      } else {
+        emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      }
+      code += std::format("{}}}\n", in2);
+      code += std::format("{}out.write(']');\n", in2);
+      first = false;
+      code += std::format("{}}}\n", in);
+      break;
+    }
+
+    case EFieldKind::NullableFixedArray: {
+      emitKey(f.Name);
+      code += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      std::string in2 = indent(ind + 1);
+      code += std::format("{}out.write('[');\n", in2);
+      code += std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", in2, cn);
+      code += std::format("{}  if (i_) out.write(',');\n", in2);
+      if (f.Type.InnerDims.empty()) {
+        emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      } else {
+        emitNestedArraySerialize(code, f, f.Type.InnerDims, 0, std::format("(*{})[i_]", cn), enumNames, ind + 2);
+      }
+      code += std::format("{}}}\n", in2);
+      code += std::format("{}out.write(']');\n", in2);
+      code += std::format("{}}} else {{\n", in);
+      code += std::format("{}out.write(\"null\");\n", indent(ind + 1));
+      code += std::format("{}}}\n", in);
+      break;
+    }
+
+    case EFieldKind::Variant: {
+      emitKey(f.Name);
+      emitVariantSerialize(code, f, cn, enumNames, ind);
+      break;
+    }
+
+    case EFieldKind::OptionalVariant: {
+      code += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      std::string in2 = indent(ind + 1);
+      if (!first)
+        code += std::format("{}out.write(',');\n", in2);
+      code += std::format("{}out.write(\"\\\"{}\\\":\");\n", in2, f.Name);
+      emitVariantSerialize(code, f, std::format("*{}", cn), enumNames, ind + 1);
+      first = false;
+      code += std::format("{}}}\n", in);
+      break;
+    }
+
+    case EFieldKind::NullableVariant: {
+      emitKey(f.Name);
+      code += std::format("{}if ({}.has_value()) {{\n", in, cn);
+      emitVariantSerialize(code, f, std::format("*{}", cn), enumNames, ind + 1);
       code += std::format("{}}} else {{\n", in);
       code += std::format("{}out.write(\"null\");\n", indent(ind + 1));
       code += std::format("{}}}\n", in);

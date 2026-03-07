@@ -8,6 +8,20 @@
   #include <cstdio>
   #include <cstdlib>
   #include <cstring>
+  #include <utility>
+
+  static CVariantAlt makeVariantAlt(CFieldType *type) {
+    CVariantAlt alt;
+    alt.IsScalar = type->IsScalar;
+    alt.Scalar = type->Scalar;
+    alt.RefName = std::move(type->RefName);
+    alt.IsMapped = type->IsMapped;
+    alt.MappedCppType = std::move(type->MappedCppType);
+    alt.MappedWireType = std::move(type->MappedWireType);
+    alt.Dims = std::move(type->InnerDims);
+    return alt;
+  }
+
   void yyerror(YYLTYPE *yylloc, CIdlFile *file, yyscan_t scanner, const char *msg);
 }
 
@@ -32,10 +46,11 @@
   std::vector<std::variant<CMixinRef, CFieldDef, CContextDecl, CCppBlock, CGenerateDecl>> *memberList;
   std::vector<CFieldDef> *fieldList;
   std::vector<std::string> *stringList;
+  std::vector<CVariantAlt> *variantAlts;
 }
 
 %token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW TOK_INCLUDE
-%token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_GENERATE
+%token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_GENERATE TOK_VARIANT
 %token <strVal> TOK_CPP_BLOCK
 %token <strVal> TOK_IDENTIFIER TOK_STRING_LITERAL
 %token <strVal> TOK_CHRONO_SECONDS TOK_CHRONO_MINUTES TOK_CHRONO_HOURS
@@ -47,7 +62,7 @@
 %type <includeDef> include_directive
 %type <mappedDef> mapped_def
 %type <fieldDef> field
-%type <fieldType> type_spec
+%type <fieldType> type_spec array_elem
 %type <defaultVal> default_value
 %type <tagVal> field_tag
 %type <strVal> type_name field_name
@@ -55,9 +70,10 @@
 %type <fieldList> mixin_field_list
 %type <stringList> enum_values generate_flag_list
 %type <strVal> generate_flag
+%type <variantAlts> variant_alts variant_tail
 
 %destructor { free($$); } <strVal>
-%destructor { delete $$; } <structDef> <enumDef> <includeDef> <mappedDef> <fieldDef> <fieldType> <defaultVal> <memberList> <fieldList> <stringList>
+%destructor { delete $$; } <structDef> <enumDef> <includeDef> <mappedDef> <fieldDef> <fieldType> <defaultVal> <memberList> <fieldList> <stringList> <variantAlts>
 
 %%
 
@@ -243,6 +259,7 @@ field_name:
   | TOK_CONTEXT    { $$ = strdup("context"); }
   | TOK_MAPPED     { $$ = strdup("mapped"); }
   | TOK_GENERATE   { $$ = strdup("generate"); }
+  | TOK_VARIANT    { $$ = strdup("variant"); }
   ;
 
 field:
@@ -253,12 +270,18 @@ field:
       $$->Tag = $4;
       $$->Line = @1.first_line;
       switch ($3->Shape) {
-        case ETypeShape::Plain:          $$->Kind = EFieldKind::Required; break;
-        case ETypeShape::OptionalObject: $$->Kind = EFieldKind::OptionalObject; break;
-        case ETypeShape::NullableObject: $$->Kind = EFieldKind::NullableObject; break;
-        case ETypeShape::Array:          $$->Kind = EFieldKind::Array; break;
-        case ETypeShape::OptionalArray:  $$->Kind = EFieldKind::OptionalArray; break;
-        case ETypeShape::NullableArray:  $$->Kind = EFieldKind::NullableArray; break;
+        case ETypeShape::Plain:              $$->Kind = EFieldKind::Required; break;
+        case ETypeShape::OptionalObject:     $$->Kind = EFieldKind::OptionalObject; break;
+        case ETypeShape::NullableObject:     $$->Kind = EFieldKind::NullableObject; break;
+        case ETypeShape::Array:              $$->Kind = EFieldKind::Array; break;
+        case ETypeShape::OptionalArray:      $$->Kind = EFieldKind::OptionalArray; break;
+        case ETypeShape::NullableArray:      $$->Kind = EFieldKind::NullableArray; break;
+        case ETypeShape::FixedArray:         $$->Kind = EFieldKind::FixedArray; break;
+        case ETypeShape::OptionalFixedArray: $$->Kind = EFieldKind::OptionalFixedArray; break;
+        case ETypeShape::NullableFixedArray: $$->Kind = EFieldKind::NullableFixedArray; break;
+        case ETypeShape::Variant:            $$->Kind = EFieldKind::Variant; break;
+        case ETypeShape::OptionalVariant:    $$->Kind = EFieldKind::OptionalVariant; break;
+        case ETypeShape::NullableVariant:    $$->Kind = EFieldKind::NullableVariant; break;
       }
       free($1);
       delete $3;
@@ -284,78 +307,123 @@ type_name:
   | TOK_CHRONO_HOURS    { $$ = $1; }
   ;
 
+array_elem:
+    type_name {
+      $$ = new CFieldType();
+      auto scalar = parseScalarType($1);
+      if (scalar) { $$->IsScalar = true; $$->Scalar = *scalar; }
+      else { $$->RefName = $1; }
+      free($1);
+    }
+  | '[' array_elem ']' {
+      $$ = $2;
+      $$->InnerDims.insert($$->InnerDims.begin(), CArrayDim{0});
+    }
+  | '[' array_elem ';' TOK_INT_LITERAL ']' {
+      $$ = $2;
+      $$->InnerDims.insert($$->InnerDims.begin(), CArrayDim{(int)$4});
+    }
+  ;
+
+variant_alts:
+    array_elem ',' variant_tail {
+      $$ = new std::vector<CVariantAlt>();
+      CVariantAlt first = makeVariantAlt($1);
+      $$->push_back(std::move(first));
+      for (auto &a : *$3) $$->push_back(std::move(a));
+      delete $1;
+      delete $3;
+    }
+  ;
+
+variant_tail:
+    array_elem {
+      $$ = new std::vector<CVariantAlt>();
+      CVariantAlt alt = makeVariantAlt($1);
+      $$->push_back(std::move(alt));
+      delete $1;
+    }
+  | variant_tail ',' array_elem {
+      $$ = $1;
+      CVariantAlt alt = makeVariantAlt($3);
+      $$->push_back(std::move(alt));
+      delete $3;
+    }
+  ;
+
 type_spec:
+    /* Plain scalar/struct/enum */
     type_name {
       $$ = new CFieldType();
       $$->Shape = ETypeShape::Plain;
       auto scalar = parseScalarType($1);
-      if (scalar) {
-        $$->IsScalar = true;
-        $$->Scalar = *scalar;
-      } else {
-        $$->RefName = $1;
-      }
+      if (scalar) { $$->IsScalar = true; $$->Scalar = *scalar; }
+      else { $$->RefName = $1; }
       free($1);
     }
   | type_name '?' {
       $$ = new CFieldType();
       $$->Shape = ETypeShape::OptionalObject;
       auto scalar = parseScalarType($1);
-      if (scalar) {
-        $$->IsScalar = true;
-        $$->Scalar = *scalar;
-      } else {
-        $$->RefName = $1;
-      }
+      if (scalar) { $$->IsScalar = true; $$->Scalar = *scalar; }
+      else { $$->RefName = $1; }
       free($1);
     }
   | type_name '?' '?' {
       $$ = new CFieldType();
       $$->Shape = ETypeShape::NullableObject;
       auto scalar = parseScalarType($1);
-      if (scalar) {
-        $$->IsScalar = true;
-        $$->Scalar = *scalar;
-      } else {
-        $$->RefName = $1;
-      }
+      if (scalar) { $$->IsScalar = true; $$->Scalar = *scalar; }
+      else { $$->RefName = $1; }
       free($1);
     }
-  | '[' type_name ']' {
+    /* Variant: variant(T1, T2, ...) */
+  | TOK_VARIANT '(' variant_alts ')' {
       $$ = new CFieldType();
+      $$->Shape = ETypeShape::Variant;
+      for (auto &a : *$3) $$->Alternatives.push_back(std::move(a));
+      delete $3;
+    }
+  | TOK_VARIANT '(' variant_alts ')' '?' {
+      $$ = new CFieldType();
+      $$->Shape = ETypeShape::OptionalVariant;
+      for (auto &a : *$3) $$->Alternatives.push_back(std::move(a));
+      delete $3;
+    }
+  | TOK_VARIANT '(' variant_alts ')' '?' '?' {
+      $$ = new CFieldType();
+      $$->Shape = ETypeShape::NullableVariant;
+      for (auto &a : *$3) $$->Alternatives.push_back(std::move(a));
+      delete $3;
+    }
+    /* Dynamic array */
+  | '[' array_elem ']' {
+      $$ = $2;
       $$->Shape = ETypeShape::Array;
-      auto scalar = parseScalarType($2);
-      if (scalar) {
-        $$->IsScalar = true;
-        $$->Scalar = *scalar;
-      } else {
-        $$->RefName = $2;
-      }
-      free($2);
     }
-  | '[' type_name ']' '?' {
-      $$ = new CFieldType();
+  | '[' array_elem ']' '?' {
+      $$ = $2;
       $$->Shape = ETypeShape::OptionalArray;
-      auto scalar = parseScalarType($2);
-      if (scalar) {
-        $$->IsScalar = true;
-        $$->Scalar = *scalar;
-      } else {
-        $$->RefName = $2;
-      }
-      free($2);
     }
-  | '[' type_name ']' '?' '?' {
-      $$ = new CFieldType();
+  | '[' array_elem ']' '?' '?' {
+      $$ = $2;
       $$->Shape = ETypeShape::NullableArray;
-      auto scalar = parseScalarType($2);
-      if (scalar) {
-        $$->IsScalar = true;
-        $$->Scalar = *scalar;
-      } else {
-        $$->RefName = $2;
-      }
-      free($2);
+    }
+    /* Fixed-size array */
+  | '[' array_elem ';' TOK_INT_LITERAL ']' {
+      $$ = $2;
+      $$->Shape = ETypeShape::FixedArray;
+      $$->FixedSize = (int)$4;
+    }
+  | '[' array_elem ';' TOK_INT_LITERAL ']' '?' {
+      $$ = $2;
+      $$->Shape = ETypeShape::OptionalFixedArray;
+      $$->FixedSize = (int)$4;
+    }
+  | '[' array_elem ';' TOK_INT_LITERAL ']' '?' '?' {
+      $$ = $2;
+      $$->Shape = ETypeShape::NullableFixedArray;
+      $$->FixedSize = (int)$4;
     }
   ;
 

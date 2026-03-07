@@ -62,3 +62,14 @@ inline uint64_t __counterValFormat(uint64_t val)
 {
   return val;
 }
+
+inline bool __counter32ValResolve(uint32_t raw, uint32_t &out)
+{
+  out = raw;
+  return true;
+}
+
+inline uint32_t __counter32ValFormat(uint32_t val)
+{
+  return val;
+}
