@@ -2,19 +2,6 @@
 #include "codegenCommon.h"
 #include <format>
 
-// --- ParseError code for generated headers ---
-
-const char *parseErrorCode = R"(
-#ifndef IDLTOOL_PARSE_ERROR_DEFINED
-#define IDLTOOL_PARSE_ERROR_DEFINED
-struct ParseError {
-  int row = 0;
-  int col = 0;
-  std::string message;
-};
-#endif
-)";
-
 // --- Verbose parse field generation ---
 
 struct VerboseWireTypeInfo {

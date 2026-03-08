@@ -101,9 +101,7 @@ void emitNestedArraySerialize(CSerializeCodeBuilder &code, const CFieldDef &f,
                                const std::unordered_set<std::string> &enumNames,
                                int ind);
 
-// --- Scanner code strings ---
-
-extern const char *jsonScannerCode;
+// --- JSON helper usage tracking ---
 
 struct CJsonHelperUsage {
   bool WriteString = false;
@@ -118,4 +116,15 @@ struct CJsonHelperUsage {
   }
 };
 
-std::string generateJsonHelperCode(const CJsonHelperUsage &usage);
+struct CJsonReadUsage {
+  bool ReadString = false;
+  bool ReadBool = false;
+  bool ReadInt = false;
+  bool ReadUInt = false;
+  bool ReadDouble = false;
+
+  bool any() const
+  {
+    return ReadString || ReadBool || ReadInt || ReadUInt || ReadDouble;
+  }
+};

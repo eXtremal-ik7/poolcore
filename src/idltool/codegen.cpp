@@ -403,6 +403,71 @@ static void collectSerializeHelpersForField(CJsonHelperUsage &usage,
   markJsonHelperForScalar(usage, f.Type.Scalar);
 }
 
+// --- Read usage tracking ---
+
+static void markJsonReadForScalar(CJsonReadUsage &usage, EScalarType scalar)
+{
+  switch (scalar) {
+    case EScalarType::String:
+      usage.ReadString = true;
+      break;
+    case EScalarType::Bool:
+      usage.ReadBool = true;
+      break;
+    case EScalarType::Int32:
+    case EScalarType::Int64:
+    case EScalarType::Seconds:
+    case EScalarType::Minutes:
+    case EScalarType::Hours:
+      usage.ReadInt = true;
+      break;
+    case EScalarType::Uint32:
+    case EScalarType::Uint64:
+      usage.ReadUInt = true;
+      break;
+    case EScalarType::Double:
+      usage.ReadDouble = true;
+      break;
+  }
+}
+
+static void markJsonReadForWireType(CJsonReadUsage &usage, const std::string &wireType)
+{
+  if (wireType == "string")
+    usage.ReadString = true;
+  else if (wireType == "bool")
+    usage.ReadBool = true;
+  else if (wireType == "double")
+    usage.ReadDouble = true;
+  else if (wireType == "uint32" || wireType == "uint64")
+    usage.ReadUInt = true;
+  else
+    usage.ReadInt = true;
+}
+
+static void collectParseReadUsageForField(CJsonReadUsage &usage,
+    const CFieldDef &f,
+    const std::unordered_set<std::string> &enumNames)
+{
+  if (!f.Type.Alternatives.empty()) {
+    for (auto &alt : f.Type.Alternatives) {
+      CFieldDef tmp = variantAltAsField(alt);
+      collectParseReadUsageForField(usage, tmp, enumNames);
+    }
+    return;
+  }
+
+  if (f.Type.IsMapped) {
+    markJsonReadForWireType(usage, f.Type.MappedWireType);
+    return;
+  }
+
+  if (isStructRef(f, enumNames) || isEnum(f.Type.RefName, enumNames))
+    return;
+
+  markJsonReadForScalar(usage, f.Type.Scalar);
+}
+
 // Wire type info for context-free mapped types — WireTypeInfo/getWireTypeInfo in codegenCommon.h
 
 static void generateDirectMappedCaptureRead(std::string &out,
@@ -2026,6 +2091,7 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   bool hasFixedArray = false;
   bool hasVariant = false;
   CJsonHelperUsage jsonHelperUsage;
+  CJsonReadUsage jsonReadUsage;
   for (auto &s : file.Structs) {
     if (!s.IsMixin && !s.IsImported) {
       if (s.HasTaggedSchema) hasTaggedSchema = true;
@@ -2036,6 +2102,10 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
         auto &ca = contextAnalysis[s.Name];
         for (size_t i = 0; i < s.Fields.size(); i++)
           collectSerializeHelpersForField(jsonHelperUsage, s.Fields[i], ca.FieldCapture[i], enumNames);
+      }
+      if (s.GenerateFlags.Parse || s.GenerateFlags.ParseVerbose) {
+        for (auto &f : s.Fields)
+          collectParseReadUsageForField(jsonReadUsage, f, enumNames);
       }
       for (auto &f : s.Fields) {
         if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
@@ -2087,17 +2157,9 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   if (!file.Includes.empty())
     header += "\n";
 
-  // Forward declarations
-  header += "class xmstream;\n";
-  header += parseErrorCode;
-  header += "template<bool, bool> struct JsonScannerImpl;\n";
-  header += "using JsonScanner = JsonScannerImpl<false, false>;\n";
-  header += "using JsonScannerComments = JsonScannerImpl<false, true>;\n";
-  if (anyVerbose) {
-    header += "using VerboseJsonScanner = JsonScannerImpl<true, false>;\n";
-    header += "using VerboseJsonScannerComments = JsonScannerImpl<true, true>;\n";
-  }
-  header += "\n";
+  // Scanner and forward declarations
+  header += "#include \"idltool/jsonScanner.h\"\n";
+  header += "class xmstream;\n\n";
 
   // Enums
   generateEnumDeclarations(header, file, opts.PascalCaseFields);
@@ -2123,11 +2185,28 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   source += "#include <cstring>\n";
   source += "#include <cstdlib>\n";
   source += "#include <cinttypes>\n";
-  source += "#include <cmath>\n\n";
-
-  if (opts.Standalone || anyVerbose)
-    source += jsonScannerCode;
-  source += generateJsonHelperCode(jsonHelperUsage);
+  if (jsonReadUsage.ReadString)
+    source += "#include \"idltool/jsonReadString.h\"\n";
+  if (jsonReadUsage.ReadInt)
+    source += "#include \"idltool/jsonReadInt.h\"\n";
+  if (jsonReadUsage.ReadUInt)
+    source += "#include \"idltool/jsonReadUInt.h\"\n";
+  if (jsonReadUsage.ReadDouble)
+    source += "#include \"idltool/jsonReadDouble.h\"\n";
+  if (jsonReadUsage.ReadBool)
+    source += "#include \"idltool/jsonReadBool.h\"\n";
+  if (jsonHelperUsage.WriteString)
+    source += "#include \"idltool/jsonWriteString.h\"\n";
+  if (jsonHelperUsage.WriteInt)
+    source += "#include \"idltool/jsonWriteInt.h\"\n";
+  if (jsonHelperUsage.WriteUInt)
+    source += "#include \"idltool/jsonWriteUInt.h\"\n";
+  if (jsonHelperUsage.WriteDouble) {
+    source += "#include \"idltool/jsonWriteDouble.h\"\n";
+    source += "#include <cmath>\n";
+  }
+  if (jsonHelperUsage.WriteBool)
+    source += "#include \"idltool/jsonWriteBool.h\"\n";
   source += "\n";
 
   generateEnumDefinitions(source, file, opts.PascalCaseFields);
