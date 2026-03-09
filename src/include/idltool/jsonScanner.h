@@ -160,6 +160,20 @@ template<bool Verbose, bool Comments = false> struct JsonScannerImpl {
     }
     p++;
     str = p;
+    // Fast path: scan for closing quote without escapes
+    const char *q = p;
+    while (q < end && *q != '"' && *q != '\\')
+      q++;
+    if (__builtin_expect(q < end && *q == '"', 1)) {
+      len = q - p;
+      uint32_t h = seed;
+      for (size_t i = 0; i < len; i++)
+        h = h * mult + (unsigned char)p[i];
+      hash = h;
+      p = q + 1;
+      return true;
+    }
+    // Slow path: has escape sequences
     uint32_t h = seed;
     while (p < end && *p != '"') {
       if (*p == '\\') {
