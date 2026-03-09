@@ -5,15 +5,13 @@
 #include <string_view>
 #include <cstdint>
 
-inline char jsonHexDigit(uint8_t b) {
-  return b < 10 ? '0' + b : 'a' + b - 10;
-}
+inline char jsonHexDigit(uint8_t b) { return b < 10 ? '0' + b : 'a' + b - 10; }
 
 inline void jsonWriteString(xmstream &out, std::string_view value) {
   out.write('"');
-  for (char ch : value) {
+  for (char ch: value) {
     switch (ch) {
-      case '"':  out.write("\\\""); break;
+      case '"': out.write("\\\""); break;
       case '\\': out.write("\\\\"); break;
       case '\b': out.write("\\b"); break;
       case '\f': out.write("\\f"); break;

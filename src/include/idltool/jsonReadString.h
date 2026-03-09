@@ -5,8 +5,10 @@
 #include <string>
 
 inline JsonReadError jsonReadStringValue(const char *&p, const char *end, std::string &out) {
-  if (p >= end) return JsonReadError::UnexpectedEnd;
-  if (*p != '"') return JsonReadError::UnexpectedChar;
+  if (p >= end)
+    return JsonReadError::UnexpectedEnd;
+  if (*p != '"')
+    return JsonReadError::UnexpectedChar;
   p++;
   // Fast path: scan for closing quote without escapes
   const char *start = p;
@@ -21,7 +23,8 @@ inline JsonReadError jsonReadStringValue(const char *&p, const char *end, std::s
   while (p < end && *p != '"') {
     if (*p == '\\') {
       p++;
-      if (p >= end) return JsonReadError::Unterminated;
+      if (p >= end)
+        return JsonReadError::Unterminated;
       switch (*p) {
         case '"': out += '"'; break;
         case '\\': out += '\\'; break;
@@ -34,9 +37,12 @@ inline JsonReadError jsonReadStringValue(const char *&p, const char *end, std::s
         case 'u': {
           if (p + 5 <= end) {
             auto hexVal = [](char c) -> int {
-              if (c >= '0' && c <= '9') return c - '0';
-              if (c >= 'a' && c <= 'f') return 10 + c - 'a';
-              if (c >= 'A' && c <= 'F') return 10 + c - 'A';
+              if (c >= '0' && c <= '9')
+                return c - '0';
+              if (c >= 'a' && c <= 'f')
+                return 10 + c - 'a';
+              if (c >= 'A' && c <= 'F')
+                return 10 + c - 'A';
               return -1;
             };
             int d0 = hexVal(p[1]), d1 = hexVal(p[2]), d2 = hexVal(p[3]), d3 = hexVal(p[4]);
@@ -69,10 +75,12 @@ inline JsonReadError jsonReadStringValue(const char *&p, const char *end, std::s
                 out += (char)(0x80 | (cp & 0x3F));
               }
             } else {
-              out += '\\'; out += 'u';
+              out += '\\';
+              out += 'u';
             }
           } else {
-            out += '\\'; out += 'u';
+            out += '\\';
+            out += 'u';
           }
           break;
         }
@@ -83,7 +91,8 @@ inline JsonReadError jsonReadStringValue(const char *&p, const char *end, std::s
       out += *p++;
     }
   }
-  if (p >= end) return JsonReadError::Unterminated;
+  if (p >= end)
+    return JsonReadError::Unterminated;
   p++;
   return JsonReadError::Ok;
 }

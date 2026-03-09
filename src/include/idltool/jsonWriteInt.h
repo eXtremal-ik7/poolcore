@@ -16,7 +16,11 @@ inline void jsonWriteInt(xmstream &out, int64_t v) {
   } else {
     uv = static_cast<uint64_t>(v);
   }
-  while (uv > 0) { *--p = '0' + static_cast<char>(uv % 10); uv /= 10; }
-  if (v < 0) *--p = '-';
+  while (uv > 0) {
+    *--p = '0' + static_cast<char>(uv % 10);
+    uv /= 10;
+  }
+  if (v < 0)
+    *--p = '-';
   out.write(p, buf + sizeof(buf) - p);
 }
