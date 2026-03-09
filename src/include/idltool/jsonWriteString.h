@@ -9,7 +9,19 @@ inline char jsonHexDigit(uint8_t b) { return b < 10 ? '0' + b : 'a' + b - 10; }
 
 inline void jsonWriteString(xmstream &out, std::string_view value) {
   out.write('"');
-  for (char ch: value) {
+  const char *p = value.data();
+  const char *end = p + value.size();
+  while (p < end) {
+    // Fast path: scan for characters that need escaping
+    const char *start = p;
+    while (p < end && static_cast<uint8_t>(*p) >= 0x20 && *p != '"' && *p != '\\')
+      p++;
+    if (p > start)
+      out.write(start, p - start);
+    if (p >= end)
+      break;
+    // Slow path: escape one character
+    char ch = *p++;
     switch (ch) {
       case '"': out.write("\\\""); break;
       case '\\': out.write("\\\\"); break;
@@ -19,13 +31,9 @@ inline void jsonWriteString(xmstream &out, std::string_view value) {
       case '\r': out.write("\\r"); break;
       case '\t': out.write("\\t"); break;
       default:
-        if (static_cast<uint8_t>(ch) < 0x20) {
-          out.write("\\u00");
-          out.write(jsonHexDigit(static_cast<uint8_t>(ch) >> 4));
-          out.write(jsonHexDigit(static_cast<uint8_t>(ch) & 0xF));
-        } else {
-          out.write(ch);
-        }
+        out.write("\\u00");
+        out.write(jsonHexDigit(static_cast<uint8_t>(ch) >> 4));
+        out.write(jsonHexDigit(static_cast<uint8_t>(ch) & 0xF));
         break;
     }
   }

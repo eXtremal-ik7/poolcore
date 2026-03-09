@@ -45,12 +45,18 @@ inline JsonReadError jsonReadStringValue(const char *&p, const char *end, std::s
                 return 10 + c - 'A';
               return -1;
             };
-            int d0 = hexVal(p[1]), d1 = hexVal(p[2]), d2 = hexVal(p[3]), d3 = hexVal(p[4]);
+            int d0 = hexVal(p[1]);
+            int d1 = hexVal(p[2]);
+            int d2 = hexVal(p[3]);
+            int d3 = hexVal(p[4]);
             if (d0 >= 0 && d1 >= 0 && d2 >= 0 && d3 >= 0) {
               uint32_t cp = (d0 << 12) | (d1 << 8) | (d2 << 4) | d3;
               p += 4;
               if (cp >= 0xD800 && cp <= 0xDBFF && p + 7 <= end && p[1] == '\\' && p[2] == 'u') {
-                int l0 = hexVal(p[3]), l1 = hexVal(p[4]), l2 = hexVal(p[5]), l3 = hexVal(p[6]);
+                int l0 = hexVal(p[3]);
+                int l1 = hexVal(p[4]);
+                int l2 = hexVal(p[5]);
+                int l3 = hexVal(p[6]);
                 if (l0 >= 0 && l1 >= 0 && l2 >= 0 && l3 >= 0) {
                   uint32_t low = (l0 << 12) | (l1 << 8) | (l2 << 4) | l3;
                   if (low >= 0xDC00 && low <= 0xDFFF) {
