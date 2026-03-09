@@ -91,6 +91,7 @@ When `targetLogin` is provided:
 | `"2fa_required"` | Two-factor authentication code required |
 | `"invalid_2fa"` | Invalid 2FA code |
 | `"not_implemented"` | Feature not yet implemented |
+| `"superuser_not_allowed"` | Superuser accounts cannot be used as fee recipients |
 
 ---
 
@@ -536,6 +537,8 @@ Updates fee plan configuration for a specific mining mode.
 | `mode` | string | yes | `"pplns"` or `"pps"` |
 | `default` | array | yes | `[{userId, percentage}]` |
 | `coinSpecific` | array | yes | `[{coinName, config: [{userId, percentage}]}]` |
+
+Fee recipient users (`userId` in `default` and `coinSpecific` entries) must not be superuser accounts (`admin`, `observer`). Returns `"superuser_not_allowed"` if attempted.
 
 **Response**: `status`
 

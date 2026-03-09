@@ -1116,6 +1116,7 @@ void PoolHttpConnection::onComplexMiningStatsGetInfo(const CSessionRequest&, con
     reply200(stream);
     size_t offset = startChunk(stream);
     stream.write(data, size);
+    stream.write('\n');
     finishChunk(stream, offset);
     aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
     objectDecrementReference(aioObjectHandle(Socket_), 1);

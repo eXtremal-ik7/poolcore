@@ -144,7 +144,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
       }
 
       // Ignore special users
-      if (userRecord.Name == "admin" || userRecord.Name == "observer")
+      if (userRecord.Login == "admin" || userRecord.Login == "observer")
         continue;
 
       UsersCache_.insert(std::make_pair(userRecord.Login, userRecord));
@@ -275,6 +275,12 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
       if (UsersCache_.count(pair.UserId) == 0) {
         error = "unknown_login";
         CLOG_F(ERROR, "UserManager: can't accept fee plan '{}', user {} not exists", planId, pair.UserId);
+        return false;
+      }
+
+      if (pair.UserId == "admin" || pair.UserId == "observer") {
+        error = "superuser_not_allowed";
+        CLOG_F(ERROR, "UserManager: can't accept fee plan '{}', user {} is a superuser", planId, pair.UserId);
         return false;
       }
 
@@ -1677,6 +1683,18 @@ bool UserManager::queryFeePlan(
     buildModeFeeConfig(accessor->second.Modes[modeIndex], result);
 
   referralIdOut = accessor->second.ReferralId;
+
+  // Non-superusers see only their own fee entries
+  if (login != "admin" && login != "observer") {
+    auto filterPairs = [&login](std::vector<CUserFeePair> &pairs) {
+      std::erase_if(pairs, [&login](const CUserFeePair &p) { return p.UserId != login; });
+    };
+
+    filterPairs(result.Default);
+    for (auto &coin : result.CoinSpecific)
+      filterPairs(coin.Config);
+    std::erase_if(result.CoinSpecific, [](const CCoinFeeConfig &c) { return c.Config.empty(); });
+  }
 
   status = "ok";
   return true;

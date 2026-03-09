@@ -113,6 +113,7 @@ private:
     reply200(stream);
     size_t offset = startChunk(stream);
     T::serialize(stream, std::forward<Args>(args)...);
+    stream.write('\n');
     finishChunk(stream, offset);
     aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
   }
