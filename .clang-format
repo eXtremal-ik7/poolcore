@@ -11,18 +11,18 @@ IndentCaseBlocks: false
 NamespaceIndentation: None
 
 # Line width
-ColumnLimit: 160
+ColumnLimit: 144
 
-# Braces — K&R for control flow; function defs use Attach here
-# (.cpp files traditionally put { on next line for function defs,
-#  but clang-format can't vary by file extension)
+# Braces — K&R everywhere except out-of-class function definitions (Allman)
+# NOTE: AfterFunctionInsideRecord / AfterFunctionOutsideRecord are custom clang-format options
 BreakBeforeBraces: Custom
 BraceWrapping:
   AfterCaseLabel: false
   AfterClass: false
   AfterControlStatement: Never
   AfterEnum: false
-  AfterFunction: false
+  AfterFunctionInsideRecord: false
+  AfterFunctionOutsideRecord: true
   AfterNamespace: false
   AfterStruct: false
   AfterUnion: false
@@ -37,17 +37,20 @@ BraceWrapping:
   SplitEmptyNamespace: false
 
 # Short forms — preserve compact one-liners
-AllowShortBlocksOnASingleLine: Always
+AllowShortBlocksOnASingleLine: Empty
 AllowShortCaseLabelsOnASingleLine: true
-AllowShortEnumsOnASingleLine: true
-AllowShortFunctionsOnASingleLine: All
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: Never
-AllowShortLambdasOnASingleLine: All
-AllowShortLoopsOnASingleLine: true
+AllowShortLambdasOnASingleLine: Empty
+AllowShortLoopsOnASingleLine: false
 
 # Alignment
-PointerAlignment: Right
-ReferenceAlignment: Right
+# NOTE: *WithName / *WithoutName are custom clang-format options
+PointerAlignmentWithName: Right
+PointerAlignmentWithoutName: Left
+ReferenceAlignmentWithName: Right
+ReferenceAlignmentWithoutName: Left
 AlignAfterOpenBracket: Align
 AlignOperands: Align
 AlignTrailingComments: true
@@ -58,6 +61,8 @@ SpaceAfterTemplateKeyword: false
 SpaceBeforeAssignmentOperators: true
 SpaceBeforeCpp11BracedList: false
 SpaceBeforeParens: ControlStatements
+SpaceBeforeInheritanceColon: false
+SpaceBeforeCaseColon: false
 SpaceBeforeRangeBasedForLoopColon: false
 SpaceInEmptyBlock: false
 SpacesInAngles: Never
@@ -65,7 +70,9 @@ Cpp11BracedListStyle: true
 
 # Parameters / arguments
 BinPackParameters: false
-BinPackArguments: true
+BinPackArguments: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowAllArgumentsOnNextLine: false
 
 # Constructor initializers:  Foo(...) :\n  Member_(x),
 BreakConstructorInitializers: AfterColon
@@ -75,6 +82,15 @@ ConstructorInitializerIndentWidth: 2
 # Includes — don't reorder
 SortIncludes: Never
 
+# Binary operations — logical operators: all on one line or one per line
+BreakBinaryOperations:
+  Default: Never
+  PerOperator:
+    - Operators: ['&&', '||']
+      Style: OnePerLine
+
 # Other
+PenaltyReturnTypeOnItsOwnLine: 1000
 MaxEmptyLinesToKeep: 1
 BreakBeforeTernaryOperators: true
+BreakTemplateDeclarations: Yes

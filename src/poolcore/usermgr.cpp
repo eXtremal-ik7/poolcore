@@ -45,7 +45,13 @@ BaseBlob<256> UserManager::generateHash(const std::string &login, const std::str
   return result;
 }
 
-bool UserManager::sendMail(const std::string &login, const std::string &emailAddress, const std::string &emailTitlePrefix, const std::string &linkPrefix, const BaseBlob<512> &actionId, const std::string &mainText, std::string &error)
+bool UserManager::sendMail(const std::string &login,
+                           const std::string &emailAddress,
+                           const std::string &emailTitlePrefix,
+                           const std::string &linkPrefix,
+                           const BaseBlob<512> &actionId,
+                           const std::string &mainText,
+                           std::string &error)
 {
   HostAddress localAddress;
   localAddress.ipv4 = INADDR_ANY;
@@ -60,9 +66,9 @@ bool UserManager::sendMail(const std::string &login, const std::string &emailAdd
 
   std::string EMailText;
   std::string activationLink = BaseCfg.PoolHostProtocol + "://";
-    activationLink.append(BaseCfg.PoolHostAddress);
-    activationLink.append(linkPrefix);
-    activationLink.append(actionId.getHexLE());
+  activationLink.append(BaseCfg.PoolHostAddress);
+  activationLink.append(linkPrefix);
+  activationLink.append(actionId.getHexLE());
 
   EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
   EMailText.append("This email generated automatically, please don't reply.\r\n");
@@ -95,7 +101,6 @@ bool UserManager::sendMail(const std::string &login, const std::string &emailAdd
     return false;
   }
 
-
   smtpClientDelete(client);
   CLOG_F(INFO, "{} {}: {}", login, emailTitlePrefix, actionId.getHexLE());
   return true;
@@ -109,9 +114,9 @@ bool UserManager::check2fa(const std::string &secret, const std::string &receive
 
     int receivedCodeAsInt = atoi(receivedCode.c_str());
     unsigned long currentTime = time(nullptr) / 30;
-    int prev = generateCode(secret.c_str(), currentTime-1);
+    int prev = generateCode(secret.c_str(), currentTime - 1);
     int current = generateCode(secret.c_str(), currentTime);
-    int next = generateCode(secret.c_str(), currentTime+1);
+    int next = generateCode(secret.c_str(), currentTime + 1);
     if (receivedCodeAsInt != prev && receivedCodeAsInt != current && receivedCodeAsInt != next)
       return false;
   }
@@ -238,17 +243,25 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
   }
 
   Base_ = createAsyncBase(amOSDefault);
-  TaskQueueEvent_ = newUserEvent(Base_, 0, [](aioUserEvent*, void *arg) {
-    Task *task = nullptr;
-    UserManager *userMgr = static_cast<UserManager*>(arg);
-    while (userMgr->Tasks_.try_pop(task))
-      task->run();
-  }, this);
+  TaskQueueEvent_ = newUserEvent(
+      Base_,
+      0,
+      [](aioUserEvent*, void *arg) {
+        Task *task = nullptr;
+        UserManager *userMgr = static_cast<UserManager*>(arg);
+        while (userMgr->Tasks_.try_pop(task))
+          task->run();
+      },
+      this);
 }
 
 void UserManager::start()
 {
-  Thread_ = std::thread([](UserManager *userMgr){ userMgr->userManagerMain(); }, this);
+  Thread_ = std::thread(
+      [](UserManager *userMgr) {
+        userMgr->userManagerMain();
+      },
+      this);
 }
 
 void UserManager::stop()
@@ -267,9 +280,7 @@ void UserManager::stop()
 bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::string &error)
 {
   // Validate individual entries and compute sum; extraFee is added to the total (PPS pool fee)
-  auto acceptProc = [this](
-    const std::vector<CUserFeePair> &config, const std::string &planId, double extraFee, std::string &error) -> bool
-  {
+  auto acceptProc = [this](const std::vector<CUserFeePair> &config, const std::string &planId, double extraFee, std::string &error) -> bool {
     double sum = extraFee;
     for (const auto &pair: config) {
       if (UsersCache_.count(pair.UserId) == 0) {
@@ -321,14 +332,13 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
     if (mode == EMiningMode::Pps) {
       // Find max PPS pool fee among coins not covered by coin-specific config
       std::unordered_set<std::string> coveredCoins;
-      for (const auto &coinCfg : modeCfg.CoinSpecific)
+      for (const auto &coinCfg: modeCfg.CoinSpecific)
         coveredCoins.insert(coinCfg.CoinName);
 
       double maxUncoveredPpsFee = 0.0;
-      for (const auto &[coinName, backend] : Backends_) {
+      for (const auto& [coinName, backend]: Backends_) {
         if (!coveredCoins.count(coinName))
-          maxUncoveredPpsFee = std::max(
-            maxUncoveredPpsFee, backend->accountingDb()->backendSettings().PPSConfig.PoolFee);
+          maxUncoveredPpsFee = std::max(maxUncoveredPpsFee, backend->accountingDb()->backendSettings().PPSConfig.PoolFee);
       }
 
       // Validate default with worst-case PPS pool fee
@@ -336,7 +346,7 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
         return false;
 
       // Validate coin-specific entries with that coin's PPS pool fee
-      for (const auto &coinCfg : modeCfg.CoinSpecific) {
+      for (const auto &coinCfg: modeCfg.CoinSpecific) {
         double extraFee = 0.0;
         auto backendIt = Backends_.find(coinCfg.CoinName);
         if (backendIt != Backends_.end())
@@ -348,7 +358,7 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
       // PPLNS: no extra fee
       if (!acceptProc(modeCfg.Default, record.FeePlanId, 0.0, error))
         return false;
-      for (const auto &coinCfg : modeCfg.CoinSpecific) {
+      for (const auto &coinCfg: modeCfg.CoinSpecific) {
         if (!acceptProc(coinCfg.Config, record.FeePlanId, 0.0, error))
           return false;
       }
@@ -383,7 +393,9 @@ bool UserManager::acceptFeePlanRecord(const UserFeePlanRecord &record, std::stri
 
 void UserManager::buildModeFeeConfig(const FeePlan::ModeConfig &mode, CModeFeeConfig &result)
 {
-  auto sortByUserId = [](const CUserFeePair &l, const CUserFeePair &r) { return l.UserId < r.UserId; };
+  auto sortByUserId = [](const CUserFeePair &l, const CUserFeePair &r) {
+    return l.UserId < r.UserId;
+  };
 
   result.Default = mode.Default;
   std::sort(result.Default.begin(), result.Default.end(), sortByUserId);
@@ -396,10 +408,9 @@ void UserManager::buildModeFeeConfig(const FeePlan::ModeConfig &mode, CModeFeeCo
     std::sort(cfg.Config.begin(), cfg.Config.end(), sortByUserId);
   }
 
-  std::sort(
-    result.CoinSpecific.begin(),
-    result.CoinSpecific.end(),
-    [](const CCoinFeeConfig &l, const CCoinFeeConfig &r) { return l.CoinName < r.CoinName; });
+  std::sort(result.CoinSpecific.begin(), result.CoinSpecific.end(), [](const CCoinFeeConfig &l, const CCoinFeeConfig &r) {
+    return l.CoinName < r.CoinName;
+  });
 }
 
 void UserManager::buildFeePlanRecord(const std::string &feePlanId, const FeePlan &plan, UserFeePlanRecord &result)
@@ -435,9 +446,12 @@ void UserManager::userManagerMain()
 
   // Run cleanup coroutine
   CleanupEvent_ = newUserEvent(Base_, 0, 0, 0);
-  coroutineTy *cleanupCoro = coroutineNew([](void *arg) {
-    static_cast<UserManager*>(arg)->userManagerCleanup();
-  }, this, 0x10000);
+  coroutineTy *cleanupCoro = coroutineNew(
+      [](void *arg) {
+        static_cast<UserManager*>(arg)->userManagerCleanup();
+      },
+      this,
+      0x10000);
 
   coroutineCall(cleanupCoro);
   asyncLoop(Base_);
@@ -490,7 +504,12 @@ void UserManager::userManagerCleanup()
       ActionsCache_.erase(actionId);
     UserSessionsDb_.writeBatch(sessionBatch);
     UserActionsDb_.writeBatch(actionBatch);
-    CLOG_F(INFO, "(CLEANER) Removed sessions: {}; actions: {}; inactive users: {}; updated sessions: {}", sessionIdForDelete.size(), actionIdForDelete.size(), usersDeletedCount, updatedSessions);
+    CLOG_F(INFO,
+           "(CLEANER) Removed sessions: {}; actions: {}; inactive users: {}; updated sessions: {}",
+           sessionIdForDelete.size(),
+           actionIdForDelete.size(),
+           usersDeletedCount,
+           updatedSessions);
     ioSleep(CleanupEvent_, CleanupInterval_ * 1000000);
   }
 }
@@ -533,7 +552,7 @@ void UserManager::actionImpl(const BaseBlob<512> &id, const std::string &newPass
   bool userRecordUpdated = false;
   const char *status = "";
   switch (actionRecord.Type) {
-    case UserActionRecord::UserActivate : {
+    case UserActionRecord::UserActivate: {
       if (!userRecord.IsActive) {
         userRecord.IsActive = true;
         userRecordUpdated = true;
@@ -545,7 +564,7 @@ void UserManager::actionImpl(const BaseBlob<512> &id, const std::string &newPass
       break;
     }
 
-    case UserActionRecord::UserChangePassword : {
+    case UserActionRecord::UserChangePassword: {
       // Check password format
       if (newPassword.size() < 8 || newPassword.size() > 64) {
         status = "password_format_invalid";
@@ -558,7 +577,7 @@ void UserManager::actionImpl(const BaseBlob<512> &id, const std::string &newPass
       break;
     }
 
-    case UserActionRecord::UserTwoFactorActivate : {
+    case UserActionRecord::UserTwoFactorActivate: {
       if (userRecord.TwoFactorAuthData.empty()) {
         if (check2fa(actionRecord.TwoFactorKey, totp)) {
           userRecord.TwoFactorAuthData = actionRecord.TwoFactorKey;
@@ -575,7 +594,7 @@ void UserManager::actionImpl(const BaseBlob<512> &id, const std::string &newPass
       break;
     }
 
-    case UserActionRecord::UserTwoFactorDeactivate : {
+    case UserActionRecord::UserTwoFactorDeactivate: {
       if (!userRecord.TwoFactorAuthData.empty()) {
         userRecord.TwoFactorAuthData.clear();
         userRecordUpdated = true;
@@ -618,7 +637,7 @@ void UserManager::changePasswordInitiateImpl(const std::string &login, Task::Def
   }
 
   std::string emailAddress;
-  decltype (UsersCache_)::const_accessor accessor;
+  decltype(UsersCache_)::const_accessor accessor;
   if (UsersCache_.find(accessor, login)) {
     emailAddress = accessor->second.EMail;
   } else {
@@ -634,7 +653,13 @@ void UserManager::changePasswordInitiateImpl(const std::string &login, Task::Def
 
   // Send email
   std::string emailSendError;
-  if (SMTP.Enabled && !sendMail(login, emailAddress, "Change password at ", BaseCfg.ChangePasswordLinkPrefix, actionRecord.Id, "For change your password", emailSendError)) {
+  if (SMTP.Enabled && !sendMail(login,
+                                emailAddress,
+                                "Change password at ",
+                                BaseCfg.ChangePasswordLinkPrefix,
+                                actionRecord.Id,
+                                "For change your password",
+                                emailSendError)) {
     callback(emailSendError.c_str());
     return;
   }
@@ -684,7 +709,7 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
     return;
   }
 
-  for (char c : credentials.Login) {
+  for (char c: credentials.Login) {
     if (c < 32 || c > 126) {
       callback("login_format_invalid");
       return;
@@ -796,9 +821,9 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
 
       std::string EMailText;
       std::string activationLink = BaseCfg.PoolHostProtocol + "://";
-        activationLink.append(BaseCfg.PoolHostAddress);
-        activationLink.append(BaseCfg.ActivateLinkPrefix);
-        activationLink.append(actionRecord.Id.getHexLE());
+      activationLink.append(BaseCfg.PoolHostAddress);
+      activationLink.append(BaseCfg.ActivateLinkPrefix);
+      activationLink.append(actionRecord.Id.getHexLE());
 
       EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
       EMailText.append("This email generated automatically, please don't reply.\r\n");
@@ -847,7 +872,7 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
   UsersDb_.put(userRecord);
 
   // Notify all backends about new user's fee plan
-  for (const auto &[coinName, backend] : Backends_)
+  for (const auto& [coinName, backend]: Backends_)
     backend->sendUserFeePlanChange(credentials.Login, feePlan);
 
   CLOG_F(INFO, "New user: {} ({}) email: {}; actionId: {}", userRecord.Login, userRecord.Name, userRecord.EMail, actionRecord.Id.getHexLE());
@@ -858,7 +883,7 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
 {
   std::string email;
   {
-    decltype (UsersCache_)::const_accessor accessor;
+    decltype(UsersCache_)::const_accessor accessor;
     if (!UsersCache_.find(accessor, credentials.Login)) {
       callback("invalid_password");
       return;
@@ -912,9 +937,9 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
 
     std::string EMailText;
     std::string activationLink = BaseCfg.PoolHostProtocol + "://";
-      activationLink.append(BaseCfg.PoolHostAddress);
-      activationLink.append(BaseCfg.ActivateLinkPrefix);
-      activationLink.append(actionRecord.Id.getHexLE());
+    activationLink.append(BaseCfg.PoolHostAddress);
+    activationLink.append(BaseCfg.ActivateLinkPrefix);
+    activationLink.append(actionRecord.Id.getHexLE());
 
     EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
     EMailText.append("This email generated automatically, please don't reply.\r\n");
@@ -960,7 +985,7 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
   bool isReadOnly = false;
 
   {
-    decltype (UsersCache_)::const_accessor accessor;
+    decltype(UsersCache_)::const_accessor accessor;
     if (!UsersCache_.find(accessor, credentials.Login)) {
       callback("", "invalid_password", false);
       return;
@@ -1009,7 +1034,7 @@ void UserManager::logoutImpl(const BaseBlob<512> &sessionId, Task::DefaultCb cal
 {
   UserSessionRecord sessionRecord;
   {
-    decltype (SessionsCache_)::const_accessor sessionAccessor;
+    decltype(SessionsCache_)::const_accessor sessionAccessor;
     if (!SessionsCache_.find(sessionAccessor, sessionId)) {
       callback("unknown_id");
       return;
@@ -1027,7 +1052,7 @@ void UserManager::queryMonitoringSessionImpl(const std::string &login, UserQuery
 {
   // Check user structure for existing session id
   {
-    decltype (UsersCache_)::accessor accessor;
+    decltype(UsersCache_)::accessor accessor;
     if (!UsersCache_.find(accessor, login)) {
       callback("", "unknown_login");
       return;
@@ -1051,7 +1076,7 @@ void UserManager::queryMonitoringSessionImpl(const std::string &login, UserQuery
   // Put session id to user structure to prevent duplicates of session id
   UsersRecord record;
   {
-    decltype (UsersCache_)::accessor accessor;
+    decltype(UsersCache_)::accessor accessor;
     if (!UsersCache_.find(accessor, login)) {
       callback("", "unknown_login");
       return;
@@ -1070,7 +1095,7 @@ void UserManager::updateCredentialsImpl(const std::string &login, const Credenti
   UsersRecord record;
 
   {
-    decltype (UsersCache_)::accessor accessor;
+    decltype(UsersCache_)::accessor accessor;
     if (!UsersCache_.find(accessor, login)) {
       callback("unknown_login");
       return;
@@ -1131,8 +1156,7 @@ void UserManager::updateSettingsImpl(const std::string &login,
   }
 
   if (mining.has_value()) {
-    if (mining->Mode == EMiningMode::Pps &&
-        !backendIt->second->accountingDb()->backendSettings().PPSConfig.Enabled) {
+    if (mining->Mode == EMiningMode::Pps && !backendIt->second->accountingDb()->backendSettings().PPSConfig.Enabled) {
       callback("pps_not_available");
       return;
     }
@@ -1160,7 +1184,7 @@ void UserManager::updateSettingsImpl(const std::string &login,
 
   // check 2fa
   {
-    decltype (UsersCache_)::accessor accessor;
+    decltype(UsersCache_)::accessor accessor;
     if (!UsersCache_.find(accessor, login)) {
       callback("unknown_login");
       return;
@@ -1178,7 +1202,7 @@ void UserManager::updateSettingsImpl(const std::string &login,
 
   UserSettingsRecord settings;
   {
-    decltype (SettingsCache_)::accessor accessor;
+    decltype(SettingsCache_)::accessor accessor;
     if (SettingsCache_.find(accessor, key)) {
       settings = accessor->second;
     } else {
@@ -1201,11 +1225,7 @@ void UserManager::updateSettingsImpl(const std::string &login,
   }
 
   UserSettingsDb_.put(settings);
-  CLOG_F(INFO,
-        "update {}/{} settings: address={}",
-        settings.Login,
-        settings.Coin,
-        settings.Payout.Address);
+  CLOG_F(INFO, "update {}/{} settings: address={}", settings.Login, settings.Coin, settings.Payout.Address);
 
   // Notify backend about settings update
   backendIt->second->sendUserSettingsUpdate(settings);
@@ -1291,7 +1311,7 @@ void UserManager::updateFeePlanImpl(const std::string &feePlanId, EMiningMode mo
   if (acceptFeePlanRecord(record, error)) {
     UserFeePlanDb_.put(record);
     // Notify all backends about fee plan change for the updated mode
-    for (const auto &[coinName, backend] : Backends_)
+    for (const auto& [coinName, backend]: Backends_)
       backend->sendFeePlanUpdate(feePlanId, mode, getFeeRecord(feePlanId, mode, coinName));
   }
   callback(error.c_str());
@@ -1339,8 +1359,8 @@ void UserManager::deleteFeePlanImpl(const std::string &feePlanId, Task::DefaultC
   UserFeePlanDb_.deleteRow(record);
 
   // Notify all backends about affected users reset to default, then delete the plan
-  for (const auto &[coinName, backend] : Backends_) {
-    for (const auto &login : affectedUsers)
+  for (const auto& [coinName, backend]: Backends_) {
+    for (const auto &login: affectedUsers)
       backend->sendUserFeePlanChange(login, "default");
     backend->sendFeePlanDelete(feePlanId);
   }
@@ -1358,7 +1378,7 @@ void UserManager::changeFeePlanImpl(const std::string &login, const std::string 
 
   UsersRecord record;
   {
-    decltype (UsersCache_)::accessor accessor;
+    decltype(UsersCache_)::accessor accessor;
     if (!UsersCache_.find(accessor, login)) {
       callback("unknown_login");
       return;
@@ -1371,15 +1391,13 @@ void UserManager::changeFeePlanImpl(const std::string &login, const std::string 
   UsersDb_.put(record);
 
   // Notify all backends about user's fee plan change
-  for (const auto &[coinName, backend] : Backends_)
+  for (const auto& [coinName, backend]: Backends_)
     backend->sendUserFeePlanChange(login, newFeePlan);
 
   callback("ok");
 }
 
-void UserManager::renewFeePlanReferralIdImpl(
-  const std::string &feePlanId,
-  RenewFeePlanReferralIdTask::Cb callback)
+void UserManager::renewFeePlanReferralIdImpl(const std::string &feePlanId, RenewFeePlanReferralIdTask::Cb callback)
 {
   decltype(FeePlanCache_)::accessor accessor;
   if (!FeePlanCache_.find(accessor, feePlanId)) {
@@ -1417,7 +1435,7 @@ void UserManager::activate2faInitiateImpl(const std::string &login, Activate2faI
   // Check current 2fa status
   std::string emailAddress;
   {
-    decltype (UsersCache_)::accessor accessor;
+    decltype(UsersCache_)::accessor accessor;
     if (!UsersCache_.find(accessor, login)) {
       callback("unknown_login", "");
       return;
@@ -1447,7 +1465,13 @@ void UserManager::activate2faInitiateImpl(const std::string &login, Activate2faI
 
   // Send email
   std::string emailSendError;
-  if (SMTP.Enabled && !sendMail(login, emailAddress, "Activate two factor authentication at ", BaseCfg.Activate2faLinkPrefix, actionRecord.Id, "For enable two factor authentication", emailSendError)) {
+  if (SMTP.Enabled && !sendMail(login,
+                                emailAddress,
+                                "Activate two factor authentication at ",
+                                BaseCfg.Activate2faLinkPrefix,
+                                actionRecord.Id,
+                                "For enable two factor authentication",
+                                emailSendError)) {
     callback(emailSendError.c_str(), "");
     return;
   }
@@ -1467,7 +1491,7 @@ void UserManager::deactivate2faInitiateImpl(const std::string &login, Task::Defa
   // Check current 2fa status
   std::string emailAddress;
   {
-    decltype (UsersCache_)::accessor accessor;
+    decltype(UsersCache_)::accessor accessor;
     if (!UsersCache_.find(accessor, login)) {
       callback("unknown_login");
       return;
@@ -1490,7 +1514,13 @@ void UserManager::deactivate2faInitiateImpl(const std::string &login, Task::Defa
 
   // Send email
   std::string emailSendError;
-  if (SMTP.Enabled && !sendMail(login, emailAddress, "Deactivate two factor authentication at ", BaseCfg.Deactivate2faLinkPrefix, actionRecord.Id, "For drop two factor authentication", emailSendError)) {
+  if (SMTP.Enabled && !sendMail(login,
+                                emailAddress,
+                                "Deactivate two factor authentication at ",
+                                BaseCfg.Deactivate2faLinkPrefix,
+                                actionRecord.Id,
+                                "For drop two factor authentication",
+                                emailSendError)) {
     callback(emailSendError.c_str());
     return;
   }
@@ -1506,7 +1536,7 @@ bool UserManager::checkUser(const std::string &login)
 
 bool UserManager::checkPassword(const std::string &login, const std::string &password)
 {
-  decltype (UsersCache_)::const_accessor accessor;
+  decltype(UsersCache_)::const_accessor accessor;
   if (!UsersCache_.find(accessor, login))
     return false;
 
@@ -1516,16 +1546,13 @@ bool UserManager::checkPassword(const std::string &login, const std::string &pas
   return record.PasswordHash == generateHash(login, password);
 }
 
-bool UserManager::validateSession(const std::string &id,
-                                  const std::string &targetLogin,
-                                  CToken &result,
-                                  bool needWriteAccess)
+bool UserManager::validateSession(const std::string &id, const std::string &targetLogin, CToken &result, bool needWriteAccess)
 {
   result.IsSuperUser = false;
   result.IsReadOnly = false;
   Timestamp currentTime = Timestamp::now();
   {
-    decltype (SessionsCache_)::accessor accessor;
+    decltype(SessionsCache_)::accessor accessor;
     if (SessionsCache_.find(accessor, BaseBlob<512>::fromHexLE(id.c_str()))) {
       result.Login = accessor->second.Login;
       result.IsReadOnly = accessor->second.IsReadOnly;
@@ -1555,7 +1582,7 @@ bool UserManager::validateSession(const std::string &id,
     std::unordered_set<std::string> linkedFeePlans;
     collectLinkedFeePlans(result.Login, linkedFeePlans);
 
-    decltype (UsersCache_)::const_accessor accessor;
+    decltype(UsersCache_)::const_accessor accessor;
     if (!UsersCache_.find(accessor, targetLogin))
       return false;
 
@@ -1572,7 +1599,7 @@ bool UserManager::validateSession(const std::string &id,
 
 bool UserManager::getUserCredentials(const std::string &login, Credentials &out)
 {
-  decltype (UsersCache_)::const_accessor accessor;
+  decltype(UsersCache_)::const_accessor accessor;
   if (UsersCache_.find(accessor, login)) {
     out.Name = accessor->second.Name;
     out.EMail = accessor->second.EMail;
@@ -1592,7 +1619,7 @@ bool UserManager::getUserCoinSettings(const std::string &login, const std::strin
   key.push_back('\0');
   key.append(coin);
 
-  decltype (SettingsCache_)::const_accessor accessor;
+  decltype(SettingsCache_)::const_accessor accessor;
   if (SettingsCache_.find(accessor, key)) {
     settings = accessor->second;
     return true;
@@ -1624,17 +1651,12 @@ void UserManager::adjustInstantMinimalPayout(const std::string &coin, const UInt
   for (auto it = SettingsCache_.begin(); it != SettingsCache_.end(); ++it) {
     if (it->second.Coin != coin)
       continue;
-    if (it->second.Payout.InstantPayoutThreshold.isZero() ||
-        it->second.Payout.InstantPayoutThreshold >= minimalPayout)
+    if (it->second.Payout.InstantPayoutThreshold.isZero() || it->second.Payout.InstantPayoutThreshold >= minimalPayout)
       continue;
 
     decltype(SettingsCache_)::accessor accessor;
-    if (SettingsCache_.find(accessor, it->first) &&
-        accessor->second.Payout.InstantPayoutThreshold < minimalPayout) {
-      CLOG_F(INFO,
-            "User {}/{} InstantPayoutThreshold adjusted to pool minimum",
-            accessor->second.Login,
-            coin);
+    if (SettingsCache_.find(accessor, it->first) && accessor->second.Payout.InstantPayoutThreshold < minimalPayout) {
+      CLOG_F(INFO, "User {}/{} InstantPayoutThreshold adjusted to pool minimum", accessor->second.Login, coin);
       accessor->second.Payout.InstantPayoutThreshold = minimalPayout;
       UserSettingsDb_.put(accessor->second);
 
@@ -1648,20 +1670,19 @@ void UserManager::adjustInstantMinimalPayout(const std::string &coin, const UInt
 std::string UserManager::getFeePlanId(const std::string &login)
 {
   static const std::string defaultPlan = "default";
-  decltype (UsersCache_)::const_accessor accessor;
+  decltype(UsersCache_)::const_accessor accessor;
   if (UsersCache_.find(accessor, login))
     return !accessor->second.FeePlanId.empty() ? accessor->second.FeePlanId : defaultPlan;
   else
     return "default";
 }
 
-bool UserManager::queryFeePlan(
-  const std::string &login,
-  const std::string &feePlanId,
-  EMiningMode mode,
-  std::string &status,
-  BaseBlob<256> &referralIdOut,
-  CModeFeeConfig &result)
+bool UserManager::queryFeePlan(const std::string &login,
+                               const std::string &feePlanId,
+                               EMiningMode mode,
+                               std::string &status,
+                               BaseBlob<256> &referralIdOut,
+                               CModeFeeConfig &result)
 {
   if (login != "admin" && login != "observer") {
     std::unordered_set<std::string> linkedPlans;
@@ -1687,13 +1708,17 @@ bool UserManager::queryFeePlan(
   // Non-superusers see only their own fee entries
   if (login != "admin" && login != "observer") {
     auto filterPairs = [&login](std::vector<CUserFeePair> &pairs) {
-      std::erase_if(pairs, [&login](const CUserFeePair &p) { return p.UserId != login; });
+      std::erase_if(pairs, [&login](const CUserFeePair &p) {
+        return p.UserId != login;
+      });
     };
 
     filterPairs(result.Default);
-    for (auto &coin : result.CoinSpecific)
+    for (auto &coin: result.CoinSpecific)
       filterPairs(coin.Config);
-    std::erase_if(result.CoinSpecific, [](const CCoinFeeConfig &c) { return c.Config.empty(); });
+    std::erase_if(result.CoinSpecific, [](const CCoinFeeConfig &c) {
+      return c.Config.empty();
+    });
   }
 
   status = "ok";
@@ -1720,7 +1745,7 @@ bool UserManager::enumerateFeePlan(const std::string &login, std::string &status
 // Returns flat fee list for a given plan/mode/coin (no fee chain resolution)
 std::vector<CUserFeePair> UserManager::getFeeRecord(const std::string &feePlanId, EMiningMode mode, const std::string &coin)
 {
-  decltype (FeePlanCache_)::const_accessor accessor;
+  decltype(FeePlanCache_)::const_accessor accessor;
   if (FeePlanCache_.find(accessor, feePlanId)) {
     const auto &plan = accessor->second;
     if (static_cast<size_t>(mode) < plan.Modes.size()) {
@@ -1735,14 +1760,14 @@ std::vector<CUserFeePair> UserManager::getFeeRecord(const std::string &feePlanId
 std::vector<std::pair<std::string, std::vector<CUserFeePair>>> UserManager::getAllFeeRecords(EMiningMode mode, const std::string &coin)
 {
   std::vector<std::pair<std::string, std::vector<CUserFeePair>>> result;
-  for (const auto &entry : FeePlanCache_)
+  for (const auto &entry: FeePlanCache_)
     result.emplace_back(entry.first, getFeeRecord(entry.first, mode, coin));
   return result;
 }
 
 void UserManager::fillUserFeePlanIds(std::unordered_map<std::string, std::string> &out)
 {
-  for (const auto &entry : UsersCache_) {
+  for (const auto &entry: UsersCache_) {
     const std::string &feePlanId = !entry.second.FeePlanId.empty() ? entry.second.FeePlanId : "default";
     out.emplace(entry.first, feePlanId);
   }
