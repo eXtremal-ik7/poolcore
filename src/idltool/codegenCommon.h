@@ -56,6 +56,7 @@ struct WireTypeInfo {
   const char *readMethod;  // JsonScanner method
   const char *writeFunc;   // jsonWrite* function
   const char *cppType;     // C++ wire type
+  const char *typeName;    // for error messages
 };
 
 WireTypeInfo getWireTypeInfo(const std::string &wireType);
@@ -128,3 +129,16 @@ struct CJsonReadUsage {
     return ReadString || ReadBool || ReadInt || ReadUInt || ReadDouble;
   }
 };
+
+inline const char *scalarTypeName(EScalarType type) {
+  switch (type) {
+    case EScalarType::String: return "string";
+    case EScalarType::Bool:   return "boolean";
+    case EScalarType::Int32:  return "integer";
+    case EScalarType::Uint32: return "unsigned integer";
+    case EScalarType::Int64:  return "integer";
+    case EScalarType::Uint64: return "unsigned integer";
+    case EScalarType::Double: return "number";
+    default: return "value";
+  }
+}

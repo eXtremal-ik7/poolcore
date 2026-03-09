@@ -408,14 +408,14 @@ void emitSerializeArrayElem(CSerializeCodeBuilder &code, const CFieldDef &f,
 
 WireTypeInfo getWireTypeInfo(const std::string &wireType)
 {
-  if (wireType == "string") return {"readStringValue", "jsonWriteString", "std::string"};
-  if (wireType == "int64")  return {"readInt64", "jsonWriteInt", "int64_t"};
-  if (wireType == "uint64") return {"readUInt64", "jsonWriteUInt", "uint64_t"};
-  if (wireType == "int32")  return {"readInt32", "jsonWriteInt", "int32_t"};
-  if (wireType == "uint32") return {"readUInt32", "jsonWriteUInt", "uint32_t"};
-  if (wireType == "double") return {"readDouble", "jsonWriteDouble", "double"};
-  if (wireType == "bool")   return {"readBool", "jsonWriteBool", "bool"};
-  return {"readStringValue", "jsonWriteString", "std::string"};
+  if (wireType == "string") return {"readStringValue", "jsonWriteString", "std::string", "string"};
+  if (wireType == "int64")  return {"readInt64", "jsonWriteInt", "int64_t", "integer"};
+  if (wireType == "uint64") return {"readUInt64", "jsonWriteUInt", "uint64_t", "unsigned integer"};
+  if (wireType == "int32")  return {"readInt32", "jsonWriteInt", "int32_t", "integer"};
+  if (wireType == "uint32") return {"readUInt32", "jsonWriteUInt", "uint32_t", "unsigned integer"};
+  if (wireType == "double") return {"readDouble", "jsonWriteDouble", "double", "number"};
+  if (wireType == "bool")   return {"readBool", "jsonWriteBool", "bool", "boolean"};
+  return {"readStringValue", "jsonWriteString", "std::string", "string"};
 }
 
 void emitMappedInlineValueSerialize(CSerializeCodeBuilder &code,

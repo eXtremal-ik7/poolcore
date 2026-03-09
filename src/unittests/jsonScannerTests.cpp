@@ -1,10 +1,5 @@
 #include "gtest/gtest.h"
 #include "idltool/jsonScanner.h"
-#include "idltool/jsonReadString.h"
-#include "idltool/jsonReadInt.h"
-#include "idltool/jsonReadUInt.h"
-#include "idltool/jsonReadDouble.h"
-#include "idltool/jsonReadBool.h"
 #include "idltool/jsonWriteString.h"
 #include "idltool/jsonWriteInt.h"
 #include "idltool/jsonWriteUInt.h"
@@ -21,11 +16,6 @@
 // Helpers
 // ============================================================================
 
-template<bool V = false, bool C = false>
-static JsonScannerImpl<V, C> makeScanner(const char *data, size_t len, ParseError *err = nullptr) {
-  return {data, data + len, data, err};
-}
-
 static std::string streamStr(const xmstream &s) {
   return {reinterpret_cast<const char *>(s.data()), s.sizeOf()};
 }
@@ -37,8 +27,8 @@ static std::string streamStr(const xmstream &s) {
 TEST(JsonScanner, ReadInt) {
   auto read = [](const char *s) -> std::pair<bool, int64_t> {
     int64_t v = 0;
-    auto sc = makeScanner(s, strlen(s));
-    return {sc.readInt64(v), v};
+    const char *p = s, *end = s + strlen(s);
+    return {jsonReadInt64(p, end, v) == JsonReadError::Ok, v};
   };
 
   // basic
@@ -67,9 +57,9 @@ TEST(JsonScanner, ReadInt) {
   EXPECT_FALSE(read("").first);
 
   // int32 range
-  { int32_t v = 0; auto sc = makeScanner("2147483647", 10); EXPECT_TRUE(sc.readInt32(v)); EXPECT_EQ(v, INT32_MAX); }
-  { int32_t v = 0; auto sc = makeScanner("-2147483648", 11); EXPECT_TRUE(sc.readInt32(v)); EXPECT_EQ(v, INT32_MIN); }
-  { int32_t v = 0; auto sc = makeScanner("2147483648", 10); EXPECT_FALSE(sc.readInt32(v)); }
+  { int32_t v = 0; const char *p = "2147483647", *end = p + 10; EXPECT_EQ(jsonReadInt32(p, end, v), JsonReadError::Ok); EXPECT_EQ(v, INT32_MAX); }
+  { int32_t v = 0; const char *p = "-2147483648", *end = p + 11; EXPECT_EQ(jsonReadInt32(p, end, v), JsonReadError::Ok); EXPECT_EQ(v, INT32_MIN); }
+  { int32_t v = 0; const char *p = "2147483648", *end = p + 10; EXPECT_NE(jsonReadInt32(p, end, v), JsonReadError::Ok); }
 }
 
 TEST(JsonScanner, WriteInt) {
@@ -92,8 +82,8 @@ TEST(JsonScanner, RoundtripInt) {
     jsonWriteInt(buf, v);
     auto str = streamStr(buf);
     int64_t parsed = 0;
-    auto sc = makeScanner(str.c_str(), str.size());
-    ASSERT_TRUE(sc.readInt64(parsed)) << v;
+    const char *p = str.c_str(), *end = p + str.size();
+    ASSERT_EQ(jsonReadInt64(p, end, parsed), JsonReadError::Ok) << v;
     EXPECT_EQ(v, parsed) << v;
   }
 }
@@ -105,8 +95,8 @@ TEST(JsonScanner, RoundtripInt) {
 TEST(JsonScanner, ReadUInt) {
   auto read = [](const char *s) -> std::pair<bool, uint64_t> {
     uint64_t v = 0;
-    auto sc = makeScanner(s, strlen(s));
-    return {sc.readUInt64(v), v};
+    const char *p = s, *end = s + strlen(s);
+    return {jsonReadUInt64(p, end, v) == JsonReadError::Ok, v};
   };
 
   { auto [ok, v] = read("0"); ASSERT_TRUE(ok); EXPECT_EQ(v, 0u); }
@@ -122,8 +112,8 @@ TEST(JsonScanner, ReadUInt) {
   EXPECT_FALSE(read("-1").first);
 
   // uint32 range
-  { uint32_t v = 0; auto sc = makeScanner("4294967295", 10); EXPECT_TRUE(sc.readUInt32(v)); EXPECT_EQ(v, UINT32_MAX); }
-  { uint32_t v = 0; auto sc = makeScanner("4294967296", 10); EXPECT_FALSE(sc.readUInt32(v)); }
+  { uint32_t v = 0; const char *p = "4294967295", *end = p + 10; EXPECT_EQ(jsonReadUInt32(p, end, v), JsonReadError::Ok); EXPECT_EQ(v, UINT32_MAX); }
+  { uint32_t v = 0; const char *p = "4294967296", *end = p + 10; EXPECT_NE(jsonReadUInt32(p, end, v), JsonReadError::Ok); }
 }
 
 TEST(JsonScanner, WriteUInt) {
@@ -143,8 +133,8 @@ TEST(JsonScanner, RoundtripUInt) {
     jsonWriteUInt(buf, v);
     auto str = streamStr(buf);
     uint64_t parsed = 0;
-    auto sc = makeScanner(str.c_str(), str.size());
-    ASSERT_TRUE(sc.readUInt64(parsed)) << v;
+    const char *p = str.c_str(), *end = p + str.size();
+    ASSERT_EQ(jsonReadUInt64(p, end, parsed), JsonReadError::Ok) << v;
     EXPECT_EQ(v, parsed) << v;
   }
 }
@@ -156,8 +146,8 @@ TEST(JsonScanner, RoundtripUInt) {
 TEST(JsonScanner, ReadDouble) {
   auto read = [](const char *s) -> std::pair<bool, double> {
     double v = 0;
-    auto sc = makeScanner(s, strlen(s));
-    return {sc.readDouble(v), v};
+    const char *p = s, *end = s + strlen(s);
+    return {jsonReadDouble(p, end, v) == JsonReadError::Ok, v};
   };
   auto strtodRef = [](const char *s) { return std::strtod(s, nullptr); };
   auto checkStrtod = [&](const char *s) {
@@ -224,8 +214,8 @@ TEST(JsonScanner, RoundtripDouble) {
     jsonWriteDouble(buf, v);
     auto str = streamStr(buf);
     double parsed = 0;
-    auto sc = makeScanner(str.c_str(), str.size());
-    ASSERT_TRUE(sc.readDouble(parsed)) << v;
+    const char *p = str.c_str(), *end = p + str.size();
+    ASSERT_EQ(jsonReadDouble(p, end, parsed), JsonReadError::Ok) << v;
     EXPECT_NEAR(v, parsed, std::abs(v) * 1e-10 + 1e-300) << v;
   }
 }
@@ -237,8 +227,8 @@ TEST(JsonScanner, RoundtripDouble) {
 TEST(JsonScanner, ReadString) {
   auto read = [](const char *s) -> std::pair<bool, std::string> {
     std::string v;
-    auto sc = makeScanner(s, strlen(s));
-    return {sc.readStringValue(v), v};
+    const char *p = s, *end = s + strlen(s);
+    return {jsonReadStringValue(p, end, v) == JsonReadError::Ok, v};
   };
 
   // basic
@@ -284,8 +274,8 @@ TEST(JsonScanner, RoundtripString) {
     jsonWriteString(buf, v);
     auto str = streamStr(buf);
     std::string parsed;
-    auto sc = makeScanner(str.c_str(), str.size());
-    ASSERT_TRUE(sc.readStringValue(parsed)) << v;
+    const char *p = str.c_str(), *end = p + str.size();
+    ASSERT_EQ(jsonReadStringValue(p, end, parsed), JsonReadError::Ok) << v;
     EXPECT_EQ(parsed, v);
   }
 }
@@ -297,8 +287,8 @@ TEST(JsonScanner, RoundtripString) {
 TEST(JsonScanner, ReadBool) {
   auto read = [](const char *s) -> std::pair<bool, bool> {
     bool v = false;
-    auto sc = makeScanner(s, strlen(s));
-    return {sc.readBool(v), v};
+    const char *p = s, *end = s + strlen(s);
+    return {jsonReadBool(p, end, v) == JsonReadError::Ok, v};
   };
 
   { auto [ok, v] = read("true"); ASSERT_TRUE(ok); EXPECT_TRUE(v); }

@@ -1,16 +1,14 @@
-// Generated JSON scanner — readDouble definition
+// JSON value parser — readDouble
 #pragma once
 
-#include "idltool/jsonScanner.h"
+#include "idltool/jsonReadError.h"
 
-template<bool Verbose, bool Comments>
-bool JsonScannerImpl<Verbose, Comments>::readDouble(double &out) {
-  skipWhitespace();
-  if (p >= end) { setError("expected number, got end of input"); return false; }
+inline JsonReadError jsonReadDouble(const char *&p, const char *end, double &out) {
+  if (p >= end) return JsonReadError::UnexpectedEnd;
   const char *start = p;
   bool negative = false;
   if (*p == '-') { negative = true; p++; }
-  if (p >= end || *p < '0' || *p > '9') { p = start; setError(std::string("expected number, got '") + *start + "'"); return false; }
+  if (p >= end || *p < '0' || *p > '9') { p = start; return JsonReadError::UnexpectedChar; }
   uint64_t mantissa = 0;
   const char *intStart = p;
   while (p < end && (unsigned)(*p - '0') < 10) {
@@ -76,5 +74,5 @@ bool JsonScannerImpl<Verbose, Comments>::readDouble(double &out) {
     while (exp < 0) { int step = exp < -22 ? 22 : -exp; out /= kPow10[step]; exp += step; }
   }
   if (negative) out = -out;
-  return true;
+  return JsonReadError::Ok;
 }

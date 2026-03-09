@@ -479,7 +479,7 @@ static void generateDirectMappedCaptureRead(std::string &out,
   auto wi = getWireTypeInfo(ci.MappedWireType);
   std::string in = indent(ind);
   out += std::format("{}if (capture) {{\n", in);
-  out += std::format("{}  if (!s.{}({})) {{ {}; }}\n", in, wi.readMethod, captureExpr, failureCode);
+  out += std::format("{}  if (s.{}({}) != JsonReadError::Ok) {{ {}; }}\n", in, wi.readMethod, captureExpr, failureCode);
   out += std::format("{}}} else {{\n", in);
   out += std::format("{}  if (!s.skipValue()) {{ {}; }}\n", in, failureCode);
   out += std::format("{}}}\n", in);
@@ -495,7 +495,7 @@ static void generateParseMappedValue(std::string &out,
   auto wi = getWireTypeInfo(mappedWireType);
   std::string in = indent(ind);
   std::string resolveFunc = "__" + mappedTypeName + "Resolve";
-  out += std::format("{}{{ {} _tmp; if (!s.{}(_tmp) || !{}(_tmp, {})) {{ {}; }} }}\n",
+  out += std::format("{}{{ {} _tmp; if (s.{}(_tmp) != JsonReadError::Ok || !{}(_tmp, {})) {{ {}; }} }}\n",
                      in, wi.cppType, wi.readMethod, resolveFunc, destExpr, failureCode);
 }
 
@@ -515,7 +515,7 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
     if (ci && ci->kind == CFieldCaptureInfo::MappedDirect) {
       auto wi = getWireTypeInfo(ci->MappedWireType);
       out += std::format("{}if (capture) {{\n", in);
-      out += std::format("{}  if (!s.{}(capture->{})) valid = false;\n", in, wi.readMethod, ci->CaptureFieldName);
+      out += std::format("{}  if (s.{}(capture->{}) != JsonReadError::Ok) valid = false;\n", in, wi.readMethod, ci->CaptureFieldName);
       if (foundBit >= 0)
         out += std::format("{}  else found |= (uint64_t)1 << {};\n", in, foundBit);
       out += std::format("{}}} else {{\n", in);
@@ -528,7 +528,7 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
       std::string mappedWireType = (ci && !ci->MappedWireType.empty()) ? ci->MappedWireType : f.Type.MappedWireType;
       auto wi = getWireTypeInfo(mappedWireType);
       std::string resolveFunc = "__" + mappedTypeName + "Resolve";
-      out += std::format("{}{{ {} _tmp; if (!s.{}(_tmp) || !{}(_tmp, {})) valid = false;\n",
+      out += std::format("{}{{ {} _tmp; if (s.{}(_tmp) != JsonReadError::Ok || !{}(_tmp, {})) valid = false;\n",
                          in, wi.cppType, wi.readMethod, resolveFunc, cn);
       if (foundBit >= 0)
         out += std::format("{}  else found |= (uint64_t)1 << {};\n", in, foundBit);
@@ -550,7 +550,7 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
   if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
       f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
     std::string chronoType = cppScalarType(f.Type.Scalar);
-    out += std::format("{}{{ int64_t _t; if (!s.readInt64(_t)) valid = false;\n", in);
+    out += std::format("{}{{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) valid = false;\n", in);
     out += std::format("{}  else {{ {} = {}(_t);\n", in, cn, chronoType);
     if (foundBit >= 0)
       out += std::format("{}    found |= (uint64_t)1 << {};\n", in, foundBit);
@@ -570,7 +570,7 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
     default: break;
   }
 
-  out += std::format("{}if (!s.{}({})) valid = false;\n", in, readMethod, cn);
+  out += std::format("{}if (s.{}({}) != JsonReadError::Ok) valid = false;\n", in, readMethod, cn);
   if (foundBit >= 0)
     out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
 }
@@ -608,7 +608,7 @@ static void generateNestedArrayParse(std::string &out, const CFieldDef &f,
     } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
                f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
       std::string chronoType = cppScalarType(f.Type.Scalar);
-      out += std::format("{}{{ int64_t _t; if (!s.readInt64(_t)) {{ valid = false; break; }} {} = {}(_t); }}\n",
+      out += std::format("{}{{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} {} = {}(_t); }}\n",
                          in, containerExpr, chronoType);
     } else {
       const char *readMethod = "readInt64";
@@ -622,7 +622,7 @@ static void generateNestedArrayParse(std::string &out, const CFieldDef &f,
         case EScalarType::Double: readMethod = "readDouble"; break;
         default: break;
       }
-      out += std::format("{}if (!s.{}({})) {{ valid = false; break; }}\n", in, readMethod, containerExpr);
+      out += std::format("{}if (s.{}({}) != JsonReadError::Ok) {{ valid = false; break; }}\n", in, readMethod, containerExpr);
     }
     return;
   }
@@ -635,6 +635,7 @@ static void generateNestedArrayParse(std::string &out, const CFieldDef &f,
     out += std::format("{}if (!s.expectChar('[')) {{ valid = false; break; }}\n", in);
     out += std::format("{}for (size_t {} = 0; {} < {}; {}++) {{\n", in, idx, idx, dim.FixedSize, idx);
     out += std::format("{}  if ({} > 0 && !s.expectChar(',')) {{ valid = false; break; }}\n", in, idx);
+    out += std::format("{}  s.skipWhitespace();\n", in);
     generateNestedArrayParse(out, f, enumNames, dims, dimIndex + 1,
                              std::format("{}[{}]", containerExpr, idx),
                              std::format("{}[{}]", captureExpr, idx),
@@ -655,7 +656,7 @@ static void generateNestedArrayParse(std::string &out, const CFieldDef &f,
                              std::format("{}.back()", captureExpr),
                              ind + 2, ci);
     out += std::format("{}    s.skipWhitespace();\n", in);
-    out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; continue; }}\n", in);
+    out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; s.skipWhitespace(); continue; }}\n", in);
     out += std::format("{}    break;\n", in);
     out += std::format("{}  }}\n", in);
     out += std::format("{}}}\n", in);
@@ -777,7 +778,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
                                  ci ? std::format("capture->{}.back()", ci->CaptureFieldName) : "",
                                  ind + 2, ci);
         out += std::format("{}    s.skipWhitespace();\n", in);
-        out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; continue; }}\n", in);
+        out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; s.skipWhitespace(); continue; }}\n", in);
         out += std::format("{}    break;\n", in);
         out += std::format("{}  }}\n", in);
         out += std::format("{}}}\n", in);
@@ -796,7 +797,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
         if (ci && ci->kind == CFieldCaptureInfo::MappedInline) {
           auto wi = getWireTypeInfo(ci->MappedWireType);
           std::string resolveFunc = "__" + ci->MappedTypeName + "Resolve";
-          out += std::format("{}    {{ {} _tmp; {}.emplace_back(); if (!s.{}(_tmp) || !{}(_tmp, {}.back())) {{ valid = false; break; }} }}\n",
+          out += std::format("{}    {{ {} _tmp; {}.emplace_back(); if (s.{}(_tmp) != JsonReadError::Ok || !{}(_tmp, {}.back())) {{ valid = false; break; }} }}\n",
                              in, wi.cppType, cn, wi.readMethod, resolveFunc, cn);
         } else if (ci && ci->kind == CFieldCaptureInfo::MappedDirect) {
           out += std::format("{}    if (capture) capture->{}.emplace_back();\n", in, ci->CaptureFieldName);
@@ -824,7 +825,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
                  f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
         std::string chronoType = cppScalarType(f.Type.Scalar);
-        out += std::format("{}    {{ int64_t _t; if (!s.readInt64(_t)) {{ valid = false; break; }} "
+        out += std::format("{}    {{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} "
                            "{}.push_back({}(_t)); }}\n", in, cn, chronoType);
       } else {
         const char *cppType = nullptr;
@@ -840,16 +841,16 @@ static void generateParseField(std::string &out, const CFieldDef &f,
           default: cppType = "int64_t"; readMethod = "readInt64"; break;
         }
         if (f.Type.Scalar == EScalarType::String) {
-          out += std::format("{}    {{ std::string tmp; if (!s.{}(tmp)) {{ valid = false; break; }} "
+          out += std::format("{}    {{ std::string tmp; if (s.{}(tmp) != JsonReadError::Ok) {{ valid = false; break; }} "
                              "{}.push_back(std::move(tmp)); }}\n", in, readMethod, cn);
         } else {
-          out += std::format("{}    {{ {} tmp; if (!s.{}(tmp)) {{ valid = false; break; }} "
+          out += std::format("{}    {{ {} tmp; if (s.{}(tmp) != JsonReadError::Ok) {{ valid = false; break; }} "
                              "{}.push_back(tmp); }}\n", in, cppType, readMethod, cn);
         }
       }
 
       out += std::format("{}    s.skipWhitespace();\n", in);
-      out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; continue; }}\n", in);
+      out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; s.skipWhitespace(); continue; }}\n", in);
       out += std::format("{}    break;\n", in);
       out += std::format("{}  }}\n", in);
       out += std::format("{}}}\n", in);
@@ -880,6 +881,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       out += std::format("{}if (!s.expectChar('[')) {{ valid = false; break; }}\n", in);
       out += std::format("{}for (size_t i_ = 0; i_ < {}; i_++) {{\n", in, f.Type.FixedSize);
       out += std::format("{}  if (i_ > 0 && !s.expectChar(',')) {{ valid = false; break; }}\n", in);
+      out += std::format("{}  s.skipWhitespace();\n", in);
 
       if (!f.Type.InnerDims.empty()) {
         generateNestedArrayParse(out, f, enumNames, f.Type.InnerDims, 0,
@@ -907,7 +909,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
                  f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
         std::string chronoType = cppScalarType(f.Type.Scalar);
-        out += std::format("{}  {{ int64_t _t; if (!s.readInt64(_t)) {{ valid = false; break; }} {}[i_] = {}(_t); }}\n",
+        out += std::format("{}  {{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} {}[i_] = {}(_t); }}\n",
                            in, cn, chronoType);
       } else {
         const char *readMethod = nullptr;
@@ -921,7 +923,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
           case EScalarType::Double: readMethod = "readDouble"; break;
           default: readMethod = "readInt64"; break;
         }
-        out += std::format("{}  if (!s.{}({}[i_])) {{ valid = false; break; }}\n", in, readMethod, cn);
+        out += std::format("{}  if (s.{}({}[i_]) != JsonReadError::Ok) {{ valid = false; break; }}\n", in, readMethod, cn);
       }
 
       out += std::format("{}}}\n", in);
@@ -1005,6 +1007,7 @@ static void generateParseBody(std::string &out, const CStructDef &s,
     out += std::format("      if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
                        ph.Seed, ph.Mult);
     out += "      if (!s.expectChar(':')) return false;\n";
+    out += "      s.skipWhitespace();\n";
     out += std::format("      switch (keyHash % {}) {{\n", ph.Mod);
 
     for (uint32_t h = 0; h < ph.Mod; h++) {
@@ -1926,6 +1929,7 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
       out += std::format("      if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
                          ph->Seed, ph->Mult);
       out += "      if (!s.expectChar(':')) return false;\n";
+      out += "      s.skipWhitespace();\n";
       out += std::format("      switch (keyHash % {}) {{\n", ph->Mod);
 
       for (uint32_t h = 0; h < ph->Mod; h++) {

@@ -1,17 +1,13 @@
-// Generated JSON scanner — readUInt64 + readUInt32 definitions
+// JSON value parser — readUInt64 + readUInt32
 #pragma once
 
-#include "idltool/jsonScanner.h"
+#include "idltool/jsonReadError.h"
 
-template<bool Verbose, bool Comments>
-bool JsonScannerImpl<Verbose, Comments>::readUInt64(uint64_t &out) {
-  skipWhitespace();
-  if (p >= end) { setError("expected integer, got end of input"); return false; }
+inline JsonReadError jsonReadUInt64(const char *&p, const char *end, uint64_t &out) {
+  if (p >= end) return JsonReadError::UnexpectedEnd;
+  if (*p == '-') return JsonReadError::UnexpectedChar;
+  if ((unsigned)(*p - '0') >= 10) return JsonReadError::UnexpectedChar;
   const char *start = p;
-  if (*p == '-') { setError("expected unsigned integer, got negative value"); return false; }
-  if ((unsigned)(*p - '0') >= 10) {
-    setError(std::string("expected integer, got '") + *p + "'"); return false;
-  }
   uint64_t val = 0;
   const char *digitStart = p;
   while (p < end && (unsigned)(*p - '0') < 10) {
@@ -24,20 +20,20 @@ bool JsonScannerImpl<Verbose, Comments>::readUInt64(uint64_t &out) {
   } else if (nDigits == 20) {
     // 20 digits: valid only if first digit is '1' and no wrap-around
     if (*digitStart > '1' || val < 10000000000000000000ULL) {
-      p = start; setError("integer overflow"); return false;
+      p = start; return JsonReadError::Overflow;
     }
   } else {
-    p = start; setError("integer overflow"); return false;
+    p = start; return JsonReadError::Overflow;
   }
   out = val;
-  return true;
+  return JsonReadError::Ok;
 }
 
-template<bool Verbose, bool Comments>
-bool JsonScannerImpl<Verbose, Comments>::readUInt32(uint32_t &out) {
+inline JsonReadError jsonReadUInt32(const char *&p, const char *end, uint32_t &out) {
   uint64_t v;
-  if (!readUInt64(v)) return false;
-  if (v > UINT32_MAX) { setError("integer out of uint32 range"); return false; }
+  auto err = jsonReadUInt64(p, end, v);
+  if (err != JsonReadError::Ok) return err;
+  if (v > UINT32_MAX) return JsonReadError::RangeError;
   out = (uint32_t)v;
-  return true;
+  return JsonReadError::Ok;
 }

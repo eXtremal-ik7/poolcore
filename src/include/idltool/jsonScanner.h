@@ -14,6 +14,13 @@ struct ParseError {
 };
 #endif
 
+#include "idltool/jsonReadError.h"
+#include "idltool/jsonReadInt.h"
+#include "idltool/jsonReadUInt.h"
+#include "idltool/jsonReadDouble.h"
+#include "idltool/jsonReadBool.h"
+#include "idltool/jsonReadString.h"
+
 template<bool Verbose, bool Comments = false>
 struct JsonScannerImpl {
   const char *p;
@@ -33,6 +40,26 @@ struct JsonScannerImpl {
       if (!error || !error->message.empty()) return;
       computePosition(error->row, error->col);
       error->message = msg;
+    }
+  }
+
+  void formatReadError([[maybe_unused]] JsonReadError err, [[maybe_unused]] const char *field, [[maybe_unused]] const char *typeName) {
+    if constexpr (Verbose) {
+      if (!error || !error->message.empty()) return;
+      computePosition(error->row, error->col);
+      switch (err) {
+        case JsonReadError::UnexpectedEnd:
+          error->message = std::string("field '") + field + "': expected " + typeName + ", got end of input"; break;
+        case JsonReadError::UnexpectedChar:
+          error->message = std::string("field '") + field + "': expected " + typeName + ", got '" + *p + "'"; break;
+        case JsonReadError::Overflow:
+          error->message = std::string("field '") + field + "': " + typeName + " overflow"; break;
+        case JsonReadError::RangeError:
+          error->message = std::string("field '") + field + "': " + typeName + " out of range"; break;
+        case JsonReadError::Unterminated:
+          error->message = std::string("field '") + field + "': unterminated string"; break;
+        default: break;
+      }
     }
   }
 
@@ -114,7 +141,6 @@ struct JsonScannerImpl {
   }
 
   bool readNull() {
-    skipWhitespace();
     if (end - p >= 4 && memcmp(p, "null", 4) == 0) {
       p += 4; return true;
     }
@@ -171,14 +197,14 @@ struct JsonScannerImpl {
     }
   }
 
-  // Method declarations — definitions in separate headers
-  bool readStringValue(std::string &out);
-  bool readInt64(int64_t &out);
-  bool readInt32(int32_t &out);
-  bool readUInt64(uint64_t &out);
-  bool readUInt32(uint32_t &out);
-  bool readDouble(double &out);
-  bool readBool(bool &out);
+  // Forwarding methods — call free functions from jsonRead*.h
+  JsonReadError readStringValue(std::string &out) { return jsonReadStringValue(p, end, out); }
+  JsonReadError readInt64(int64_t &out) { return jsonReadInt64(p, end, out); }
+  JsonReadError readInt32(int32_t &out) { return jsonReadInt32(p, end, out); }
+  JsonReadError readUInt64(uint64_t &out) { return jsonReadUInt64(p, end, out); }
+  JsonReadError readUInt32(uint32_t &out) { return jsonReadUInt32(p, end, out); }
+  JsonReadError readDouble(double &out) { return jsonReadDouble(p, end, out); }
+  JsonReadError readBool(bool &out) { return jsonReadBool(p, end, out); }
 };
 
 using JsonScanner = JsonScannerImpl<false, false>;

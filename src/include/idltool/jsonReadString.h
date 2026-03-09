@@ -1,13 +1,12 @@
-// Generated JSON scanner — readStringValue definition
+// JSON value parser — readStringValue
 #pragma once
 
-#include "idltool/jsonScanner.h"
+#include "idltool/jsonReadError.h"
+#include <string>
 
-template<bool Verbose, bool Comments>
-bool JsonScannerImpl<Verbose, Comments>::readStringValue(std::string &out) {
-  skipWhitespace();
-  if (p >= end) { setError("expected string, got end of input"); return false; }
-  if (*p != '"') { setError(std::string("expected string, got '") + *p + "'"); return false; }
+inline JsonReadError jsonReadStringValue(const char *&p, const char *end, std::string &out) {
+  if (p >= end) return JsonReadError::UnexpectedEnd;
+  if (*p != '"') return JsonReadError::UnexpectedChar;
   p++;
   // Fast path: scan for closing quote without escapes
   const char *start = p;
@@ -15,14 +14,14 @@ bool JsonScannerImpl<Verbose, Comments>::readStringValue(std::string &out) {
   if (p < end && *p == '"') {
     out.assign(start, p - start);
     p++;
-    return true;
+    return JsonReadError::Ok;
   }
   // Slow path: has escapes or unterminated
   out.assign(start, p - start);
   while (p < end && *p != '"') {
     if (*p == '\\') {
       p++;
-      if (p >= end) { setError("unterminated string"); return false; }
+      if (p >= end) return JsonReadError::Unterminated;
       switch (*p) {
         case '"': out += '"'; break;
         case '\\': out += '\\'; break;
@@ -84,7 +83,7 @@ bool JsonScannerImpl<Verbose, Comments>::readStringValue(std::string &out) {
       out += *p++;
     }
   }
-  if (p >= end) { setError("unterminated string"); return false; }
+  if (p >= end) return JsonReadError::Unterminated;
   p++;
-  return true;
+  return JsonReadError::Ok;
 }

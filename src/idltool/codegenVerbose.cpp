@@ -7,18 +7,19 @@
 struct VerboseWireTypeInfo {
   const char *readMethod;
   const char *cppType;
+  const char *typeName;
 };
 
 static VerboseWireTypeInfo getVerboseWireTypeInfo(const std::string &wireType)
 {
-  if (wireType == "string") return {"readStringValue", "std::string"};
-  if (wireType == "int64")  return {"readInt64", "int64_t"};
-  if (wireType == "uint64") return {"readUInt64", "uint64_t"};
-  if (wireType == "int32")  return {"readInt32", "int32_t"};
-  if (wireType == "uint32") return {"readUInt32", "uint32_t"};
-  if (wireType == "double") return {"readDouble", "double"};
-  if (wireType == "bool")   return {"readBool", "bool"};
-  return {"readStringValue", "std::string"};
+  if (wireType == "string") return {"readStringValue", "std::string", "string"};
+  if (wireType == "int64")  return {"readInt64", "int64_t", "integer"};
+  if (wireType == "uint64") return {"readUInt64", "uint64_t", "unsigned integer"};
+  if (wireType == "int32")  return {"readInt32", "int32_t", "integer"};
+  if (wireType == "uint32") return {"readUInt32", "uint32_t", "unsigned integer"};
+  if (wireType == "double") return {"readDouble", "double", "number"};
+  if (wireType == "bool")   return {"readBool", "bool", "boolean"};
+  return {"readStringValue", "std::string", "string"};
 }
 
 static void generateVerboseParseMappedValue(std::string &out,
@@ -33,8 +34,8 @@ static void generateVerboseParseMappedValue(std::string &out,
   std::string in = indent(ind);
   std::string resolveFunc = "__" + mappedTypeName + "Resolve";
   out += std::format("{}{{ {} _tmp;\n", in, wi.cppType);
-  out += std::format("{}  if (!s.{}(_tmp)) {{ s.error->message = \"field '{}': \" + s.error->message; {}; }}\n",
-                     in, wi.readMethod, fieldContext, failureCode);
+  out += std::format("{}  if (auto _e = s.{}(_tmp); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); {}; }}\n",
+                     in, wi.readMethod, fieldContext, wi.typeName, failureCode);
   out += std::format("{}  if (!{}(_tmp, {})) {{ s.setError(\"field '{}': invalid mapped value\"); {}; }}\n",
                      in, resolveFunc, destExpr, fieldContext, failureCode);
   out += std::format("{}}}\n", in);
@@ -50,8 +51,8 @@ static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, con
     auto wi = getVerboseWireTypeInfo(f.Type.MappedWireType);
     std::string resolveFunc = "__" + f.Type.RefName + "Resolve";
     out += std::format("{}{{ {} _tmp;\n", in, wi.cppType);
-    out += std::format("{}  if (!s.{}(_tmp)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n",
-                       in, wi.readMethod, fieldContext);
+    out += std::format("{}  if (auto _e = s.{}(_tmp); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }}\n",
+                       in, wi.readMethod, fieldContext, wi.typeName);
     out += std::format("{}  if (!{}(_tmp, {})) {{ s.setError(\"field '{}': invalid mapped value\"); return false; }}\n",
                        in, resolveFunc, cn, fieldContext);
     if (foundBit >= 0)
@@ -80,8 +81,8 @@ static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, con
       f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
     std::string chronoType = cppScalarType(f.Type.Scalar);
     out += std::format("{}{{ int64_t _t;\n", in);
-    out += std::format("{}  if (!s.readInt64(_t)) {{\n", in);
-    out += std::format("{}    s.error->message = \"field '{}': \" + s.error->message;\n", in, fieldContext);
+    out += std::format("{}  if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{\n", in);
+    out += std::format("{}    s.formatReadError(_e, \"{}\", \"integer\");\n", in, fieldContext);
     out += std::format("{}    return false;\n", in);
     out += std::format("{}  }}\n", in);
     out += std::format("{}  {} = {}(_t);\n", in, cn, chronoType);
@@ -103,8 +104,8 @@ static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, con
     default: break;
   }
 
-  out += std::format("{}if (!s.{}({})) {{\n", in, readMethod, cn);
-  out += std::format("{}  s.error->message = \"field '{}': \" + s.error->message;\n", in, fieldContext);
+  out += std::format("{}if (auto _e = s.{}({}); _e != JsonReadError::Ok) {{\n", in, readMethod, cn);
+  out += std::format("{}  s.formatReadError(_e, \"{}\", \"{}\");\n", in, fieldContext, scalarTypeName(f.Type.Scalar));
   out += std::format("{}  return false;\n", in);
   out += std::format("{}}}\n", in);
   if (foundBit >= 0)
@@ -133,7 +134,7 @@ static void generateVerboseNestedArrayParse(std::string &out, const CFieldDef &f
     } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
                f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
       std::string chronoType = cppScalarType(f.Type.Scalar);
-      out += std::format("{}{{ int64_t _t; if (!s.readInt64(_t)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }} {} = {}(_t); }}\n",
+      out += std::format("{}{{ int64_t _t; if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"integer\"); return false; }} {} = {}(_t); }}\n",
                          in, ctx, containerExpr, chronoType);
     } else {
       const char *readMethod = "readInt64";
@@ -147,8 +148,8 @@ static void generateVerboseNestedArrayParse(std::string &out, const CFieldDef &f
         case EScalarType::Double: readMethod = "readDouble"; break;
         default: break;
       }
-      out += std::format("{}if (!s.{}({})) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n",
-                         in, readMethod, containerExpr, ctx);
+      out += std::format("{}if (auto _e = s.{}({}); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }}\n",
+                         in, readMethod, containerExpr, ctx, scalarTypeName(f.Type.Scalar));
     }
     return;
   }
@@ -160,6 +161,7 @@ static void generateVerboseNestedArrayParse(std::string &out, const CFieldDef &f
     out += std::format("{}if (!s.expectChar('[')) return false;\n", in);
     out += std::format("{}for (size_t {} = 0; {} < {}; {}++) {{\n", in, idx, idx, dim.FixedSize, idx);
     out += std::format("{}  if ({} > 0 && !s.expectChar(',')) return false;\n", in, idx);
+    out += std::format("{}  s.skipWhitespace();\n", in);
     generateVerboseNestedArrayParse(out, f, enumNames, dims, dimIndex + 1,
                                     std::format("{}[{}]", containerExpr, idx), ctx, ind + 1);
     out += std::format("{}}}\n", in);
@@ -173,7 +175,7 @@ static void generateVerboseNestedArrayParse(std::string &out, const CFieldDef &f
     generateVerboseNestedArrayParse(out, f, enumNames, dims, dimIndex + 1,
                                      std::format("{}.back()", containerExpr), ctx, ind + 2);
     out += std::format("{}    s.skipWhitespace();\n", in);
-    out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; continue; }}\n", in);
+    out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; s.skipWhitespace(); continue; }}\n", in);
     out += std::format("{}    break;\n", in);
     out += std::format("{}  }}\n", in);
     out += std::format("{}}}\n", in);
@@ -276,7 +278,7 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
         generateVerboseNestedArrayParse(out, f, enumNames, f.Type.InnerDims, 0,
                                          std::format("{}.back()", cn), ctx, ind + 2);
         out += std::format("{}    s.skipWhitespace();\n", in);
-        out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; continue; }}\n", in);
+        out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; s.skipWhitespace(); continue; }}\n", in);
         out += std::format("{}    break;\n", in);
         out += std::format("{}  }}\n", in);
         out += std::format("{}}}\n", in);
@@ -295,8 +297,8 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
         auto wi = getVerboseWireTypeInfo(f.Type.MappedWireType);
         std::string resolveFunc = "__" + f.Type.RefName + "Resolve";
         out += std::format("{}    {{ {} _tmp; {}.emplace_back();\n", in, wi.cppType, cn);
-        out += std::format("{}      if (!s.{}(_tmp)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n",
-                           in, wi.readMethod, ctx);
+        out += std::format("{}      if (auto _e = s.{}(_tmp); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }}\n",
+                           in, wi.readMethod, ctx, wi.typeName);
         out += std::format("{}      if (!{}(_tmp, {}.back())) {{ s.setError(\"field '{}': invalid mapped value in array\"); return false; }}\n",
                            in, resolveFunc, cn, ctx);
         out += std::format("{}    }}\n", in);
@@ -316,7 +318,7 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
                  f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
         std::string chronoType = cppScalarType(f.Type.Scalar);
-        out += std::format("{}    {{ int64_t _t; if (!s.readInt64(_t)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }} "
+        out += std::format("{}    {{ int64_t _t; if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"integer\"); return false; }} "
                            "{}.push_back({}(_t)); }}\n", in, ctx, cn, chronoType);
       } else {
         const char *cppType = nullptr;
@@ -332,16 +334,16 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
           default: cppType = "int64_t"; readMethod = "readInt64"; break;
         }
         if (f.Type.Scalar == EScalarType::String) {
-          out += std::format("{}    {{ std::string tmp; if (!s.{}(tmp)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }} "
-                             "{}.push_back(std::move(tmp)); }}\n", in, readMethod, ctx, cn);
+          out += std::format("{}    {{ std::string tmp; if (auto _e = s.{}(tmp); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }} "
+                             "{}.push_back(std::move(tmp)); }}\n", in, readMethod, ctx, scalarTypeName(f.Type.Scalar), cn);
         } else {
-          out += std::format("{}    {{ {} tmp; if (!s.{}(tmp)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }} "
-                             "{}.push_back(tmp); }}\n", in, cppType, readMethod, ctx, cn);
+          out += std::format("{}    {{ {} tmp; if (auto _e = s.{}(tmp); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }} "
+                             "{}.push_back(tmp); }}\n", in, cppType, readMethod, ctx, scalarTypeName(f.Type.Scalar), cn);
         }
       }
 
       out += std::format("{}    s.skipWhitespace();\n", in);
-      out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; continue; }}\n", in);
+      out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; s.skipWhitespace(); continue; }}\n", in);
       out += std::format("{}    break;\n", in);
       out += std::format("{}  }}\n", in);
       out += std::format("{}}}\n", in);
@@ -372,6 +374,7 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       out += std::format("{}if (!s.expectChar('[')) return false;\n", in);
       out += std::format("{}for (size_t i_ = 0; i_ < {}; i_++) {{\n", in, f.Type.FixedSize);
       out += std::format("{}  if (i_ > 0 && !s.expectChar(',')) return false;\n", in);
+      out += std::format("{}  s.skipWhitespace();\n", in);
 
       if (!f.Type.InnerDims.empty()) {
         generateVerboseNestedArrayParse(out, f, enumNames, f.Type.InnerDims, 0,
@@ -388,7 +391,7 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
                  f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
         std::string chronoType = cppScalarType(f.Type.Scalar);
-        out += std::format("{}  {{ int64_t _t; if (!s.readInt64(_t)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }} {}[i_] = {}(_t); }}\n",
+        out += std::format("{}  {{ int64_t _t; if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"integer\"); return false; }} {}[i_] = {}(_t); }}\n",
                            in, ctx, cn, chronoType);
       } else {
         const char *readMethod = nullptr;
@@ -402,8 +405,8 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
           case EScalarType::Double: readMethod = "readDouble"; break;
           default: readMethod = "readInt64"; break;
         }
-        out += std::format("{}  if (!s.{}({}[i_])) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n",
-                           in, readMethod, cn, ctx);
+        out += std::format("{}  if (auto _e = s.{}({}[i_]); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }}\n",
+                           in, readMethod, cn, ctx, scalarTypeName(f.Type.Scalar));
       }
 
       out += std::format("{}}}\n", in);

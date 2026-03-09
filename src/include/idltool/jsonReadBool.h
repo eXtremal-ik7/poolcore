@@ -1,20 +1,17 @@
-// Generated JSON scanner — readBool definition
+// JSON value parser — readBool
 #pragma once
 
-#include "idltool/jsonScanner.h"
+#include "idltool/jsonReadError.h"
+#include <cstring>
 
-template<bool Verbose, bool Comments>
-bool JsonScannerImpl<Verbose, Comments>::readBool(bool &out) {
-  skipWhitespace();
+inline JsonReadError jsonReadBool(const char *&p, const char *end, bool &out) {
   if (end - p >= 4 && memcmp(p, "true", 4) == 0) {
-    p += 4; out = true; return true;
+    p += 4; out = true; return JsonReadError::Ok;
   }
   if (end - p >= 5 && memcmp(p, "false", 5) == 0) {
-    p += 5; out = false; return true;
+    p += 5; out = false; return JsonReadError::Ok;
   }
   if (p >= end)
-    setError("expected boolean, got end of input");
-  else
-    setError(std::string("expected boolean, got '") + *p + "'");
-  return false;
+    return JsonReadError::UnexpectedEnd;
+  return JsonReadError::UnexpectedChar;
 }
