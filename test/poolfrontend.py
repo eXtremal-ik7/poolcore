@@ -9,7 +9,6 @@ class Poolfrontend:
         self.URL = url
 
     def __call__(self, functionName, data, requiredStatus=None, debug=None):
-        print(requiredStatus)
         result = requests.post(self.URL + "/" + functionName, json=data).json()
         if debug is True:
             print("curl -X POST -d '{}' {}/{}\n{}\n".format(json.dumps(data), self.URL, functionName,
