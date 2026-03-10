@@ -13,6 +13,41 @@ static bool validEmail(const std::string &email)
   return std::regex_match(email, pattern);
 }
 
+const char *UserManager::validateUserFields(const std::string &login,
+                                            const std::string &password,
+                                            const std::string &email,
+                                            bool emailRequired,
+                                            const std::string &name,
+                                            std::string &resolvedName)
+{
+  // Check login format
+  if (login.empty() || login.size() > 64 || login == "admin" || login == "observer")
+    return "login_format_invalid";
+  for (char c: login)
+    if (c < 32 || c > 126)
+      return "login_format_invalid";
+
+  // Check password format
+  if (password.size() < 8 || password.size() > 64)
+    return "password_format_invalid";
+
+  // Check email format
+  if (email.empty()) {
+    if (emailRequired)
+      return "email_format_invalid";
+  } else {
+    if (email.size() > 256 || !validEmail(email))
+      return "email_format_invalid";
+  }
+
+  // Check name format
+  resolvedName = name.empty() ? login : name;
+  if (resolvedName.size() > 64)
+    return "name_format_invalid";
+
+  return nullptr;
+}
+
 BaseBlob<256> UserManager::generateHash(const std::string &login, const std::string &password)
 {
   BaseBlob<256> result;
@@ -699,80 +734,33 @@ void UserManager::userChangePasswordForceImpl(const std::string &login, const st
   callback("ok");
 }
 
-void UserManager::userCreateImpl(const std::string &login, Credentials &credentials, Task::DefaultCb callback)
+void UserManager::userCreateImpl(const std::string &login,
+                                 const std::string &password,
+                                 const std::string &name,
+                                 const std::string &email,
+                                 const std::string &referralId,
+                                 Task::DefaultCb callback)
 {
   // NOTE: function is coroutine!
 
-  // Check login format
-  if (credentials.Login.empty() || credentials.Login.size() > 64 || credentials.Login == "admin" || credentials.Login == "observer") {
-    callback("login_format_invalid");
-    return;
-  }
-
-  for (char c: credentials.Login) {
-    if (c < 32 || c > 126) {
-      callback("login_format_invalid");
-      return;
-    }
-  }
-
-  // Check password format
-  if (credentials.Password.size() < 8 || credentials.Password.size() > 64) {
-    callback("password_format_invalid");
-    return;
-  }
-
-  // Check email format
-  if (!credentials.EMail.empty()) {
-    if (credentials.EMail.size() > 256 || !validEmail(credentials.EMail)) {
-      callback("email_format_invalid");
-      return;
-    }
-  } else if (!credentials.IsActive) {
-    callback("email_format_invalid");
-    return;
-  }
-
-  // Check name format
-  if (credentials.Name.empty())
-    credentials.Name = credentials.Login;
-  if (credentials.Name.size() > 64) {
-    callback("name_format_invalid");
+  std::string userName;
+  if (const char *err = validateUserFields(login, password, email, true, name, userName)) {
+    callback(err);
     return;
   }
 
   // Check for known email
-  if (!credentials.EMail.empty() && AllEmails_.count(credentials.EMail)) {
+  if (AllEmails_.count(email)) {
     callback("duplicate_email");
     return;
   }
 
-  // Check special flags available for admin only
-  if (credentials.IsActive || credentials.IsReadOnly) {
-    if (login != "admin") {
-      callback("unknown_id");
-      return;
-    }
-  }
-
-  // Check personal fee plan
-  std::string feePlan = credentials.FeePlan.empty() ? "default" : credentials.FeePlan;
-  if (feePlan != "default") {
-    // Direct assignment by name: admin only
-    if (login != "admin") {
-      callback("fee_plan_not_allowed");
-      return;
-    }
-
-    if (!FeePlanCache_.count(feePlan)) {
-      callback("fee_plan_not_exists");
-      return;
-    }
-  } else if (!credentials.ReferralId.empty()) {
-    // Referral registration (only when feePlanId not set explicitly)
-    auto referralId = BaseBlob<256>::fromHexRaw(credentials.ReferralId.c_str());
-    if (!referralId.isNull()) {
-      auto it = ReferralIdMap_.find(referralId);
+  // Check personal fee plan via referral
+  std::string feePlan = "default";
+  if (!referralId.empty()) {
+    auto refId = BaseBlob<256>::fromHexRaw(referralId.c_str());
+    if (!refId.isNull()) {
+      auto it = ReferralIdMap_.find(refId);
       if (it == ReferralIdMap_.end()) {
         callback("invalid_referral_id");
         return;
@@ -781,110 +769,118 @@ void UserManager::userCreateImpl(const std::string &login, Credentials &credenti
     }
   }
 
-  // Prepare credentials (hashing password, activate link, etc...)
-  // Generate 'user activate' action
-  // Insert data into memory storage
+  // Prepare activation action
   UserActionRecord actionRecord;
   makeRandom(actionRecord.Id);
-  actionRecord.Login = credentials.Login;
+  actionRecord.Login = login;
   actionRecord.Type = UserActionRecord::UserActivate;
   actionRecord.CreationDate = Timestamp::now();
 
+  // Prepare user record
   UsersRecord userRecord;
-  userRecord.Login = credentials.Login;
-  userRecord.EMail = credentials.EMail;
-  userRecord.Name = credentials.Name;
+  userRecord.Login = login;
+  userRecord.EMail = email;
+  userRecord.Name = userName;
   userRecord.TwoFactorAuthData.clear();
-  userRecord.PasswordHash = generateHash(credentials.Login, credentials.Password);
+  userRecord.PasswordHash = generateHash(login, password);
   userRecord.RegistrationDate = Timestamp::now();
-  userRecord.IsActive = credentials.IsActive;
-  userRecord.IsReadOnly = credentials.IsReadOnly;
+  userRecord.IsActive = false;
+  userRecord.IsReadOnly = false;
   userRecord.FeePlanId = feePlan;
 
-  if (!UsersCache_.insert(std::pair(credentials.Login, userRecord))) {
+  if (!UsersCache_.insert(std::pair(login, userRecord))) {
     callback("duplicate_login");
     return;
   }
 
-  if (!credentials.IsActive) {
-    if (SMTP.Enabled) {
-      HostAddress localAddress;
-      localAddress.ipv4 = INADDR_ANY;
-      localAddress.family = AF_INET;
-      localAddress.port = 0;
-      SMTPClient *client = smtpClientNew(Base_, localAddress, SMTP.UseSmtps ? smtpServerSmtps : smtpServerPlain);
-      if (!client) {
-        CLOG_F(ERROR, "Can't create smtp client");
-        callback("smtp_client_create_error");
-        return;
-      }
-
-      std::string EMailText;
-      std::string activationLink = BaseCfg.PoolHostProtocol + "://";
-      activationLink.append(BaseCfg.PoolHostAddress);
-      activationLink.append(BaseCfg.ActivateLinkPrefix);
-      activationLink.append(actionRecord.Id.getHexLE());
-
-      EMailText.append("Content-Type: text/html; charset=\"ISO-8859-1\";\r\n");
-      EMailText.append("This email generated automatically, please don't reply.\r\n");
-      EMailText.append("For finish registration visit <a href=\"");
-      EMailText.append(activationLink);
-      EMailText.append("\">");
-      EMailText.append(activationLink);
-      EMailText.append("</a>\r\n");
-
-      int result = ioSmtpSendMail(client,
-                                  SMTP.ServerAddress,
-                                  SMTP.UseStartTls,
-                                  BaseCfg.PoolHostAddress.c_str(),
-                                  SMTP.Login.c_str(),
-                                  SMTP.Password.c_str(),
-                                  SMTP.SenderAddress.c_str(),
-                                  userRecord.EMail.c_str(),
-                                  ("Registration at " + BaseCfg.PoolName).c_str(),
-                                  EMailText.c_str(),
-                                  afNone,
-                                  16000000);
-      if (result != 0) {
-        if (result == -smtpError)
-          CLOG_F(ERROR, "SMTP error; code: {}; text: {}", smtpClientGetResultCode(client), smtpClientGetResponse(client));
-        else
-          CLOG_F(ERROR, "SMTP client error {}", -result);
-        smtpClientDelete(client);
-        callback("email_send_error");
-        return;
-      }
-
-      smtpClientDelete(client);
+  // Send activation email
+  if (SMTP.Enabled) {
+    std::string error;
+    if (!sendMail(login, email, "Registration at ", BaseCfg.ActivateLinkPrefix, actionRecord.Id, "For finish registration", error)) {
+      callback(error.c_str());
+      return;
     }
-
-    // TODO: Setup default settings for all coins
   }
 
-  if (!credentials.IsActive) {
-    // Save changes to databases
-    actionAdd(actionRecord);
-  }
-
-  if (!credentials.EMail.empty())
-    AllEmails_.insert(credentials.EMail);
-
+  actionAdd(actionRecord);
+  AllEmails_.insert(email);
   UsersDb_.put(userRecord);
 
   // Notify all backends about new user's fee plan
   for (const auto& [coinName, backend]: Backends_)
-    backend->sendUserFeePlanChange(credentials.Login, feePlan);
+    backend->sendUserFeePlanChange(login, feePlan);
 
   CLOG_F(INFO, "New user: {} ({}) email: {}; actionId: {}", userRecord.Login, userRecord.Name, userRecord.EMail, actionRecord.Id.getHexLE());
   callback("ok");
 }
 
-void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb callback)
+void UserManager::userCreateForceImpl(const std::string &login,
+                                      const std::string &password,
+                                      const std::string &name,
+                                      const std::string &email,
+                                      bool isReadOnly,
+                                      const std::string &feePlan,
+                                      Task::DefaultCb callback)
+{
+  // NOTE: function is coroutine!
+
+  std::string userName;
+  if (const char *err = validateUserFields(login, password, email, false, name, userName)) {
+    callback(err);
+    return;
+  }
+
+  // Check for known email
+  if (!email.empty() && AllEmails_.count(email)) {
+    callback("duplicate_email");
+    return;
+  }
+
+  // Check personal fee plan
+  std::string resolvedFeePlan = feePlan.empty() ? "default" : feePlan;
+  if (resolvedFeePlan != "default") {
+    if (!FeePlanCache_.count(resolvedFeePlan)) {
+      callback("fee_plan_not_exists");
+      return;
+    }
+  }
+
+  // Prepare user record
+  UsersRecord userRecord;
+  userRecord.Login = login;
+  userRecord.EMail = email;
+  userRecord.Name = userName;
+  userRecord.TwoFactorAuthData.clear();
+  userRecord.PasswordHash = generateHash(login, password);
+  userRecord.RegistrationDate = Timestamp::now();
+  userRecord.IsActive = true;
+  userRecord.IsReadOnly = isReadOnly;
+  userRecord.FeePlanId = resolvedFeePlan;
+
+  if (!UsersCache_.insert(std::pair(login, userRecord))) {
+    callback("duplicate_login");
+    return;
+  }
+
+  if (!email.empty())
+    AllEmails_.insert(email);
+
+  UsersDb_.put(userRecord);
+
+  // Notify all backends about new user's fee plan
+  for (const auto& [coinName, backend]: Backends_)
+    backend->sendUserFeePlanChange(login, resolvedFeePlan);
+
+  CLOG_F(INFO, "New user (force): {} ({}) email: {}", userRecord.Login, userRecord.Name, userRecord.EMail);
+  callback("ok");
+}
+
+void UserManager::resendEmailImpl(const std::string &login, const std::string &password, Task::DefaultCb callback)
 {
   std::string email;
   {
     decltype(UsersCache_)::const_accessor accessor;
-    if (!UsersCache_.find(accessor, credentials.Login)) {
+    if (!UsersCache_.find(accessor, login)) {
       callback("invalid_password");
       return;
     }
@@ -892,7 +888,7 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
     const UsersRecord &record = accessor->second;
 
     // Check password
-    if (record.PasswordHash != generateHash(credentials.Login, credentials.Password)) {
+    if (record.PasswordHash != generateHash(login, password)) {
       callback("invalid_password");
       return;
     }
@@ -907,18 +903,18 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
   }
 
   // Invalidate current action
-  auto It = LoginActionMap_.find(credentials.Login);
+  auto It = LoginActionMap_.find(login);
   if (It != LoginActionMap_.end()) {
     UserActionRecord record;
     record.Id = It->second;
-    record.Login = credentials.Login;
+    record.Login = login;
     actionRemove(record);
   }
 
   // Prepare new action
   UserActionRecord actionRecord;
   makeRandom(actionRecord.Id);
-  actionRecord.Login = credentials.Login;
+  actionRecord.Login = login;
   actionRecord.Type = UserActionRecord::UserActivate;
   actionRecord.CreationDate = Timestamp::now();
 
@@ -975,18 +971,18 @@ void UserManager::resendEmailImpl(Credentials &credentials, Task::DefaultCb call
   }
 
   actionAdd(actionRecord);
-  CLOG_F(INFO, "Resend email for {} to {}; actionId: {}", credentials.Login, email, actionRecord.Id.getHexLE());
+  CLOG_F(INFO, "Resend email for {} to {}; actionId: {}", login, email, actionRecord.Id.getHexLE());
   callback("ok");
 }
 
-void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback)
+void UserManager::loginImpl(const std::string &login, const std::string &password, const std::string &totp, UserLoginTask::Cb callback)
 {
   // Find user in db
   bool isReadOnly = false;
 
   {
     decltype(UsersCache_)::const_accessor accessor;
-    if (!UsersCache_.find(accessor, credentials.Login)) {
+    if (!UsersCache_.find(accessor, login)) {
       callback("", "invalid_password", false);
       return;
     }
@@ -994,13 +990,13 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
     const UsersRecord &record = accessor->second;
 
     // Check password
-    if (record.PasswordHash != generateHash(credentials.Login, credentials.Password)) {
+    if (record.PasswordHash != generateHash(login, password)) {
       callback("", "invalid_password", false);
       return;
     }
 
     // Check 2fa
-    if (!check2fa(record.TwoFactorAuthData, credentials.TwoFactor)) {
+    if (!check2fa(record.TwoFactorAuthData, totp)) {
       callback("", "2fa_invalid", false);
       return;
     }
@@ -1014,7 +1010,7 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
     isReadOnly = record.IsReadOnly;
   }
 
-  auto It = LoginSessionMap_.find(credentials.Login);
+  auto It = LoginSessionMap_.find(login);
   if (It != LoginSessionMap_.end()) {
     callback(It->second.getHexLE(), "ok", isReadOnly);
     return;
@@ -1023,7 +1019,7 @@ void UserManager::loginImpl(Credentials &credentials, UserLoginTask::Cb callback
   // Create new session
   UserSessionRecord session;
   makeRandom(session.Id);
-  session.Login = credentials.Login;
+  session.Login = login;
   session.LastAccessTime = Timestamp::now();
   session.IsReadOnly = isReadOnly;
   sessionAdd(session);
@@ -1090,7 +1086,7 @@ void UserManager::queryMonitoringSessionImpl(const std::string &login, UserQuery
   callback(session.Id.getHexLE(), "ok");
 }
 
-void UserManager::updateCredentialsImpl(const std::string &login, const Credentials &credentials, Task::DefaultCb callback)
+void UserManager::updateCredentialsImpl(const std::string &login, const std::string &name, Task::DefaultCb callback)
 {
   UsersRecord record;
 
@@ -1101,7 +1097,7 @@ void UserManager::updateCredentialsImpl(const std::string &login, const Credenti
       return;
     }
 
-    accessor->second.Name = credentials.Name;
+    accessor->second.Name = name;
     record = accessor->second;
   }
 

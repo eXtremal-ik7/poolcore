@@ -30,12 +30,10 @@ class Poolfrontend:
             data.update({"referralId": referralId})
         return self.__call__("userCreate", data, requiredStatus, debug)
 
-    def userCreateForce(self, adminSessionId, login, password, name="", email="", isActive=False, isReadOnly=False, feePlan=None, referralId=None, requiredStatus=None, debug=None):
-        data = {"id": adminSessionId, "login": login, "password": password, "name": name, "email": email, "isActive": isActive, "isReadOnly": isReadOnly}
+    def userCreateForce(self, adminSessionId, login, password, name="", email="", isReadOnly=False, feePlan=None, requiredStatus=None, debug=None):
+        data = {"id": adminSessionId, "login": login, "password": password, "name": name, "email": email, "isReadOnly": isReadOnly}
         if feePlan is not None:
             data.update({"feePlanId": feePlan})
-        if referralId is not None:
-            data.update({"referralId": referralId})
         return self.__call__("userCreateForce", data, requiredStatus, debug)
 
     def userResendEmail(self, login, password, requiredStatus=None, debug=None):

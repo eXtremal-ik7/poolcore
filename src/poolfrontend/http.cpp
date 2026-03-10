@@ -292,20 +292,6 @@ void PoolHttpConnection::close()
     deleteAioObject(Socket_);
 }
 
-template<typename T>
-static UserManager::Credentials credentialsFromRequest(const T &req) {
-  UserManager::Credentials c;
-  c.Login = req.Login;
-  c.Password = req.Password;
-  c.Name = req.Name;
-  c.EMail = req.Email;
-  c.IsActive = req.IsActive;
-  c.IsReadOnly = req.IsReadOnly;
-  c.FeePlan = req.FeePlanId;
-  c.ReferralId = req.ReferralId;
-  return c;
-}
-
 void PoolHttpConnection::onUserAction(const CUserActionRequest &request)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
@@ -317,31 +303,17 @@ void PoolHttpConnection::onUserAction(const CUserActionRequest &request)
 
 void PoolHttpConnection::onUserCreate(const CUserCreateRequest &request)
 {
-  UserManager::Credentials credentials;
-  credentials.Login = request.Login;
-  credentials.Password = request.Password;
-  credentials.Name = request.Name;
-  credentials.EMail = request.Email;
-  credentials.ReferralId = request.ReferralId;
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().userCreate("", std::move(credentials), [this](const char *status) {
+  Server_.userManager().userCreate(request.Login, request.Password, request.Name, request.Email, request.ReferralId, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
 
-void PoolHttpConnection::onUserCreateForce(const CUserCreateForceRequest &request, const CToken &token)
+void PoolHttpConnection::onUserCreateForce(const CUserCreateForceRequest &request, const CToken&)
 {
-  UserManager::Credentials credentials = credentialsFromRequest(request);
-
-  if (!credentials.FeePlan.empty() && !credentials.ReferralId.empty()) {
-    replyWithStatus("request_format_error");
-    return;
-  }
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().userCreate(token.Login, std::move(credentials), [this](const char *status) {
+  Server_.userManager().userCreateForce(request.Login, request.Password, request.Name, request.Email, request.IsReadOnly, request.FeePlanId, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
@@ -349,12 +321,8 @@ void PoolHttpConnection::onUserCreateForce(const CUserCreateForceRequest &reques
 
 void PoolHttpConnection::onUserResendEmail(const CUserResendEmailRequest &request)
 {
-  UserManager::Credentials credentials;
-  credentials.Login = request.Login;
-  credentials.Password = request.Password;
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().userResendEmail(std::move(credentials), [this](const char *status) {
+  Server_.userManager().userResendEmail(request.Login, request.Password, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
@@ -362,13 +330,8 @@ void PoolHttpConnection::onUserResendEmail(const CUserResendEmailRequest &reques
 
 void PoolHttpConnection::onUserLogin(const CUserLoginRequest &request)
 {
-  UserManager::Credentials credentials;
-  credentials.Login = request.Login;
-  credentials.Password = request.Password;
-  credentials.TwoFactor = request.Totp;
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().userLogin(std::move(credentials), [this](const std::string &sessionId, const char *status, bool isReadOnly) {
+  Server_.userManager().userLogin(request.Login, request.Password, request.Totp, [this](const std::string &sessionId, const char *status, bool isReadOnly) {
     sendReply<CUserLoginResponse>(status, sessionId, isReadOnly);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
@@ -462,11 +425,8 @@ void PoolHttpConnection::onUserGetSettings(const CSessionTargetRequest&, const C
 
 void PoolHttpConnection::onUserUpdateCredentials(const CUserUpdateCredentialsRequest &request, const CToken &token)
 {
-  UserManager::Credentials credentials;
-  credentials.Name = request.Name;
-
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.userManager().updateCredentials(token.Login, std::move(credentials), [this](const char *status) {
+  Server_.userManager().updateCredentials(token.Login, request.Name, [this](const char *status) {
     replyWithStatus(status);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });

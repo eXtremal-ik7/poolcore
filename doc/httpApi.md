@@ -128,10 +128,8 @@ Admin-only user creation with full control over account flags.
 | `password` | string | no | `""` | Password |
 | `name` | string | no | `""` | Display name |
 | `email` | string | no | `""` | Email address |
-| `isActive` | bool | no | `false` | Activate immediately |
 | `isReadOnly` | bool | no | `false` | Read-only account |
-| `feePlanId` | string | no | `""` | Assign fee plan (cannot combine with referralId) |
-| `referralId` | string | no | `""` | Referral ID for fee plan (cannot combine with feePlanId) |
+| `feePlanId` | string | no | `""` | Assign fee plan |
 
 **Response**: `status`
 
