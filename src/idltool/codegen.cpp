@@ -108,8 +108,6 @@ static bool isArrayLikeField(const CFieldDef &f)
 
 static bool isConditionallySerialized(const CFieldDef &f)
 {
-  if (f.Kind == EFieldKind::Optional)
-    return true;
   return isOptionalField(f) && !fieldEmptyOutIsNull(f);
 }
 
@@ -720,7 +718,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
 
   switch (f.Kind) {
     case EFieldKind::Required:
-    case EFieldKind::Optional: {
+    case EFieldKind::HasDefault: {
       if (isStructRef(f, enumNames)) {
         if (ci && ci->kind == CFieldCaptureInfo::NestedStruct) {
           out += std::format("{}if (!{}.parseImpl(s, capture ? &capture->{} : nullptr)) valid = false;\n",
@@ -1091,7 +1089,7 @@ static std::string flatSerializeParamType(const CFieldDef &f,
   // Use std::string_view for plain string parameters
   if (f.Type.IsScalar && f.Type.Scalar == EScalarType::String && f.Kind == EFieldKind::Required)
     return "std::string_view";
-  if (f.Type.IsScalar && f.Type.Scalar == EScalarType::String && f.Kind == EFieldKind::Optional)
+  if (f.Type.IsScalar && f.Type.Scalar == EScalarType::String && f.Kind == EFieldKind::HasDefault)
     return "std::string_view";
   return "const " + type + " &";
 }
@@ -1301,7 +1299,7 @@ static void generateResolveImpl(std::string &out, const CStructDef &s,
     if (ci.kind == CFieldCaptureInfo::MappedDirect) {
       switch (f.Kind) {
         case EFieldKind::Required:
-        case EFieldKind::Optional:
+        case EFieldKind::HasDefault:
           emitMappedDirectResolveRecursive(out, ci, dims, 0, "out." + cn, "capture." + ci.CaptureFieldName, 1);
           break;
         case EFieldKind::OptionalObject:
@@ -1337,7 +1335,7 @@ static void generateResolveImpl(std::string &out, const CStructDef &s,
 
       switch (f.Kind) {
         case EFieldKind::Required:
-        case EFieldKind::Optional:
+        case EFieldKind::HasDefault:
           if (dims.empty()) {
             out += std::format("  if (!{}::resolve(out.{}, capture.{}, {})) return false;\n",
                                childStruct, cn, ci.CaptureFieldName, childCtx);
@@ -1465,7 +1463,7 @@ static void emitMappedInlineSerialize(CSerializeCodeBuilder &out, const CFieldDe
       emitKey(f.Name);
       emitMappedInlineValueSerialize(out, fci.MappedTypeName, fci.MappedWireType, cn, ind);
       break;
-    case EFieldKind::Optional: {
+    case EFieldKind::HasDefault: {
       static const std::unordered_set<std::string> noEnums;
       std::string def = cppDefault(f, noEnums, pascalCase);
       if (def.empty()) {
@@ -1630,23 +1628,10 @@ static void generateContextSerializeBody(CSerializeCodeBuilder &writer, const CS
     if (ci.kind == CFieldCaptureInfo::MappedDirect) {
       switch (f.Kind) {
         case EFieldKind::Required:
+        case EFieldKind::HasDefault:
           emitKey(f.Name);
           emitMappedDirectValueSerialize(writer, ci, cn, 1);
           break;
-        case EFieldKind::Optional: {
-          std::string def = cppDefault(f, enumNames, opts.PascalCaseFields);
-          if (def.empty()) {
-            emitKey(f.Name);
-            emitMappedDirectValueSerialize(writer, ci, cn, 1);
-            break;
-          }
-
-          writer.appendRaw(std::format("{}if ({} != {}) {{\n", in, cn, def));
-          emitKey(f.Name, 2);
-          emitMappedDirectValueSerialize(writer, ci, cn, 2);
-          writer.appendRaw(std::format("{}}}\n", in));
-          break;
-        }
         case EFieldKind::OptionalObject:
           if (!fieldEmptyOutIsNull(f)) {
             writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
@@ -1703,7 +1688,7 @@ static void generateContextSerializeBody(CSerializeCodeBuilder &writer, const CS
         ctxIndexVar = std::format("__ctxIdx{}_", i);
       switch (f.Kind) {
         case EFieldKind::Required:
-        case EFieldKind::Optional:
+        case EFieldKind::HasDefault:
           emitKey(f.Name);
           if (dims.empty()) {
             writer.appendRaw(std::format("{}{}.serialize(out, {});\n", in, cn, childCtx));

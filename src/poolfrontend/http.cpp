@@ -509,7 +509,7 @@ void PoolHttpConnection::onUserUpdateFeePlan(const CUserUpdateFeePlanRequest &re
 
   CModeFeeConfig modeConfig;
   modeConfig.Default = request.Default;
-  modeConfig.CoinSpecific = request.CoinSpecific;
+  modeConfig.CoinSpecific = request.CoinSpecific.value_or(std::vector<CCoinFeeConfig>{});
 
   // Check coin
   for (const auto &cfg: modeConfig.CoinSpecific) {

@@ -393,7 +393,7 @@ field:
       $$->Type = *$3;
       $$->Default = *$5;
       $$->Tag = $6;
-      $$->Kind = EFieldKind::Optional;
+      $$->Kind = EFieldKind::HasDefault;
       $$->Line = @1.first_line;
       free($1);
       delete $3;

@@ -188,7 +188,7 @@ std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::strin
 
   switch (f.Kind) {
     case EFieldKind::Required:
-    case EFieldKind::Optional:
+    case EFieldKind::HasDefault:
       return base;
     case EFieldKind::OptionalObject:
       return std::format("std::optional<{}>", base);
@@ -566,36 +566,14 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
   }
 
   switch (f.Kind) {
-    case EFieldKind::Required: {
+    case EFieldKind::Required:
+    case EFieldKind::HasDefault: {
       emitKey(f.Name);
       if (isStructRef(f, enumNames)) {
         code.appendRaw(std::format("{}{}.serialize(out);\n", in, cn));
       } else {
         emitSerializeValue(code, f, cn, enumNames, ind);
       }
-      break;
-    }
-
-    case EFieldKind::Optional: {
-      std::string def = cppDefault(f, enumNames, pascalCase);
-      if (def.empty()) {
-        emitKey(f.Name);
-        if (isStructRef(f, enumNames)) {
-          code.appendRaw(std::format("{}{}.serialize(out);\n", in, cn));
-        } else {
-          emitSerializeValue(code, f, cn, enumNames, ind);
-        }
-        break;
-      }
-
-      code.appendRaw(std::format("{}if ({} != {}) {{\n", in, cn, def));
-      emitKey(f.Name, ind + 1);
-      if (isStructRef(f, enumNames)) {
-        code.appendRaw(std::format("{}{}.serialize(out);\n", indent(ind + 1), cn));
-      } else {
-        emitSerializeValue(code, f, cn, enumNames, ind + 1);
-      }
-      code.appendRaw(std::format("{}}}\n", in));
       break;
     }
 

@@ -235,7 +235,7 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
 
   switch (f.Kind) {
     case EFieldKind::Required:
-    case EFieldKind::Optional: {
+    case EFieldKind::HasDefault: {
       if (isStructRef(f, enumNames)) {
         out += std::format("{}if (!{}.parseVerboseImpl(s)) return false;\n", in, cn);
         if (foundBit >= 0)

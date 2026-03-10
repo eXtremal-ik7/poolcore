@@ -534,7 +534,7 @@ Updates fee plan configuration for a specific mining mode.
 | `feePlanId` | string | yes | Fee plan ID |
 | `mode` | string | yes | `"pplns"` or `"pps"` |
 | `default` | array | yes | `[{userId, percentage}]` |
-| `coinSpecific` | array | yes | `[{coinName, config: [{userId, percentage}]}]` |
+| `coinSpecific` | array | no | `[{coinName, config: [{userId, percentage}]}]` |
 
 Fee recipient users (`userId` in `default` and `coinSpecific` entries) must not be superuser accounts (`admin`, `observer`). Returns `"superuser_not_allowed"` if attempted.
 

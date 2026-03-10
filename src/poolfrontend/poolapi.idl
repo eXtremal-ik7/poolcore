@@ -286,7 +286,7 @@ struct UserUpdateFeePlanRequest {
   feePlanId: string;
   mode: MiningMode;
   default: [UserFeePair];
-  coinSpecific: [CoinFeeConfig];
+  coinSpecific: optional<[CoinFeeConfig]>;
 }
 
 // --- userDeleteFeePlan ---

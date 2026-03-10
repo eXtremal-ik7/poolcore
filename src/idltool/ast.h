@@ -36,7 +36,7 @@ enum class EEmptyOutPolicy {
 // How a field is declared
 enum class EFieldKind {
   Required,            // field: Type
-  Optional,            // field: Type = default   — omitted when value == default
+  HasDefault,          // field: Type = default   — uses default value when field is absent in JSON
   OptionalObject,      // field: optional<Type>
   Array,               // field: [Type]
   OptionalArray,       // field: optional<[Type]>
