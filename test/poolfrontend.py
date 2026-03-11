@@ -305,6 +305,3 @@ class Poolfrontend:
 
     def instanceEnumerateAll(self, requiredStatus=None, debug=None):
         return self.__call__("instanceEnumerateAll", {}, requiredStatus, debug)
-
-    def complexMiningStatsGetInfo(self, sessionId, requiredStatus=None, debug=None):
-        return self.__call__("complexMiningStatsGetInfo", {"id": sessionId}, requiredStatus, debug)

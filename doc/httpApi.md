@@ -73,7 +73,6 @@ When `targetLogin` is provided:
   * [backendQueryPPSHistory](#backendqueryppshistory)
   * [backendQueryProfitSwitchCoeff](#backendqueryprofitswitchcoeff)
   * [backendUpdateProfitSwitchCoeff](#backendupdateprofitswitchcoeff)
-  * [complexMiningStatsGetInfo](#complexminingstatsgettinfo)
 
 ---
 
@@ -1222,20 +1221,6 @@ Updates the profit switching coefficient for a coin.
 
 ---
 
-### complexMiningStatsGetInfo
-
-Queries complex mining statistics engine.
-
-- **Auth**: admin or observer
-
-| Request field | Type | Required | Description |
-|---------------|------|----------|-------------|
-| `id` | string | yes | Session ID |
-
-**Response**: varies by implementation
-
----
-
 ## Endpoint summary
 
 | # | Endpoint | Auth |
@@ -1289,4 +1274,3 @@ Queries complex mining statistics engine.
 | 47 | backendPoolLuck | none |
 | 48 | backendQueryRoundInfo | none |
 | 49 | instanceEnumerateAll | none |
-| 50 | complexMiningStatsGetInfo | admin/observer |

@@ -427,9 +427,15 @@ CPPSState CAccountingApi::queryPPSState()
   return State_.PPSState;
 }
 
-CRoundBestShareData CAccountingApi::queryRoundInfo()
+std::pair<CRoundBestShareData, double> CAccountingApi::queryRoundInfo()
 {
-  return State_.RoundBestShare;
+  UInt<256> acceptedWork = UInt<256>::zero();
+  for (const auto &score : State_.CurrentScores)
+    acceptedWork += score.second;
+  double acceptedDifficulty = State_.RoundBestShare.ExpectedWork.nonZero()
+    ? UInt<256>::fpdiv(acceptedWork, State_.RoundBestShare.ExpectedWork)
+    : 0.0;
+  return {State_.RoundBestShare, acceptedDifficulty};
 }
 
 std::vector<CPPSState> CAccountingApi::queryPPSHistory(int64_t timeFrom, int64_t timeTo)

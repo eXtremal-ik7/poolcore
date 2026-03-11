@@ -42,12 +42,11 @@ public:
               const std::vector<PoolBackend*> &linkedBackends,
               CThreadPool &threadPool,
               StatisticServer *algoMetaStatistic,
-              ComplexMiningStats *miningStats,
               unsigned instanceId,
               unsigned instancesNum,
               const CInstanceConfig &config,
               const std::filesystem::path &logsPath)
-      : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic, miningStats)
+      : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic)
   {
     Name_ = (std::string)X::Proto::TickerName + ".zmq";
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
@@ -390,10 +389,6 @@ private:
 
       foundBlockMask[globalBackendIdx] = true;
     }
-
-    // Disabled now
-    // if (MiningStats_)
-    //  MiningStats_->onShare(shareDiff, connection->ShareDifficulty, LinkedBackends_, foundBlockMask, shareHash);
   }
 
   void onStats(ThreadData &data, pool::proto::Request &req, pool::proto::Reply &rep) {

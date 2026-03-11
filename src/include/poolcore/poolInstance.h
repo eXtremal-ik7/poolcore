@@ -1,7 +1,6 @@
 #pragma once
 
 #include "poolcommon/intrusive_ptr.h"
-#include "poolcore/complexMiningStats.h"
 #include "asyncio/asyncio.h"
 #include "tbb/concurrent_queue.h"
 #include <atomic>
@@ -62,14 +61,12 @@ public:
                 UserManager &userMgr,
                 const std::vector<PoolBackend*> &linkedBackends,
                 CThreadPool &threadPool,
-                StatisticServer *algoMetaStatistic,
-                ComplexMiningStats *miningStats)
+                StatisticServer *algoMetaStatistic)
       : MonitorBase_(base),
         UserMgr_(userMgr),
         LinkedBackends_(linkedBackends),
         ThreadPool_(threadPool),
-        AlgoMetaStatistic_(algoMetaStatistic),
-        MiningStats_(miningStats) {}
+        AlgoMetaStatistic_(algoMetaStatistic) {}
 
   virtual ~CPoolInstance() {}
 
@@ -88,5 +85,4 @@ protected:
   std::vector<PoolBackend*> LinkedBackends_;
   CThreadPool &ThreadPool_;
   StatisticServer *AlgoMetaStatistic_ = nullptr;
-  ComplexMiningStats *MiningStats_ = nullptr;
 };

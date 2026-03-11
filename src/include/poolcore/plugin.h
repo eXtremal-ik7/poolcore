@@ -1,7 +1,6 @@
 #pragma once
 #include "poolconfig/config.h"
 #include "poolcore/backendData.h"
-#include "poolcore/complexMiningStats.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/poolInstance.h"
 #include "poolcore/priceFetcher.h"
@@ -33,22 +32,16 @@ using FCreatePoolInstance = std::function<CPoolInstance*(asyncBase*,
                                                          const std::vector<PoolBackend*>&,
                                                          CThreadPool&,
                                                          StatisticServer*,
-                                                         ComplexMiningStats*,
                                                          const CInstanceConfig&,
                                                          unsigned,
                                                          unsigned,
                                                          CPriceFetcher*,
                                                          const std::filesystem::path&)>;
 
-using FCreateMiningStatsHandler = std::function<ComplexMiningStats*(const std::vector<std::unique_ptr<PoolBackend>>&,
-                                                                    const std::filesystem::path&)>;
-
 struct CPluginContext {
-  bool HasMiningStatsHandler = false;
   std::vector<FAddExtraCoin> AddExtraCoinProcs;
   std::vector<FAddExtraCoinOld2> AddExtraCoinOld2Procs;
   std::vector<FAddRpcClient> AddRpcClientProcs;
   std::vector<FAddRpcClientForTerminal> AddRpcClientForTerminalProcs;
   std::vector<FCreatePoolInstance> CreatePoolInstanceProcs;
-  FCreateMiningStatsHandler CreateMiningStatsHandlerProc;
 };

@@ -57,13 +57,12 @@ public:
                   const std::vector<PoolBackend*> &linkedBackends,
                   CThreadPool &threadPool,
                   StatisticServer *algoMetaStatistic,
-                  ComplexMiningStats *miningStats,
                   unsigned instanceId,
                   unsigned instancesNum,
                   const CInstanceConfig &config,
                   CPriceFetcher *priceFetcher,
                   const std::filesystem::path &logsPath)
-      : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic, miningStats),
+      : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic),
         CurrentThreadId_(0),
         PriceFetcher_(priceFetcher)
   {
@@ -173,8 +172,6 @@ public:
   virtual void checkNewBlockTemplate(CBlockTemplate *blockTemplate, PoolBackend *backend) override {
     for (unsigned i = 0; i < ThreadPool_.threadsNum(); i++)
       ThreadPool_.startAsyncTask(i, new AcceptWork(*this, blockTemplate, backend));
-    if (MiningStats_)
-      MiningStats_->onWork(blockTemplate->Difficulty, backend);
   }
 
   virtual void stopWork() override {
@@ -852,10 +849,6 @@ private:
 
     if (!shareAccepted)
       errorCode = StratumErrorInvalidShare;
-
-    // TEMPORARY DISABLED
-    if (shareAccepted && MiningStats_)
-      MiningStats_->onShare(0.0, 0.0, LinkedBackends_, foundBlockMask, BaseBlob<256>::zero());
 
     return shareAccepted;
   }

@@ -742,6 +742,7 @@ struct BackendQueryRoundInfoResponse {
   status: string;
   hash: optional<uint256>;
   shareDifficulty: double = 0.0;
+  acceptedWorkInBlocks: double = 0.0;
   time: unixTime;
 }
 
@@ -765,10 +766,3 @@ struct InstanceEnumerateAllResponse {
   instances: [InstanceInfo];
 }
 
-// ============================================================================
-// Complex mining stats
-// ============================================================================
-
-// --- complexMiningStatsGetInfo ---
-// Response is opaque (forwarded from ComplexMiningStats engine)
-// → SessionRequest

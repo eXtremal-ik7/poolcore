@@ -55,6 +55,7 @@ void DbIo<CRoundBestShareData>::serialize(xmstream &dst, const CRoundBestShareDa
   DbIo<std::optional<UInt<256>>>::serialize(dst, data.Hash);
   DbIo<double>::serialize(dst, data.ShareDifficulty);
   DbIo<double>::serialize(dst, data.BlockDifficulty);
+  DbIo<UInt<256>>::serialize(dst, data.ExpectedWork);
   DbIo<Timestamp>::serialize(dst, data.Time);
 }
 
@@ -66,6 +67,7 @@ void DbIo<CRoundBestShareData>::unserialize(xmstream &src, CRoundBestShareData &
     DbIo<std::optional<UInt<256>>>::unserialize(src, data.Hash);
     DbIo<double>::unserialize(src, data.ShareDifficulty);
     DbIo<double>::unserialize(src, data.BlockDifficulty);
+    DbIo<UInt<256>>::unserialize(src, data.ExpectedWork);
     DbIo<Timestamp>::unserialize(src, data.Time);
   }
 }

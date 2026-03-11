@@ -60,7 +60,6 @@ struct PoolContext {
 
   std::unique_ptr<UserManager> UserMgr;
   std::unique_ptr<PoolHttpServer> HttpServer;
-  std::unique_ptr<ComplexMiningStats> MiningStats;
 };
 
 CPluginContext gPluginContext;
@@ -167,8 +166,7 @@ int main(int argc, char *argv[])
       1 +                   // Monitor (listeners and clients polling)
       workerThreadsNum +    // Share checkers
       backendsNum*2 +       // Backends & metastatistic algorithm servers
-      httpThreadsNum +      // HTTP server
-      1;                    // Complex mining stats service
+      httpThreadsNum;       // HTTP server
     CLOG_F(INFO, "Worker threads: {}; total pool threads: {}", workerThreadsNum, totalThreadsNum);
 
     // Initialize user manager
@@ -372,11 +370,6 @@ int main(int argc, char *argv[])
 
     std::sort(poolContext.Backends.begin(), poolContext.Backends.end(), [](const auto &l, const auto &r) { return l->getCoinInfo().Name < r->getCoinInfo().Name; });
 
-    // Initialize "complex mining stats" service
-    poolContext.MiningStats.reset(!gPluginContext.HasMiningStatsHandler ?
-      new ComplexMiningStats :
-      gPluginContext.CreateMiningStatsHandlerProc(poolContext.Backends, poolContext.DatabasePath));
-
     // Initialize workers
     poolContext.ThreadPool.reset(new CThreadPool(workerThreadsNum));
 
@@ -425,7 +418,6 @@ int main(int argc, char *argv[])
         linkedBackends,
         *poolContext.ThreadPool,
         algoMetaStatistic,
-        poolContext.MiningStats.get(),
         instanceConfig,
         static_cast<unsigned>(instIdx),
         static_cast<unsigned>(instIdxE),
@@ -440,7 +432,6 @@ int main(int argc, char *argv[])
             linkedBackends,
             *poolContext.ThreadPool,
             algoMetaStatistic,
-            poolContext.MiningStats.get(),
             instanceConfig,
             static_cast<unsigned>(instIdx),
             static_cast<unsigned>(instIdxE),
@@ -466,9 +457,6 @@ int main(int argc, char *argv[])
     }
   }
 
-  // Start "complex mining stats"
-  poolContext.MiningStats->start();
-
   // Start workers
   poolContext.ThreadPool->start();
 
@@ -490,7 +478,7 @@ int main(int argc, char *argv[])
     dispatcher->poll();
   }
 
-  poolContext.HttpServer.reset(new PoolHttpServer(poolContext.HttpPort, *poolContext.UserMgr, poolContext.Backends, poolContext.AlgoMetaStatistic, *poolContext.MiningStats, config, httpThreadsNum, poolContext.PriceFetcher.get()));
+  poolContext.HttpServer.reset(new PoolHttpServer(poolContext.HttpPort, *poolContext.UserMgr, poolContext.Backends, poolContext.AlgoMetaStatistic, config, httpThreadsNum, poolContext.PriceFetcher.get()));
   poolContext.HttpServer->start();
 
   // Start monitor thread
@@ -518,9 +506,6 @@ int main(int argc, char *argv[])
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     CLOG_F(INFO, "Interrupted by user");
-    // Stop mining stats
-    if (poolContext.MiningStats)
-      poolContext.MiningStats->stop();
     // Stop HTTP server
     poolContext.HttpServer->stop();
     // Stop workers

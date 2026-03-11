@@ -3,10 +3,10 @@
 #include "poolconfig/config.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/poolInstance.h"
+#include <filesystem>
 #include <functional>
 #include <unordered_map>
 
-class ComplexMiningStats;
 class CPriceFetcher;
 class StatisticServer;
 class UserManager;
@@ -19,7 +19,6 @@ public:
                             const std::vector<PoolBackend*> &linkedBackends,
                             CThreadPool &pool,
                             StatisticServer *algoMetaStatistic,
-                            ComplexMiningStats *miningStats,
                             const CInstanceConfig &instanceConfig,
                             unsigned instanceId,
                             unsigned instancesNum,
@@ -33,7 +32,6 @@ private:
     const std::vector<PoolBackend*>&,
     CThreadPool&,
     StatisticServer*,
-    ComplexMiningStats*,
     const CInstanceConfig&,
     unsigned,
     unsigned,

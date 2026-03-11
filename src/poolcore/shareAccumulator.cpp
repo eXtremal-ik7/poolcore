@@ -91,6 +91,7 @@ CAccumulatorBatch CShareAccumulator::takeBatch(const UInt<256> &powLimit)
   if (BestShare_.Hash.has_value() && powLimit.nonZero())
     BestShare_.ShareDifficulty = UInt<256>::fpdiv(powLimit, *BestShare_.Hash);
   BestShare_.BlockDifficulty = BlockDifficulty_;
+  BestShare_.ExpectedWork = ExpectedWork_;
   result.Users.BestShare = BestShare_;
   BestShare_.reset();
 

@@ -61,7 +61,6 @@ static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction 
     case F::BackendGetPPSState:
     case F::BackendQueryPPSHistory:
     case F::BackendQueryProfitSwitchCoeff:
-    case F::ComplexMiningStatsGetInfo:
       return {SuperUser, false};
 
     // SuperUser, Write (admin only)
@@ -161,7 +160,6 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
       // Session
       case F::BackendQueryProfitSwitchCoeff: dispatch<getFunctionMeta(F::BackendQueryProfitSwitchCoeff), &PoolHttpConnection::onBackendQueryProfitSwitchCoeff>(); break;
       case F::BackendQueryUserBalance: dispatch<getFunctionMeta(F::BackendQueryUserBalance), &PoolHttpConnection::onBackendQueryUserBalance>(); break;
-      case F::ComplexMiningStatsGetInfo: dispatch<getFunctionMeta(F::ComplexMiningStatsGetInfo), &PoolHttpConnection::onComplexMiningStatsGetInfo>(); break;
       case F::UserActivate2faInitiate: dispatch<getFunctionMeta(F::UserActivate2faInitiate), &PoolHttpConnection::onUserActivate2faInitiate>(); break;
       case F::UserChangeFeePlan: dispatch<getFunctionMeta(F::UserChangeFeePlan), &PoolHttpConnection::onUserChangeFeePlan>(); break;
       case F::UserChangePasswordForce: dispatch<getFunctionMeta(F::UserChangePasswordForce), &PoolHttpConnection::onUserChangePasswordForce>(); break;
@@ -1045,8 +1043,8 @@ void PoolHttpConnection::onBackendUpdateConfig(const CBackendUpdateConfigRequest
 void PoolHttpConnection::onBackendQueryRoundInfo(const CBackendQueryRoundInfoRequest &, PoolBackend &backend)
 {
   objectIncrementReference(aioObjectHandle(Socket_), 1);
-  backend.accountingDb()->queryRoundInfo([this](const CRoundBestShareData &data) {
-    sendReply<CBackendQueryRoundInfoResponse>("ok", data.Hash, data.ShareDifficulty, data.Time);
+  backend.accountingDb()->queryRoundInfo([this](const CRoundBestShareData &data, double acceptedWorkInBlocks) {
+    sendReply<CBackendQueryRoundInfoResponse>("ok", data.Hash, data.ShareDifficulty, acceptedWorkInBlocks, data.Time);
     objectDecrementReference(aioObjectHandle(Socket_), 1);
   });
 }
@@ -1084,34 +1082,15 @@ void PoolHttpConnection::onInstanceEnumerateAll()
   sendReply<CInstanceEnumerateAllResponse>("ok", instances);
 }
 
-void PoolHttpConnection::onComplexMiningStatsGetInfo(const CSessionRequest&, const CToken&)
-{
-  const char *data = Context.Request.c_str();
-  size_t size = Context.Request.size();
-  objectIncrementReference(aioObjectHandle(Socket_), 1);
-  Server_.miningStats().query(data, size, [this](const char *data, size_t size) {
-    xmstream stream;
-    reply200(stream);
-    size_t offset = startChunk(stream);
-    stream.write(data, size);
-    stream.write('\n');
-    finishChunk(stream, offset);
-    aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
-    objectDecrementReference(aioObjectHandle(Socket_), 1);
-  });
-}
-
 PoolHttpServer::PoolHttpServer(uint16_t port,
                                UserManager &userMgr,
                                std::vector<std::unique_ptr<PoolBackend>> &backends,
                                std::vector<std::unique_ptr<StatisticServer>> &algoMetaStatistic,
-                               ComplexMiningStats &complexMiningStats,
                                const CPoolFrontendConfig &config,
                                size_t threadsNum,
                                CPriceFetcher *priceFetcher) :
   Port_(port),
   UserMgr_(userMgr),
-  MiningStats_(complexMiningStats),
   Config_(config),
   ThreadsNum_(threadsNum),
   PriceFetcher_(priceFetcher)

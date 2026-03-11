@@ -127,6 +127,7 @@ struct RoundBestShareData {
   hash: optional<uint256>;
   shareDifficulty: double = 0.0;
   blockDifficulty: double = 0.0;
+  expectedWork: uint256;
   time: unixTime;
 
   cpp {

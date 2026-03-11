@@ -25,7 +25,6 @@ enum HttpFunction : string {
   backendQueryWorkerStatsHistory,
   backendUpdateConfig,
   backendUpdateProfitSwitchCoeff,
-  complexMiningStatsGetInfo,
   instanceEnumerateAll,
   userAction,
   userActivate2faInitiate,

@@ -233,4 +233,6 @@ void CAccountingState::applyBatch(uint64_t msgId, const CAccountingStateBatch &b
     if (isBetter)
       RoundBestShare = batch.BestShare;
   }
+  if (batch.BestShare.ExpectedWork.nonZero())
+    RoundBestShare.ExpectedWork = batch.BestShare.ExpectedWork;
 }

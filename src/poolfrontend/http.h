@@ -2,7 +2,6 @@
 
 #include "poolconfig/config.h"
 #include "poolcore/backend.h"
-#include "poolcore/complexMiningStats.h"
 #include "poolapi.idl.h"
 #include "httpFunctions.idl.h"
 #include <p2putils/HttpRequestParse.h>
@@ -84,7 +83,6 @@ private:
   void onBackendQueryUserStatsHistory(const CBackendQueryUserStatsHistoryRequest &request, const CToken &token, StatisticDb &statistic);
   void onBackendQueryWorkerStatsHistory(const CBackendQueryWorkerStatsHistoryRequest &request, const CToken &token, StatisticDb &statistic);
   void onBackendQueryProfitSwitchCoeff(const CSessionRequest&, const CToken&);
-  void onComplexMiningStatsGetInfo(const CSessionRequest&, const CToken&);
 
   // WithBackend
   void onBackendPoolLuck(const CBackendPoolLuckRequest &request, PoolBackend &backend);
@@ -287,7 +285,6 @@ public:
                  UserManager &userMgr,
                  std::vector<std::unique_ptr<PoolBackend>> &backends,
                  std::vector<std::unique_ptr<StatisticServer>> &algoMetaStatistic,
-                 ComplexMiningStats &complexMiningStats,
                  const CPoolFrontendConfig &config,
                  size_t threadsNum,
                  CPriceFetcher *priceFetcher);
@@ -316,7 +313,6 @@ public:
 
   std::vector<PoolBackend*> &backends() { return Backends_; }
   std::vector<StatisticDb*> &statistics() { return Statistic_; }
-  ComplexMiningStats &miningStats() { return MiningStats_; }
   CPriceFetcher *priceFetcher() { return PriceFetcher_; }
 
 private:
@@ -328,7 +324,6 @@ private:
   asyncBase *Base_;
   uint16_t Port_;
   UserManager &UserMgr_;
-  ComplexMiningStats &MiningStats_;
   const CPoolFrontendConfig &Config_;
   size_t ThreadsNum_;
   CPriceFetcher *PriceFetcher_;
