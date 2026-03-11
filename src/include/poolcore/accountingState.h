@@ -25,6 +25,7 @@ public:
   CPPSState PPSState;                                         // key: ".ppsstate"
   std::list<MiningRound> ActiveRounds;                        // keys: 'r' + Height + BlockHash
   std::map<std::string, UserBalanceRecord> BalanceMap;        // keys: 'b' + Login
+  CRoundBestShareData RoundBestShare;                         // key: ".roundbestshare"
 
 public:
   // In-memory state (not serialized; rebuilt from PayoutQueue on load)

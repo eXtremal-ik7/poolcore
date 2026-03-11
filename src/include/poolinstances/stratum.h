@@ -314,9 +314,11 @@ public:
           flushAccumulator(i);
       }
 
-      // Set block info (base reward + expected work) for accumulators from new work
-      for (size_t i = 0; i < work->backendsNum(); i++)
-        data.Accumulators[work->backendId(i)].setBlockInfo(work->baseBlockReward(i), work->expectedWork(i));
+      // Set block info (base reward + expected work + difficulty) for accumulators from new work
+      for (size_t i = 0; i < work->backendsNum(); i++) {
+        const auto &powLimit = LinkedBackends_[work->backendId(i)]->getCoinInfo().PowLimit;
+        data.Accumulators[work->backendId(i)].setBlockInfo(work->baseBlockReward(i), work->expectedWork(i), work->blockDifficulty(i, powLimit));
+      }
 
       // Calculate reset flag for new work & build notify message
       bool resetPreviousWork = data.WorkStorage.needSendResetSignal(work);
@@ -446,7 +448,7 @@ private:
       auto &acc = data.Accumulators[i];
       if (acc.shouldFlush(now)) {
         if (!acc.empty()) {
-          auto batch = acc.takeBatch();
+          auto batch = acc.takeBatch(LinkedBackends_[i]->getCoinInfo().PowLimit);
           LinkedBackends_[i]->sendWorkSummary(std::move(batch.Workers));
           LinkedBackends_[i]->sendUserWorkSummary(std::move(batch.Users));
         }
@@ -455,7 +457,7 @@ private:
     }
     if (AlgoMetaStatistic_ && data.AlgoMetaAccumulator.shouldFlush(now)) {
       if (!data.AlgoMetaAccumulator.empty())
-        AlgoMetaStatistic_->sendWorkSummary(std::move(data.AlgoMetaAccumulator.takeBatch().Workers));
+        AlgoMetaStatistic_->sendWorkSummary(std::move(data.AlgoMetaAccumulator.takeBatch(UInt<256>::zero()).Workers));
       data.AlgoMetaAccumulator.resetFlushTime(now);
     }
   }
@@ -464,7 +466,7 @@ private:
     ThreadData &data = Data_[GetLocalThreadId()];
     auto &acc = data.Accumulators[globalBackendIdx];
     if (!acc.empty()) {
-      auto batch = acc.takeBatch();
+      auto batch = acc.takeBatch(LinkedBackends_[globalBackendIdx]->getCoinInfo().PowLimit);
       LinkedBackends_[globalBackendIdx]->sendWorkSummary(std::move(batch.Workers));
       LinkedBackends_[globalBackendIdx]->sendUserWorkSummary(std::move(batch.Users));
     }
@@ -794,7 +796,7 @@ private:
 
       shareAccepted = true;
       data.Accumulators[globalBackendIdx].addShare(worker.User, worker.WorkerName,
-        connection->StratumDifficultyInt, Timestamp::now(), 0, 0, false);
+        connection->StratumDifficultyInt, Timestamp::now(), 0, 0, false, checkStatus.PowHash);
 
       if (checkStatus.IsBlock) {
         CLOG_FC(LogChannel_, INFO, "{}: new proof of work for {} found; hash: {}; transactions: {}", Name_, backend->getCoinInfo().Name, blockHash, work->txNum(i));
@@ -838,7 +840,7 @@ private:
 
         foundBlockMask[globalBackendIdx] = true;
       } else if (checkStatus.IsPendingBlock) {
-        if (data.WorkStorage.updatePending(globalBackendIdx, worker.User, worker.WorkerName, checkStatus.Hash, connection->StratumDifficultyInt, xatoi<uint64_t>(msg.Submit.JobId.c_str()), connection->WorkerConfig, msg))
+        if (data.WorkStorage.updatePending(globalBackendIdx, worker.User, worker.WorkerName, checkStatus.PowHash, connection->StratumDifficultyInt, xatoi<uint64_t>(msg.Submit.JobId.c_str()), connection->WorkerConfig, msg))
           CLOG_FC(LogChannel_, INFO, "{}: new pending block {} found; hash: {}", Name_, backend->getCoinInfo().Name, blockHash);
       }
     }

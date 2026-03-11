@@ -5,12 +5,11 @@
 CCheckStatus DASH::Proto::checkPow(const BlockHeader &header, uint32_t nBits, const UInt<256> &shareTarget) {
     CCheckStatus status;
     // Compute X11 hash
-    UInt<256> x11Hash;
-    x11_hash(reinterpret_cast<const uint8_t*>(&header), sizeof(header), x11Hash.rawData());
+    x11_hash(reinterpret_cast<const uint8_t*>(&header), sizeof(header), status.PowHash.rawData());
     for (unsigned i = 0; i < 4; i++)
-      x11Hash.data()[i] = readle(x11Hash.data()[i]);
+      status.PowHash.data()[i] = readle(status.PowHash.data()[i]);
 
-    status.IsShare = x11Hash <= shareTarget;
+    status.IsShare = status.PowHash <= shareTarget;
 
     // Build target from compact
     bool fNegative = false;
@@ -22,7 +21,7 @@ CCheckStatus DASH::Proto::checkPow(const BlockHeader &header, uint32_t nBits, co
         return status;
 
     // Proof-of-work check
-    if (x11Hash > bnTarget)
+    if (status.PowHash > bnTarget)
         return status;
 
     status.IsBlock = true;

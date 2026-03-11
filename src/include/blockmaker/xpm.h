@@ -177,6 +177,7 @@ public:
     UInt<384> baseBlockReward() { return fromRational(BaseBlockReward); }
     const xmstream &blockHexData() { return BlockHexData; }
     UInt<256> expectedWork();
+    double blockDifficulty();
 
     bool checkConsensus(Proto::CheckConsensusCtx &ctx, double *shareDiff, CExtraInfo *info) {
       Proto::ChainParams params;

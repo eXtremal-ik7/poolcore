@@ -192,7 +192,7 @@ private:
       auto &acc = data.Accumulators[i];
       if (acc.shouldFlush(now)) {
         if (!acc.empty()) {
-          auto batch = acc.takeBatch();
+          auto batch = acc.takeBatch(LinkedBackends_[i]->getCoinInfo().PowLimit);
           LinkedBackends_[i]->sendWorkSummary(std::move(batch.Workers));
           LinkedBackends_[i]->sendUserWorkSummary(std::move(batch.Users));
         }
@@ -201,7 +201,7 @@ private:
     }
     if (AlgoMetaStatistic_ && data.AlgoMetaAccumulator.shouldFlush(now)) {
       if (!data.AlgoMetaAccumulator.empty())
-        AlgoMetaStatistic_->sendWorkSummary(std::move(data.AlgoMetaAccumulator.takeBatch().Workers));
+        AlgoMetaStatistic_->sendWorkSummary(std::move(data.AlgoMetaAccumulator.takeBatch(UInt<256>::zero()).Workers));
       data.AlgoMetaAccumulator.resetFlushTime(now);
     }
   }
@@ -210,7 +210,7 @@ private:
     ThreadData &data = Data_[GetLocalThreadId()];
     auto &acc = data.Accumulators[globalBackendIdx];
     if (!acc.empty()) {
-      auto batch = acc.takeBatch();
+      auto batch = acc.takeBatch(LinkedBackends_[globalBackendIdx]->getCoinInfo().PowLimit);
       LinkedBackends_[globalBackendIdx]->sendWorkSummary(std::move(batch.Workers));
       LinkedBackends_[globalBackendIdx]->sendUserWorkSummary(std::move(batch.Users));
     }
@@ -507,7 +507,7 @@ private:
     flushAccumulator(data.Work.BackendId);
 
     // Set block info (base reward + expected work) for accumulator from new work
-    data.Accumulators[data.Work.BackendId].setBlockInfo(data.Work.baseBlockReward(), data.Work.expectedWork());
+    data.Accumulators[data.Work.BackendId].setBlockInfo(data.Work.baseBlockReward(), data.Work.expectedWork(), data.Work.blockDifficulty());
 
     // Send signals
     for (Connection *connection: data.SignalSockets)

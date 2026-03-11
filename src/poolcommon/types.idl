@@ -1,6 +1,7 @@
 mapped type money("UInt<384>") : string context(uint32) include "poolcommon/mappedTypes.h";
 mapped type moneyBTC("UInt<384>") : string include "poolcommon/mappedTypes.h";
 mapped type unixTime("Timestamp") : int64 include "poolcommon/mappedTypes.h";
+mapped type uint256("UInt<256>") : string include "poolcommon/mappedTypes.h";
 
 enum MiningMode : string {
   pplns,
@@ -119,6 +120,18 @@ struct PPSState {
     void serializeKey(class xmstream &stream) const;
     void serializeValue(class xmstream &stream) const;
     bool deserializeValue(const void *data, size_t size);
+  }
+}
+
+struct RoundBestShareData {
+  hash: optional<uint256>;
+  shareDifficulty: double = 0.0;
+  blockDifficulty: double = 0.0;
+  time: unixTime;
+
+  cpp {
+    bool hasShare() const { return ShareDifficulty > 0.0; }
+    void reset() { *this = CRoundBestShareData(); }
   }
 }
 

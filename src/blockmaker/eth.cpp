@@ -71,8 +71,9 @@ void Stratum::Work::buildBlock(size_t, xmstream &blockHexData)
 CCheckStatus Stratum::Work::checkConsensus(size_t, const UInt<256> &shareTarget)
 {
   CCheckStatus status;
-  status.IsShare = FinalHash_ <= shareTarget;
-  status.IsBlock = FinalHash_ <= Target_;
+  status.PowHash = FinalHash_;
+  status.IsShare = status.PowHash <= shareTarget;
+  status.IsBlock = status.PowHash <= Target_;
   status.IsPendingBlock = false;
   return status;
 }

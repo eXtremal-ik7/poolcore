@@ -42,6 +42,7 @@ public:
   UserBalanceInfo queryBalance(const std::string &user);
   std::vector<double> poolLuck(const std::vector<int64_t> &intervals);
   CPPSState queryPPSState();
+  CRoundBestShareData queryRoundInfo();
   const char *updateBackendSettings(const std::optional<CBackendPPS> &pps,
                                     const std::optional<CBackendPayouts> &payouts,
                                     const std::optional<CBackendSwap> &swap);

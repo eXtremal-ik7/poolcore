@@ -218,10 +218,10 @@ CCheckStatus Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsen
   CCheckStatus status;
   bool fNegative;
   bool fOverflow;
-  UInt<256> hash = powValue(header);
+  status.PowHash = powValue(header);
   UInt<256> defaultTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
-  status.IsShare = hash <= shareTarget;
+  status.IsShare = status.PowHash <= shareTarget;
 
   // Check range
   if (fNegative || defaultTarget == 0u || fOverflow)
@@ -229,11 +229,10 @@ CCheckStatus Proto::checkConsensus(const Proto::BlockHeader &header, CheckConsen
 
   if (ctx.HasRtt) {
     UInt<256> adjustedTarget = rttComputeNextTarget(time(nullptr), ctx.PrevBits, ctx.PrevHeaderTime, header.nBits);
-    status.IsBlock = hash <= adjustedTarget;
-    status.IsPendingBlock = hash <= defaultTarget;
-    status.Hash = hash;
+    status.IsBlock = status.PowHash <= adjustedTarget;
+    status.IsPendingBlock = status.PowHash <= defaultTarget;
   } else {
-    status.IsBlock = hash <= defaultTarget;
+    status.IsBlock = status.PowHash <= defaultTarget;
     status.IsPendingBlock = false;
   }
 

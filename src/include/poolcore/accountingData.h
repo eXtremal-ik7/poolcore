@@ -46,6 +46,7 @@ struct CAccountingStateBatch {
   UInt<384> PPSReferenceCost;
   std::vector<std::pair<std::string, UInt<256>>> PPLNSScores;
   std::vector<std::pair<std::string, UInt<384>>> PPSBalances;
+  CRoundBestShareData BestShare;
 };
 
 struct CProcessedWorkSummary {

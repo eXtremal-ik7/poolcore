@@ -732,6 +732,19 @@ struct BackendPoolLuckResponse {
   luck: [double];
 }
 
+// --- backendQueryRoundInfo ---
+struct BackendQueryRoundInfoRequest {
+  .generate(parse);
+  coin: string;
+}
+struct BackendQueryRoundInfoResponse {
+  .generate(serialize.flat);
+  status: string;
+  hash: optional<uint256>;
+  shareDifficulty: double = 0.0;
+  time: unixTime;
+}
+
 // ============================================================================
 // Instance queries
 // ============================================================================

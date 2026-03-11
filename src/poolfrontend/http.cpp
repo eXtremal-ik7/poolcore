@@ -16,6 +16,7 @@ static consteval PoolHttpConnection::FunctionMeta getFunctionMeta(EHttpFunction 
     case F::BackendQueryCoins:
     case F::BackendPoolLuck:
     case F::BackendQueryFoundBlocks:
+    case F::BackendQueryRoundInfo:
     case F::BackendQueryPoolBalance:
     case F::BackendQueryPoolStats:
     case F::BackendQueryPoolStatsHistory:
@@ -154,6 +155,7 @@ int PoolHttpConnection::onParse(HttpRequestComponent *component)
       // Backend
       case F::BackendPoolLuck: dispatch<getFunctionMeta(F::BackendPoolLuck), &PoolHttpConnection::onBackendPoolLuck>(); break;
       case F::BackendQueryFoundBlocks: dispatch<getFunctionMeta(F::BackendQueryFoundBlocks), &PoolHttpConnection::onBackendQueryFoundBlocks>(); break;
+      case F::BackendQueryRoundInfo: dispatch<getFunctionMeta(F::BackendQueryRoundInfo), &PoolHttpConnection::onBackendQueryRoundInfo>(); break;
       // Statistic
       case F::BackendQueryPoolStatsHistory: dispatch<getFunctionMeta(F::BackendQueryPoolStatsHistory), &PoolHttpConnection::onBackendQueryPoolStatsHistory>(); break;
       // Session
@@ -1031,6 +1033,15 @@ void PoolHttpConnection::onBackendUpdateConfig(const CBackendUpdateConfigRequest
       replyWithStatus(status);
       objectDecrementReference(aioObjectHandle(Socket_), 1);
     });
+}
+
+void PoolHttpConnection::onBackendQueryRoundInfo(const CBackendQueryRoundInfoRequest &, PoolBackend &backend)
+{
+  objectIncrementReference(aioObjectHandle(Socket_), 1);
+  backend.accountingDb()->queryRoundInfo([this](const CRoundBestShareData &data) {
+    sendReply<CBackendQueryRoundInfoResponse>("ok", data.Hash, data.ShareDifficulty, data.Time);
+    objectDecrementReference(aioObjectHandle(Socket_), 1);
+  });
 }
 
 void PoolHttpConnection::onBackendPoolLuck(const CBackendPoolLuckRequest &request, PoolBackend &backend)

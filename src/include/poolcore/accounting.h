@@ -22,6 +22,7 @@ private:
   using QueryPPLNSPayoutsCallback = std::function<void(const std::vector<CPPLNSPayoutEntry>&)>;
   using QueryPPLNSAccCallback = std::function<void(const std::vector<CAccumulatedPayoutEntry>&)>;
   using PoolLuckCallback = std::function<void(const std::vector<double>&)>;
+  using QueryRoundInfoCallback = std::function<void(const CRoundBestShareData&)>;
   using QueryPPSStateCallback = std::function<void(const CPPSState&)>;
 
   struct FeePlanCacheKey {
@@ -162,6 +163,9 @@ public:
   }
   void poolLuck(std::vector<int64_t> &&intervals, PoolLuckCallback callback) {
     TaskHandler_.push([intervals = std::move(intervals), callback](AccountingDb *a) { callback(a->api().poolLuck(intervals)); });
+  }
+  void queryRoundInfo(QueryRoundInfoCallback callback) {
+    TaskHandler_.push([callback](AccountingDb *a) { callback(a->api().queryRoundInfo()); });
   }
   void queryPPSState(QueryPPSStateCallback callback) {
     TaskHandler_.push([callback = std::move(callback)](AccountingDb *a) { callback(a->api().queryPPSState()); });

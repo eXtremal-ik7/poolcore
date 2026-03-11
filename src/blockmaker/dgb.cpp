@@ -20,7 +20,6 @@ namespace DGB {
 template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB::Algo::EQubit>::BlockHeader &header, CheckConsensusCtx&, DGB::Proto<DGB::Algo::EQubit>::ChainParams&, const UInt<256> &shareTarget)
 {
   CCheckStatus status;
-  UInt<256> result;
   sph_luffa512_context	 ctx_luffa;
   sph_cubehash512_context  ctx_cubehash;
   sph_shavite512_context	 ctx_shavite;
@@ -48,11 +47,11 @@ template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB
   sph_echo512 (&ctx_echo, static_cast<const void*>(&hash[3]), 64);
   sph_echo512_close(&ctx_echo, static_cast<void*>(&hash[4]));
 
-  memcpy(result.rawData(), hash[4].begin(), 32);
+  memcpy(status.PowHash.rawData(), hash[4].begin(), 32);
   for (unsigned i = 0; i < 4; i++)
-    result.data()[i] = readle(result.data()[i]);
+    status.PowHash.data()[i] = readle(status.PowHash.data()[i]);
 
-  status.IsShare = result <= shareTarget;
+  status.IsShare = status.PowHash <= shareTarget;
 
   bool fNegative;
   bool fOverflow;
@@ -63,7 +62,7 @@ template<> CCheckStatus Proto<DGB::Algo::EQubit>::checkConsensus(const Proto<DGB
     return status;
 
   // Check proof of work matches claimed amount
-  if (result > bnTarget)
+  if (status.PowHash > bnTarget)
     return status;
 
   status.IsBlock = true;
@@ -76,7 +75,6 @@ template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB
   CCtxSha256 sha256Context;
   sph_skein512_context skeinContext;
   BaseBlob<512> skeinHash;
-  UInt<256> result;
 
   sph_skein512_init(&skeinContext);
   sph_skein512(&skeinContext, &header, sizeof(Proto<DGB::Algo::ESkein>::BlockHeader));
@@ -84,11 +82,11 @@ template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB
 
   sha256Init(&sha256Context);
   sha256Update(&sha256Context, skeinHash.begin(), skeinHash.size());
-  sha256Final(&sha256Context, result.rawData());
+  sha256Final(&sha256Context, status.PowHash.rawData());
   for (unsigned i = 0; i < 4; i++)
-    result.data()[i] = readle(result.data()[i]);
+    status.PowHash.data()[i] = readle(status.PowHash.data()[i]);
 
-  status.IsShare = result <= shareTarget;
+  status.IsShare = status.PowHash <= shareTarget;
 
   bool fNegative;
   bool fOverflow;
@@ -99,7 +97,7 @@ template<> CCheckStatus Proto<DGB::Algo::ESkein>::checkConsensus(const Proto<DGB
     return status;
 
   // Check proof of work matches claimed amount
-  if (result > bnTarget)
+  if (status.PowHash > bnTarget)
     return status;
 
   status.IsBlock = true;
@@ -112,7 +110,6 @@ template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::
   uint32_t key = OdoKey(ctx.OdoShapechangeInterval, header.nTime);
 
   char cipher[100] = {};
-  UInt<256> result;
 
   size_t len = sizeof(Proto<DGB::Algo::EOdo>::BlockHeader);
   memcpy(cipher, &header, len);
@@ -121,11 +118,11 @@ template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::
   OdoCrypt(key).Encrypt(cipher, cipher);
   for (unsigned i = 22-12; i < 22; i++)
     sha3llRound800((uint32_t*)cipher, i);
-  memcpy(result.rawData(), cipher, result.rawSize());
+  memcpy(status.PowHash.rawData(), cipher, status.PowHash.rawSize());
   for (unsigned i = 0; i < 4; i++)
-    result.data()[i] = readle(result.data()[i]);
+    status.PowHash.data()[i] = readle(status.PowHash.data()[i]);
 
-  status.IsShare = result <= shareTarget;
+  status.IsShare = status.PowHash <= shareTarget;
 
   bool fNegative;
   bool fOverflow;
@@ -136,7 +133,7 @@ template<> CCheckStatus Proto<DGB::Algo::EOdo>::checkConsensus(const Proto<DGB::
     return status;
 
   // Check proof of work matches claimed amount
-  if (result > bnTarget)
+  if (status.PowHash > bnTarget)
     return status;
 
   status.IsBlock = true;

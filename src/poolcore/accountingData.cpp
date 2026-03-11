@@ -47,6 +47,29 @@ void DbIo<CPPSState>::unserialize(xmstream &src, CPPSState &data)
   DbIo<Timestamp>::unserialize(src, data.Time);
 }
 
+// DbIo<CRoundBestShareData>
+
+void DbIo<CRoundBestShareData>::serialize(xmstream &dst, const CRoundBestShareData &data)
+{
+  DbIo<uint32_t>::serialize(dst, 1);
+  DbIo<std::optional<UInt<256>>>::serialize(dst, data.Hash);
+  DbIo<double>::serialize(dst, data.ShareDifficulty);
+  DbIo<double>::serialize(dst, data.BlockDifficulty);
+  DbIo<Timestamp>::serialize(dst, data.Time);
+}
+
+void DbIo<CRoundBestShareData>::unserialize(xmstream &src, CRoundBestShareData &data)
+{
+  uint32_t version;
+  DbIo<uint32_t>::unserialize(src, version);
+  if (version == 1) {
+    DbIo<std::optional<UInt<256>>>::unserialize(src, data.Hash);
+    DbIo<double>::unserialize(src, data.ShareDifficulty);
+    DbIo<double>::unserialize(src, data.BlockDifficulty);
+    DbIo<Timestamp>::unserialize(src, data.Time);
+  }
+}
+
 // CPPSState serialization methods
 
 std::string CPPSState::getPartitionId() const { return partByTime(Time.toUnixTime()); }

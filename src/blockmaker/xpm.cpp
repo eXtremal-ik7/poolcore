@@ -744,6 +744,11 @@ UInt<256> Zmq::Work::expectedWork()
   return UInt<256>::fromDouble(work * 4294967296.0);
 }
 
+double Zmq::Work::blockDifficulty()
+{
+  return getPrimeDifficulty(Header.nBits);
+}
+
 UInt<256> Zmq::Work::shareWork(Proto::CheckConsensusCtx &ctx,
                             double shareDiff,
                             double shareTarget,

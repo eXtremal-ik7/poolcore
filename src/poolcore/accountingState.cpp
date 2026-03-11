@@ -46,6 +46,8 @@ bool CAccountingState::load(const CCoinInfo &coinInfo)
       }
     } else if (keyStr == ".ppsstate") {
       DbIo<CPPSState>::unserialize(stream, PPSState);
+    } else if (keyStr == ".roundbestshare") {
+      DbIo<CRoundBestShareData>::unserialize(stream, RoundBestShare);
     } else if (keyStr == ".payoutqueue") {
       while (stream.remaining()) {
         PayoutDbRecord element;
@@ -133,6 +135,13 @@ void CAccountingState::addMutableState(rocksdbBase::CBatch &batch)
     std::string key = ".ppsstate";
     batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
   }
+
+  {
+    xmstream stream;
+    DbIo<CRoundBestShareData>::serialize(stream, RoundBestShare);
+    std::string key = ".roundbestshare";
+    batch.put(key.data(), key.size(), stream.data(), stream.sizeOf());
+  }
 }
 
 void CAccountingState::addRoundState(rocksdbBase::CBatch &batch)
@@ -211,5 +220,17 @@ void CAccountingState::applyBatch(uint64_t msgId, const CAccountingStateBatch &b
   if (batch.PPSReferenceCost.nonZero()) {
     PPSState.ReferenceBalance -= batch.PPSReferenceCost;
     PPSState.updateMinMax(Timestamp::now());
+  }
+  if (batch.BestShare.hasShare()) {
+    bool isBetter;
+    if (batch.BestShare.Hash.has_value() && RoundBestShare.Hash.has_value()) {
+      // Hash-based PoW: smaller hash = better share (precise UInt<256> comparison)
+      isBetter = *batch.BestShare.Hash < *RoundBestShare.Hash;
+    } else {
+      // CPD (XPM) or first share in round: compare by difficulty
+      isBetter = batch.BestShare.ShareDifficulty > RoundBestShare.ShareDifficulty;
+    }
+    if (isBetter)
+      RoundBestShare = batch.BestShare;
   }
 }

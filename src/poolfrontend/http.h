@@ -89,6 +89,7 @@ private:
   // WithBackend
   void onBackendPoolLuck(const CBackendPoolLuckRequest &request, PoolBackend &backend);
   void onBackendQueryFoundBlocks(const CBackendQueryFoundBlocksRequest &request, PoolBackend &backend);
+  void onBackendQueryRoundInfo(const CBackendQueryRoundInfoRequest &request, PoolBackend &backend);
 
   // WithSessionAndBackend
   void onBackendManualPayout(const CBackendManualPayoutRequest&, const CToken &token, PoolBackend &backend);

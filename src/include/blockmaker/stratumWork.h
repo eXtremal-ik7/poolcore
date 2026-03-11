@@ -38,7 +38,7 @@ struct CCheckStatus {
   bool IsShare = false;
   // For XEC rtt
   bool IsPendingBlock = false;
-  UInt<256> Hash;
+  UInt<256> PowHash;
 };
 
 class StratumMergedWork;
@@ -67,6 +67,7 @@ public:
   virtual void buildNotifyMessage(bool resetPreviousWork) = 0;
   virtual bool prepareForSubmit(const CWorkerConfig &workerCfg, const CStratumMessage &msg) = 0;
   virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) = 0;
+  virtual double blockDifficulty(size_t workIdx, const UInt<256> &powLimit) = 0;
   virtual bool hasRtt(size_t workIdx) = 0;
 
   xmstream &notifyMessage() { return NotifyMessage_; }
@@ -167,6 +168,7 @@ public:
   virtual UInt<256> expectedWork(size_t workIdx) final { return Works_[workIdx].Work->expectedWork(0); }
   virtual bool ready() final { return true; }
   virtual double getAbstractProfitValue(size_t workIdx, double price, double coeff) final { return Works_[workIdx].Work->getAbstractProfitValue(0, price, coeff); }
+  virtual double blockDifficulty(size_t workIdx, const UInt<256> &powLimit) final { return Works_[workIdx].Work->blockDifficulty(0, powLimit); }
   virtual bool hasRtt(size_t workIdx) final { return Works_[workIdx].Work->hasRtt(0); }
 
   void removeLink(StratumSingleWork *work) {
@@ -212,6 +214,7 @@ public:
   virtual bool prepareForSubmit(const CWorkerConfig&, const CStratumMessage&) final { return false; }
   virtual bool loadFromTemplate(CBlockTemplate&, std::string&) final { return false; }
   virtual double getAbstractProfitValue(size_t, double, double) final { return 0.0; }
+  virtual double blockDifficulty(size_t, const UInt<256>&) final { return 0.0; }
   virtual bool resetNotRecommended() final { return false; }
   virtual bool hasRtt(size_t) final { return false; }
 };

@@ -2,6 +2,7 @@
 #define __WORK_SUMMARY_H_
 
 #include "poolcommon/serialize.h"
+#include "poolcommon/types.idl.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -48,8 +49,11 @@ struct CUserWorkSummary {
 };
 
 struct CUserWorkSummaryBatch {
+  enum { CurrentRecordVersion = 1 };
+
   TimeInterval Time;
   std::vector<CUserWorkSummary> Entries;
+  CRoundBestShareData BestShare;
 };
 
 // +serialization
@@ -127,16 +131,28 @@ struct DbIo<CWorkSummaryBatch> {
   }
 };
 
+template<> struct DbIo<CRoundBestShareData> {
+  static void serialize(xmstream &dst, const CRoundBestShareData &data);
+  static void unserialize(xmstream &src, CRoundBestShareData &data);
+};
+
 template<>
 struct DbIo<CUserWorkSummaryBatch> {
   static inline void serialize(xmstream &out, const CUserWorkSummaryBatch &data) {
+    DbIo<uint32_t>::serialize(out, data.CurrentRecordVersion);
     DbIo<decltype(data.Time)>::serialize(out, data.Time);
     DbIo<decltype(data.Entries)>::serialize(out, data.Entries);
+    DbIo<CRoundBestShareData>::serialize(out, data.BestShare);
   }
 
   static inline void unserialize(xmstream &in, CUserWorkSummaryBatch &data) {
-    DbIo<decltype(data.Time)>::unserialize(in, data.Time);
-    DbIo<decltype(data.Entries)>::unserialize(in, data.Entries);
+    uint32_t version;
+    DbIo<uint32_t>::unserialize(in, version);
+    if (version == 1) {
+      DbIo<decltype(data.Time)>::unserialize(in, data.Time);
+      DbIo<decltype(data.Entries)>::unserialize(in, data.Entries);
+      DbIo<CRoundBestShareData>::unserialize(in, data.BestShare);
+    }
   }
 };
 

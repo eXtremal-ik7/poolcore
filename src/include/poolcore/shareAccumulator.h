@@ -17,14 +17,16 @@ public:
 
   void addShare(const std::string &userId, const std::string &workerId,
                 const UInt<256> &workValue, Timestamp time,
-                double chainLength, uint32_t primePOWTarget, bool isPrimePOW);
+                double chainLength, uint32_t primePOWTarget, bool isPrimePOW,
+                const std::optional<UInt<256>> &shareHash = std::nullopt);
 
-  void setBlockInfo(const UInt<384> &baseBlockReward, const UInt<256> &expectedWork) {
+  void setBlockInfo(const UInt<384> &baseBlockReward, const UInt<256> &expectedWork, double blockDifficulty) {
     BaseBlockReward_ = baseBlockReward;
     ExpectedWork_ = expectedWork;
+    BlockDifficulty_ = blockDifficulty;
   }
 
-  CAccumulatorBatch takeBatch();
+  CAccumulatorBatch takeBatch(const UInt<256> &powLimit);
   bool empty() const;
   bool shouldFlush(Timestamp now) const { return now >= NextFlushTime_; }
   void resetFlushTime(Timestamp now) { NextFlushTime_ = now + FlushInterval_; }
@@ -51,4 +53,6 @@ private:
   UInt<256> ExpectedWork_;
   Timestamp BatchFirstTime_ = Timestamp(std::chrono::milliseconds::max());
   Timestamp BatchLastTime_;
+  double BlockDifficulty_ = 0.0;
+  CRoundBestShareData BestShare_;
 };

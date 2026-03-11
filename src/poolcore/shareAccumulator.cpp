@@ -10,7 +10,8 @@ void CShareAccumulator::initialize(std::chrono::seconds flushInterval, Timestamp
 
 void CShareAccumulator::addShare(const std::string &userId, const std::string &workerId,
                                   const UInt<256> &workValue, Timestamp time,
-                                  double chainLength, uint32_t primePOWTarget, bool isPrimePOW)
+                                  double chainLength, uint32_t primePOWTarget, bool isPrimePOW,
+                                  const std::optional<UInt<256>> &shareHash)
 {
   BatchFirstTime_ = std::min(BatchFirstTime_, time);
   BatchLastTime_ = std::max(BatchLastTime_, time);
@@ -34,9 +35,25 @@ void CShareAccumulator::addShare(const std::string &userId, const std::string &w
     u.AcceptedWork += workValue;
     u.SharesNum++;
   }
+
+  // Best share tracking
+  if (shareHash.has_value()) {
+    // Hash-based: smaller hash = better share
+    if (!BestShare_.Hash.has_value() || *shareHash < *BestShare_.Hash) {
+      BestShare_.Hash = *shareHash;
+      BestShare_.Time = time;
+      // ShareDifficulty computed later in takeBatch()
+    }
+  } else if (isPrimePOW) {
+    // XPM: higher chainLength = better share
+    if (chainLength > BestShare_.ShareDifficulty) {
+      BestShare_.ShareDifficulty = chainLength;
+      BestShare_.Time = time;
+    }
+  }
 }
 
-CAccumulatorBatch CShareAccumulator::takeBatch()
+CAccumulatorBatch CShareAccumulator::takeBatch(const UInt<256> &powLimit)
 {
   CAccumulatorBatch result;
   TimeInterval time = {BatchFirstTime_, BatchLastTime_};
@@ -69,6 +86,13 @@ CAccumulatorBatch CShareAccumulator::takeBatch()
     result.Users.Entries.emplace_back(std::move(entry));
   }
   Users_.clear();
+
+  // Best share
+  if (BestShare_.Hash.has_value() && powLimit.nonZero())
+    BestShare_.ShareDifficulty = UInt<256>::fpdiv(powLimit, *BestShare_.Hash);
+  BestShare_.BlockDifficulty = BlockDifficulty_;
+  result.Users.BestShare = BestShare_;
+  BestShare_.reset();
 
   // Reset
   BatchFirstTime_ = Timestamp(std::chrono::milliseconds::max());

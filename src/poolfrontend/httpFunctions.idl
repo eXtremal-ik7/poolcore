@@ -8,6 +8,7 @@ enum HttpFunction : string {
   backendPoolLuck,
   backendQueryCoins,
   backendQueryFoundBlocks,
+  backendQueryRoundInfo,
   backendQueryPayouts,
   backendQueryPoolBalance,
   backendQueryPoolStats,

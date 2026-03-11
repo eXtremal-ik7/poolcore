@@ -427,6 +427,11 @@ CPPSState CAccountingApi::queryPPSState()
   return State_.PPSState;
 }
 
+CRoundBestShareData CAccountingApi::queryRoundInfo()
+{
+  return State_.RoundBestShare;
+}
+
 std::vector<CPPSState> CAccountingApi::queryPPSHistory(int64_t timeFrom, int64_t timeTo)
 {
   std::unique_ptr<rocksdbBase::IteratorType> It(PPSHistoryDb_.iterator());

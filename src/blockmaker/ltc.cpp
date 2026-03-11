@@ -14,8 +14,8 @@ static inline UInt<256> powValue(const LTC::Proto::BlockHeader &header)
 CCheckStatus LTC::Proto::checkPow(const Proto::BlockHeader &header, uint32_t nBits, const UInt<256> &shareTarget)
 {
   CCheckStatus status;
-  UInt<256> scryptHash = powValue(header);
-  status.IsShare = scryptHash <= shareTarget;
+  status.PowHash = powValue(header);
+  status.IsShare = status.PowHash <= shareTarget;
 
   bool fNegative;
   bool fOverflow;
@@ -26,7 +26,7 @@ CCheckStatus LTC::Proto::checkPow(const Proto::BlockHeader &header, uint32_t nBi
     return status;
 
   // Check proof of work matches claimed amount
-  if (scryptHash > bnTarget)
+  if (status.PowHash > bnTarget)
     return status;
 
   status.IsBlock = true;

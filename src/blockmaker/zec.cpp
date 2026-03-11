@@ -588,15 +588,15 @@ CCheckStatus Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckC
   bool fOverflow;
   UInt<256> bnTarget = uint256Compact(header.nBits, &fNegative, &fOverflow);
 
-  UInt<256> hash = powValue(header);
-  status.IsShare = hash <= shareTarget;
+  status.PowHash = powValue(header);
+  status.IsShare = status.PowHash <= shareTarget;
 
   // Check range
   if (fNegative || bnTarget == 0u || fOverflow)
     return status;
 
   // Check proof of work matches claimed amount
-  if (hash > bnTarget)
+  if (status.PowHash > bnTarget)
     return status;
 
   status.IsBlock = true;

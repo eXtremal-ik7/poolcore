@@ -503,6 +503,7 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
       {ppsMeta.UserId, ppsMeta.AcceptedWork, ppsMeta.SharesNum, {}, {}});
   }
 
+  result.AccountingBatch.BestShare = batch.BestShare;
   return result;
 }
 
@@ -600,6 +601,7 @@ void AccountingDb::onBlockFound(const CBlockFoundData &block)
 
   // Reset aggregated data
   State_.CurrentScores.clear();
+  State_.RoundBestShare.reset();
   State_.CurrentRoundStartTime = R.Block.Time;
 
   // Save state to db

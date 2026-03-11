@@ -200,6 +200,10 @@ public:
 
     virtual CCheckStatus checkConsensus(size_t, const UInt<256> &shareTarget) override;
 
+    virtual double blockDifficulty(size_t, const UInt<256> &powLimit) override {
+      return UInt<256>::fpdiv(powLimit, Target_);
+    }
+
     virtual bool hasRtt(size_t) override { return false; }
 
     virtual void buildNotifyMessage(bool resetPreviousWork) override;

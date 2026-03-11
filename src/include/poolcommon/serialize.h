@@ -6,6 +6,7 @@
 #include "poolcommon/uint.h"
 #include <list>
 #include <map>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <concepts>
@@ -226,6 +227,27 @@ template<typename K, typename V> struct DbIo<std::unordered_map<K, V>> {
       DbIo<K>::unserialize(src, key);
       DbIo<V>::unserialize(src, value);
       data.emplace(std::move(key), std::move(value));
+    }
+  }
+};
+
+// std::optional
+template<typename T> struct DbIo<std::optional<T>> {
+  static inline void serialize(xmstream &dst, const std::optional<T> &data) {
+    if (data.has_value()) {
+      dst.write<uint8_t>(1);
+      DbIo<T>::serialize(dst, *data);
+    } else {
+      dst.write<uint8_t>(0);
+    }
+  }
+  static inline void unserialize(xmstream &src, std::optional<T> &data) {
+    uint8_t present = src.read<uint8_t>();
+    if (present) {
+      data.emplace();
+      DbIo<T>::unserialize(src, *data);
+    } else {
+      data.reset();
     }
   }
 };

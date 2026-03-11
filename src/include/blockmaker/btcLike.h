@@ -248,6 +248,10 @@ public:
     return price * this->BlockReward_ / Proto::getDifficulty(Header) * coeff;
   }
 
+  virtual double blockDifficulty(size_t, const UInt<256> &powLimit) override {
+    return UInt<256>::fpdiv(powLimit, uint256Compact(Header.nBits));
+  }
+
   UInt<384> blockReward(size_t) final { return fromRational(BlockReward_); }
   UInt<384> baseBlockReward(size_t) final { return fromRational(BaseBlockReward_); }
 
