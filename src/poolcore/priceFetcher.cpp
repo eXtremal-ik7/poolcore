@@ -80,6 +80,7 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase,
       // Query BTC/USDT rate anyway
       if (coin.CoinGeckoName == "BTC") {
         CurrentPrices_[i] = 1.0;
+        CoinIndexMap_[coin.Name] = i;
         continue;
       }
 
