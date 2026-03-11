@@ -47,6 +47,7 @@ private:
   CPeriodicTimer CheckBalanceTimer_;
 
   double ProfitSwitchCoeff_ = 0.0;
+  std::atomic<CNetworkState> NetworkState_;
 
   atomic_intrusive_ptr<EthashDagWrapper> *EthDagFiles_ = nullptr;
 
@@ -78,6 +79,7 @@ public:
   CFeeEstimationService *feeEstimationService() { return FeeEstimationService_.get(); }
   double getProfitSwitchCoeff() const { return ProfitSwitchCoeff_; }
   void setProfitSwitchCoeff(double profitSwithCoeff) { ProfitSwitchCoeff_ = profitSwithCoeff; }
+  CNetworkState getNetworkState() const { return NetworkState_.load(); }
   StatisticServer *getAlgoMetaStatistic() { return AlgoMetaStatistic_; }
   void setAlgoMetaStatistic(StatisticServer *server) { AlgoMetaStatistic_ = server; }
 

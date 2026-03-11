@@ -767,6 +767,13 @@ void PoolHttpConnection::onBackendQueryCoins(const CBackendQueryCoinsRequest&)
     entry.AcceptIncoming = backendCfg.SwapConfig.AcceptIncoming;
     entry.AcceptOutgoing = backendCfg.SwapConfig.AcceptOutgoing;
 
+    // Network state (height + difficulty)
+    CNetworkState networkState = backend->getNetworkState();
+    if (networkState.Height > 0) {
+      entry.Height = networkState.Height;
+      entry.Difficulty = networkState.Difficulty;
+    }
+
     // Current prices (null when no price data)
     CPriceFetcher *priceFetcher = Server_.priceFetcher();
     if (priceFetcher) {

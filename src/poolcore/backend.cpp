@@ -33,6 +33,7 @@ PoolBackend::PoolBackend(asyncBase *base,
   TaskHandler_(this, base), CheckConfirmationsTimer_(base), CheckBalanceTimer_(base)
 {
   clientDispatcher.setBackend(this);
+  clientDispatcher.setNetworkState(&NetworkState_);
 
   if (CoinInfo_.PPSIncludeTransactionFees) {
     FeeEstimationService_ = std::make_unique<CFeeEstimationService>(base, clientDispatcher, CoinInfo_);

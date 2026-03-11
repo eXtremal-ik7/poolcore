@@ -552,10 +552,8 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 
     // TODO optimize it
     UInt<256> target;
-    static UInt<256> twoPow255 = UInt<256>::fromHex("8000000000000000000000000000000000000000000000000000000000000000");
     target.setHex(resultValue[2].GetString() + 2);
-    UInt<256> diff = twoPow255 / target;
-    difficulty = diff.getDouble() * 2.0;
+    difficulty = UInt<256>::fpdiv(CoinInfo_.PowLimit, target);
 
     height = strtoul(resultValue[3].GetString()+2, nullptr, 16);
     // Use height as unique block identifier
@@ -573,6 +571,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
       epochNumber /= 2;
 
     blockTemplate->Height = static_cast<int64_t>(height);
+    blockTemplate->Difficulty = difficulty;
     blockTemplate->DagFile = Dispatcher_->backend()->dagFile(epochNumber);
     if (blockTemplate->DagFile.get() != nullptr)
       templateIsOk = true;

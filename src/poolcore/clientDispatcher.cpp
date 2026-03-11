@@ -1,5 +1,6 @@
 #include "poolcore/clientDispatcher.h"
 
+#include "poolcore/backendData.h"
 #include "poolcore/blockTemplate.h"
 #include "poolcore/feeEstimator.h"
 #include "poolcore/thread.h"
@@ -227,6 +228,9 @@ void CNetworkClientDispatcher::onWorkFetcherNewWork(CBlockTemplate *blockTemplat
   intrusive_ptr<CBlockTemplate> holder(blockTemplate);
   for (auto &instance : LinkedInstances_)
     instance->checkNewBlockTemplate(blockTemplate, Backend_);
+
+  if (NetworkState_)
+    NetworkState_->store({blockTemplate->Height, blockTemplate->Difficulty});
 
   if (FeeEstimationService_)
     FeeEstimationService_->onNewBlock(blockTemplate->Height);

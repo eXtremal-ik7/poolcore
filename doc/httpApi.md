@@ -53,6 +53,7 @@ When `targetLogin` is provided:
   * [backendQueryPoolStats](#backendquerypoolstats)
   * [backendQueryPoolStatsHistory](#backendquerypoolstatshistory)
   * [backendPoolLuck](#backendpoolluck)
+  * [backendQueryRoundInfo](#backendqueryroundinfo)
   * [instanceEnumerateAll](#instanceenumerateall)
 * [User backend queries](#user-backend-queries)
   * [backendQueryUserBalance](#backendqueryuserbalance)
@@ -754,6 +755,27 @@ Calculates pool luck for specified time intervals.
 
 ---
 
+### backendQueryRoundInfo
+
+Returns best share data for the current mining round.
+
+- **Auth**: none
+
+| Request field | Type | Required | Description |
+|---------------|------|----------|-------------|
+| `coin` | string | yes | Coin name |
+
+**Response**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | |
+| `hash` | string/null | Best share hash (null if no shares yet) |
+| `shareDifficulty` | double | Difficulty of the best share |
+| `time` | int | Unix timestamp of the best share |
+
+---
+
 ### instanceEnumerateAll
 
 Lists all mining protocol instances.
@@ -1265,5 +1287,6 @@ Queries complex mining statistics engine.
 | 45 | backendQueryPPSHistory | admin/observer |
 | 46 | backendUpdateConfig | admin |
 | 47 | backendPoolLuck | none |
-| 48 | instanceEnumerateAll | none |
-| 49 | complexMiningStatsGetInfo | admin/observer |
+| 48 | backendQueryRoundInfo | none |
+| 49 | instanceEnumerateAll | none |
+| 50 | complexMiningStatsGetInfo | admin/observer |

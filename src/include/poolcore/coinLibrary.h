@@ -659,6 +659,7 @@ public:
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 64;
       info.Algorithm = "etchash";
+      info.PowLimit = UInt<256>::fromHex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.HasDagFile = true;
       info.BigEpoch = true;
       info.WorkType = EWorkEthereum;

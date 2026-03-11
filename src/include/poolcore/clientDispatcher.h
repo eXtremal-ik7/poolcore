@@ -6,6 +6,7 @@
 #include <memory>
 
 class CFeeEstimationService;
+struct CNetworkState;
 
 class CNetworkClientDispatcher {
 
@@ -30,6 +31,7 @@ public:
 
   PoolBackend *backend() { return Backend_; }
   void setBackend(PoolBackend *backend) { Backend_ = backend; }
+  void setNetworkState(std::atomic<CNetworkState> *networkState) { NetworkState_ = networkState; }
   void setFeeEstimationService(CFeeEstimationService *service) { FeeEstimationService_ = service; }
   void setLogChannel(loguru::LogChannel *channel) {
     for (auto &client: GetWorkClients_)
@@ -82,6 +84,7 @@ private:
   size_t CurrentWorkFetcherIdx = 0;
 
   std::vector<CPoolInstance*> LinkedInstances_;
+  std::atomic<CNetworkState> *NetworkState_ = nullptr;
   CFeeEstimationService *FeeEstimationService_ = nullptr;
 
   aioUserEvent *WorkFetcherReconnectTimer_ = nullptr;

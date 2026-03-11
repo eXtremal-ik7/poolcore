@@ -16,6 +16,11 @@
 std::string partByHeight(uint64_t height);
 std::string partByTime(time_t time);
 
+struct CNetworkState {
+  int64_t Height = 0;
+  double Difficulty = 0.0;
+};
+
 typedef bool CheckAddressProcTy(const char*);
 
 struct CBlockFoundData {

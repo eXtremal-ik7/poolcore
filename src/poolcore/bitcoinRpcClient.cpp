@@ -1030,10 +1030,14 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 
   // Get unique work id
   uint64_t workId = blockTemplate->UniqueWorkId = readHexBE<uint64_t>(prevBlockHash.c_str(), 16);
-  UInt<256> powLimit = CoinInfo_.PowLimit;
-  UInt<256> target = uint256Compact(strtoul(bits.c_str(), nullptr, 16));
-  powLimit /= target;
-  double difficulty = powLimit.getDouble();
+  uint32_t nBits = strtoul(bits.c_str(), nullptr, 16);
+  double difficulty;
+  if (CoinInfo_.PowerUnitType == CCoinInfo::ECPD) {
+    // PrimePOW: difficulty is chain length encoded as fixed-point (24-bit fractional part)
+    difficulty = static_cast<double>(nBits) / static_cast<double>(1 << 24);
+  } else {
+    difficulty = UInt<256>::fpdiv(CoinInfo_.PowLimit, uint256Compact(nBits));
+  }
 
   blockTemplate->Difficulty = difficulty;
 

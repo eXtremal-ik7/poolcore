@@ -300,6 +300,9 @@ class Poolfrontend:
     def backendPoolLuck(self, coin, intervals, requiredStatus=None, debug=None):
         return self.__call__("backendPoolLuck", {"coin": coin, "intervals": intervals}, requiredStatus, debug)
 
+    def backendQueryRoundInfo(self, coin, requiredStatus=None, debug=None):
+        return self.__call__("backendQueryRoundInfo", {"coin": coin}, requiredStatus, debug)
+
     def instanceEnumerateAll(self, requiredStatus=None, debug=None):
         return self.__call__("instanceEnumerateAll", {}, requiredStatus, debug)
 
