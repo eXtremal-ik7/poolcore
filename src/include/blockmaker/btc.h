@@ -141,7 +141,7 @@ public:
   struct CheckConsensusCtx {
     bool HasRtt = false;
     uint32_t PrevBits;
-    int64_t PrevHeaderTime[4];
+    int64_t PrevHeaderTime[5];
 
     void initialize(CBlockTemplate&, const std::string&);
     bool hasRtt() { return HasRtt; }

@@ -127,9 +127,18 @@ void Io<Proto::Transaction>::unserialize(xmstream &src, BTC::Proto::Transaction 
   BTC::unserialize(src, data.lockTime);
 }
 
+// RTT constant factors: K * gamma(1 + 1/K)^K / T^(K-1), where K=6
+// Windows: 1 block (150s), 2 blocks (600s), 5 blocks (2400s), 11 blocks (6000s), 17 blocks (9600s)
+static constexpr double RttK = 6.0;
+static const double RttConstantFactor1  = RttK * std::pow(std::tgamma(1.0 + 1.0 / RttK), RttK) / std::pow(150.0, RttK - 1.0);
+static const double RttConstantFactor2  = RttK * std::pow(std::tgamma(1.0 + 1.0 / RttK), RttK) / std::pow(600.0, RttK - 1.0);
+static const double RttConstantFactor5  = RttK * std::pow(std::tgamma(1.0 + 1.0 / RttK), RttK) / std::pow(2400.0, RttK - 1.0);
+static const double RttConstantFactor11 = RttK * std::pow(std::tgamma(1.0 + 1.0 / RttK), RttK) / std::pow(6000.0, RttK - 1.0);
+static const double RttConstantFactor17 = RttK * std::pow(std::tgamma(1.0 + 1.0 / RttK), RttK) / std::pow(9600.0, RttK - 1.0);
+
 static UInt<256> rttComputeNextTarget(int64_t now,
                                       uint32_t prevBits,
-                                      const int64_t prevHeaderTime[4],
+                                      const int64_t prevHeaderTime[5],
                                       uint32_t headerBits)
 {
   int64_t one = 1;
@@ -138,22 +147,16 @@ static UInt<256> rttComputeNextTarget(int64_t now,
   double prevTarget = prev256.getDouble();
   double headerTarget = header256.getDouble();
 
-  int64_t diffTime0 = std::max(one, now - prevHeaderTime[0]);
-  double target0 = prevTarget * 4.9192018423e-14 * pow(diffTime0, 5);
+  // 5 windows: 1, 2, 5, 11, 17 blocks
+  static const double factors[5] = {RttConstantFactor1, RttConstantFactor2, RttConstantFactor5, RttConstantFactor11, RttConstantFactor17};
+  double nextTarget = headerTarget;
+  for (unsigned i = 0; i < 5; i++) {
+    int64_t diffTime = std::max(one, now - prevHeaderTime[i]);
+    double target = prevTarget * factors[i] * pow(diffTime, RttK - 1.0);
+    nextTarget = std::min(nextTarget, target);
+  }
 
-  int64_t diffTime1 = std::max(one, now - prevHeaderTime[1]);
-  double target1 = prevTarget * 4.8039080491e-17 * pow(diffTime1, 5);
-
-  int64_t diffTime2 = std::max(one, now - prevHeaderTime[2]);
-  double target2 = prevTarget * 4.9192018423e-19 * pow(diffTime2, 5);
-
-  int64_t diffTime3 = std::max(one, now - prevHeaderTime[3]);
-  double target3 = prevTarget * 4.6913164542e-20 * pow(diffTime3, 5);
-
-  double nextTarget = std::min({target0, target1, target2, target3});
-
-  // The real time target is never higher (less difficult) than the normal
-  // target.
+  // The real time target is never higher (less difficult) than the normal target.
   if (nextTarget < headerTarget)
     return UInt<256>::fromDouble(nextTarget);
   else
@@ -175,9 +178,9 @@ void Proto::CheckConsensusCtx::initialize(CBlockTemplate &blockTemplate, const s
     return;
 
   auto prevHeaderTimeValue = rttValue["prevheadertime"].GetArray();
-  if (prevHeaderTimeValue.Size() != 4)
+  if (prevHeaderTimeValue.Size() != 5)
     return;
-  for (unsigned i = 0; i < 4; i++) {
+  for (unsigned i = 0; i < 5; i++) {
     if (!prevHeaderTimeValue[i].IsInt64())
       return;
     PrevHeaderTime[i] = prevHeaderTimeValue[i].GetInt64();
