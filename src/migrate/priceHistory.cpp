@@ -17,8 +17,10 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <format>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #ifndef WIN32
@@ -31,6 +33,38 @@
 extern CPluginContext gPluginContext;
 
 static constexpr const char *CoinGeckoHost = "pro-api.coingecko.com";
+static constexpr const char *CryptoCompareHost = "min-api.cryptocompare.com";
+
+// CoinGecko ID → CryptoCompare ticker (fallback source)
+static const std::unordered_map<std::string, std::string> CoinGeckoToCryptoCompare = {
+  {"bitcoin",           "BTC"},
+  {"litecoin",          "LTC"},
+  {"ethereum-classic",  "ETC"},
+  {"zcash",             "ZEC"},
+  {"dash",              "DASH"},
+  {"digibyte",          "DGB"},
+  {"dogecoin",          "DOGE"},
+  {"ecash",             "XEC"},
+  {"primecoin",         "XPM"},
+  {"komodo",            "KMD"},
+  {"zencash",           "ZEN"},
+  {"pirate-chain",      "ARRR"},
+  {"bitcoin-cash",      "BCH"},
+  {"bitcoin-cash-sv",   "BSV"},
+  {"bellscoin",         "BEL"},
+  {"litecoin-cash",     "LCC"},
+  {"freecash",          "FCH"},
+  {"fractal-bitcoin",   "FB"},
+  {"pepecoin",          "PEPECOIN"},
+  {"dingocoin",         "DINGO"},
+  {"datacoin",          "DTC"},
+  {"hootchain",         "HOOT"},
+  {"junkcoin",          "JKC"},
+  {"luckycoin",         "LKY"},
+  {"osmium",            "OS76"},
+  {"pepecoin-network",  "PEP"},
+};
+
 static constexpr uint64_t ConnectTimeoutUs = 15 * 1000000;
 static constexpr uint64_t RequestTimeoutUs = 30 * 1000000;
 static constexpr uint64_t RateLimitSleepUs = 65 * 1000000;
@@ -42,14 +76,57 @@ static constexpr int64_t ChunkDurationSeconds = 90 * 24 * 3600;
 struct CPriceHistoryContext {
   asyncBase *Base;
   HostAddress Address;
+  HostAddress CryptoCompareAddress;
   aioUserEvent *SleepEvent;
   rocksdb::DB *Db;
   std::vector<std::string> CoinIds;
+  std::unordered_map<std::string, int64_t> CoinStartTimestamp; // coinGeckoId → earliest payout
   std::string ApiKey;
-  int64_t StartTimestamp;
+  int64_t CoinGeckoEarliestTimestamp = 0; // 0 = no limit (Analyst+)
 };
 
-static std::vector<std::string> discoverCoinGeckoIds(const std::filesystem::path &sourceDatabase)
+static int64_t partitionToTimestamp(const std::string &partName)
+{
+  int year = 0, month = 0;
+  if (sscanf(partName.c_str(), "%d.%d", &year, &month) != 2)
+    return 0;
+  struct tm tm = {};
+  tm.tm_year = year - 1900;
+  tm.tm_mon = month - 1;
+  tm.tm_mday = 1;
+  return timegm(&tm);
+}
+
+static std::string formatDate(int64_t timestamp)
+{
+  time_t t = static_cast<time_t>(timestamp);
+  struct tm tm;
+  gmtime_r(&t, &tm);
+  return std::format("{:04d}-{:02d}-{:02d}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+}
+
+static int64_t findEarliestPayoutTimestamp(const std::filesystem::path &coinPath)
+{
+  std::string earliestPartition;
+  for (const char *dbName : {"payouts", "pplns.payouts"}) {
+    std::filesystem::path dbPath = coinPath / dbName;
+    if (!std::filesystem::is_directory(dbPath))
+      continue;
+
+    for (std::filesystem::directory_iterator PI(dbPath), PIE; PI != PIE; ++PI) {
+      if (!is_directory(PI->status()))
+        continue;
+      std::string partName = PI->path().filename().generic_string();
+      if (earliestPartition.empty() || partName < earliestPartition)
+        earliestPartition = partName;
+    }
+  }
+
+  return earliestPartition.empty() ? 0 : partitionToTimestamp(earliestPartition);
+}
+
+static std::vector<std::string> discoverCoins(const std::filesystem::path &sourceDatabase,
+                                               std::unordered_map<std::string, int64_t> &startTimestamps)
 {
   std::set<std::string> seen;
   std::vector<std::string> result;
@@ -85,57 +162,21 @@ static std::vector<std::string> discoverCoinGeckoIds(const std::filesystem::path
       continue;
     }
 
+    int64_t earliest = findEarliestPayoutTimestamp(I->path());
+    if (earliest == 0)
+      continue;
+
+    auto &ts = startTimestamps[info.CoinGeckoName];
+    if (ts == 0 || earliest < ts)
+      ts = earliest;
+
     if (seen.insert(info.CoinGeckoName).second) {
-      CLOG_F(INFO, "Found coin: {} (CoinGecko: {})", info.Name, info.CoinGeckoName);
+      CLOG_F(INFO, "Found coin: {} (CoinGecko: {}, earliest: {})", info.Name, info.CoinGeckoName, formatDate(earliest));
       result.push_back(info.CoinGeckoName);
     }
   }
 
   return result;
-}
-
-static int64_t findEarliestPayoutTimestamp(const std::filesystem::path &sourceDatabase)
-{
-  std::string earliestPartition;
-
-  for (std::filesystem::directory_iterator I(sourceDatabase), IE; I != IE; ++I) {
-    if (!is_directory(I->status()))
-      continue;
-
-    std::string name = I->path().filename().generic_string();
-    if (name.starts_with("__"))
-      continue;
-    if (isNonCoinDirectory(name))
-      continue;
-
-    // Old format: pplns.payouts, new format: pplns.payouts.2
-    std::filesystem::path payoutsPath;
-    if (std::filesystem::is_directory(I->path() / "pplns.payouts"))
-      payoutsPath = I->path() / "pplns.payouts";
-    else
-      continue;
-
-    for (std::filesystem::directory_iterator PI(payoutsPath), PIE; PI != PIE; ++PI) {
-      if (!is_directory(PI->status()))
-        continue;
-      std::string partName = PI->path().filename().generic_string();
-      if (earliestPartition.empty() || partName < earliestPartition)
-        earliestPartition = partName;
-    }
-  }
-
-  if (earliestPartition.empty())
-    return 0;
-
-  int year = 0, month = 0;
-  if (sscanf(earliestPartition.c_str(), "%d.%d", &year, &month) != 2)
-    return 0;
-
-  struct tm tm = {};
-  tm.tm_year = year - 1900;
-  tm.tm_mon = month - 1;
-  tm.tm_mday = 1;
-  return timegm(&tm);
 }
 
 static std::string makeKey(const std::string &coinId, uint64_t timestamp)
@@ -187,28 +228,18 @@ static int64_t getLastStoredTimestamp(rocksdb::DB *db, const std::string &coinId
   return static_cast<int64_t>(timestamp);
 }
 
-static void buildGetQuery(const std::string &path, xmstream &out)
+static void buildGetQuery(const char *host, const std::string &path, xmstream &out)
 {
   out.reset();
   out.write("GET ");
   out.write(path.data(), path.size());
   out.write(" HTTP/1.1\r\n");
   out.write("Host: ");
-  out.write(CoinGeckoHost, strlen(CoinGeckoHost));
+  out.write(host, strlen(host));
   out.write("\r\n");
   out.write("User-Agent: poolcore/1.0\r\n");
   out.write("Accept: application/json\r\n");
   out.write("\r\n");
-}
-
-static std::string formatDate(int64_t timestamp)
-{
-  time_t t = static_cast<time_t>(timestamp);
-  struct tm tm;
-  gmtime_r(&t, &tm);
-  char buf[32];
-  snprintf(buf, sizeof(buf), "%04d-%02d-%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
-  return buf;
 }
 
 enum class ERequestResult {
@@ -224,18 +255,12 @@ static ERequestResult fetchChunk(
   int64_t toTimestamp,
   std::vector<std::pair<int64_t, double>> &prices)
 {
-  char path[768];
-  snprintf(
-    path,
-    sizeof(path),
-    "/api/v3/coins/%s/market_chart/range?vs_currency=usd&precision=full&from=%lld&to=%lld&x_cg_pro_api_key=%s",
-    coinId.c_str(),
-    static_cast<long long>(fromTimestamp),
-    static_cast<long long>(toTimestamp),
-    ctx->ApiKey.c_str());
+  std::string path = std::format(
+    "/api/v3/coins/{}/market_chart/range?vs_currency=usd&precision=full&from={}&to={}&x_cg_pro_api_key={}",
+    coinId, fromTimestamp, toTimestamp, ctx->ApiKey);
 
   xmstream query;
-  buildGetQuery(path, query);
+  buildGetQuery(CoinGeckoHost, path, query);
 
   SSLSocket *sslSocket = sslSocketNew(ctx->Base, nullptr);
   HTTPClient *client = httpsClientNew(ctx->Base, sslSocket);
@@ -306,6 +331,152 @@ static ERequestResult fetchChunk(
   return ERequestResult::Success;
 }
 
+static ERequestResult fetchChunkCryptoCompare(
+  CPriceHistoryContext *ctx,
+  const std::string &ticker,
+  int64_t fromTimestamp,
+  int64_t toTimestamp,
+  std::vector<std::pair<int64_t, double>> &prices)
+{
+  int64_t days = (toTimestamp - fromTimestamp) / 86400 + 1;
+  std::string path = std::format("/data/v2/histoday?fsym={}&tsym=USD&toTs={}&limit={}", ticker, toTimestamp, days);
+
+  xmstream query;
+  buildGetQuery(CryptoCompareHost, path, query);
+
+  SSLSocket *sslSocket = sslSocketNew(ctx->Base, nullptr);
+  HTTPClient *client = httpsClientNew(ctx->Base, sslSocket);
+  HTTPParseDefaultContext parseCtx;
+  httpParseDefaultInit(&parseCtx);
+
+  int connectResult = ioHttpConnect(client, &ctx->CryptoCompareAddress, CryptoCompareHost, ConnectTimeoutUs);
+  if (connectResult != 0) {
+    CLOG_F(ERROR, "  {}: CryptoCompare connect failed", ticker);
+    httpClientDelete(client);
+    return ERequestResult::Error;
+  }
+
+  AsyncOpStatus requestStatus = ioHttpRequest(
+    client,
+    query.data<const char>(),
+    query.sizeOf(),
+    RequestTimeoutUs,
+    httpParseDefault,
+    &parseCtx);
+
+  unsigned httpCode = parseCtx.resultCode;
+
+  if (requestStatus != aosSuccess) {
+    CLOG_F(ERROR, "  {}: CryptoCompare request failed, status={}", ticker, static_cast<unsigned>(requestStatus));
+    httpClientDelete(client);
+    return ERequestResult::Error;
+  }
+
+  httpClientDelete(client);
+
+  if (httpCode != 200) {
+    CLOG_F(ERROR, "  {}: CryptoCompare HTTP {}", ticker, httpCode);
+    return ERequestResult::Error;
+  }
+
+  rapidjson::Document document;
+  document.Parse(parseCtx.body.data, parseCtx.body.size);
+  if (document.HasParseError() || !document.IsObject()) {
+    CLOG_F(ERROR, "  {}: CryptoCompare JSON parse error", ticker);
+    return ERequestResult::Error;
+  }
+
+  if (!document.HasMember("Response") || !document["Response"].IsString() ||
+      strcmp(document["Response"].GetString(), "Success") != 0) {
+    CLOG_F(ERROR, "  {}: CryptoCompare API error", ticker);
+    return ERequestResult::Error;
+  }
+
+  if (!document.HasMember("Data") || !document["Data"].IsObject()) {
+    CLOG_F(ERROR, "  {}: CryptoCompare missing Data object", ticker);
+    return ERequestResult::Error;
+  }
+
+  const auto &dataObj = document["Data"];
+  if (!dataObj.HasMember("Data") || !dataObj["Data"].IsArray()) {
+    CLOG_F(ERROR, "  {}: CryptoCompare missing Data.Data array", ticker);
+    return ERequestResult::Error;
+  }
+
+  const auto &dataArray = dataObj["Data"].GetArray();
+  prices.clear();
+  prices.reserve(dataArray.Size());
+
+  for (rapidjson::SizeType i = 0; i < dataArray.Size(); i++) {
+    const auto &entry = dataArray[i];
+    if (!entry.IsObject())
+      continue;
+    if (!entry.HasMember("time") || !entry["time"].IsNumber())
+      continue;
+    if (!entry.HasMember("close") || !entry["close"].IsNumber())
+      continue;
+
+    int64_t timestamp = entry["time"].GetInt64();
+    double price = entry["close"].GetDouble();
+    if (price > 0.0 && timestamp >= fromTimestamp)
+      prices.emplace_back(timestamp, price);
+  }
+
+  return ERequestResult::Success;
+}
+
+// Probe CoinGecko with a 3-year-old request to detect plan limits.
+// Returns earliest available timestamp (now - 2 years for Basic plan), or 0 if no limit (Analyst+).
+static int64_t probeCoinGeckoHistoryLimit(CPriceHistoryContext *ctx)
+{
+  int64_t now = static_cast<int64_t>(time(nullptr));
+  int64_t probeFrom = now - 3LL * 365 * 86400;
+  int64_t probeTo = probeFrom + 86400;
+
+  std::string path = std::format(
+    "/api/v3/coins/bitcoin/market_chart/range?vs_currency=usd&from={}&to={}&x_cg_pro_api_key={}",
+    probeFrom, probeTo, ctx->ApiKey);
+
+  xmstream query;
+  buildGetQuery(CoinGeckoHost, path, query);
+
+  SSLSocket *sslSocket = sslSocketNew(ctx->Base, nullptr);
+  HTTPClient *client = httpsClientNew(ctx->Base, sslSocket);
+  HTTPParseDefaultContext parseCtx;
+  httpParseDefaultInit(&parseCtx);
+
+  int connectResult = ioHttpConnect(client, &ctx->Address, CoinGeckoHost, ConnectTimeoutUs);
+  if (connectResult != 0) {
+    CLOG_F(WARNING, "CoinGecko probe: connect failed, assuming 2-year limit");
+    httpClientDelete(client);
+    return now - 2LL * 365 * 86400;
+  }
+
+  AsyncOpStatus requestStatus = ioHttpRequest(
+    client,
+    query.data<const char>(),
+    query.sizeOf(),
+    RequestTimeoutUs,
+    httpParseDefault,
+    &parseCtx);
+
+  unsigned httpCode = parseCtx.resultCode;
+  httpClientDelete(client);
+
+  if (requestStatus != aosSuccess) {
+    CLOG_F(WARNING, "CoinGecko probe: request failed, assuming 2-year limit");
+    return now - 2LL * 365 * 86400;
+  }
+
+  if (httpCode == 200) {
+    CLOG_F(INFO, "CoinGecko probe: full history available (Analyst+ plan)");
+    return 0;
+  }
+
+  CLOG_F(INFO, "CoinGecko probe: HTTP {}, limited plan — will use CryptoCompare for data older than 2 years", httpCode);
+  return now - 2LL * 365 * 86400;
+}
+
 static bool writePriceBatch(
   rocksdb::DB *db,
   const std::string &coinId,
@@ -340,7 +511,12 @@ static bool downloadCoinHistory(CPriceHistoryContext *ctx, const std::string &co
     startTime = lastStored + 1;
     CLOG_F(INFO, "  {}: resuming from {}", coinId, formatDate(startTime));
   } else {
-    startTime = ctx->StartTimestamp;
+    auto it = ctx->CoinStartTimestamp.find(coinId);
+    if (it == ctx->CoinStartTimestamp.end()) {
+      CLOG_F(WARNING, "  {}: no payout data found, skipping", coinId);
+      return true;
+    }
+    startTime = it->second;
     CLOG_F(INFO, "  {}: starting from {} (no previous data)", coinId, formatDate(startTime));
   }
 
@@ -360,43 +536,53 @@ static bool downloadCoinHistory(CPriceHistoryContext *ctx, const std::string &co
     bool chunkDone = false;
     unsigned rateLimitCount = 0;
 
-    for (unsigned retry = 0; retry < MaxRetries && !chunkDone; retry++) {
-      ERequestResult result = fetchChunk(ctx, coinId, chunkStart, chunkEnd, prices);
-
-      switch (result) {
-        case ERequestResult::Success:
+    bool useCryptoCompare = ctx->CoinGeckoEarliestTimestamp > 0 && chunkStart < ctx->CoinGeckoEarliestTimestamp;
+    if (useCryptoCompare) {
+      auto tickerIt = CoinGeckoToCryptoCompare.find(coinId);
+      if (tickerIt != CoinGeckoToCryptoCompare.end()) {
+        ERequestResult result = fetchChunkCryptoCompare(ctx, tickerIt->second, chunkStart, chunkEnd, prices);
+        if (result == ERequestResult::Success)
           chunkDone = true;
-          break;
-        case ERequestResult::RateLimited:
-          rateLimitCount++;
-          if (rateLimitCount > 10) {
-            CLOG_F(ERROR, "  {}: too many rate limits, aborting", coinId);
-            return false;
-          }
-          CLOG_F(INFO, "  {}: sleeping 65s (rate limit)", coinId);
-          ioSleep(ctx->SleepEvent, RateLimitSleepUs);
-          retry--;
-          break;
-        case ERequestResult::Error:
-          if (retry + 1 < MaxRetries) {
-            CLOG_F(WARNING,
-              "  {}: error, retrying in 30s (attempt {}/{})",
-              coinId,
-              retry + 1,
-              MaxRetries);
-            ioSleep(ctx->SleepEvent, ErrorRetrySleepUs);
-          }
-          break;
+      }
+    } else {
+      for (unsigned retry = 0; retry < MaxRetries && !chunkDone; retry++) {
+        ERequestResult result = fetchChunk(ctx, coinId, chunkStart, chunkEnd, prices);
+
+        switch (result) {
+          case ERequestResult::Success:
+            chunkDone = true;
+            break;
+          case ERequestResult::RateLimited:
+            rateLimitCount++;
+            if (rateLimitCount > 10) {
+              CLOG_F(ERROR, "  {}: too many rate limits, aborting", coinId);
+              return false;
+            }
+            CLOG_F(INFO, "  {}: sleeping 65s (rate limit)", coinId);
+            ioSleep(ctx->SleepEvent, RateLimitSleepUs);
+            retry--;
+            break;
+          case ERequestResult::Error:
+            if (retry + 1 < MaxRetries) {
+              CLOG_F(WARNING,
+                "  {}: error, retrying in 30s (attempt {}/{})",
+                coinId,
+                retry + 1,
+                MaxRetries);
+              ioSleep(ctx->SleepEvent, ErrorRetrySleepUs);
+            }
+            break;
+        }
       }
     }
 
     if (!chunkDone) {
       CLOG_F(ERROR,
-        "  {}: failed after {} retries for chunk {}..{}",
+        "  {}: failed for chunk {}..{} (source: {})",
         coinId,
-        MaxRetries,
         formatDate(chunkStart),
-        formatDate(chunkEnd));
+        formatDate(chunkEnd),
+        useCryptoCompare ? "CryptoCompare" : "CoinGecko");
       return false;
     }
 
@@ -405,11 +591,12 @@ static bool downloadCoinHistory(CPriceHistoryContext *ctx, const std::string &co
 
     totalPoints += static_cast<unsigned>(prices.size());
     CLOG_F(INFO,
-      "  {}: fetched {}..{} ({} points)",
+      "  {}: fetched {}..{} ({} points, {})",
       coinId,
       formatDate(chunkStart),
       formatDate(chunkEnd),
-      prices.size());
+      prices.size(),
+      useCryptoCompare ? "CryptoCompare" : "CoinGecko");
 
     chunkStart = chunkEnd;
 
@@ -424,6 +611,9 @@ static bool downloadCoinHistory(CPriceHistoryContext *ctx, const std::string &co
 static void priceHistoryCoroutine(void *arg)
 {
   CPriceHistoryContext *ctx = static_cast<CPriceHistoryContext *>(arg);
+
+  ctx->CoinGeckoEarliestTimestamp = probeCoinGeckoHistoryLimit(ctx);
+
   bool allOk = true;
 
   for (const auto &coinId : ctx->CoinIds) {
@@ -446,33 +636,14 @@ bool fetchPriceHistory(const char *sourceDatabase, const char *dbPath, const cha
   CLOG_F(INFO, "Fetching price history to {}", dbPath);
   CLOG_F(INFO, "Discovering coins from {}", sourceDatabase);
 
-  std::vector<std::string> coinIds = discoverCoinGeckoIds(sourceDatabase);
+  std::unordered_map<std::string, int64_t> coinStartTimestamps;
+  std::vector<std::string> coinIds = discoverCoins(sourceDatabase, coinStartTimestamps);
   if (coinIds.empty()) {
-    CLOG_F(ERROR, "No coins with CoinGecko mapping found in {}", sourceDatabase);
+    CLOG_F(ERROR, "No coins with payout data found in {}", sourceDatabase);
     return false;
   }
 
-  int64_t startTimestamp = findEarliestPayoutTimestamp(sourceDatabase);
-  if (startTimestamp == 0) {
-    CLOG_F(ERROR, "No pplns.payouts partitions found in {}", sourceDatabase);
-    return false;
-  }
-
-  CLOG_F(INFO, "Earliest payout partition: {}", formatDate(startTimestamp));
-
-  // CoinGecko Basic plan: historical data limited to past 2 years
-  static constexpr int64_t TwoYearsSeconds = 2 * 365 * 24 * 3600;
-  int64_t now = static_cast<int64_t>(time(nullptr));
-  int64_t twoYearsAgo = now - TwoYearsSeconds;
-  if (startTimestamp < twoYearsAgo) {
-    CLOG_F(WARNING,
-      "Start date {} is beyond CoinGecko 2-year limit, clamping to {}",
-      formatDate(startTimestamp),
-      formatDate(twoYearsAgo));
-    startTimestamp = twoYearsAgo;
-  }
-
-  CLOG_F(INFO, "Will fetch price history for {} coins from {}", coinIds.size(), formatDate(startTimestamp));
+  CLOG_F(INFO, "Will fetch price history for {} coins", coinIds.size());
 
   rocksdb::Options options;
   options.create_if_missing = true;
@@ -507,13 +678,33 @@ bool fetchPriceHistory(const char *sourceDatabase, const char *dbPath, const cha
 
   CLOG_F(INFO, "Resolved {} successfully", CoinGeckoHost);
 
+  HostAddress cryptoCompareAddress;
+  {
+    struct hostent *host = gethostbyname(CryptoCompareHost);
+    if (!host) {
+      CLOG_F(ERROR, "Can't resolve {}", CryptoCompareHost);
+      return false;
+    }
+    struct in_addr **addrList = reinterpret_cast<struct in_addr **>(host->h_addr_list);
+    if (!addrList[0]) {
+      CLOG_F(ERROR, "No addresses for {}", CryptoCompareHost);
+      return false;
+    }
+    cryptoCompareAddress.ipv4 = addrList[0]->s_addr;
+    cryptoCompareAddress.port = htons(443);
+    cryptoCompareAddress.family = AF_INET;
+  }
+
+  CLOG_F(INFO, "Resolved {} successfully", CryptoCompareHost);
+
   CPriceHistoryContext ctx;
   ctx.Base = base;
   ctx.Address = address;
+  ctx.CryptoCompareAddress = cryptoCompareAddress;
   ctx.Db = db.get();
   ctx.CoinIds = std::move(coinIds);
+  ctx.CoinStartTimestamp = std::move(coinStartTimestamps);
   ctx.ApiKey = apiKey;
-  ctx.StartTimestamp = startTimestamp;
   ctx.SleepEvent = newUserEvent(base, 0, nullptr, nullptr);
 
   coroutineCall(coroutineNew([](void *arg) {
