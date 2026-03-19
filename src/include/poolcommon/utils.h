@@ -2,8 +2,27 @@
 
 #include <stdarg.h>
 #include <string>
+#include <cstdio>
 #include "poolcommon/uint.h"
 #include "p2putils/strExtras.h"
+
+static inline std::string formatDifficulty(double diff)
+{
+  char buf[64];
+  if (diff >= 1e15)
+    snprintf(buf, sizeof(buf), "%.3fP", diff / 1e15);
+  else if (diff >= 1e12)
+    snprintf(buf, sizeof(buf), "%.3fT", diff / 1e12);
+  else if (diff >= 1e9)
+    snprintf(buf, sizeof(buf), "%.3fG", diff / 1e9);
+  else if (diff >= 1e6)
+    snprintf(buf, sizeof(buf), "%.3fM", diff / 1e6);
+  else if (diff >= 1e3)
+    snprintf(buf, sizeof(buf), "%.3fK", diff / 1e3);
+  else
+    snprintf(buf, sizeof(buf), "%.3f", diff);
+  return buf;
+}
 
 static inline UInt<384> fromRational(uint64_t value) {
   return UInt<384>(value) << 256;

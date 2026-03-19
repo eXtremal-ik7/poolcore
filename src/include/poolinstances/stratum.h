@@ -314,7 +314,7 @@ public:
       // Set block info (base reward + expected work + difficulty) for accumulators from new work
       for (size_t i = 0; i < work->backendsNum(); i++) {
         const auto &powLimit = LinkedBackends_[work->backendId(i)]->getCoinInfo().PowLimit;
-        data.Accumulators[work->backendId(i)].setBlockInfo(work->baseBlockReward(i), work->expectedWork(i), work->blockDifficulty(i, powLimit));
+        data.Accumulators[work->backendId(i)].setBlockInfo(work->baseBlockReward(i), work->expectedWork(i), work->blockDifficulty(i, powLimit), work->height(i));
       }
 
       // Calculate reset flag for new work & build notify message

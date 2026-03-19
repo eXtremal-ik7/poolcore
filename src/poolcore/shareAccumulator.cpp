@@ -75,14 +75,15 @@ CAccumulatorBatch CShareAccumulator::takeBatch(const UInt<256> &powLimit)
 
   // Users
   result.Users.Time = time;
+  result.Users.BaseBlockReward = BaseBlockReward_;
+  result.Users.ExpectedWork = ExpectedWork_;
+  result.Users.Height = Height_;
   result.Users.Entries.reserve(Users_.size());
   for (auto &[userId, u] : Users_) {
     CUserWorkSummary entry;
     entry.UserId = userId;
     entry.AcceptedWork = u.AcceptedWork;
     entry.SharesNum = u.SharesNum;
-    entry.BaseBlockReward = BaseBlockReward_;
-    entry.ExpectedWork = ExpectedWork_;
     result.Users.Entries.emplace_back(std::move(entry));
   }
   Users_.clear();

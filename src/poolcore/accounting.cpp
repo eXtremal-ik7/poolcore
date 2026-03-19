@@ -406,14 +406,9 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
   auto settings = State_.BackendSettings.load(std::memory_order_relaxed);
   bool ppsEnabled = settings.PPSConfig.Enabled;
 
-  // Determine LastBaseBlockReward from batch (all entries share the same value)
-  UInt<384> lastBaseBlockReward = State_.PPSState.LastBaseBlockReward;
-  for (const auto &entry : batch.Entries) {
-    if (!entry.BaseBlockReward.isZero()) {
-      lastBaseBlockReward = entry.BaseBlockReward;
-      break;
-    }
-  }
+  UInt<384> lastBaseBlockReward = !batch.BaseBlockReward.isZero()
+    ? batch.BaseBlockReward
+    : State_.PPSState.LastBaseBlockReward;
   result.AccountingBatch.LastBaseBlockReward = lastBaseBlockReward;
 
   // Compute saturation coefficient once per batch
@@ -441,17 +436,17 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
     if (mode == EMiningMode::Pplns) {
       // PPLNS: add shares to scores and user stats
       result.AccountingBatch.PPLNSScores.emplace_back(entry.UserId, entry.AcceptedWork);
-      result.StatsBatch.Entries.push_back({entry.UserId, entry.AcceptedWork, entry.SharesNum, {}, {}});
+      result.StatsBatch.Entries.push_back({entry.UserId, entry.AcceptedWork, entry.SharesNum});
     } else {
       // PPS: aggregate shares for meta-user, calculate reward
       ppsMeta.SharesNum += entry.SharesNum;
       ppsMeta.AcceptedWork += entry.AcceptedWork;
 
-      if (!entry.ExpectedWork.isZero()) {
+      if (!batch.ExpectedWork.isZero()) {
         // Fixed-point 128.256: high 128 bits = integer satoshi, low 256 bits = fractional
         UInt<384> batchCost = lastBaseBlockReward + averageTxFee;
-        batchCost /= entry.ExpectedWork;
-        batchCost *= std::min(entry.AcceptedWork, entry.ExpectedWork);
+        batchCost /= batch.ExpectedWork;
+        batchCost *= std::min(entry.AcceptedWork, batch.ExpectedWork);
         batchCost.mulfp(saturateCoeff);
         result.AccountingBatch.PPSReferenceCost += batchCost;
 
@@ -500,7 +495,7 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
   if (ppsMeta.SharesNum) {
     result.AccountingBatch.PPLNSScores.emplace_back(ppsMeta.UserId, ppsMeta.AcceptedWork);
     result.StatsBatch.Entries.push_back(
-      {ppsMeta.UserId, ppsMeta.AcceptedWork, ppsMeta.SharesNum, {}, {}});
+      {ppsMeta.UserId, ppsMeta.AcceptedWork, ppsMeta.SharesNum});
   }
 
   result.AccountingBatch.BestShare = batch.BestShare;

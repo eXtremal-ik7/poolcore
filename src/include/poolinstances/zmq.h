@@ -502,7 +502,7 @@ private:
     flushAccumulator(data.Work.BackendId);
 
     // Set block info (base reward + expected work) for accumulator from new work
-    data.Accumulators[data.Work.BackendId].setBlockInfo(data.Work.baseBlockReward(), data.Work.expectedWork(), data.Work.blockDifficulty());
+    data.Accumulators[data.Work.BackendId].setBlockInfo(data.Work.baseBlockReward(), data.Work.expectedWork(), data.Work.blockDifficulty(), data.Work.height());
 
     // Send signals
     for (Connection *connection: data.SignalSockets)

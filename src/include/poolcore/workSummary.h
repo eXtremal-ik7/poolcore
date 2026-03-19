@@ -42,18 +42,18 @@ struct CUserWorkSummary {
   std::string UserId;
   UInt<256> AcceptedWork;
   uint64_t SharesNum = 0;
-  // Block reward without fees (for PPS)
-  UInt<384> BaseBlockReward;
-  // Expected work to find a block (network difficulty)
-  UInt<256> ExpectedWork;
 };
 
 struct CUserWorkSummaryBatch {
-  enum { CurrentRecordVersion = 1 };
+  enum { CurrentRecordVersion = 2 };
 
   TimeInterval Time;
   std::vector<CUserWorkSummary> Entries;
   CRoundBestShareData BestShare;
+  // Block-level fields (same for all entries in batch)
+  UInt<384> BaseBlockReward;
+  UInt<256> ExpectedWork;
+  uint64_t Height = 0;
 };
 
 // +serialization
@@ -99,22 +99,38 @@ struct DbIo<CWorkSummaryEntry> {
   }
 };
 
+// V1 layout (for deserialization of old data only)
+struct CUserWorkSummaryV1 {
+  std::string UserId;
+  UInt<256> AcceptedWork;
+  uint64_t SharesNum = 0;
+  UInt<384> BaseBlockReward;
+  UInt<256> ExpectedWork;
+};
+
+template<>
+struct DbIo<CUserWorkSummaryV1> {
+  static inline void unserialize(xmstream &stream, CUserWorkSummaryV1 &data) {
+    DbIo<decltype(data.UserId)>::unserialize(stream, data.UserId);
+    DbIo<decltype(data.AcceptedWork)>::unserialize(stream, data.AcceptedWork);
+    DbIo<decltype(data.SharesNum)>::unserialize(stream, data.SharesNum);
+    DbIo<decltype(data.BaseBlockReward)>::unserialize(stream, data.BaseBlockReward);
+    DbIo<decltype(data.ExpectedWork)>::unserialize(stream, data.ExpectedWork);
+  }
+};
+
 template<>
 struct DbIo<CUserWorkSummary> {
   static inline void serialize(xmstream &stream, const CUserWorkSummary &data) {
     DbIo<decltype(data.UserId)>::serialize(stream, data.UserId);
     DbIo<decltype(data.AcceptedWork)>::serialize(stream, data.AcceptedWork);
     DbIo<decltype(data.SharesNum)>::serialize(stream, data.SharesNum);
-    DbIo<decltype(data.BaseBlockReward)>::serialize(stream, data.BaseBlockReward);
-    DbIo<decltype(data.ExpectedWork)>::serialize(stream, data.ExpectedWork);
   }
 
   static inline void unserialize(xmstream &stream, CUserWorkSummary &data) {
     DbIo<decltype(data.UserId)>::unserialize(stream, data.UserId);
     DbIo<decltype(data.AcceptedWork)>::unserialize(stream, data.AcceptedWork);
     DbIo<decltype(data.SharesNum)>::unserialize(stream, data.SharesNum);
-    DbIo<decltype(data.BaseBlockReward)>::unserialize(stream, data.BaseBlockReward);
-    DbIo<decltype(data.ExpectedWork)>::unserialize(stream, data.ExpectedWork);
   }
 };
 
@@ -143,15 +159,37 @@ struct DbIo<CUserWorkSummaryBatch> {
     DbIo<decltype(data.Time)>::serialize(out, data.Time);
     DbIo<decltype(data.Entries)>::serialize(out, data.Entries);
     DbIo<CRoundBestShareData>::serialize(out, data.BestShare);
+    DbIo<decltype(data.BaseBlockReward)>::serialize(out, data.BaseBlockReward);
+    DbIo<decltype(data.ExpectedWork)>::serialize(out, data.ExpectedWork);
+    DbIo<decltype(data.Height)>::serialize(out, data.Height);
   }
 
   static inline void unserialize(xmstream &in, CUserWorkSummaryBatch &data) {
     uint32_t version;
     DbIo<uint32_t>::unserialize(in, version);
     if (version == 1) {
+      // V1: BaseBlockReward and ExpectedWork were stored per-entry
+      DbIo<decltype(data.Time)>::unserialize(in, data.Time);
+      std::vector<CUserWorkSummaryV1> v1entries;
+      DbIo<decltype(v1entries)>::unserialize(in, v1entries);
+      data.Entries.resize(v1entries.size());
+      for (size_t i = 0; i < v1entries.size(); i++) {
+        data.Entries[i].UserId = std::move(v1entries[i].UserId);
+        data.Entries[i].AcceptedWork = v1entries[i].AcceptedWork;
+        data.Entries[i].SharesNum = v1entries[i].SharesNum;
+      }
+      if (!v1entries.empty()) {
+        data.BaseBlockReward = v1entries[0].BaseBlockReward;
+        data.ExpectedWork = v1entries[0].ExpectedWork;
+      }
+      DbIo<CRoundBestShareData>::unserialize(in, data.BestShare);
+    } else if (version == 2) {
       DbIo<decltype(data.Time)>::unserialize(in, data.Time);
       DbIo<decltype(data.Entries)>::unserialize(in, data.Entries);
       DbIo<CRoundBestShareData>::unserialize(in, data.BestShare);
+      DbIo<decltype(data.BaseBlockReward)>::unserialize(in, data.BaseBlockReward);
+      DbIo<decltype(data.ExpectedWork)>::unserialize(in, data.ExpectedWork);
+      DbIo<decltype(data.Height)>::unserialize(in, data.Height);
     }
   }
 };

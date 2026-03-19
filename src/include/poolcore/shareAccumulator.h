@@ -20,10 +20,11 @@ public:
                 double chainLength, uint32_t primePOWTarget, bool isPrimePOW,
                 const std::optional<UInt<256>> &shareHash = std::nullopt);
 
-  void setBlockInfo(const UInt<384> &baseBlockReward, const UInt<256> &expectedWork, double blockDifficulty) {
+  void setBlockInfo(const UInt<384> &baseBlockReward, const UInt<256> &expectedWork, double blockDifficulty, uint64_t height) {
     BaseBlockReward_ = baseBlockReward;
     ExpectedWork_ = expectedWork;
     BlockDifficulty_ = blockDifficulty;
+    Height_ = height;
   }
 
   CAccumulatorBatch takeBatch(const UInt<256> &powLimit);
@@ -51,6 +52,7 @@ private:
   bool AccumulateUsers_ = true;
   UInt<384> BaseBlockReward_;
   UInt<256> ExpectedWork_;
+  uint64_t Height_ = 0;
   Timestamp BatchFirstTime_ = Timestamp(std::chrono::milliseconds::max());
   Timestamp BatchLastTime_;
   double BlockDifficulty_ = 0.0;

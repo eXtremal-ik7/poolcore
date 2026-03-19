@@ -66,6 +66,8 @@ struct CCoinInfo {
   bool BigEpoch = false;
   // XEC delayed blocks
   bool HasRtt = false;
+  // Deferred reward (exact value unknown at template time, needs estimation)
+  bool HasDeferredReward = false;
   // Merged mining configuration
   EWorkType WorkType;
   bool CanBePrimaryCoin = true;
