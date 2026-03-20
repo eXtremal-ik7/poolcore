@@ -531,3 +531,33 @@ struct VariantMatrixThenTensor {
   .generate(parse, parse.verbose, serialize);
   value: variant([[double]], [[[double]]]);
 }
+
+// ============================================================================
+// Skip unknown fields
+// ============================================================================
+
+struct SkipUnknown {
+  .generate(parse, parse.verbose, serialize);
+  .flags(skip_unknown);
+  value: string;
+  count: int64;
+}
+
+// ============================================================================
+// Keywords as field names
+// ============================================================================
+
+struct KeywordsAsFields {
+  .generate(parse, serialize);
+  type: string;
+  context: int32;
+  mapped: string;
+  variant: bool;
+  generate: int64;
+  extensions: string;
+  ctxgroup: double;
+  flags: uint32;
+  class: string;
+  return: int32;
+  class_: string;
+}

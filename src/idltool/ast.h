@@ -164,12 +164,19 @@ struct CExtensionsDecl {
   int Line = 0;
 };
 
+struct CFlagsDecl {
+  bool SkipUnknown = false;
+  int Line = 0;
+};
+
+using CStructMember = std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl, CExtensionsDecl, CFlagsDecl>;
+
 struct CStructDef {
   std::string Name;
   bool IsMixin = false;
   bool IsImported = false;
   bool HasTaggedSchema = false;
-  std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl, CExtensionsDecl>> Members;
+  std::vector<CStructMember> Members;
   // After mixin resolution — flat list of fields
   std::vector<CFieldDef> Fields;
   // Explicit context groups from '.ctxgroup(field1, field2, ...)' members
@@ -181,6 +188,8 @@ struct CStructDef {
   bool HasGenerateDecl = false;
   // Extensions from '.extensions(...)' directive
   bool CommentsEnabled = false;
+  // Flags from '.flags(...)' directive
+  bool SkipUnknownFields = false;
   int Line = 0;
 };
 
@@ -230,7 +239,7 @@ void dumpAst(const CIdlFile &file);
 // Check if a scalar type name is valid, returns optional EScalarType
 std::optional<EScalarType> parseScalarType(const std::string &name);
 
-const char *scalarTypeName(EScalarType t);
+const char *idlScalarTypeName(EScalarType t);
 
 inline bool isOptionalKind(EFieldKind kind)
 {

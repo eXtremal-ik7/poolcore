@@ -26,9 +26,10 @@
 "mapped"                { return TOK_MAPPED; }
 "type"                  { return TOK_TYPE; }
 "context"               { return TOK_CONTEXT; }
-"ctxgroup"              { return TOK_CTXGROUP; }
-"generate"              { return TOK_GENERATE; }
-"extensions"            { return TOK_EXTENSIONS; }
+".ctxgroup"             { return TOK_DOT_CTXGROUP; }
+".generate"             { return TOK_DOT_GENERATE; }
+".extensions"           { return TOK_DOT_EXTENSIONS; }
+".flags"                { return TOK_DOT_FLAGS; }
 "variant"               { return TOK_VARIANT; }
 "optional"              { return TOK_OPTIONAL; }
 

@@ -22,7 +22,7 @@ std::optional<EScalarType> parseScalarType(const std::string &name)
   return std::nullopt;
 }
 
-const char *scalarTypeName(EScalarType t)
+const char *idlScalarTypeName(EScalarType t)
 {
   switch (t) {
     case EScalarType::String:  return "string";
@@ -193,6 +193,8 @@ static bool resolveMixins(CIdlFile &file)
         s.HasGenerateDecl = true;
       } else if (auto *ed = std::get_if<CExtensionsDecl>(&member)) {
         if (ed->Comments) s.CommentsEnabled = true;
+      } else if (auto *fd = std::get_if<CFlagsDecl>(&member)) {
+        if (fd->SkipUnknown) s.SkipUnknownFields = true;
       } else if (auto *cpp = std::get_if<CCppBlock>(&member)) {
         s.CppBlocks.push_back(cpp->Code);
       } else {
@@ -606,7 +608,7 @@ void dumpAst(const CIdlFile &file)
 {
   for (auto &m : file.MappedTypes) {
     if (m.ContextType)
-      printf("mapped type %s(\"%s\") : %s context(%s) include \"%s\";\n", m.Name.c_str(), m.CppType.c_str(), m.JsonWireType.c_str(), scalarTypeName(*m.ContextType), m.IncludePath.c_str());
+      printf("mapped type %s(\"%s\") : %s context(%s) include \"%s\";\n", m.Name.c_str(), m.CppType.c_str(), m.JsonWireType.c_str(), idlScalarTypeName(*m.ContextType), m.IncludePath.c_str());
     else
       printf("mapped type %s(\"%s\") : %s include \"%s\";\n", m.Name.c_str(), m.CppType.c_str(), m.JsonWireType.c_str(), m.IncludePath.c_str());
   }
@@ -646,13 +648,16 @@ void dumpAst(const CIdlFile &file)
       emit(s.GenerateFlags.SerializeFlat, "serialize.flat");
       printf(");\n");
     }
+    if (s.SkipUnknownFields) {
+      printf("  .flags(skip_unknown);\n");
+    }
     for (auto &f : s.Fields) {
       printf("  %s: ", f.Name.c_str());
       auto printAltType = [&](const CVariantAlt &alt) {
         for (size_t i = 0; i < alt.Dims.size(); i++)
           printf("[");
         if (alt.IsScalar && alt.RefName.empty())
-          printf("%s", scalarTypeName(alt.Scalar));
+          printf("%s", idlScalarTypeName(alt.Scalar));
         else if (!alt.RefName.empty())
           printf("%s", alt.RefName.c_str());
         for (int d = (int)alt.Dims.size() - 1; d >= 0; d--) {
@@ -693,7 +698,7 @@ void dumpAst(const CIdlFile &file)
         printArrayPrefix();
 
         if (f.Type.IsScalar && f.Type.RefName.empty())
-          printf("%s", scalarTypeName(f.Type.Scalar));
+          printf("%s", idlScalarTypeName(f.Type.Scalar));
         else if (!f.Type.RefName.empty())
           printf("%s", f.Type.RefName.c_str());
 

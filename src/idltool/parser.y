@@ -113,15 +113,16 @@
   CDefaultValue *defaultVal;
   int tagVal;
   CExtensionsDecl *extensionsDecl;
-  std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl, CExtensionsDecl>> *memberList;
+  std::vector<CStructMember> *memberList;
   std::vector<CFieldDef> *fieldList;
   std::vector<std::string> *stringList;
   std::vector<CVariantAlt> *variantAlts;
 }
 
 %token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW TOK_INCLUDE
-%token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_GENERATE TOK_VARIANT TOK_CTXGROUP
-%token TOK_OPTIONAL TOK_EXTENSIONS
+%token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_VARIANT
+%token TOK_OPTIONAL
+%token TOK_DOT_GENERATE TOK_DOT_EXTENSIONS TOK_DOT_CTXGROUP TOK_DOT_FLAGS
 %token <strVal> TOK_CPP_BLOCK
 %token <strVal> TOK_IDENTIFIER TOK_STRING_LITERAL
 %token <strVal> TOK_CHRONO_SECONDS TOK_CHRONO_MINUTES TOK_CHRONO_HOURS
@@ -261,7 +262,7 @@ enum_def:
 
 member_list:
     /* empty */ {
-      $$ = new std::vector<std::variant<CMixinRef, CFieldDef, CCtxGroupDecl, CCppBlock, CGenerateDecl, CExtensionsDecl>>();
+      $$ = new std::vector<CStructMember>();
     }
   | member_list TOK_MIXIN TOK_IDENTIFIER ';' {
       $$ = $1;
@@ -271,40 +272,52 @@ member_list:
       $$->push_back(std::move(ref));
       free($3);
     }
-  | member_list '.' TOK_CTXGROUP '(' field_name_list ')' ';' {
+  | member_list TOK_DOT_CTXGROUP '(' field_name_list ')' ';' {
       $$ = $1;
       CCtxGroupDecl cg;
-      cg.FieldNames = std::move(*$5);
+      cg.FieldNames = std::move(*$4);
       cg.Line = @2.first_line;
       $$->push_back(std::move(cg));
-      delete $5;
+      delete $4;
     }
-  | member_list '.' TOK_GENERATE '(' generate_flag_list ')' ';' {
+  | member_list TOK_DOT_GENERATE '(' generate_flag_list ')' ';' {
       $$ = $1;
       CGenerateDecl gd;
       gd.Line = @2.first_line;
-      for (auto &flag : *$5) {
+      for (auto &flag : *$4) {
         if (flag == "parse") gd.Parse = true;
         else if (flag == "parse.verbose") gd.ParseVerbose = true;
         else if (flag == "serialize") gd.Serialize = true;
         else if (flag == "serialize.flat") gd.SerializeFlat = true;
-        else { yyerror(&@5, file, scanner,
+        else { yyerror(&@4, file, scanner,
                ("unknown generate flag: " + flag).c_str()); YYERROR; }
       }
       $$->push_back(std::move(gd));
-      delete $5;
+      delete $4;
     }
-  | member_list '.' TOK_EXTENSIONS '(' generate_flag_list ')' ';' {
+  | member_list TOK_DOT_EXTENSIONS '(' generate_flag_list ')' ';' {
       $$ = $1;
       CExtensionsDecl ed;
       ed.Line = @2.first_line;
-      for (auto &flag : *$5) {
+      for (auto &flag : *$4) {
         if (flag == "comments") ed.Comments = true;
-        else { yyerror(&@5, file, scanner,
+        else { yyerror(&@4, file, scanner,
                ("unknown extension: " + flag).c_str()); YYERROR; }
       }
       $$->push_back(std::move(ed));
-      delete $5;
+      delete $4;
+    }
+  | member_list TOK_DOT_FLAGS '(' generate_flag_list ')' ';' {
+      $$ = $1;
+      CFlagsDecl fd;
+      fd.Line = @2.first_line;
+      for (auto &flag : *$4) {
+        if (flag == "skip_unknown") fd.SkipUnknown = true;
+        else { yyerror(&@4, file, scanner,
+               ("unknown flag: " + flag).c_str()); YYERROR; }
+      }
+      $$->push_back(std::move(fd));
+      delete $4;
     }
   | member_list field {
       $$ = $1;
@@ -341,10 +354,7 @@ field_name:
     TOK_IDENTIFIER { $$ = $1; }
   | TOK_TYPE       { $$ = strdup("type"); }
   | TOK_CONTEXT    { $$ = strdup("context"); }
-  | TOK_CTXGROUP   { $$ = strdup("ctxgroup"); }
   | TOK_MAPPED     { $$ = strdup("mapped"); }
-  | TOK_GENERATE   { $$ = strdup("generate"); }
-  | TOK_EXTENSIONS { $$ = strdup("extensions"); }
   | TOK_VARIANT    { $$ = strdup("variant"); }
   ;
 

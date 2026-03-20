@@ -604,6 +604,65 @@ TEST(IdlTool, ParseUnknownFieldRejected) {
   EXPECT_FALSE(inner.parse(json, strlen(json)));
 }
 
+TEST(IdlTool, ParseSkipUnknown) {
+  // Various unknown value types: string, nested object, array, null, bool, number
+  {
+    const char *json = R"({"a":null,"value":"x","b":true,"nested":{"deep":{"k":"v"},"arr":[1,2]},"c":42.5,"count":1,"extra":[1,"two",null],"d":false})";
+    SkipUnknown obj;
+    ASSERT_TRUE(obj.parse(json, strlen(json)));
+    EXPECT_EQ(obj.value, "x");
+    EXPECT_EQ(obj.count, 1);
+  }
+
+  // Verbose parse also skips
+  {
+    const char *json = R"({"value":"x","count":1,"extra":"ignored"})";
+    SkipUnknown obj;
+    ParseError error;
+    ASSERT_TRUE(obj.parseVerbose(json, strlen(json), error));
+    EXPECT_EQ(obj.value, "x");
+    EXPECT_EQ(obj.count, 1);
+  }
+
+  // Required fields still enforced
+  {
+    const char *json = R"({"value":"x","extra":"ignored"})";
+    SkipUnknown obj;
+    EXPECT_FALSE(obj.parse(json, strlen(json)));
+  }
+}
+
+TEST(IdlTool, KeywordsAsFieldNames) {
+  const char *json = R"({"type":"t","context":1,"mapped":"m","variant":true,"generate":99,"extensions":"e","ctxgroup":3.14,"flags":42,"class":"cls","return":7,"class_":"trailing"})";
+  KeywordsAsFields obj;
+  ASSERT_TRUE(obj.parse(json, strlen(json)));
+  EXPECT_EQ(obj.type, "t");
+  EXPECT_EQ(obj.context, 1);
+  EXPECT_EQ(obj.mapped, "m");
+  EXPECT_EQ(obj.variant, true);
+  EXPECT_EQ(obj.generate, 99);
+  EXPECT_EQ(obj.extensions, "e");
+  EXPECT_DOUBLE_EQ(obj.ctxgroup, 3.14);
+  EXPECT_EQ(obj.flags, 42u);
+  // C++ keywords mangled: "class" → class_, "return" → return_
+  EXPECT_EQ(obj.class_, "cls");
+  EXPECT_EQ(obj.return_, 7);
+  // "class_" ends with _ (demangle collision) → class__
+  EXPECT_EQ(obj.class__, "trailing");
+
+  // Roundtrip: serialize must produce original JSON keys
+  xmstream stream;
+  obj.serialize(stream);
+  KeywordsAsFields obj2;
+  ASSERT_TRUE(obj2.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  EXPECT_EQ(obj2.type, "t");
+  EXPECT_EQ(obj2.generate, 99);
+  EXPECT_EQ(obj2.flags, 42u);
+  EXPECT_EQ(obj2.class_, "cls");
+  EXPECT_EQ(obj2.return_, 7);
+  EXPECT_EQ(obj2.class__, "trailing");
+}
+
 TEST(IdlTool, ParseWithComments) {
   const char *json =
     "{\n"

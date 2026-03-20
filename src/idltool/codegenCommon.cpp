@@ -4,6 +4,7 @@
 #include <format>
 #include <algorithm>
 #include <unordered_map>
+#include <unordered_set>
 
 // --- Helpers ---
 
@@ -76,11 +77,104 @@ std::string cppScalarType(EScalarType t)
   return "void";
 }
 
+static bool isCppKeyword(const std::string &name)
+{
+  static const std::unordered_set<std::string> keywords = {
+    "alignas", "alignof", "and", "and_eq", "asm", "auto",
+    "bitand", "bitor", "bool", "break",
+    "case", "catch", "char", "char8_t", "char16_t", "char32_t",
+    "class", "compl", "concept", "const", "consteval", "constexpr",
+    "constinit", "const_cast", "continue", "co_await", "co_return", "co_yield",
+    "decltype", "default", "delete", "do", "double", "dynamic_cast",
+    "else", "enum", "explicit", "export", "extern",
+    "false", "float", "for", "friend",
+    "goto",
+    "if", "inline", "int",
+    "long",
+    "mutable",
+    "namespace", "new", "noexcept", "not", "not_eq", "nullptr",
+    "operator", "or", "or_eq",
+    "private", "protected", "public",
+    "register", "reinterpret_cast", "requires", "return",
+    "short", "signed", "sizeof", "static", "static_assert", "static_cast",
+    "struct", "switch",
+    "template", "this", "thread_local", "throw", "true", "try", "typedef",
+    "typeid", "typename",
+    "union", "unsigned", "using",
+    "virtual", "void", "volatile",
+    "wchar_t", "while",
+    "xor", "xor_eq"
+  };
+  return keywords.count(name);
+}
+
+static bool isValidCppIdent(const std::string &name)
+{
+  if (name.empty())
+    return false;
+  if (!isalpha((unsigned char)name[0]) && name[0] != '_')
+    return false;
+  for (size_t i = 1; i < name.size(); i++)
+    if (!isalnum((unsigned char)name[i]) && name[i] != '_')
+      return false;
+  return true;
+}
+
+// Mangle scheme: append '_'.
+// demangle: if ends with '_', strip it.
+// A name needs mangling if it's a C++ keyword, not a valid C++ identifier,
+// or demangle(name) needs mangling (recursive) — to avoid collision with
+// the mangled form of that other name.
+// E.g. "class" → "class_", so "class_" must become "class__",
+// but "__Hash__" stays because "__Hash" doesn't need mangling.
+static bool needsMangle(const std::string &name)
+{
+  if (!isValidCppIdent(name))
+    return true;
+  if (isCppKeyword(name))
+    return true;
+  // Check if demangled form needs mangling — means this name collides
+  if (!name.empty() && name.back() == '_') {
+    std::string demangled = name.substr(0, name.size() - 1);
+    if (needsMangle(demangled))
+      return true;
+  }
+  return false;
+}
+
+// Returns true if name is a bare identifier (no parens, deref, brackets).
+// Expressions like "(*Foo)" or "arr[i]" are already C++ code, not field names.
+static bool isBareIdent(const std::string &name)
+{
+  for (char ch : name)
+    if (ch == '(' || ch == ')' || ch == '*' || ch == '[' || ch == ']')
+      return false;
+  return true;
+}
+
 std::string fieldCppName(const std::string &name, bool pascalCase)
 {
-  if (!pascalCase || name.empty()) return name;
   std::string result = name;
-  result[0] = toupper(result[0]);
+
+  if (!isBareIdent(result))
+    return result;
+
+  // Apply pascalCase first — it may resolve keyword conflicts (e.g. "default" → "Default")
+  if (pascalCase && !result.empty())
+    result[0] = toupper(result[0]);
+
+  if (needsMangle(result)) {
+    // Replace invalid chars for C++ identifier
+    for (auto &ch : result)
+      if (!isalnum((unsigned char)ch) && ch != '_')
+        ch = '_';
+    // Ensure starts with letter or _
+    if (!result.empty() && !isalpha((unsigned char)result[0]) && result[0] != '_')
+      result.insert(result.begin(), '_');
+    // Append _ (mangle)
+    result += '_';
+  }
+
   return result;
 }
 
@@ -566,13 +660,36 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
   }
 
   switch (f.Kind) {
-    case EFieldKind::Required:
-    case EFieldKind::HasDefault: {
+    case EFieldKind::Required: {
       emitKey(f.Name);
       if (isStructRef(f, enumNames)) {
         code.appendRaw(std::format("{}{}.serialize(out);\n", in, cn));
       } else {
         emitSerializeValue(code, f, cn, enumNames, ind);
+      }
+      break;
+    }
+
+    case EFieldKind::HasDefault: {
+      bool isStatic = f.Default.Kind != EDefaultKind::RuntimeNow &&
+                      f.Default.Kind != EDefaultKind::RuntimeNowOffset;
+      if (isStatic) {
+        std::string defaultVal = cppDefault(f, enumNames, pascalCase);
+        code.appendRaw(std::format("{}if ({} != {}) {{\n", in, cn, defaultVal));
+        emitKey(f.Name, ind + 1);
+        if (isStructRef(f, enumNames)) {
+          code.appendRaw(std::format("{}{}.serialize(out);\n", indent(ind + 1), cn));
+        } else {
+          emitSerializeValue(code, f, cn, enumNames, ind + 1);
+        }
+        code.appendRaw(std::format("{}}}\n", in));
+      } else {
+        emitKey(f.Name);
+        if (isStructRef(f, enumNames)) {
+          code.appendRaw(std::format("{}{}.serialize(out);\n", in, cn));
+        } else {
+          emitSerializeValue(code, f, cn, enumNames, ind);
+        }
       }
       break;
     }

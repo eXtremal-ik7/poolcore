@@ -106,9 +106,18 @@ static bool isArrayLikeField(const CFieldDef &f)
   }
 }
 
+static bool hasStaticDefault(const CFieldDef &f)
+{
+  return f.Kind == EFieldKind::HasDefault &&
+    f.Default.Kind != EDefaultKind::RuntimeNow &&
+    f.Default.Kind != EDefaultKind::RuntimeNowOffset;
+}
+
 static bool isConditionallySerialized(const CFieldDef &f)
 {
-  return isOptionalField(f) && !fieldEmptyOutIsNull(f);
+  if (isOptionalField(f) && !fieldEmptyOutIsNull(f))
+    return true;
+  return hasStaticDefault(f);
 }
 
 static std::string contextParamName(const std::string &mappedTypeName, size_t ordinal, size_t totalCount)
@@ -999,7 +1008,11 @@ static void generateParseBody(std::string &out, const CStructDef &s,
   if (s.Fields.empty()) {
     out += "      if (!s.readString(key, keyLen)) return false;\n";
     out += "      if (!s.expectChar(':')) return false;\n";
-    out += "      return false;\n";
+    if (s.SkipUnknownFields) {
+      out += "      if (!s.skipValue()) return false;\n";
+    } else {
+      out += "      return false;\n";
+    }
   } else {
     out += "      uint32_t keyHash;\n";
     out += std::format("      if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
@@ -1027,12 +1040,20 @@ static void generateParseBody(std::string &out, const CStructDef &s,
       out += std::format("          if (keyLen == {} && memcmp(key, \"{}\", {}) == 0) {{\n",
                          f.Name.size(), f.Name, f.Name.size());
       generateParseField(out, f, enumNames, foundBit, 6, opts.PascalCaseFields, ci);
-      out += "          } else { return false; }\n";
+      if (s.SkipUnknownFields) {
+        out += "          } else { if (!s.skipValue()) return false; }\n";
+      } else {
+        out += "          } else { return false; }\n";
+      }
       out += "          break;\n";
     }
 
     out += "        default:\n";
-    out += "          return false;\n";
+    if (s.SkipUnknownFields) {
+      out += "          if (!s.skipValue()) return false;\n";
+    } else {
+      out += "          return false;\n";
+    }
     out += "      }\n";
   }
 
@@ -1907,8 +1928,12 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     if (s.Fields.empty()) {
       out += "      if (!s.readString(key, keyLen)) return false;\n";
       out += "      if (!s.expectChar(':')) return false;\n";
-      out += "      s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\");\n";
-      out += "      return false;\n";
+      if (s.SkipUnknownFields) {
+        out += "      if (!s.skipValue()) return false;\n";
+      } else {
+        out += "      s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\");\n";
+        out += "      return false;\n";
+      }
     } else {
       out += "      uint32_t keyHash;\n";
       out += std::format("      if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
@@ -1936,13 +1961,21 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
         generateVerboseParseField(verboseFieldCode, f, enumNames, foundBit, 6, opts.PascalCaseFields);
         out += verboseFieldCode;
 
-        out += "          } else { s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\"); return false; }\n";
+        if (s.SkipUnknownFields) {
+          out += "          } else { if (!s.skipValue()) return false; }\n";
+        } else {
+          out += "          } else { s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\"); return false; }\n";
+        }
         out += "          break;\n";
       }
 
       out += "        default:\n";
-      out += "          s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\");\n";
-      out += "          return false;\n";
+      if (s.SkipUnknownFields) {
+        out += "          if (!s.skipValue()) return false;\n";
+      } else {
+        out += "          s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\");\n";
+        out += "          return false;\n";
+      }
       out += "      }\n";
     }
 
