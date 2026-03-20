@@ -433,6 +433,73 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       break;
     }
 
+    case EFieldKind::Map: {
+      out += std::format("{}if (!s.expectChar('{{')) {{ s.error->message = \"field '{}': expected object\"; return false; }}\n", in, ctx);
+      out += std::format("{}s.skipWhitespace();\n", in);
+      out += std::format("{}if (s.p < s.end && *s.p != '}}') {{\n", in);
+      out += std::format("{}  for (;;) {{\n", in);
+      out += std::format("{}    const char *_mapKey; size_t _mapKeyLen;\n", in);
+      out += std::format("{}    if (!s.readString(_mapKey, _mapKeyLen)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n", in, ctx);
+      out += std::format("{}    if (!s.expectChar(':')) return false;\n", in);
+      out += std::format("{}    s.skipWhitespace();\n", in);
+      out += std::format("{}    auto &_mapVal = {}[std::string(_mapKey, _mapKeyLen)];\n", in, cn);
+
+      if (isStructRef(f, enumNames)) {
+        out += std::format("{}    if (!_mapVal.parseVerboseImpl(s)) return false;\n", in);
+      } else if (isEnum(f.Type.RefName, enumNames)) {
+        out += std::format("{}    {{ const char *eStr; size_t eLen;\n", in);
+        out += std::format("{}      if (!s.readString(eStr, eLen)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n", in, ctx);
+        out += std::format("{}      if (!parseE{}(eStr, eLen, _mapVal)) {{ s.setError(\"field '{}': invalid enum value\"); return false; }} }}\n",
+                           in, f.Type.RefName, ctx);
+      } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
+                 f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
+        std::string chronoType = cppScalarType(f.Type.Scalar);
+        out += std::format("{}    {{ int64_t _t; if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"integer\"); return false; }} _mapVal = {}(_t); }}\n",
+                           in, ctx, chronoType);
+      } else {
+        const char *readMethod = nullptr;
+        switch (f.Type.Scalar) {
+          case EScalarType::String: readMethod = "readStringValue"; break;
+          case EScalarType::Bool:   readMethod = "readBool"; break;
+          case EScalarType::Int32:  readMethod = "readInt32"; break;
+          case EScalarType::Uint32: readMethod = "readUInt32"; break;
+          case EScalarType::Int64:  readMethod = "readInt64"; break;
+          case EScalarType::Uint64: readMethod = "readUInt64"; break;
+          case EScalarType::Double: readMethod = "readDouble"; break;
+          default: readMethod = "readInt64"; break;
+        }
+        out += std::format("{}    if (auto _e = s.{}(_mapVal); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }}\n",
+                           in, readMethod, ctx, scalarTypeName(f.Type.Scalar));
+      }
+
+      out += std::format("{}    s.skipWhitespace();\n", in);
+      out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; s.skipWhitespace(); continue; }}\n", in);
+      out += std::format("{}    break;\n", in);
+      out += std::format("{}  }}\n", in);
+      out += std::format("{}}}\n", in);
+      out += std::format("{}if (!s.expectCharNoWs('}}')) return false;\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
+      break;
+    }
+
+    case EFieldKind::OptionalMap: {
+      if (fieldAllowsNullInput(f))
+        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      else
+        out += std::format("{}if (s.readNull()) {{ s.setError(\"field '{}': null is not allowed\"); return false; }}\n", in, ctx);
+      out += std::format("{}else {{\n", in);
+      out += std::format("{}  {}.emplace();\n", in, cn);
+      CFieldDef tmp = f;
+      tmp.Name = std::format("(*{})", cn);
+      tmp.Kind = EFieldKind::Map;
+      generateVerboseParseField(out, tmp, enumNames, -1, ind + 1, false);
+      out += std::format("{}}}\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
+      break;
+    }
+
     case EFieldKind::Variant: {
       out += std::format("{}s.skipWhitespace();\n", in);
       out += std::format("{}if (s.p >= s.end) {{ s.setError(\"field '{}': expected value, got end of input\"); return false; }}\n", in, ctx);

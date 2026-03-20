@@ -532,7 +532,6 @@ struct VariantMatrixThenTensor {
   value: variant([[double]], [[[double]]]);
 }
 
-// ============================================================================
 // Skip unknown fields
 // ============================================================================
 
@@ -560,4 +559,18 @@ struct KeywordsAsFields {
   class: string;
   return: int32;
   class_: string;
+  map: int64;
+}
+
+// ============================================================================
+// Map fields
+// ============================================================================
+
+struct MapFields {
+  .generate(parse, parse.verbose, serialize);
+  label: string;
+  scalarMap: map<double>;
+  objectMap: map<Inner>;
+  optionalScalarMap: optional<map<int64>>;
+  optionalObjectMap: optional<map<Inner>>;
 }

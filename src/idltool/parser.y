@@ -42,8 +42,11 @@
       case ETypeShape::Variant:
         type->Shape = ETypeShape::OptionalVariant;
         break;
+      case ETypeShape::Map:
+        type->Shape = ETypeShape::OptionalMap;
+        break;
       default:
-        yyerror(yylloc, file, scanner, "optional<T> expects a plain, array, fixed array, or variant type");
+        yyerror(yylloc, file, scanner, "optional<T> expects a plain, array, fixed array, variant, or map type");
         return nullptr;
     }
     type->NullIn = policy.NullIn;
@@ -120,7 +123,7 @@
 }
 
 %token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW TOK_INCLUDE
-%token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_VARIANT
+%token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_VARIANT TOK_MAP
 %token TOK_OPTIONAL
 %token TOK_DOT_GENERATE TOK_DOT_EXTENSIONS TOK_DOT_CTXGROUP TOK_DOT_FLAGS
 %token <strVal> TOK_CPP_BLOCK
@@ -356,6 +359,7 @@ field_name:
   | TOK_CONTEXT    { $$ = strdup("context"); }
   | TOK_MAPPED     { $$ = strdup("mapped"); }
   | TOK_VARIANT    { $$ = strdup("variant"); }
+  | TOK_MAP        { $$ = strdup("map"); }
   ;
 
 field_name_list:
@@ -389,6 +393,8 @@ field:
         case ETypeShape::OptionalFixedArray: $$->Kind = EFieldKind::OptionalFixedArray; break;
         case ETypeShape::Variant:            $$->Kind = EFieldKind::Variant; break;
         case ETypeShape::OptionalVariant:    $$->Kind = EFieldKind::OptionalVariant; break;
+        case ETypeShape::Map:                $$->Kind = EFieldKind::Map; break;
+        case ETypeShape::OptionalMap:        $$->Kind = EFieldKind::OptionalMap; break;
       }
       free($1);
       delete $3;
@@ -489,6 +495,15 @@ base_type_spec:
       $$ = $2;
       $$->Shape = ETypeShape::FixedArray;
       $$->FixedSize = (int)$4;
+    }
+    /* Map: map<Type> — JSON object with dynamic string keys */
+  | TOK_MAP '<' type_name '>' {
+      $$ = new CFieldType();
+      $$->Shape = ETypeShape::Map;
+      auto scalar = parseScalarType($3);
+      if (scalar) { $$->IsScalar = true; $$->Scalar = *scalar; }
+      else { $$->RefName = $3; }
+      free($3);
     }
   ;
 

@@ -294,6 +294,10 @@ std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::strin
       return std::format("std::array<{}, {}>", base, f.Type.FixedSize);
     case EFieldKind::OptionalFixedArray:
       return std::format("std::optional<std::array<{}, {}>>", base, f.Type.FixedSize);
+    case EFieldKind::Map:
+      return std::format("std::unordered_map<std::string, {}>", base);
+    case EFieldKind::OptionalMap:
+      return std::format("std::optional<std::unordered_map<std::string, {}>>", base);
     default:
       return base;
   }
@@ -576,6 +580,27 @@ void emitSerializeExpr(CSerializeCodeBuilder &code, const CFieldDef &f,
     return;
   }
 
+  if (f.Kind == EFieldKind::Map) {
+    code.writeLiteral(ind, "{");
+    code.appendRaw(std::format("{}{{ bool _first = true;\n", in));
+    code.appendRaw(std::format("{}for (auto &[_k, _v] : {}) {{\n", in, valueName));
+    code.appendRaw(std::format("{}  if (!_first) out.write(',');\n", in));
+    code.appendRaw(std::format("{}  _first = false;\n", in));
+    code.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", in));
+    code.appendRaw(std::format("{}  out.write(':');\n", in));
+    CFieldDef elemField = f;
+    elemField.Kind = EFieldKind::Required;
+    if (isStructRef(f, enumNames)) {
+      code.appendRaw(std::format("{}  _v.serialize(out);\n", in));
+    } else {
+      emitSerializeValue(code, elemField, "_v", enumNames, ind + 1);
+    }
+    code.appendRaw(std::format("{}}}\n", in));
+    code.appendRaw(std::format("{}}}\n", in));
+    code.writeLiteral(ind, "}");
+    return;
+  }
+
   if (isMappedField(f)) {
     emitMappedInlineValueSerialize(code, f.Type.RefName, f.Type.MappedWireType, valueName, ind);
     return;
@@ -815,6 +840,78 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
       }
       code.appendRaw(std::format("{}}}\n", indent(ind + 1)));
       code.writeLiteral(ind + 1, "]");
+      code.appendRaw(std::format("{}}} else {{\n", in));
+      code.writeLiteral(ind + 1, "null");
+      code.appendRaw(std::format("{}}}\n", in));
+      break;
+    }
+
+    case EFieldKind::Map: {
+      emitKey(f.Name);
+      code.writeLiteral(ind, "{");
+      code.appendRaw(std::format("{}{{ bool _first = true;\n", in));
+      code.appendRaw(std::format("{}for (auto &[_k, _v] : {}) {{\n", in, cn));
+      code.appendRaw(std::format("{}  if (!_first) out.write(',');\n", in));
+      code.appendRaw(std::format("{}  _first = false;\n", in));
+      code.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", in));
+      code.appendRaw(std::format("{}  out.write(':');\n", in));
+      if (isStructRef(f, enumNames)) {
+        code.appendRaw(std::format("{}  _v.serialize(out);\n", in));
+      } else {
+        CFieldDef elemField = f;
+        elemField.Kind = EFieldKind::Required;
+        emitSerializeValue(code, elemField, "_v", enumNames, ind + 1);
+      }
+      code.appendRaw(std::format("{}}}\n", in));
+      code.appendRaw(std::format("{}}}\n", in));
+      code.writeLiteral(ind, "}");
+      break;
+    }
+
+    case EFieldKind::OptionalMap: {
+      if (!fieldEmptyOutIsNull(f)) {
+        code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+        emitKey(f.Name, ind + 1);
+        code.writeLiteral(ind + 1, "{");
+        code.appendRaw(std::format("{}{{ bool _first = true;\n", indent(ind + 1)));
+        code.appendRaw(std::format("{}for (auto &[_k, _v] : *{}) {{\n", indent(ind + 1), cn));
+        code.appendRaw(std::format("{}  if (!_first) out.write(',');\n", indent(ind + 1)));
+        code.appendRaw(std::format("{}  _first = false;\n", indent(ind + 1)));
+        code.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", indent(ind + 1)));
+        code.appendRaw(std::format("{}  out.write(':');\n", indent(ind + 1)));
+        if (isStructRef(f, enumNames)) {
+          code.appendRaw(std::format("{}  _v.serialize(out);\n", indent(ind + 1)));
+        } else {
+          CFieldDef elemField = f;
+          elemField.Kind = EFieldKind::Required;
+          emitSerializeValue(code, elemField, "_v", enumNames, ind + 2);
+        }
+        code.appendRaw(std::format("{}}}\n", indent(ind + 1)));
+        code.appendRaw(std::format("{}}}\n", indent(ind + 1)));
+        code.writeLiteral(ind + 1, "}");
+        code.appendRaw(std::format("{}}}\n", in));
+        break;
+      }
+
+      emitKey(f.Name);
+      code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+      code.writeLiteral(ind + 1, "{");
+      code.appendRaw(std::format("{}{{ bool _first = true;\n", indent(ind + 1)));
+      code.appendRaw(std::format("{}for (auto &[_k, _v] : *{}) {{\n", indent(ind + 1), cn));
+      code.appendRaw(std::format("{}  if (!_first) out.write(',');\n", indent(ind + 1)));
+      code.appendRaw(std::format("{}  _first = false;\n", indent(ind + 1)));
+      code.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", indent(ind + 1)));
+      code.appendRaw(std::format("{}  out.write(':');\n", indent(ind + 1)));
+      if (isStructRef(f, enumNames)) {
+        code.appendRaw(std::format("{}  _v.serialize(out);\n", indent(ind + 1)));
+      } else {
+        CFieldDef elemField = f;
+        elemField.Kind = EFieldKind::Required;
+        emitSerializeValue(code, elemField, "_v", enumNames, ind + 2);
+      }
+      code.appendRaw(std::format("{}}}\n", indent(ind + 1)));
+      code.appendRaw(std::format("{}}}\n", indent(ind + 1)));
+      code.writeLiteral(ind + 1, "}");
       code.appendRaw(std::format("{}}} else {{\n", in));
       code.writeLiteral(ind + 1, "null");
       code.appendRaw(std::format("{}}}\n", in));

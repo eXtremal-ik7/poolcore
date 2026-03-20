@@ -43,7 +43,9 @@ enum class EFieldKind {
   FixedArray,          // field: [Type; N]
   OptionalFixedArray,  // field: optional<[Type; N]>
   Variant,             // field: variant(T1, T2, T3)
-  OptionalVariant      // field: optional<variant(T1, T2, T3)>
+  OptionalVariant,     // field: optional<variant(T1, T2, T3)>
+  Map,                 // field: map<Type>         — JSON object with dynamic string keys
+  OptionalMap          // field: optional<map<Type>>
 };
 
 // Shape of field declaration in IDL
@@ -55,7 +57,9 @@ enum class ETypeShape {
   FixedArray,           // field: [Type; N]
   OptionalFixedArray,   // field: optional<[Type; N]>
   Variant,              // field: variant(T1, T2, T3)
-  OptionalVariant       // field: optional<variant(T1, T2, T3)>
+  OptionalVariant,      // field: optional<variant(T1, T2, T3)>
+  Map,                  // field: map<Type>
+  OptionalMap           // field: optional<map<Type>>
 };
 
 // Inner array dimension for multi-dimensional arrays
@@ -248,6 +252,7 @@ inline bool isOptionalKind(EFieldKind kind)
     case EFieldKind::OptionalArray:
     case EFieldKind::OptionalFixedArray:
     case EFieldKind::OptionalVariant:
+    case EFieldKind::OptionalMap:
       return true;
     default:
       return false;

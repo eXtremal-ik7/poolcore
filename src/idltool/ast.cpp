@@ -694,7 +694,9 @@ void dumpAst(const CIdlFile &file)
 
         bool isFixedOrArray = (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::OptionalArray ||
                                f.Kind == EFieldKind::FixedArray || f.Kind == EFieldKind::OptionalFixedArray);
-        if (isFixedOrArray) printf("[");
+        bool isMap = (f.Kind == EFieldKind::Map || f.Kind == EFieldKind::OptionalMap);
+        if (isMap) printf("map<");
+        else if (isFixedOrArray) printf("[");
         printArrayPrefix();
 
         if (f.Type.IsScalar && f.Type.RefName.empty())
@@ -704,7 +706,8 @@ void dumpAst(const CIdlFile &file)
 
         printArraySuffix();
 
-        if (isFixedOrArray) {
+        if (isMap) printf(">");
+        else if (isFixedOrArray) {
           if (f.Type.FixedSize > 0)
             printf("; %d]", f.Type.FixedSize);
           else

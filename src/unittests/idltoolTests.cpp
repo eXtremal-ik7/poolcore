@@ -633,7 +633,7 @@ TEST(IdlTool, ParseSkipUnknown) {
 }
 
 TEST(IdlTool, KeywordsAsFieldNames) {
-  const char *json = R"({"type":"t","context":1,"mapped":"m","variant":true,"generate":99,"extensions":"e","ctxgroup":3.14,"flags":42,"class":"cls","return":7,"class_":"trailing"})";
+  const char *json = R"({"type":"t","context":1,"mapped":"m","variant":true,"generate":99,"extensions":"e","ctxgroup":3.14,"flags":42,"class":"cls","return":7,"class_":"trailing","map":55})";
   KeywordsAsFields obj;
   ASSERT_TRUE(obj.parse(json, strlen(json)));
   EXPECT_EQ(obj.type, "t");
@@ -649,6 +649,7 @@ TEST(IdlTool, KeywordsAsFieldNames) {
   EXPECT_EQ(obj.return_, 7);
   // "class_" ends with _ (demangle collision) → class__
   EXPECT_EQ(obj.class__, "trailing");
+  EXPECT_EQ(obj.map, 55);
 
   // Roundtrip: serialize must produce original JSON keys
   xmstream stream;
@@ -661,6 +662,7 @@ TEST(IdlTool, KeywordsAsFieldNames) {
   EXPECT_EQ(obj2.class_, "cls");
   EXPECT_EQ(obj2.return_, 7);
   EXPECT_EQ(obj2.class__, "trailing");
+  EXPECT_EQ(obj2.map, 55);
 }
 
 TEST(IdlTool, ParseWithComments) {
@@ -3076,5 +3078,116 @@ TEST(IdlTool, TaggedSchemaFlatOnlyEmitsFields) {
     "  y: string @2;\n"
     "}\n",
     {"int32_t x", "std::string y", "schema()"}));
+}
+
+// ============================================================================
+// Map fields
+// ============================================================================
+
+TEST(IdlTool, ParseMapFields) {
+  const char *json = R"({
+    "label":"test",
+    "scalarMap":{"a":1.5,"b":2.5,"c":3.5},
+    "objectMap":{"x":{"value":"hello","count":10},"y":{"value":"world","count":20}},
+    "optionalScalarMap":{"k1":100,"k2":200},
+    "optionalObjectMap":{"p":{"value":"v","count":1}}
+  })";
+  MapFields mf;
+  ASSERT_TRUE(mf.parse(json, strlen(json)));
+
+  EXPECT_EQ(mf.label, "test");
+
+  ASSERT_EQ(mf.scalarMap.size(), 3u);
+  EXPECT_DOUBLE_EQ(mf.scalarMap.at("a"), 1.5);
+  EXPECT_DOUBLE_EQ(mf.scalarMap.at("b"), 2.5);
+  EXPECT_DOUBLE_EQ(mf.scalarMap.at("c"), 3.5);
+
+  ASSERT_EQ(mf.objectMap.size(), 2u);
+  EXPECT_EQ(mf.objectMap.at("x").value, "hello");
+  EXPECT_EQ(mf.objectMap.at("x").count, 10);
+  EXPECT_EQ(mf.objectMap.at("y").value, "world");
+  EXPECT_EQ(mf.objectMap.at("y").count, 20);
+
+  ASSERT_TRUE(mf.optionalScalarMap.has_value());
+  ASSERT_EQ(mf.optionalScalarMap->size(), 2u);
+  EXPECT_EQ(mf.optionalScalarMap->at("k1"), 100);
+  EXPECT_EQ(mf.optionalScalarMap->at("k2"), 200);
+
+  ASSERT_TRUE(mf.optionalObjectMap.has_value());
+  ASSERT_EQ(mf.optionalObjectMap->size(), 1u);
+  EXPECT_EQ(mf.optionalObjectMap->at("p").value, "v");
+  EXPECT_EQ(mf.optionalObjectMap->at("p").count, 1);
+}
+
+TEST(IdlTool, ParseMapOptionalAbsent) {
+  const char *json = R"({"label":"x","scalarMap":{},"objectMap":{}})";
+  MapFields mf;
+  ASSERT_TRUE(mf.parse(json, strlen(json)));
+  EXPECT_EQ(mf.label, "x");
+  EXPECT_TRUE(mf.scalarMap.empty());
+  EXPECT_TRUE(mf.objectMap.empty());
+  EXPECT_FALSE(mf.optionalScalarMap.has_value());
+  EXPECT_FALSE(mf.optionalObjectMap.has_value());
+}
+
+TEST(IdlTool, ParseMapEmptyObjects) {
+  const char *json = R"({"label":"e","scalarMap":{},"objectMap":{},"optionalScalarMap":{},"optionalObjectMap":{}})";
+  MapFields mf;
+  ASSERT_TRUE(mf.parse(json, strlen(json)));
+  EXPECT_TRUE(mf.scalarMap.empty());
+  EXPECT_TRUE(mf.objectMap.empty());
+  ASSERT_TRUE(mf.optionalScalarMap.has_value());
+  EXPECT_TRUE(mf.optionalScalarMap->empty());
+  ASSERT_TRUE(mf.optionalObjectMap.has_value());
+  EXPECT_TRUE(mf.optionalObjectMap->empty());
+}
+
+TEST(IdlTool, ParseMapMissingRequired) {
+  const char *json = R"({"label":"x","objectMap":{}})";
+  MapFields mf;
+  EXPECT_FALSE(mf.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, SerializeMapRoundtrip) {
+  MapFields mf;
+  mf.label = "rt";
+  mf.scalarMap["alpha"] = 1.0;
+  mf.scalarMap["beta"] = 2.0;
+  mf.objectMap["item1"] = Inner{"val1", 11};
+  mf.optionalScalarMap.emplace();
+  (*mf.optionalScalarMap)["k"] = 42;
+
+  xmstream stream;
+  mf.serialize(stream);
+  std::string serialized(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+
+  MapFields mf2;
+  ASSERT_TRUE(mf2.parse(serialized.data(), serialized.size()));
+  EXPECT_EQ(mf2.label, "rt");
+  EXPECT_EQ(mf2.scalarMap.size(), 2u);
+  EXPECT_DOUBLE_EQ(mf2.scalarMap.at("alpha"), 1.0);
+  EXPECT_DOUBLE_EQ(mf2.scalarMap.at("beta"), 2.0);
+  ASSERT_EQ(mf2.objectMap.size(), 1u);
+  EXPECT_EQ(mf2.objectMap.at("item1").value, "val1");
+  EXPECT_EQ(mf2.objectMap.at("item1").count, 11);
+  ASSERT_TRUE(mf2.optionalScalarMap.has_value());
+  EXPECT_EQ(mf2.optionalScalarMap->at("k"), 42);
+  EXPECT_FALSE(mf2.optionalObjectMap.has_value());
+}
+
+TEST(IdlTool, ParseMapVerbose) {
+  const char *json = R"({"label":"v","scalarMap":{"x":1.0},"objectMap":{"y":{"value":"a","count":1}}})";
+  MapFields mf;
+  ParseError error;
+  ASSERT_TRUE(mf.parseVerbose(json, strlen(json), error));
+  EXPECT_EQ(mf.scalarMap.at("x"), 1.0);
+  EXPECT_EQ(mf.objectMap.at("y").value, "a");
+}
+
+TEST(IdlTool, ParseMapVerboseError) {
+  const char *json = R"({"label":"v","scalarMap":{"x":"not_a_number"},"objectMap":{}})";
+  MapFields mf;
+  ParseError error;
+  EXPECT_FALSE(mf.parseVerbose(json, strlen(json), error));
 }
 

@@ -957,6 +957,71 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       break;
     }
 
+    case EFieldKind::Map: {
+      out += std::format("{}if (!s.expectChar('{{')) {{ valid = false; break; }}\n", in);
+      out += std::format("{}s.skipWhitespace();\n", in);
+      out += std::format("{}if (s.p < s.end && *s.p != '}}') {{\n", in);
+      out += std::format("{}  for (;;) {{\n", in);
+      out += std::format("{}    const char *_mapKey; size_t _mapKeyLen;\n", in);
+      out += std::format("{}    if (!s.readString(_mapKey, _mapKeyLen)) {{ valid = false; break; }}\n", in);
+      out += std::format("{}    if (!s.expectChar(':')) {{ valid = false; break; }}\n", in);
+      out += std::format("{}    s.skipWhitespace();\n", in);
+      out += std::format("{}    auto &_mapVal = {}[std::string(_mapKey, _mapKeyLen)];\n", in, cn);
+
+      if (isStructRef(f, enumNames)) {
+        out += std::format("{}    if (!_mapVal.parseImpl(s)) {{ valid = false; break; }}\n", in);
+      } else if (isEnum(f.Type.RefName, enumNames)) {
+        out += std::format("{}    {{ const char *eStr; size_t eLen;\n", in);
+        out += std::format("{}      if (!s.readString(eStr, eLen) || !parseE{}(eStr, eLen, _mapVal)) {{ valid = false; break; }} }}\n",
+                           in, f.Type.RefName);
+      } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
+                 f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
+        std::string chronoType = cppScalarType(f.Type.Scalar);
+        out += std::format("{}    {{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} _mapVal = {}(_t); }}\n",
+                           in, chronoType);
+      } else {
+        const char *readMethod = nullptr;
+        switch (f.Type.Scalar) {
+          case EScalarType::String: readMethod = "readStringValue"; break;
+          case EScalarType::Bool:   readMethod = "readBool"; break;
+          case EScalarType::Int32:  readMethod = "readInt32"; break;
+          case EScalarType::Uint32: readMethod = "readUInt32"; break;
+          case EScalarType::Int64:  readMethod = "readInt64"; break;
+          case EScalarType::Uint64: readMethod = "readUInt64"; break;
+          case EScalarType::Double: readMethod = "readDouble"; break;
+          default: readMethod = "readInt64"; break;
+        }
+        out += std::format("{}    if (s.{}(_mapVal) != JsonReadError::Ok) {{ valid = false; break; }}\n", in, readMethod);
+      }
+
+      out += std::format("{}    s.skipWhitespace();\n", in);
+      out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; s.skipWhitespace(); continue; }}\n", in);
+      out += std::format("{}    break;\n", in);
+      out += std::format("{}  }}\n", in);
+      out += std::format("{}}}\n", in);
+      out += std::format("{}if (!s.expectCharNoWs('}}')) valid = false;\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
+      break;
+    }
+
+    case EFieldKind::OptionalMap: {
+      if (fieldAllowsNullInput(f))
+        out += std::format("{}if (s.readNull()) {{ /* ok, remains nullopt */ }}\n", in);
+      else
+        out += std::format("{}if (s.readNull()) {{ valid = false; }}\n", in);
+      out += std::format("{}else {{\n", in);
+      out += std::format("{}  {}.emplace();\n", in, cn);
+      CFieldDef tmp = f;
+      tmp.Name = std::format("(*{})", cn);
+      tmp.Kind = EFieldKind::Map;
+      generateParseField(out, tmp, enumNames, -1, ind + 1, false, ci);
+      out += std::format("{}}}\n", in);
+      if (foundBit >= 0)
+        out += std::format("{}if (valid) found |= (uint64_t)1 << {};\n", in, foundBit);
+      break;
+    }
+
     case EFieldKind::Variant: {
       out += std::format("{}s.skipWhitespace();\n", in);
       out += std::format("{}if (s.p >= s.end) {{ valid = false; break; }}\n", in);
@@ -1844,7 +1909,7 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     auto isRequired = [](const CFieldDef &f) {
       return f.Kind == EFieldKind::Required || f.Kind == EFieldKind::Array ||
              f.Kind == EFieldKind::FixedArray || f.Kind == EFieldKind::Variant ||
-             fieldRequiresPresence(f);
+             f.Kind == EFieldKind::Map || fieldRequiresPresence(f);
     };
     for (auto &f : s.Fields)
       if (isRequired(f))
@@ -2112,6 +2177,7 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   bool anyFlatSerialize = false;
   bool hasFixedArray = false;
   bool hasVariant = false;
+  bool hasMap = false;
   CJsonHelperUsage jsonHelperUsage;
   CJsonReadUsage jsonReadUsage;
   for (auto &s : file.Structs) {
@@ -2141,6 +2207,8 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
         }
         if (!f.Type.Alternatives.empty())
           hasVariant = true;
+        if (f.Kind == EFieldKind::Map || f.Kind == EFieldKind::OptionalMap)
+          hasMap = true;
       }
     }
   }
@@ -2160,6 +2228,8 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
     header += "#include <variant>\n";
     header += "#include <type_traits>\n";
   }
+  if (hasMap)
+    header += "#include <unordered_map>\n";
   if (anyFlatSerialize)
     header += "#include <string_view>\n";
   if (hasTaggedSchema)

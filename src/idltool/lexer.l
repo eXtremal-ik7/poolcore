@@ -32,6 +32,7 @@
 ".flags"                { return TOK_DOT_FLAGS; }
 "variant"               { return TOK_VARIANT; }
 "optional"              { return TOK_OPTIONAL; }
+"map"                   { return TOK_MAP; }
 
 "cpp" {
     int c;
