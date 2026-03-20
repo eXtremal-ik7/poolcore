@@ -6,6 +6,7 @@
 #include "poolcore/blockTemplate.h"
 #include "poolcore/clientDispatcher.h"
 #include "poolcommon/jsonSerializer.h"
+#include "poolcommon/utils.h"
 #include "asyncio/asyncio.h"
 #include "p2putils/uriParse.h"
 
@@ -585,7 +586,7 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
       Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
       WorkFetcher_.Height = height;
       WorkFetcher_.WorkId = workId;
-      CLOG_FC(*LogChannel_, INFO, "{}: new work available; height: {}; difficulty: {}", CoinInfo_.Name, height, difficulty);
+      CLOG_FC(*LogChannel_, INFO, "{}: new work available; height: {}; difficulty: {}", CoinInfo_.Name, height, formatDifficulty(difficulty));
     }
 
     // Wait 100ms

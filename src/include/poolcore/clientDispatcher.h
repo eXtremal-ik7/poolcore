@@ -45,6 +45,11 @@ public:
   bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &query);
   bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockExtraInfoQuery> &query);
   bool ioGetBlockTxFees(asyncBase *base, int64_t fromHeight, int64_t toHeight, std::vector<CNetworkClient::BlockTxFeeInfo> &result);
+  bool ioGetMiningInfo(asyncBase *base, CNetworkClient::MiningInfo &result);
+  EFeeEstimationMode feeEstimationMode() const {
+    return RPCClients_.empty() ? EFeeEstimationMode::Unsupported
+                               : RPCClients_[0]->feeEstimationMode();
+  }
   CNetworkClient::EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, CNetworkClient::BuildTransactionResult &result);
   CNetworkClient::EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string &txId, std::string &error);
   CNetworkClient::EOperationStatus ioWalletService(asyncBase *base, std::string &error);

@@ -406,10 +406,12 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
   auto settings = State_.BackendSettings.load(std::memory_order_relaxed);
   bool ppsEnabled = settings.PPSConfig.Enabled;
 
-  UInt<384> lastBaseBlockReward = !batch.BaseBlockReward.isZero()
-    ? batch.BaseBlockReward
-    : State_.PPSState.LastBaseBlockReward;
-  result.AccountingBatch.LastBaseBlockReward = lastBaseBlockReward;
+  UInt<384> baseBlockReward;
+  if (CoinInfo_.HasDeferredReward && FeeEstimationService_)
+    baseBlockReward = FeeEstimationService_->estimatedBaseReward(batch.Height);
+  else
+    baseBlockReward = batch.BaseBlockReward;
+  result.AccountingBatch.LastBaseBlockReward = baseBlockReward;
 
   // Compute saturation coefficient once per batch
   double saturateCoeff = 1.0;
@@ -417,7 +419,7 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
   UInt<384> averageTxFee = State_.PPSState.LastAverageTxFee;
   if (ppsEnabled) {
     double currentBalanceInBlocks =
-      CPPSState::balanceInBlocks(State_.PPSState.ReferenceBalance, lastBaseBlockReward);
+      CPPSState::balanceInBlocks(State_.PPSState.ReferenceBalance, baseBlockReward);
     saturateCoeff = ::saturateCoeff(settings.PPSConfig, currentBalanceInBlocks);
     if (FeeEstimationService_)
       averageTxFee = FeeEstimationService_->averageFee();
@@ -444,7 +446,7 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
 
       if (!batch.ExpectedWork.isZero()) {
         // Fixed-point 128.256: high 128 bits = integer satoshi, low 256 bits = fractional
-        UInt<384> batchCost = lastBaseBlockReward + averageTxFee;
+        UInt<384> batchCost = baseBlockReward + averageTxFee;
         batchCost /= batch.ExpectedWork;
         batchCost *= std::min(entry.AcceptedWork, batch.ExpectedWork);
         batchCost.mulfp(saturateCoeff);

@@ -87,6 +87,8 @@ struct CCoinInfo {
   uint64_t calculateAveragePower(const UInt<256> &work, uint64_t timeInterval, unsigned int primePOWTarget) const;
 };
 
+enum class EFeeEstimationMode { BlockTxFees, MiningInfoRpc, Unsupported };
+
 class CNetworkClient {
 public:
   static constexpr uint64_t ConnectTimeout = 2500000;
@@ -171,6 +173,11 @@ public:
     int64_t TotalFee;
   };
 
+  struct MiningInfo {
+    UInt<384> BaseBlockReward;
+    UInt<384> AverageTxFee;
+  };
+
   class CSubmitBlockOperation {
   public:
     CSubmitBlockOperation(CNetworkClient::SumbitBlockCb callback, size_t clientsNum) : Callback_(callback), ClientsNum_(clientsNum) {}
@@ -201,6 +208,8 @@ public:
   virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) = 0;
   virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, CSubmitBlockOperation *operation) = 0;
   virtual bool ioGetBlockTxFees(asyncBase *base, int64_t fromHeight, int64_t toHeight, std::vector<BlockTxFeeInfo> &result) = 0;
+  virtual bool ioGetMiningInfo(asyncBase *, MiningInfo &) { return false; }
+  virtual EFeeEstimationMode feeEstimationMode() const = 0;
 
   virtual void poll() = 0;
 

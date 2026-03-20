@@ -35,10 +35,8 @@ PoolBackend::PoolBackend(asyncBase *base,
   clientDispatcher.setBackend(this);
   clientDispatcher.setNetworkState(&NetworkState_);
 
-  if (CoinInfo_.PPSIncludeTransactionFees) {
-    FeeEstimationService_ = std::make_unique<CFeeEstimationService>(base, clientDispatcher, CoinInfo_);
-    clientDispatcher.setFeeEstimationService(FeeEstimationService_.get());
-  }
+  FeeEstimationService_ = std::make_unique<CFeeEstimationService>(base, clientDispatcher, CoinInfo_);
+  clientDispatcher.setFeeEstimationService(FeeEstimationService_.get());
 
   _timeout = 8*1000000;
 

@@ -37,6 +37,7 @@ public:
   virtual bool ioGetBlockTxFees(asyncBase*, int64_t, int64_t, std::vector<BlockTxFeeInfo>&) override {
     return false;
   }
+  EFeeEstimationMode feeEstimationMode() const override { return EFeeEstimationMode::Unsupported; }
 
   virtual void poll() override;
 

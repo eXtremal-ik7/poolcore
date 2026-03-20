@@ -41,16 +41,22 @@ public:
   void stop();
   void onNewBlock(int64_t height);
   const UInt<384> &averageFee() const { return AverageFee_; }
+  UInt<384> estimatedBaseReward(int64_t height) const;
+  int64_t lastKnownHeight() const { return PendingHeight_; }
 
 private:
+  void updateBlockTxFees();
+  void updateMiningInfo();
+
   asyncBase *Base_;
   CNetworkClientDispatcher &Dispatcher_;
   CCoinInfo CoinInfo_;
+  EFeeEstimationMode Mode_;
   CFeeEstimator Estimator_;
   int64_t LastBlockHeight_ = 0;
   int64_t PendingHeight_ = 0;
   CPeriodicTimer UpdateTimer_;
   UInt<384> AverageFee_;
+  UInt<384> CachedBaseReward_;
   bool Started_ = false;
-  bool Supported_ = true;
 };

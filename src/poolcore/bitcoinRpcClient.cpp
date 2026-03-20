@@ -1043,7 +1043,7 @@ void CBitcoinRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
 
   // Check new work available
   if (WorkFetcher_.WorkId != workId) {
-    CLOG_FC(*LogChannel_, INFO, "{}: new work available; previous block: {}; height: {}; difficulty: {}", CoinInfo_.Name, prevBlockHash, static_cast<unsigned>(height), difficulty);
+    CLOG_FC(*LogChannel_, INFO, "{}: new work available; previous block: {}; height: {}; difficulty: {}", CoinInfo_.Name, prevBlockHash, static_cast<unsigned>(height), formatDifficulty(difficulty));
     Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
   }
 
