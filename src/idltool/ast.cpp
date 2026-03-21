@@ -196,6 +196,7 @@ static bool resolveMixins(CIdlFile &file)
       } else if (auto *fd = std::get_if<CFlagsDecl>(&member)) {
         if (fd->SkipUnknown) s.SkipUnknownFields = true;
         if (fd->ArrayLayout) s.ArrayLayout = true;
+        if (fd->TopLevel) s.TopLevel = true;
       } else if (auto *cpp = std::get_if<CCppBlock>(&member)) {
         s.CppBlocks.push_back(cpp->Code);
       } else {
@@ -443,6 +444,18 @@ static bool validateTypes(CIdlFile &file)
                   s.Name.c_str(), f.Name.c_str());
           return false;
         }
+      }
+    }
+
+    // Validate toplevel constraints
+    if (s.TopLevel) {
+      if (s.Fields.size() != 1) {
+        fprintf(stderr, "struct '%s': toplevel requires exactly one field\n", s.Name.c_str());
+        return false;
+      }
+      if (s.ArrayLayout) {
+        fprintf(stderr, "struct '%s': toplevel is incompatible with array_layout\n", s.Name.c_str());
+        return false;
       }
     }
   }

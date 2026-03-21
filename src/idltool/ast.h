@@ -184,6 +184,7 @@ struct CExtensionsDecl {
 struct CFlagsDecl {
   bool SkipUnknown = false;
   bool ArrayLayout = false;
+  bool TopLevel = false;
   int Line = 0;
 };
 
@@ -209,6 +210,7 @@ struct CStructDef {
   // Flags from '.flags(...)' directive
   bool SkipUnknownFields = false;
   bool ArrayLayout = false;
+  bool TopLevel = false;
   int Line = 0;
 };
 

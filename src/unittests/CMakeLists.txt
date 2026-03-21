@@ -5,6 +5,7 @@ add_executable(unittests
   idltoolTests.cpp
   arrayTests.cpp
   arrayLayoutTests.cpp
+  toplevelTests.cpp
   jsonScannerTests.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/test.idl.cpp
 )

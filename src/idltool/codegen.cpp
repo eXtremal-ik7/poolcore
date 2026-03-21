@@ -1145,6 +1145,24 @@ static void generateParseField(std::string &out, const CFieldDef &f,
   }
 }
 
+// Generate parse body for toplevel structs (single field, no struct wrapper)
+static void generateTopLevelParseBody(std::string &out, const CStructDef &s,
+    const std::unordered_set<std::string> &enumNames,
+    const CCodegenOptions &opts,
+    const std::vector<CFieldCaptureInfo> *fieldCapture = nullptr)
+{
+  auto &f = s.Fields[0];
+  const CFieldCaptureInfo *ci = nullptr;
+  if (fieldCapture && !fieldCapture->empty() && (*fieldCapture)[0].kind != CFieldCaptureInfo::None)
+    ci = &(*fieldCapture)[0];
+
+  out += "  bool valid = true;\n";
+  out += "  do {\n";
+  generateParseField(out, f, enumNames, -1, 2, opts.PascalCaseFields, ci);
+  out += "  } while(false);\n";
+  out += "  return valid;\n";
+}
+
 // Generate the parse loop body
 static void generateParseBody(std::string &out, const CStructDef &s,
     const std::unordered_set<std::string> &enumNames,
@@ -2257,7 +2275,11 @@ static void generateSerializeBody(CSerializeCodeBuilder &writer, const CStructDe
     const std::unordered_set<std::string> &enumNames,
     const CCodegenOptions &opts)
 {
-  if (ca.hasContext()) {
+  if (s.TopLevel) {
+    auto &f = s.Fields[0];
+    std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+    emitArrayLayoutValue(writer, f, cn, enumNames, 1);
+  } else if (ca.hasContext()) {
     generateContextSerializeBody(writer, s, ca, enumNames, opts);
   } else if (s.ArrayLayout) {
     generateArrayLayoutSerializeBody(writer, s, enumNames, opts);
@@ -2315,8 +2337,8 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
       if (isRequired(s.Fields[i]))
         fieldBitMap[i] = bitIndex++;
 
-    // Perfect hash (not needed for array_layout)
-    if (!s.ArrayLayout) {
+    // Perfect hash (not needed for array_layout or toplevel)
+    if (!s.ArrayLayout && !s.TopLevel) {
       for (auto &f : s.Fields)
         fieldNames.push_back(f.Name);
 
@@ -2350,7 +2372,10 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
       out += "}\n\n";
 
       out += std::format("template<class Scanner>\nbool {}::parseImpl(Scanner &s, Capture *capture) {{\n", sn);
-      generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
+      if (s.TopLevel)
+        generateTopLevelParseBody(out, s, enumNames, opts, &ca.FieldCapture);
+      else
+        generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
       out += "}\n";
       out += std::format("template bool {}::parseImpl(JsonScanner &, Capture *);\n", sn);
       if (anyComments)
@@ -2365,7 +2390,9 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
       out += "}\n\n";
 
       out += std::format("template<class Scanner>\nbool {}::parseImpl(Scanner &s) {{\n", sn);
-      if (s.ArrayLayout)
+      if (s.TopLevel)
+        generateTopLevelParseBody(out, s, enumNames, opts, &ca.FieldCapture);
+      else if (s.ArrayLayout)
         generateArrayLayoutParseBody(out, s, enumNames, opts, fieldBitMap, requiredCount);
       else
         generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
@@ -2392,7 +2419,11 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
 
     out += std::format("template<class Scanner>\nbool {}::parseVerboseImpl(Scanner &s) {{\n", sn);
 
-    if (s.ArrayLayout) {
+    if (s.TopLevel) {
+      // Toplevel verbose: reuse verbose field codegen
+      auto &f = s.Fields[0];
+      generateVerboseParseField(out, f, enumNames, -1, 1, opts.PascalCaseFields);
+    } else if (s.ArrayLayout) {
       // Array-layout verbose parse
       out += "  if (!s.expectChar('[')) return false;\n";
       if (requiredCount > 0)
@@ -2594,12 +2625,16 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
       out += std::format("void {}::serialize(xmstream &out) const {{\n", sn);
     }
     {
-      const char *open = s.ArrayLayout ? "[" : "{";
-      const char *close = s.ArrayLayout ? "]" : "}";
       CSerializeCodeBuilder writer(out);
-      writer.writeLiteral(1, open);
-      generateSerializeBody(writer, s, ca, enumNames, opts);
-      writer.writeLiteral(1, close);
+      if (s.TopLevel) {
+        generateSerializeBody(writer, s, ca, enumNames, opts);
+      } else {
+        const char *open = s.ArrayLayout ? "[" : "{";
+        const char *close = s.ArrayLayout ? "]" : "}";
+        writer.writeLiteral(1, open);
+        generateSerializeBody(writer, s, ca, enumNames, opts);
+        writer.writeLiteral(1, close);
+      }
       writer.flush();
     }
     out += "}\n\n";

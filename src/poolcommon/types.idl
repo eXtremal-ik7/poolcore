@@ -136,6 +136,18 @@ struct RoundBestShareData {
   }
 }
 
+struct CoinGeckoPrice {
+  .generate(parse);
+  .flags(skip_unknown);
+  usd: double = 0;
+}
+
+struct CoinGeckoPrices {
+  .generate(parse);
+  .flags(toplevel);
+  data: map<CoinGeckoPrice>;
+}
+
 struct MergedBlockInfo {
   coin: string;
   height: int64;

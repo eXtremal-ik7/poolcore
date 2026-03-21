@@ -10,6 +10,7 @@ add_library(poolcommon STATIC
   bech32.cpp
   datFile.cpp
   file.cpp
+  httpClient.cpp
   taskHandler.cpp
   totp.cpp
   utils.cpp

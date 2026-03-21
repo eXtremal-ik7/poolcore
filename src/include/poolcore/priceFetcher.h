@@ -1,8 +1,8 @@
 #pragma once
 
 #include "poolCore.h"
+#include "poolcommon/httpClient.h"
 #include "asyncio/asyncio.h"
-#include "asyncio/http.h"
 #include <chrono>
 
 class CPriceFetcher {
@@ -14,25 +14,17 @@ public:
 
 private:
   void updatePrice();
-  void onConnect(AsyncOpStatus status);
-  void onRequest(AsyncOpStatus status);
-  void processRequest(const char *data, size_t size);
+  void processResponse(const struct CCoinGeckoPrices &response);
   void resetPricesIfStale();
 
 private:
-  asyncBase *MonitorBase_ = nullptr;
-  HTTPClient *Client_ = nullptr;
+  CHttpClient<> Client_;
   aioUserEvent *TimerEvent_ = nullptr;
   std::vector<CCoinInfo> CoinInfo_;
   std::unordered_map<std::string, size_t> CoinIndexMap_;
-  HTTPParseDefaultContext ParseCtx_;
-  HostAddress Address_;
-  xmstream PreparedQuery_;
-  std::atomic<double> CurrentPrice_;
+  std::string QueryPath_;
   std::atomic<double> BTCPrice_;
-
   std::unique_ptr<std::atomic<double>[]> CurrentPrices_;
-  std::string ApiHost_;
   uint64_t PollInterval_;
 
   static constexpr std::chrono::minutes StaleTimeout_{30};

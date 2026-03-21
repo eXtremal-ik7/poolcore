@@ -563,6 +563,28 @@ struct KeywordsAsFields {
 }
 
 // ============================================================================
+// Toplevel — single field parsed as top-level JSON value
+// ============================================================================
+
+struct TopLevelMap {
+  .generate(parse, parse.verbose, serialize);
+  .flags(toplevel);
+  data: map<Inner>;
+}
+
+struct TopLevelArray {
+  .generate(parse, parse.verbose, serialize);
+  .flags(toplevel);
+  items: [Inner];
+}
+
+struct TopLevelScalar {
+  .generate(parse, parse.verbose, serialize);
+  .flags(toplevel);
+  value: double;
+}
+
+// ============================================================================
 // Map fields
 // ============================================================================
 
