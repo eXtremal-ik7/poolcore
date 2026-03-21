@@ -302,7 +302,7 @@ static bool validateTypes(CIdlFile &file)
         }
       }
 
-      // Variant fields
+      // Variant fields or variant array elements
       if (!f.Type.Alternatives.empty()) {
         if (f.Default.Kind != EDefaultKind::None) {
           fprintf(stderr, "line %d: defaults not supported on variant field '%s'\n", f.Line, f.Name.c_str());
@@ -325,14 +325,26 @@ static bool validateTypes(CIdlFile &file)
           }
         }
 
-        continue; // skip normal ref resolution for variant fields
+        if (f.Type.ArrayElementKind == EArrayElementKind::Plain)
+          continue; // pure variant field — skip normal ref resolution
       }
 
-      // Normal (non-variant) field
+      // Array element type resolution (optional/map element types, or non-variant plain arrays)
       if (!f.Type.IsScalar && !f.Type.RefName.empty()) {
         if (!resolveRef(f.Type.RefName, f.Type.IsScalar, f.Line, f.Name.c_str(),
                         f.Type.IsScalar, f.Type.IsMapped, f.Type.MappedCppType, f.Type.MappedWireType))
           return false;
+      }
+
+      // Validate array element kind is only used with array fields
+      if (f.Type.ArrayElementKind != EArrayElementKind::Plain) {
+        bool isArray = f.Kind == EFieldKind::Array || f.Kind == EFieldKind::OptionalArray ||
+                       f.Kind == EFieldKind::FixedArray || f.Kind == EFieldKind::OptionalFixedArray;
+        if (!isArray) {
+          fprintf(stderr, "line %d: optional/variant/map array element only valid inside arrays for field '%s'\n",
+                  f.Line, f.Name.c_str());
+          return false;
+        }
       }
 
       // Validate defaults
@@ -694,7 +706,7 @@ void dumpAst(const CIdlFile &file)
       };
 
       auto printBareType = [&]() {
-        if (!f.Type.Alternatives.empty()) {
+        if (!f.Type.Alternatives.empty() && f.Type.ArrayElementKind == EArrayElementKind::Plain) {
           printf("variant(");
           for (size_t i = 0; i < f.Type.Alternatives.size(); i++) {
             if (i) printf(", ");
@@ -717,6 +729,52 @@ void dumpAst(const CIdlFile &file)
           }
         };
 
+        auto printLeafType = [&]() {
+          if (f.Type.IsScalar && f.Type.RefName.empty())
+            printf("%s", idlScalarTypeName(f.Type.Scalar));
+          else if (!f.Type.RefName.empty())
+            printf("%s", f.Type.RefName.c_str());
+        };
+
+        auto printElementType = [&]() {
+          switch (f.Type.ArrayElementKind) {
+            case EArrayElementKind::Plain:
+              printLeafType();
+              break;
+            case EArrayElementKind::Optional:
+              printf("optional<");
+              printLeafType();
+              printf(">");
+              if (f.Type.ElementNullIn != ENullInPolicy::Allow || f.Type.ElementEmptyOut != EEmptyOutPolicy::Null) {
+                printf("(");
+                bool first = true;
+                if (f.Type.ElementNullIn != ENullInPolicy::Allow) {
+                  printf("null_in=%s", f.Type.ElementNullIn == ENullInPolicy::Deny ? "deny" : "required");
+                  first = false;
+                }
+                if (f.Type.ElementEmptyOut != EEmptyOutPolicy::Null) {
+                  if (!first) printf(", ");
+                  printf("empty_out=omit");
+                }
+                printf(")");
+              }
+              break;
+            case EArrayElementKind::Variant:
+              printf("variant(");
+              for (size_t i = 0; i < f.Type.Alternatives.size(); i++) {
+                if (i) printf(", ");
+                printAltType(f.Type.Alternatives[i]);
+              }
+              printf(")");
+              break;
+            case EArrayElementKind::Map:
+              printf("map<");
+              printLeafType();
+              printf(">");
+              break;
+          }
+        };
+
         bool isFixedOrArray = (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::OptionalArray ||
                                f.Kind == EFieldKind::FixedArray || f.Kind == EFieldKind::OptionalFixedArray);
         bool isMap = (f.Kind == EFieldKind::Map || f.Kind == EFieldKind::OptionalMap);
@@ -724,10 +782,7 @@ void dumpAst(const CIdlFile &file)
         else if (isFixedOrArray) printf("[");
         printArrayPrefix();
 
-        if (f.Type.IsScalar && f.Type.RefName.empty())
-          printf("%s", idlScalarTypeName(f.Type.Scalar));
-        else if (!f.Type.RefName.empty())
-          printf("%s", f.Type.RefName.c_str());
+        printElementType();
 
         printArraySuffix();
 

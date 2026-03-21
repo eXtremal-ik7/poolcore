@@ -62,6 +62,14 @@ enum class ETypeShape {
   OptionalMap           // field: optional<map<Type>>
 };
 
+// What kind of element an array holds
+enum class EArrayElementKind {
+  Plain,     // [T]                      — direct scalar/struct/enum/mapped
+  Optional,  // [optional<T>(...)]       — nullable element (std::optional<T>)
+  Variant,   // [variant(T1, T2, ...)]   — variant element (std::variant<...>)
+  Map,       // [map<T>]                 — map element (std::unordered_map<std::string, T>)
+};
+
 // Inner array dimension for multi-dimensional arrays
 struct CArrayDim {
   int FixedSize = 0; // 0 = dynamic (std::vector), >0 = fixed (std::array)
@@ -98,8 +106,13 @@ struct CFieldType {
   // Inner dimensions for multi-dimensional arrays (outermost first)
   std::vector<CArrayDim> InnerDims;
 
-  // Variant alternatives (non-empty → variant type)
+  // Variant alternatives (non-empty → variant type or variant array element)
   std::vector<CVariantAlt> Alternatives;
+
+  // Array element kind — applies to leaf elements of arrays
+  EArrayElementKind ArrayElementKind = EArrayElementKind::Plain;
+  ENullInPolicy ElementNullIn = ENullInPolicy::Deny;      // for Optional array elements
+  EEmptyOutPolicy ElementEmptyOut = EEmptyOutPolicy::Omit; // for Optional array elements
 };
 
 // Default value kinds

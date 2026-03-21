@@ -441,6 +441,33 @@ array_elem:
       $$ = $2;
       $$->InnerDims.insert($$->InnerDims.begin(), CArrayDim{(int)$4});
     }
+  | TOK_OPTIONAL '<' type_name '>' optional_policy_clause {
+      $$ = new CFieldType();
+      $$->ArrayElementKind = EArrayElementKind::Optional;
+      auto scalar = parseScalarType($3);
+      if (scalar) { $$->IsScalar = true; $$->Scalar = *scalar; }
+      else { $$->RefName = $3; }
+      // Default null_in=allow for array elements (vs deny for fields)
+      $$->ElementNullIn = $5->HasNullIn ? $5->NullIn : ENullInPolicy::Allow;
+      // empty_out is always null for array elements (can't omit an element)
+      $$->ElementEmptyOut = EEmptyOutPolicy::Null;
+      free($3);
+      delete $5;
+    }
+  | TOK_VARIANT '(' variant_alts ')' {
+      $$ = new CFieldType();
+      $$->ArrayElementKind = EArrayElementKind::Variant;
+      for (auto &a : *$3) $$->Alternatives.push_back(std::move(a));
+      delete $3;
+    }
+  | TOK_MAP '<' type_name '>' {
+      $$ = new CFieldType();
+      $$->ArrayElementKind = EArrayElementKind::Map;
+      auto scalar = parseScalarType($3);
+      if (scalar) { $$->IsScalar = true; $$->Scalar = *scalar; }
+      else { $$->RefName = $3; }
+      free($3);
+    }
   ;
 
 variant_alts:

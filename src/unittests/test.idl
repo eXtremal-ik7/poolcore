@@ -633,3 +633,35 @@ struct ArrayLayoutBarrier {
   opt1: optional<string>;
   opt2: optional<string>(null_in=allow, empty_out=null);
 }
+
+// ============================================================================
+// Typed array elements — optional, variant, map inside arrays
+// ============================================================================
+
+struct NullableElements {
+  .generate(parse, parse.verbose, serialize);
+  strings: [optional<string>];
+  numbers: [optional<int64>];
+  objects: [optional<Inner>];
+  colors: [optional<Color>];
+  denied: [optional<string>(null_in=deny)];
+}
+
+struct NullableElementCombos {
+  .generate(parse, parse.verbose, serialize);
+  optionalArray: optional<[optional<string>]>;
+  fixedArray: [optional<int32>; 3];
+  matrix: [[optional<int32>]];
+}
+
+struct VariantElements {
+  .generate(parse, parse.verbose, serialize);
+  scalars: [variant(string, int64)];
+  mixed: [variant(Inner, string)];
+}
+
+struct MapElements {
+  .generate(parse, parse.verbose, serialize);
+  scalars: [map<int64>];
+  objects: [map<Inner>];
+}

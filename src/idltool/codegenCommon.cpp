@@ -257,8 +257,8 @@ static std::string variantCppType(const std::vector<CVariantAlt> &alts,
 
 std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::string> &enumNames, const std::string &structPrefix)
 {
-  // Variant types
-  if (!f.Type.Alternatives.empty()) {
+  // Variant field types (not variant array elements)
+  if (!f.Type.Alternatives.empty() && f.Type.ArrayElementKind == EArrayElementKind::Plain) {
     std::string vt = variantCppType(f.Type.Alternatives, enumNames, structPrefix);
     switch (f.Kind) {
       case EFieldKind::Variant:         return vt;
@@ -267,8 +267,24 @@ std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::strin
     }
   }
 
-  std::string base = baseTypeName(f.Type.IsMapped, f.Type.Scalar,
-                                   f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix);
+  // Determine leaf element type, then wrap with array element kind
+  std::string base;
+  switch (f.Type.ArrayElementKind) {
+    case EArrayElementKind::Optional:
+      base = std::format("std::optional<{}>",
+        baseTypeName(f.Type.IsMapped, f.Type.Scalar, f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix));
+      break;
+    case EArrayElementKind::Variant:
+      base = variantCppType(f.Type.Alternatives, enumNames, structPrefix);
+      break;
+    case EArrayElementKind::Map:
+      base = std::format("std::unordered_map<std::string, {}>",
+        baseTypeName(f.Type.IsMapped, f.Type.Scalar, f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix));
+      break;
+    default:
+      base = baseTypeName(f.Type.IsMapped, f.Type.Scalar, f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix);
+      break;
+  }
 
   // Multi-dimensional: wrap from innermost to outermost
   if (!f.Type.InnerDims.empty()) {
@@ -492,16 +508,59 @@ bool isMappedField(const CFieldDef &f)
   return f.Type.IsMapped;
 }
 
-void emitSerializeArrayElem(CSerializeCodeBuilder &code, const CFieldDef &f,
-                            const std::string &valueName,
-                            const std::unordered_set<std::string> &enumNames,
-                            int ind)
+static void emitSerializePlainArrayElem(CSerializeCodeBuilder &code, const CFieldDef &f,
+                                        const std::string &valueName,
+                                        const std::unordered_set<std::string> &enumNames,
+                                        int ind)
 {
   if (isStructRef(f, enumNames)) {
     code.appendRaw(std::format("{}{}.serialize(out);\n", indent(ind), valueName));
     return;
   }
   emitSerializeValue(code, f, valueName, enumNames, ind);
+}
+
+void emitSerializeArrayElem(CSerializeCodeBuilder &code, const CFieldDef &f,
+                            const std::string &valueName,
+                            const std::unordered_set<std::string> &enumNames,
+                            int ind)
+{
+  std::string in = indent(ind);
+  switch (f.Type.ArrayElementKind) {
+    case EArrayElementKind::Optional:
+      code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, valueName));
+      emitSerializePlainArrayElem(code, f, std::format("(*{})", valueName), enumNames, ind + 1);
+      code.appendRaw(std::format("{}}} else {{\n", in));
+      code.appendRaw(std::format("{}  out.write(\"null\", 4);\n", in));
+      code.appendRaw(std::format("{}}}\n", in));
+      return;
+    case EArrayElementKind::Variant:
+      emitVariantSerialize(code, f, valueName, enumNames, ind);
+      return;
+    case EArrayElementKind::Map: {
+      // Serialize as JSON object with string keys
+      code.writeLiteral(ind, "{");
+      code.appendRaw(std::format("{}{{ bool _first = true;\n", in));
+      code.appendRaw(std::format("{}for (auto &[_k, _v] : {}) {{\n", in, valueName));
+      code.appendRaw(std::format("{}  if (!_first) out.write(',');\n", in));
+      code.appendRaw(std::format("{}  _first = false;\n", in));
+      code.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", in));
+      code.appendRaw(std::format("{}  out.write(':');\n", in));
+      CFieldDef elemField = f;
+      elemField.Kind = EFieldKind::Required;
+      if (isStructRef(f, enumNames))
+        code.appendRaw(std::format("{}  _v.serialize(out);\n", in));
+      else
+        emitSerializeValue(code, elemField, "_v", enumNames, ind + 1);
+      code.appendRaw(std::format("{}}}\n", in));
+      code.appendRaw(std::format("{}}}\n", in));
+      code.writeLiteral(ind, "}");
+      return;
+    }
+    default:
+      break;
+  }
+  emitSerializePlainArrayElem(code, f, valueName, enumNames, ind);
 }
 
 WireTypeInfo getWireTypeInfo(const std::string &wireType)

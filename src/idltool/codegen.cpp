@@ -582,7 +582,109 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
     out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
 }
 
-// Generate nested array parse code for multi-dimensional arrays
+// Forward declarations for functions used in nested array parse
+static void generateVariantParse(std::string &out, const CFieldDef &f,
+    const std::string &varName,
+    const std::unordered_set<std::string> &enumNames, int ind);
+
+// Parse a plain (non-optional/non-variant/non-map) leaf array element
+static void generateParsePlainLeafElement(std::string &out, const CFieldDef &f,
+    const std::unordered_set<std::string> &enumNames,
+    const std::string &containerExpr,
+    const std::string &captureExpr,
+    int ind,
+    const CFieldCaptureInfo *ci)
+{
+  std::string in = indent(ind);
+  if (isMappedField(f)) {
+    if (ci && ci->kind == CFieldCaptureInfo::MappedDirect) {
+      generateDirectMappedCaptureRead(out, *ci, captureExpr, ind, "valid = false; break");
+    } else {
+      generateParseMappedValue(out, f.Type.RefName, f.Type.MappedWireType, containerExpr, ind, "valid = false; break");
+    }
+  } else if (isStructRef(f, enumNames)) {
+    if (ci && ci->kind == CFieldCaptureInfo::NestedStruct) {
+      out += std::format("{}if (!{}.parseImpl(s, capture ? &{} : nullptr)) {{ valid = false; break; }}\n",
+                         in, containerExpr, captureExpr);
+    } else {
+      out += std::format("{}if (!{}.parseImpl(s)) {{ valid = false; break; }}\n", in, containerExpr);
+    }
+  } else if (isEnum(f.Type.RefName, enumNames)) {
+    out += std::format("{}{{ const char *eStr; size_t eLen;\n", in);
+    out += std::format("{}  if (!s.readString(eStr, eLen) || !parseE{}(eStr, eLen, {})) {{ valid = false; break; }} }}\n",
+                       in, f.Type.RefName, containerExpr);
+  } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
+             f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
+    std::string chronoType = cppScalarType(f.Type.Scalar);
+    out += std::format("{}{{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} {} = {}(_t); }}\n",
+                       in, containerExpr, chronoType);
+  } else {
+    const char *readMethod = "readInt64";
+    switch (f.Type.Scalar) {
+      case EScalarType::String: readMethod = "readStringValue"; break;
+      case EScalarType::Bool:   readMethod = "readBool"; break;
+      case EScalarType::Int32:  readMethod = "readInt32"; break;
+      case EScalarType::Uint32: readMethod = "readUInt32"; break;
+      case EScalarType::Int64:  readMethod = "readInt64"; break;
+      case EScalarType::Uint64: readMethod = "readUInt64"; break;
+      case EScalarType::Double: readMethod = "readDouble"; break;
+      default: break;
+    }
+    out += std::format("{}if (s.{}({}) != JsonReadError::Ok) {{ valid = false; break; }}\n", in, readMethod, containerExpr);
+  }
+}
+
+// Parse a map array element: { "key": value, ... }
+static void generateParseMapElement(std::string &out, const CFieldDef &f,
+    const std::unordered_set<std::string> &enumNames,
+    const std::string &containerExpr, int ind)
+{
+  std::string in = indent(ind);
+  out += std::format("{}if (!s.expectChar('{{')) {{ valid = false; break; }}\n", in);
+  out += std::format("{}s.skipWhitespace();\n", in);
+  out += std::format("{}if (s.p < s.end && *s.p != '}}') {{\n", in);
+  out += std::format("{}  for (;;) {{\n", in);
+  out += std::format("{}    const char *_mapKey; size_t _mapKeyLen;\n", in);
+  out += std::format("{}    if (!s.readString(_mapKey, _mapKeyLen)) {{ valid = false; break; }}\n", in);
+  out += std::format("{}    if (!s.expectChar(':')) {{ valid = false; break; }}\n", in);
+  out += std::format("{}    s.skipWhitespace();\n", in);
+  out += std::format("{}    auto &_mapVal = {}[std::string(_mapKey, _mapKeyLen)];\n", in, containerExpr);
+
+  if (isStructRef(f, enumNames)) {
+    out += std::format("{}    if (!_mapVal.parseImpl(s)) {{ valid = false; break; }}\n", in);
+  } else if (isEnum(f.Type.RefName, enumNames)) {
+    out += std::format("{}    {{ const char *eStr; size_t eLen;\n", in);
+    out += std::format("{}      if (!s.readString(eStr, eLen) || !parseE{}(eStr, eLen, _mapVal)) {{ valid = false; break; }} }}\n",
+                       in, f.Type.RefName);
+  } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
+             f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
+    std::string chronoType = cppScalarType(f.Type.Scalar);
+    out += std::format("{}    {{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} _mapVal = {}(_t); }}\n",
+                       in, chronoType);
+  } else {
+    const char *readMethod = "readInt64";
+    switch (f.Type.Scalar) {
+      case EScalarType::String: readMethod = "readStringValue"; break;
+      case EScalarType::Bool:   readMethod = "readBool"; break;
+      case EScalarType::Int32:  readMethod = "readInt32"; break;
+      case EScalarType::Uint32: readMethod = "readUInt32"; break;
+      case EScalarType::Int64:  readMethod = "readInt64"; break;
+      case EScalarType::Uint64: readMethod = "readUInt64"; break;
+      case EScalarType::Double: readMethod = "readDouble"; break;
+      default: break;
+    }
+    out += std::format("{}    if (s.{}(_mapVal) != JsonReadError::Ok) {{ valid = false; break; }}\n", in, readMethod);
+  }
+
+  out += std::format("{}    s.skipWhitespace();\n", in);
+  out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; s.skipWhitespace(); continue; }}\n", in);
+  out += std::format("{}    break;\n", in);
+  out += std::format("{}  }}\n", in);
+  out += std::format("{}}}\n", in);
+  out += std::format("{}if (!s.expectCharNoWs('}}')) {{ valid = false; }}\n", in);
+  out += std::format("{}if (!valid) break;\n", in);
+}
+
 static void generateNestedArrayParse(std::string &out, const CFieldDef &f,
     const std::unordered_set<std::string> &enumNames,
     const std::vector<CArrayDim> &dims, int dimIndex,
@@ -594,43 +696,35 @@ static void generateNestedArrayParse(std::string &out, const CFieldDef &f,
   std::string in = indent(ind);
 
   if (dimIndex >= (int)dims.size()) {
-    // Leaf element: parse scalar/struct/enum into containerExpr
-    if (isMappedField(f)) {
-      if (ci && ci->kind == CFieldCaptureInfo::MappedDirect) {
-        generateDirectMappedCaptureRead(out, *ci, captureExpr, ind, "valid = false; break");
-      } else {
-        generateParseMappedValue(out, f.Type.RefName, f.Type.MappedWireType, containerExpr, ind, "valid = false; break");
+    // Leaf element — dispatch by array element kind
+    switch (f.Type.ArrayElementKind) {
+      case EArrayElementKind::Optional: {
+        bool allowNull = (f.Type.ElementNullIn != ENullInPolicy::Deny);
+        if (allowNull) {
+          out += std::format("{}if (s.readNull()) {{ /* ok, stays nullopt */ }}\n", in);
+          out += std::format("{}else {{\n", in);
+        } else {
+          out += std::format("{}if (s.readNull()) {{ valid = false; break; }}\n", in);
+          out += std::format("{}{{\n", in);
+        }
+        out += std::format("{}  {}.emplace();\n", in, containerExpr);
+        generateParsePlainLeafElement(out, f, enumNames,
+                                      std::format("(*{})", containerExpr), captureExpr, ind + 1, ci);
+        out += std::format("{}}}\n", in);
+        return;
       }
-    } else if (isStructRef(f, enumNames)) {
-      if (ci && ci->kind == CFieldCaptureInfo::NestedStruct) {
-        out += std::format("{}if (!{}.parseImpl(s, capture ? &{} : nullptr)) {{ valid = false; break; }}\n",
-                           in, containerExpr, captureExpr);
-      } else {
-        out += std::format("{}if (!{}.parseImpl(s)) {{ valid = false; break; }}\n", in, containerExpr);
-      }
-    } else if (isEnum(f.Type.RefName, enumNames)) {
-      out += std::format("{}{{ const char *eStr; size_t eLen;\n", in);
-      out += std::format("{}  if (!s.readString(eStr, eLen) || !parseE{}(eStr, eLen, {})) {{ valid = false; break; }} }}\n",
-                         in, f.Type.RefName, containerExpr);
-    } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
-               f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
-      std::string chronoType = cppScalarType(f.Type.Scalar);
-      out += std::format("{}{{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} {} = {}(_t); }}\n",
-                         in, containerExpr, chronoType);
-    } else {
-      const char *readMethod = "readInt64";
-      switch (f.Type.Scalar) {
-        case EScalarType::String: readMethod = "readStringValue"; break;
-        case EScalarType::Bool:   readMethod = "readBool"; break;
-        case EScalarType::Int32:  readMethod = "readInt32"; break;
-        case EScalarType::Uint32: readMethod = "readUInt32"; break;
-        case EScalarType::Int64:  readMethod = "readInt64"; break;
-        case EScalarType::Uint64: readMethod = "readUInt64"; break;
-        case EScalarType::Double: readMethod = "readDouble"; break;
-        default: break;
-      }
-      out += std::format("{}if (s.{}({}) != JsonReadError::Ok) {{ valid = false; break; }}\n", in, readMethod, containerExpr);
+      case EArrayElementKind::Variant:
+        generateVariantParse(out, f, containerExpr, enumNames, ind);
+        out += std::format("{}if (!valid) break;\n", in);
+        return;
+      case EArrayElementKind::Map:
+        generateParseMapElement(out, f, enumNames, containerExpr, ind);
+        return;
+      default:
+        break;
     }
+    // Plain element
+    generateParsePlainLeafElement(out, f, enumNames, containerExpr, captureExpr, ind, ci);
     return;
   }
 
@@ -771,8 +865,8 @@ static void generateParseField(std::string &out, const CFieldDef &f,
     }
 
     case EFieldKind::Array: {
-      if (!f.Type.InnerDims.empty()) {
-        // Multi-dimensional array: parse outermost dynamic array, then nest
+      if (!f.Type.InnerDims.empty() || f.Type.ArrayElementKind != EArrayElementKind::Plain) {
+        // Multi-dimensional array or complex element kind: parse via recursive function
         out += std::format("{}if (!s.expectChar('[')) {{ valid = false; break; }}\n", in);
         out += std::format("{}s.skipWhitespace();\n", in);
         out += std::format("{}if (s.p < s.end && *s.p != ']') {{\n", in);
@@ -890,7 +984,7 @@ static void generateParseField(std::string &out, const CFieldDef &f,
       out += std::format("{}  if (i_ > 0 && !s.expectChar(',')) {{ valid = false; break; }}\n", in);
       out += std::format("{}  s.skipWhitespace();\n", in);
 
-      if (!f.Type.InnerDims.empty()) {
+      if (!f.Type.InnerDims.empty() || f.Type.ArrayElementKind != EArrayElementKind::Plain) {
         generateNestedArrayParse(out, f, enumNames, f.Type.InnerDims, 0,
                                  std::format("{}[i_]", cn),
                                  ci ? std::format("capture->{}[i_]", ci->CaptureFieldName) : "",

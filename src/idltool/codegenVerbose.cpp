@@ -112,7 +112,94 @@ static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, con
     out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
 }
 
-// Generate nested array parse code for multi-dimensional arrays (verbose)
+// Forward declarations
+static void generateVerboseVariantParse(std::string &out, const CFieldDef &f,
+    const std::string &varName, const std::string &ctx,
+    const std::unordered_set<std::string> &enumNames, int ind);
+
+static void generateVerboseParsePlainLeafElement(std::string &out, const CFieldDef &f,
+    const std::unordered_set<std::string> &enumNames,
+    const std::string &containerExpr, const std::string &ctx, int ind)
+{
+  std::string in = indent(ind);
+  if (isMappedField(f)) {
+    generateVerboseParseMappedValue(out, f.Type.RefName, f.Type.MappedWireType, containerExpr, ctx, ind, "return false");
+  } else if (isStructRef(f, enumNames)) {
+    out += std::format("{}if (!{}.parseVerboseImpl(s)) return false;\n", in, containerExpr);
+  } else if (isEnum(f.Type.RefName, enumNames)) {
+    out += std::format("{}{{ const char *eStr; size_t eLen;\n", in);
+    out += std::format("{}  if (!s.readString(eStr, eLen)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n", in, ctx);
+    out += std::format("{}  if (!parseE{}(eStr, eLen, {})) {{ s.setError(\"field '{}': invalid enum value\"); return false; }} }}\n",
+                       in, f.Type.RefName, containerExpr, ctx);
+  } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
+             f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
+    std::string chronoType = cppScalarType(f.Type.Scalar);
+    out += std::format("{}{{ int64_t _t; if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"integer\"); return false; }} {} = {}(_t); }}\n",
+                       in, ctx, containerExpr, chronoType);
+  } else {
+    const char *readMethod = "readInt64";
+    switch (f.Type.Scalar) {
+      case EScalarType::String: readMethod = "readStringValue"; break;
+      case EScalarType::Bool:   readMethod = "readBool"; break;
+      case EScalarType::Int32:  readMethod = "readInt32"; break;
+      case EScalarType::Uint32: readMethod = "readUInt32"; break;
+      case EScalarType::Int64:  readMethod = "readInt64"; break;
+      case EScalarType::Uint64: readMethod = "readUInt64"; break;
+      case EScalarType::Double: readMethod = "readDouble"; break;
+      default: break;
+    }
+    out += std::format("{}if (auto _e = s.{}({}); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }}\n",
+                       in, readMethod, containerExpr, ctx, scalarTypeName(f.Type.Scalar));
+  }
+}
+
+// Parse a map array element (verbose)
+static void generateVerboseParseMapElement(std::string &out, const CFieldDef &f,
+    const std::unordered_set<std::string> &enumNames,
+    const std::string &containerExpr, const std::string &ctx, int ind)
+{
+  std::string in = indent(ind);
+  out += std::format("{}if (!s.expectChar('{{')) {{ s.setError(\"field '{}': expected '{{'\"); return false; }}\n", in, ctx);
+  out += std::format("{}s.skipWhitespace();\n", in);
+  out += std::format("{}if (s.p < s.end && *s.p != '}}') {{\n", in);
+  out += std::format("{}  for (;;) {{\n", in);
+  out += std::format("{}    const char *_mapKey; size_t _mapKeyLen;\n", in);
+  out += std::format("{}    if (!s.readString(_mapKey, _mapKeyLen)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n", in, ctx);
+  out += std::format("{}    if (!s.expectChar(':')) {{ s.setError(\"field '{}': expected ':'\"); return false; }}\n", in, ctx);
+  out += std::format("{}    s.skipWhitespace();\n", in);
+  out += std::format("{}    auto &_mapVal = {}[std::string(_mapKey, _mapKeyLen)];\n", in, containerExpr);
+
+  if (isStructRef(f, enumNames)) {
+    out += std::format("{}    if (!_mapVal.parseVerboseImpl(s)) return false;\n", in);
+  } else if (isEnum(f.Type.RefName, enumNames)) {
+    out += std::format("{}    {{ const char *eStr; size_t eLen;\n", in);
+    out += std::format("{}      if (!s.readString(eStr, eLen)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n", in, ctx);
+    out += std::format("{}      if (!parseE{}(eStr, eLen, _mapVal)) {{ s.setError(\"field '{}': invalid enum value\"); return false; }} }}\n",
+                       in, f.Type.RefName, ctx);
+  } else {
+    const char *readMethod = "readInt64";
+    switch (f.Type.Scalar) {
+      case EScalarType::String: readMethod = "readStringValue"; break;
+      case EScalarType::Bool:   readMethod = "readBool"; break;
+      case EScalarType::Int32:  readMethod = "readInt32"; break;
+      case EScalarType::Uint32: readMethod = "readUInt32"; break;
+      case EScalarType::Int64:  readMethod = "readInt64"; break;
+      case EScalarType::Uint64: readMethod = "readUInt64"; break;
+      case EScalarType::Double: readMethod = "readDouble"; break;
+      default: break;
+    }
+    out += std::format("{}    if (auto _e = s.{}(_mapVal); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }}\n",
+                       in, readMethod, ctx, scalarTypeName(f.Type.Scalar));
+  }
+
+  out += std::format("{}    s.skipWhitespace();\n", in);
+  out += std::format("{}    if (s.p < s.end && *s.p == ',') {{ s.p++; s.skipWhitespace(); continue; }}\n", in);
+  out += std::format("{}    break;\n", in);
+  out += std::format("{}  }}\n", in);
+  out += std::format("{}}}\n", in);
+  out += std::format("{}if (!s.expectCharNoWs('}}')) return false;\n", in);
+}
+
 static void generateVerboseNestedArrayParse(std::string &out, const CFieldDef &f,
     const std::unordered_set<std::string> &enumNames,
     const std::vector<CArrayDim> &dims, int dimIndex,
@@ -121,36 +208,33 @@ static void generateVerboseNestedArrayParse(std::string &out, const CFieldDef &f
   std::string in = indent(ind);
 
   if (dimIndex >= (int)dims.size()) {
-    // Leaf element
-    if (isMappedField(f)) {
-      generateVerboseParseMappedValue(out, f.Type.RefName, f.Type.MappedWireType, containerExpr, ctx, ind, "return false");
-    } else if (isStructRef(f, enumNames)) {
-      out += std::format("{}if (!{}.parseVerboseImpl(s)) return false;\n", in, containerExpr);
-    } else if (isEnum(f.Type.RefName, enumNames)) {
-      out += std::format("{}{{ const char *eStr; size_t eLen;\n", in);
-      out += std::format("{}  if (!s.readString(eStr, eLen)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n", in, ctx);
-      out += std::format("{}  if (!parseE{}(eStr, eLen, {})) {{ s.setError(\"field '{}': invalid enum value\"); return false; }} }}\n",
-                         in, f.Type.RefName, containerExpr, ctx);
-    } else if (f.Type.IsScalar && (f.Type.Scalar == EScalarType::Seconds ||
-               f.Type.Scalar == EScalarType::Minutes || f.Type.Scalar == EScalarType::Hours)) {
-      std::string chronoType = cppScalarType(f.Type.Scalar);
-      out += std::format("{}{{ int64_t _t; if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"integer\"); return false; }} {} = {}(_t); }}\n",
-                         in, ctx, containerExpr, chronoType);
-    } else {
-      const char *readMethod = "readInt64";
-      switch (f.Type.Scalar) {
-        case EScalarType::String: readMethod = "readStringValue"; break;
-        case EScalarType::Bool:   readMethod = "readBool"; break;
-        case EScalarType::Int32:  readMethod = "readInt32"; break;
-        case EScalarType::Uint32: readMethod = "readUInt32"; break;
-        case EScalarType::Int64:  readMethod = "readInt64"; break;
-        case EScalarType::Uint64: readMethod = "readUInt64"; break;
-        case EScalarType::Double: readMethod = "readDouble"; break;
-        default: break;
+    // Leaf element — dispatch by array element kind
+    switch (f.Type.ArrayElementKind) {
+      case EArrayElementKind::Optional: {
+        bool allowNull = (f.Type.ElementNullIn != ENullInPolicy::Deny);
+        if (allowNull) {
+          out += std::format("{}if (s.readNull()) {{ /* ok, stays nullopt */ }}\n", in);
+          out += std::format("{}else {{\n", in);
+        } else {
+          out += std::format("{}if (s.readNull()) {{ s.setError(\"field '{}': null is not allowed for element\"); return false; }}\n", in, ctx);
+          out += std::format("{}{{\n", in);
+        }
+        out += std::format("{}  {}.emplace();\n", in, containerExpr);
+        generateVerboseParsePlainLeafElement(out, f, enumNames, std::format("(*{})", containerExpr), ctx, ind + 1);
+        out += std::format("{}}}\n", in);
+        return;
       }
-      out += std::format("{}if (auto _e = s.{}({}); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }}\n",
-                         in, readMethod, containerExpr, ctx, scalarTypeName(f.Type.Scalar));
+      case EArrayElementKind::Variant:
+        generateVerboseVariantParse(out, f, containerExpr, ctx, enumNames, ind);
+        return;
+      case EArrayElementKind::Map:
+        generateVerboseParseMapElement(out, f, enumNames, containerExpr, ctx, ind);
+        return;
+      default:
+        break;
     }
+    // Plain element
+    generateVerboseParsePlainLeafElement(out, f, enumNames, containerExpr, ctx, ind);
     return;
   }
 
@@ -268,8 +352,8 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
     }
 
     case EFieldKind::Array: {
-      if (!f.Type.InnerDims.empty()) {
-        // Multi-dimensional array
+      if (!f.Type.InnerDims.empty() || f.Type.ArrayElementKind != EArrayElementKind::Plain) {
+        // Multi-dimensional array or complex element kind
         out += std::format("{}if (!s.expectChar('[')) {{ s.error->message = \"field '{}': expected array\"; return false; }}\n", in, ctx);
         out += std::format("{}s.skipWhitespace();\n", in);
         out += std::format("{}if (s.p < s.end && *s.p != ']') {{\n", in);
@@ -376,7 +460,7 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       out += std::format("{}  if (i_ > 0 && !s.expectChar(',')) return false;\n", in);
       out += std::format("{}  s.skipWhitespace();\n", in);
 
-      if (!f.Type.InnerDims.empty()) {
+      if (!f.Type.InnerDims.empty() || f.Type.ArrayElementKind != EArrayElementKind::Plain) {
         generateVerboseNestedArrayParse(out, f, enumNames, f.Type.InnerDims, 0,
                                          std::format("{}[i_]", cn), ctx, ind + 1);
       } else if (isMappedField(f)) {
