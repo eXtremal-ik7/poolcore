@@ -195,6 +195,7 @@ static bool resolveMixins(CIdlFile &file)
         if (ed->Comments) s.CommentsEnabled = true;
       } else if (auto *fd = std::get_if<CFlagsDecl>(&member)) {
         if (fd->SkipUnknown) s.SkipUnknownFields = true;
+        if (fd->ArrayLayout) s.ArrayLayout = true;
       } else if (auto *cpp = std::get_if<CCppBlock>(&member)) {
         s.CppBlocks.push_back(cpp->Code);
       } else {
@@ -411,6 +412,26 @@ static bool validateTypes(CIdlFile &file)
         }
       }
       s.HasTaggedSchema = true;
+    }
+
+    // Validate array_layout constraints
+    if (s.ArrayLayout) {
+      if (s.HasTaggedSchema) {
+        fprintf(stderr, "struct '%s': array_layout is incompatible with tagged schema\n", s.Name.c_str());
+        return false;
+      }
+      // Required/Array/FixedArray/Variant/Map fields must precede HasDefault/Optional fields
+      bool seenOptional = false;
+      for (auto &f : s.Fields) {
+        bool isTrailing = (f.Kind == EFieldKind::HasDefault || isOptionalField(f));
+        if (isTrailing) {
+          seenOptional = true;
+        } else if (seenOptional) {
+          fprintf(stderr, "struct '%s': array_layout requires all required fields before optional/default fields (field '%s')\n",
+                  s.Name.c_str(), f.Name.c_str());
+          return false;
+        }
+      }
     }
   }
   return true;
@@ -648,8 +669,12 @@ void dumpAst(const CIdlFile &file)
       emit(s.GenerateFlags.SerializeFlat, "serialize.flat");
       printf(");\n");
     }
-    if (s.SkipUnknownFields) {
-      printf("  .flags(skip_unknown);\n");
+    if (s.SkipUnknownFields || s.ArrayLayout) {
+      printf("  .flags(");
+      bool firstFlag = true;
+      if (s.SkipUnknownFields) { printf("skip_unknown"); firstFlag = false; }
+      if (s.ArrayLayout) { if (!firstFlag) printf(", "); printf("array_layout"); }
+      printf(");\n");
     }
     for (auto &f : s.Fields) {
       printf("  %s: ", f.Name.c_str());

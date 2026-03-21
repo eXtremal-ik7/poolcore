@@ -574,3 +574,62 @@ struct MapFields {
   optionalScalarMap: optional<map<int64>>;
   optionalObjectMap: optional<map<Inner>>;
 }
+
+// ============================================================================
+// Array layout — struct serialized as JSON array
+// ============================================================================
+
+struct ArrayLayoutAllRequired {
+  .generate(parse, parse.verbose, serialize);
+  .flags(array_layout);
+  x: int32;
+  y: int32;
+  z: int32;
+}
+
+struct ArrayLayoutMixed {
+  .generate(parse, parse.verbose, serialize);
+  .flags(array_layout);
+  name: string;
+  count: int64;
+  label: string = "default";
+  score: double = 0.0;
+  extra: optional<string>;
+}
+
+struct ArrayLayoutNested {
+  .generate(parse, parse.verbose, serialize);
+  .flags(array_layout);
+  id: int64;
+  child: Inner;
+  items: [int64];
+}
+
+struct ArrayLayoutSkipExtra {
+  .generate(parse, parse.verbose, serialize);
+  .flags(array_layout, skip_unknown);
+  a: string;
+  b: int32;
+}
+
+struct ArrayLayoutAllDefaults {
+  .generate(parse, parse.verbose, serialize);
+  .flags(array_layout);
+  x: int32 = 0;
+  y: int32 = 0;
+}
+
+struct ArrayLayoutEnum {
+  .generate(parse, parse.verbose, serialize);
+  .flags(array_layout);
+  color: Color;
+  priority: Priority = "medium";
+}
+
+struct ArrayLayoutBarrier {
+  .generate(parse, parse.verbose, serialize);
+  .flags(array_layout);
+  name: string;
+  opt1: optional<string>;
+  opt2: optional<string>(null_in=allow, empty_out=null);
+}

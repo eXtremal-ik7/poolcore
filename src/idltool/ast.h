@@ -170,6 +170,7 @@ struct CExtensionsDecl {
 
 struct CFlagsDecl {
   bool SkipUnknown = false;
+  bool ArrayLayout = false;
   int Line = 0;
 };
 
@@ -194,6 +195,7 @@ struct CStructDef {
   bool CommentsEnabled = false;
   // Flags from '.flags(...)' directive
   bool SkipUnknownFields = false;
+  bool ArrayLayout = false;
   int Line = 0;
 };
 

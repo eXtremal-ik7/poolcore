@@ -1137,6 +1137,129 @@ static void generateParseBody(std::string &out, const CStructDef &s,
   }
 }
 
+// Generate parse body for array_layout structs (JSON array, positional fields)
+static void generateArrayLayoutParseBody(std::string &out, const CStructDef &s,
+    const std::unordered_set<std::string> &enumNames,
+    const CCodegenOptions &opts,
+    const std::unordered_map<size_t, int> &fieldBitMap,
+    int requiredCount)
+{
+  out += "  if (!s.expectChar('[')) return false;\n";
+  out += "  bool valid = true;\n";
+  if (requiredCount > 0)
+    out += "  uint64_t found = 0;\n";
+  out += "  s.skipWhitespace();\n";
+
+  if (s.Fields.empty()) {
+    if (s.SkipUnknownFields) {
+      out += "  if (s.p < s.end && *s.p != ']') {\n";
+      out += "    for (;;) {\n";
+      out += "      if (!s.skipValue()) return false;\n";
+      out += "      s.skipWhitespace();\n";
+      out += "      if (s.p < s.end && *s.p == ',') { s.p++; s.skipWhitespace(); continue; }\n";
+      out += "      break;\n";
+      out += "    }\n";
+      out += "  }\n";
+    }
+    out += "  if (!s.expectChar(']')) return false;\n";
+    out += "  return valid;\n";
+    return;
+  }
+
+  // Find boundary: required fields [0..firstTrailing), optional/default [firstTrailing..N)
+  size_t firstTrailing = s.Fields.size();
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    if (s.Fields[i].Kind == EFieldKind::HasDefault || isOptionalField(s.Fields[i])) {
+      firstTrailing = i;
+      break;
+    }
+  }
+
+  // For firstTrailing == 0 (all fields optional): check if array is non-empty
+  // For firstTrailing > 0: first element is mandatory; required fields use expectChar(',')
+  out += "  if (s.p < s.end && *s.p != ']') {\n";
+
+  // Indentation level increases with nesting for trailing fields
+  int baseInd = 2; // inside the "if non-empty" block
+
+  // Emit required fields: each one (except first) demands comma
+  for (size_t i = 0; i < firstTrailing; i++) {
+    auto &f = s.Fields[i];
+    int foundBit = -1;
+    auto bitIt = fieldBitMap.find(i);
+    if (bitIt != fieldBitMap.end())
+      foundBit = bitIt->second;
+
+    if (i > 0) {
+      std::string in0 = indent(baseInd);
+      out += std::format("{}if (!s.expectChar(',')) {{ valid = false; }}\n", in0);
+      out += std::format("{}else {{\n", in0);
+      out += std::format("{}s.skipWhitespace();\n", indent(baseInd + 1));
+      baseInd++;
+    }
+
+    // Wrap in do-while(false) so that break statements in parse code work
+    out += std::format("{}do {{\n", indent(baseInd));
+    generateParseField(out, f, enumNames, foundBit, baseInd, opts.PascalCaseFields, nullptr);
+    out += std::format("{}}} while (false);\n", indent(baseInd));
+  }
+
+  // After last required field (or from the start if no required fields), emit trailing fields
+  int trailingBaseInd = baseInd;
+  for (size_t i = firstTrailing; i < s.Fields.size(); i++) {
+    auto &f = s.Fields[i];
+    int foundBit = -1;
+    auto bitIt = fieldBitMap.find(i);
+    if (bitIt != fieldBitMap.end())
+      foundBit = bitIt->second;
+
+    std::string in0 = indent(baseInd);
+    if (i == 0) {
+      // First element in array — no comma needed, just parse the value
+      // (already inside "if non-empty" block)
+    } else {
+      // Subsequent trailing element — check for comma
+      out += std::format("{}s.skipWhitespace();\n", in0);
+      out += std::format("{}if (s.p < s.end && *s.p == ',') {{\n", in0);
+      out += std::format("{}s.p++; s.skipWhitespace();\n", indent(baseInd + 1));
+      baseInd++;
+    }
+
+    out += std::format("{}do {{\n", indent(baseInd));
+    generateParseField(out, f, enumNames, foundBit, baseInd, opts.PascalCaseFields, nullptr);
+    out += std::format("{}}} while (false);\n", indent(baseInd));
+  }
+
+  // Skip unknown trailing elements
+  if (s.SkipUnknownFields) {
+    std::string in0 = indent(baseInd);
+    out += std::format("{}s.skipWhitespace();\n", in0);
+    out += std::format("{}while (s.p < s.end && *s.p == ',') {{\n", in0);
+    out += std::format("{}  s.p++; s.skipWhitespace();\n", in0);
+    out += std::format("{}  if (!s.skipValue()) {{ valid = false; break; }}\n", in0);
+    out += std::format("{}  s.skipWhitespace();\n", in0);
+    out += std::format("{}}}\n", in0);
+  }
+
+  // Close trailing optional if-blocks
+  for (int i = baseInd; i > trailingBaseInd; i--)
+    out += std::format("{}}}\n", indent(i - 1));
+
+  // Close required field else-blocks
+  for (int i = trailingBaseInd; i > 2; i--)
+    out += std::format("{}}}\n", indent(i - 1));
+
+  out += "  }\n"; // close "if non-empty"
+  out += "  if (!s.expectChar(']')) return false;\n";
+
+  if (requiredCount > 0) {
+    uint64_t mask = ((uint64_t)1 << requiredCount) - 1;
+    out += std::format("  return valid && (found & 0x{:x}) == 0x{:x};\n", mask, mask);
+  } else {
+    out += "  return valid;\n";
+  }
+}
+
 // ============================================================================
 // Code generation — declarations (header)
 // ============================================================================
@@ -1850,6 +1973,191 @@ static void generateContextSerializeBody(CSerializeCodeBuilder &writer, const CS
   }
 }
 
+// Emit the value of a field in array_layout mode (no key, no conditional wrapping).
+// For Required/HasDefault: scalar or struct. For Array/FixedArray: nested JSON array.
+// For Variant: variant value. For Map: JSON object.
+static void emitArrayLayoutValue(CSerializeCodeBuilder &writer, const CFieldDef &f,
+    const std::string &cn,
+    const std::unordered_set<std::string> &enumNames,
+    int ind)
+{
+  std::string in = indent(ind);
+
+  switch (f.Kind) {
+    case EFieldKind::Required:
+    case EFieldKind::HasDefault:
+      if (isStructRef(f, enumNames))
+        writer.appendRaw(std::format("{}{}.serialize(out);\n", in, cn));
+      else
+        emitSerializeValue(writer, f, cn, enumNames, ind);
+      break;
+
+    case EFieldKind::Array:
+      writer.writeLiteral(ind, "[");
+      writer.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn));
+      writer.appendRaw(std::format("{}  if (i_) out.write(',');\n", in));
+      if (f.Type.InnerDims.empty())
+        emitSerializeArrayElem(writer, f, std::format("{}[i_]", cn), enumNames, ind + 1);
+      else
+        emitNestedArraySerialize(writer, f, f.Type.InnerDims, 0, std::format("{}[i_]", cn), enumNames, ind + 1);
+      writer.appendRaw(std::format("{}}}\n", in));
+      writer.writeLiteral(ind, "]");
+      break;
+
+    case EFieldKind::FixedArray:
+      writer.writeLiteral(ind, "[");
+      writer.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn));
+      writer.appendRaw(std::format("{}  if (i_) out.write(',');\n", in));
+      if (f.Type.InnerDims.empty())
+        emitSerializeArrayElem(writer, f, std::format("{}[i_]", cn), enumNames, ind + 1);
+      else
+        emitNestedArraySerialize(writer, f, f.Type.InnerDims, 0, std::format("{}[i_]", cn), enumNames, ind + 1);
+      writer.appendRaw(std::format("{}}}\n", in));
+      writer.writeLiteral(ind, "]");
+      break;
+
+    case EFieldKind::Variant:
+      emitVariantSerialize(writer, f, cn, enumNames, ind);
+      break;
+
+    case EFieldKind::Map:
+      writer.writeLiteral(ind, "{");
+      writer.appendRaw(std::format("{}{{ bool _first = true;\n", in));
+      writer.appendRaw(std::format("{}for (auto &[_k, _v] : {}) {{\n", in, cn));
+      writer.appendRaw(std::format("{}  if (!_first) out.write(',');\n", in));
+      writer.appendRaw(std::format("{}  _first = false;\n", in));
+      writer.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", in));
+      writer.appendRaw(std::format("{}  out.write(':');\n", in));
+      if (isStructRef(f, enumNames))
+        writer.appendRaw(std::format("{}  _v.serialize(out);\n", in));
+      else {
+        CFieldDef elemField = f;
+        elemField.Kind = EFieldKind::Required;
+        emitSerializeValue(writer, elemField, "_v", enumNames, ind + 1);
+      }
+      writer.appendRaw(std::format("{}}}\n", in));
+      writer.appendRaw(std::format("{}}}\n", in));
+      writer.writeLiteral(ind, "}");
+      break;
+
+    default:
+      break;
+  }
+}
+
+// Emit the value of an optional field in array_layout mode:
+// if present → emit value, if absent → emit null
+static void emitArrayLayoutOptionalValue(CSerializeCodeBuilder &writer, const CFieldDef &f,
+    const std::string &cn,
+    const std::unordered_set<std::string> &enumNames,
+    int ind)
+{
+  std::string in = indent(ind);
+  writer.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
+
+  // Emit the inner value
+  CFieldDef innerField = f;
+  std::string innerCn;
+  switch (f.Kind) {
+    case EFieldKind::OptionalObject:  innerField.Kind = EFieldKind::Required; innerCn = std::format("*{}", cn); break;
+    case EFieldKind::OptionalArray:   innerField.Kind = EFieldKind::Array; innerCn = std::format("*{}", cn); break;
+    case EFieldKind::OptionalFixedArray: innerField.Kind = EFieldKind::FixedArray; innerCn = std::format("*{}", cn); break;
+    case EFieldKind::OptionalVariant: innerField.Kind = EFieldKind::Variant; innerCn = std::format("*{}", cn); break;
+    case EFieldKind::OptionalMap:     innerField.Kind = EFieldKind::Map; innerCn = std::format("*{}", cn); break;
+    default: innerCn = cn; break;
+  }
+  emitArrayLayoutValue(writer, innerField, innerCn, enumNames, ind + 1);
+
+  writer.appendRaw(std::format("{}}} else {{\n", in));
+  writer.writeLiteral(ind + 1, "null");
+  writer.appendRaw(std::format("{}}}\n", in));
+}
+
+static void generateArrayLayoutSerializeBody(CSerializeCodeBuilder &writer, const CStructDef &s,
+    const std::unordered_set<std::string> &enumNames,
+    const CCodegenOptions &opts)
+{
+  if (s.Fields.empty())
+    return;
+
+  // Find boundary: required fields [0..firstTrailing), optional/default [firstTrailing..N)
+  size_t firstTrailing = s.Fields.size();
+  for (size_t i = 0; i < s.Fields.size(); i++) {
+    if (s.Fields[i].Kind == EFieldKind::HasDefault || isOptionalField(s.Fields[i])) {
+      firstTrailing = i;
+      break;
+    }
+  }
+
+  size_t totalFields = s.Fields.size();
+  bool hasTrailing = (firstTrailing < totalFields);
+
+  // Compute __lastField: index+1 of the last field that needs serializing.
+  // If an empty optional with null_in=deny is encountered, stop — we can't
+  // emit null (the parser would reject it), so the array is truncated there.
+  if (hasTrailing) {
+    // Check if any trailing optional field has a barrier (null_in=deny)
+    bool anyBarrier = false;
+    for (size_t i = firstTrailing; i < totalFields; i++) {
+      if (isOptionalField(s.Fields[i]) && !fieldAllowsNullInput(s.Fields[i])) {
+        anyBarrier = true;
+        break;
+      }
+    }
+
+    writer.appendRaw(std::format("{}size_t __lastField = {};\n", indent(1), firstTrailing));
+    int ind = anyBarrier ? 2 : 1;
+    if (anyBarrier)
+      writer.appendRaw(std::format("{}do {{\n", indent(1)));
+
+    for (size_t i = firstTrailing; i < totalFields; i++) {
+      auto &f = s.Fields[i];
+      std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+      if (isOptionalField(f)) {
+        writer.appendRaw(std::format("{}if ({}.has_value()) __lastField = {};\n", indent(ind), cn, i + 1));
+        if (!fieldAllowsNullInput(f))
+          writer.appendRaw(std::format("{}else break;\n", indent(ind)));
+      } else if (f.Kind == EFieldKind::HasDefault) {
+        std::string defaultVal = cppDefault(f, enumNames, opts.PascalCaseFields);
+        writer.appendRaw(std::format("{}if ({} != {}) __lastField = {};\n", indent(ind), cn, defaultVal, i + 1));
+      }
+    }
+
+    if (anyBarrier)
+      writer.appendRaw(std::format("{}}} while (false);\n", indent(1)));
+  }
+
+  // Serialize required fields (always present)
+  for (size_t i = 0; i < firstTrailing; i++) {
+    auto &f = s.Fields[i];
+    std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+    if (i > 0)
+      writer.writeLiteral(1, ",");
+    emitArrayLayoutValue(writer, f, cn, enumNames, 1);
+  }
+
+  // Serialize trailing optional/default fields — only up to __lastField
+  for (size_t i = firstTrailing; i < totalFields; i++) {
+    auto &f = s.Fields[i];
+    std::string cn = fieldCppName(f.Name, opts.PascalCaseFields);
+    std::string in = indent(1);
+
+    writer.appendRaw(std::format("{}if (__lastField > {}) {{\n", in, i));
+
+    if (i > 0)
+      writer.writeLiteral(2, ",");
+
+    if (isOptionalField(f)) {
+      emitArrayLayoutOptionalValue(writer, f, cn, enumNames, 2);
+    } else {
+      // HasDefault: always has a value in C++
+      emitArrayLayoutValue(writer, f, cn, enumNames, 2);
+    }
+
+    writer.appendRaw(std::format("{}}}\n", in));
+  }
+}
+
 static void generateSerializeBody(CSerializeCodeBuilder &writer, const CStructDef &s,
     const CContextAnalysis &ca,
     const std::unordered_set<std::string> &enumNames,
@@ -1857,6 +2165,8 @@ static void generateSerializeBody(CSerializeCodeBuilder &writer, const CStructDe
 {
   if (ca.hasContext()) {
     generateContextSerializeBody(writer, s, ca, enumNames, opts);
+  } else if (s.ArrayLayout) {
+    generateArrayLayoutSerializeBody(writer, s, enumNames, opts);
   } else {
     bool first = true;
     bool runtimeComma = false;
@@ -1895,16 +2205,6 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
   int requiredCount = 0;
 
   if (needParse) {
-    for (auto &f : s.Fields)
-      fieldNames.push_back(f.Name);
-
-    ph = findPerfectHash(fieldNames);
-    if (!ph) {
-      fprintf(stderr, "warning: cannot find perfect hash for struct '%s', using mod=%zu\n",
-              s.Name.c_str(), fieldNames.size() * 4);
-      ph = CPerfectHash{0, 31, (uint32_t)(fieldNames.size() * 4)};
-    }
-
     // Count required fields
     auto isRequired = [](const CFieldDef &f) {
       return f.Kind == EFieldKind::Required || f.Kind == EFieldKind::Array ||
@@ -1915,18 +2215,31 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
       if (isRequired(f))
         requiredCount++;
 
-    // Build hash -> field index map
-    for (size_t i = 0; i < s.Fields.size(); i++) {
-      uint32_t h = computeHash(s.Fields[i].Name.c_str(), s.Fields[i].Name.size(),
-                                ph->Seed, ph->Mult, ph->Mod);
-      hashToIndex[h] = i;
-    }
-
     // Assign required field bits
     int bitIndex = 0;
     for (size_t i = 0; i < s.Fields.size(); i++)
       if (isRequired(s.Fields[i]))
         fieldBitMap[i] = bitIndex++;
+
+    // Perfect hash (not needed for array_layout)
+    if (!s.ArrayLayout) {
+      for (auto &f : s.Fields)
+        fieldNames.push_back(f.Name);
+
+      ph = findPerfectHash(fieldNames);
+      if (!ph) {
+        fprintf(stderr, "warning: cannot find perfect hash for struct '%s', using mod=%zu\n",
+                s.Name.c_str(), fieldNames.size() * 4);
+        ph = CPerfectHash{0, 31, (uint32_t)(fieldNames.size() * 4)};
+      }
+
+      // Build hash -> field index map
+      for (size_t i = 0; i < s.Fields.size(); i++) {
+        uint32_t h = computeHash(s.Fields[i].Name.c_str(), s.Fields[i].Name.size(),
+                                  ph->Seed, ph->Mult, ph->Mod);
+        hashToIndex[h] = i;
+      }
+    }
   }
 
   // --- Parse ---
@@ -1958,7 +2271,10 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
       out += "}\n\n";
 
       out += std::format("template<class Scanner>\nbool {}::parseImpl(Scanner &s) {{\n", sn);
-      generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
+      if (s.ArrayLayout)
+        generateArrayLayoutParseBody(out, s, enumNames, opts, fieldBitMap, requiredCount);
+      else
+        generateParseBody(out, s, enumNames, opts, *ph, hashToIndex, fieldBitMap, requiredCount, &ca.FieldCapture);
       out += "}\n";
       out += std::format("template bool {}::parseImpl(JsonScanner &);\n", sn);
       if (anyComments)
@@ -1981,88 +2297,181 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     out += "}\n\n";
 
     out += std::format("template<class Scanner>\nbool {}::parseVerboseImpl(Scanner &s) {{\n", sn);
-    out += "  if (!s.expectChar('{')) return false;\n";
-    if (requiredCount > 0)
-      out += "  uint64_t found = 0;\n";
-    out += "  s.skipWhitespace();\n";
-    out += "  if (s.p < s.end && *s.p != '}') {\n";
-    out += "    for (;;) {\n";
-    out += "      const char *key;\n";
-    out += "      size_t keyLen;\n";
 
-    if (s.Fields.empty()) {
-      out += "      if (!s.readString(key, keyLen)) return false;\n";
-      out += "      if (!s.expectChar(':')) return false;\n";
-      if (s.SkipUnknownFields) {
-        out += "      if (!s.skipValue()) return false;\n";
-      } else {
-        out += "      s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\");\n";
-        out += "      return false;\n";
+    if (s.ArrayLayout) {
+      // Array-layout verbose parse
+      out += "  if (!s.expectChar('[')) return false;\n";
+      if (requiredCount > 0)
+        out += "  uint64_t found = 0;\n";
+      out += "  s.skipWhitespace();\n";
+
+      // Find boundary: required [0..firstTrailing), optional/default [firstTrailing..N)
+      size_t firstTrailing = s.Fields.size();
+      for (size_t i = 0; i < s.Fields.size(); i++) {
+        if (s.Fields[i].Kind == EFieldKind::HasDefault || isOptionalField(s.Fields[i])) {
+          firstTrailing = i;
+          break;
+        }
       }
-    } else {
-      out += "      uint32_t keyHash;\n";
-      out += std::format("      if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
-                         ph->Seed, ph->Mult);
-      out += "      if (!s.expectChar(':')) return false;\n";
-      out += "      s.skipWhitespace();\n";
-      out += std::format("      switch (keyHash % {}) {{\n", ph->Mod);
 
-      for (uint32_t h = 0; h < ph->Mod; h++) {
-        auto it = hashToIndex.find(h);
-        if (it == hashToIndex.end()) continue;
+      out += "  if (s.p < s.end && *s.p != ']') {\n";
 
-        size_t fi = it->second;
-        auto &f = s.Fields[fi];
+      int baseInd = 2;
+      for (size_t i = 0; i < firstTrailing; i++) {
+        auto &f = s.Fields[i];
         int foundBit = -1;
-        auto bitIt = fieldBitMap.find(fi);
+        auto bitIt = fieldBitMap.find(i);
         if (bitIt != fieldBitMap.end())
           foundBit = bitIt->second;
 
-        out += std::format("        case {}:\n", h);
-        out += std::format("          if (keyLen == {} && memcmp(key, \"{}\", {}) == 0) {{\n",
-                           f.Name.size(), f.Name, f.Name.size());
+        if (i > 0) {
+          std::string in0 = indent(baseInd);
+          out += std::format("{}if (!s.expectChar(',')) return false;\n", in0);
+          out += std::format("{}s.skipWhitespace();\n", in0);
+        }
 
         std::string verboseFieldCode;
-        generateVerboseParseField(verboseFieldCode, f, enumNames, foundBit, 6, opts.PascalCaseFields);
+        generateVerboseParseField(verboseFieldCode, f, enumNames, foundBit, baseInd, opts.PascalCaseFields);
         out += verboseFieldCode;
+      }
 
-        if (s.SkipUnknownFields) {
-          out += "          } else { if (!s.skipValue()) return false; }\n";
+      int trailingBaseInd = baseInd;
+      for (size_t i = firstTrailing; i < s.Fields.size(); i++) {
+        auto &f = s.Fields[i];
+        int foundBit = -1;
+        auto bitIt = fieldBitMap.find(i);
+        if (bitIt != fieldBitMap.end())
+          foundBit = bitIt->second;
+
+        std::string in0 = indent(baseInd);
+        if (i == 0) {
+          // First element — no comma needed
         } else {
-          out += "          } else { s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\"); return false; }\n";
+          out += std::format("{}s.skipWhitespace();\n", in0);
+          out += std::format("{}if (s.p < s.end && *s.p == ',') {{\n", in0);
+          out += std::format("{}s.p++; s.skipWhitespace();\n", indent(baseInd + 1));
+          baseInd++;
         }
-        out += "          break;\n";
+
+        std::string verboseFieldCode;
+        generateVerboseParseField(verboseFieldCode, f, enumNames, foundBit, baseInd, opts.PascalCaseFields);
+        out += verboseFieldCode;
       }
 
-      out += "        default:\n";
       if (s.SkipUnknownFields) {
-        out += "          if (!s.skipValue()) return false;\n";
-      } else {
-        out += "          s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\");\n";
-        out += "          return false;\n";
+        std::string in0 = indent(baseInd);
+        out += std::format("{}s.skipWhitespace();\n", in0);
+        out += std::format("{}while (s.p < s.end && *s.p == ',') {{\n", in0);
+        out += std::format("{}  s.p++; s.skipWhitespace();\n", in0);
+        out += std::format("{}  if (!s.skipValue()) return false;\n", in0);
+        out += std::format("{}  s.skipWhitespace();\n", in0);
+        out += std::format("{}}}\n", in0);
       }
-      out += "      }\n";
-    }
 
-    out += "      s.skipWhitespace();\n";
-    out += "      if (s.p < s.end && *s.p == ',') { s.p++; continue; }\n";
-    out += "      break;\n";
-    out += "    }\n";
-    out += "  }\n";
-    out += "  if (!s.expectCharNoWs('}')) return false;\n";
+      for (int i = baseInd; i > trailingBaseInd; i--)
+        out += std::format("{}}}\n", indent(i - 1));
 
-    if (requiredCount > 0) {
-      uint64_t mask = ((uint64_t)1 << requiredCount) - 1;
-      out += std::format("  if ((found & 0x{:x}) != 0x{:x}) {{\n", mask, mask);
-      for (size_t i = 0; i < s.Fields.size(); i++) {
-        auto bitIt2 = fieldBitMap.find(i);
-        if (bitIt2 != fieldBitMap.end()) {
-          out += std::format("    if (!(found & ((uint64_t)1 << {}))) "
-                             "{{ s.setError(\"missing required field '{}'\"); return false; }}\n",
-                             bitIt2->second, s.Fields[i].Name);
-        }
-      }
       out += "  }\n";
+      out += "  if (!s.expectChar(']')) return false;\n";
+
+      if (requiredCount > 0) {
+        uint64_t mask = ((uint64_t)1 << requiredCount) - 1;
+        out += std::format("  if ((found & 0x{:x}) != 0x{:x}) {{\n", mask, mask);
+        for (size_t i = 0; i < s.Fields.size(); i++) {
+          auto bitIt2 = fieldBitMap.find(i);
+          if (bitIt2 != fieldBitMap.end()) {
+            out += std::format("    if (!(found & ((uint64_t)1 << {}))) "
+                               "{{ s.setError(\"missing element at index {} (field '{}')\"); return false; }}\n",
+                               bitIt2->second, i, s.Fields[i].Name);
+          }
+        }
+        out += "  }\n";
+      }
+    } else {
+      // Normal object-based verbose parse
+      out += "  if (!s.expectChar('{')) return false;\n";
+      if (requiredCount > 0)
+        out += "  uint64_t found = 0;\n";
+      out += "  s.skipWhitespace();\n";
+      out += "  if (s.p < s.end && *s.p != '}') {\n";
+      out += "    for (;;) {\n";
+      out += "      const char *key;\n";
+      out += "      size_t keyLen;\n";
+
+      if (s.Fields.empty()) {
+        out += "      if (!s.readString(key, keyLen)) return false;\n";
+        out += "      if (!s.expectChar(':')) return false;\n";
+        if (s.SkipUnknownFields) {
+          out += "      if (!s.skipValue()) return false;\n";
+        } else {
+          out += "      s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\");\n";
+          out += "      return false;\n";
+        }
+      } else {
+        out += "      uint32_t keyHash;\n";
+        out += std::format("      if (!s.readStringHash(key, keyLen, keyHash, {}, {})) return false;\n",
+                           ph->Seed, ph->Mult);
+        out += "      if (!s.expectChar(':')) return false;\n";
+        out += "      s.skipWhitespace();\n";
+        out += std::format("      switch (keyHash % {}) {{\n", ph->Mod);
+
+        for (uint32_t h = 0; h < ph->Mod; h++) {
+          auto it = hashToIndex.find(h);
+          if (it == hashToIndex.end()) continue;
+
+          size_t fi = it->second;
+          auto &f = s.Fields[fi];
+          int foundBit = -1;
+          auto bitIt = fieldBitMap.find(fi);
+          if (bitIt != fieldBitMap.end())
+            foundBit = bitIt->second;
+
+          out += std::format("        case {}:\n", h);
+          out += std::format("          if (keyLen == {} && memcmp(key, \"{}\", {}) == 0) {{\n",
+                             f.Name.size(), f.Name, f.Name.size());
+
+          std::string verboseFieldCode;
+          generateVerboseParseField(verboseFieldCode, f, enumNames, foundBit, 6, opts.PascalCaseFields);
+          out += verboseFieldCode;
+
+          if (s.SkipUnknownFields) {
+            out += "          } else { if (!s.skipValue()) return false; }\n";
+          } else {
+            out += "          } else { s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\"); return false; }\n";
+          }
+          out += "          break;\n";
+        }
+
+        out += "        default:\n";
+        if (s.SkipUnknownFields) {
+          out += "          if (!s.skipValue()) return false;\n";
+        } else {
+          out += "          s.setError(\"unknown field '\" + std::string(key, keyLen) + \"'\");\n";
+          out += "          return false;\n";
+        }
+        out += "      }\n";
+      }
+
+      out += "      s.skipWhitespace();\n";
+      out += "      if (s.p < s.end && *s.p == ',') { s.p++; continue; }\n";
+      out += "      break;\n";
+      out += "    }\n";
+      out += "  }\n";
+      out += "  if (!s.expectCharNoWs('}')) return false;\n";
+
+      if (requiredCount > 0) {
+        uint64_t mask = ((uint64_t)1 << requiredCount) - 1;
+        out += std::format("  if ((found & 0x{:x}) != 0x{:x}) {{\n", mask, mask);
+        for (size_t i = 0; i < s.Fields.size(); i++) {
+          auto bitIt2 = fieldBitMap.find(i);
+          if (bitIt2 != fieldBitMap.end()) {
+            out += std::format("    if (!(found & ((uint64_t)1 << {}))) "
+                               "{{ s.setError(\"missing required field '{}'\"); return false; }}\n",
+                               bitIt2->second, s.Fields[i].Name);
+          }
+        }
+        out += "  }\n";
+      }
     }
 
     out += "  return true;\n";
@@ -2091,10 +2500,12 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
       out += std::format("void {}::serialize(xmstream &out) const {{\n", sn);
     }
     {
+      const char *open = s.ArrayLayout ? "[" : "{";
+      const char *close = s.ArrayLayout ? "]" : "}";
       CSerializeCodeBuilder writer(out);
-      writer.writeLiteral(1, "{");
+      writer.writeLiteral(1, open);
       generateSerializeBody(writer, s, ca, enumNames, opts);
-      writer.writeLiteral(1, "}");
+      writer.writeLiteral(1, close);
       writer.flush();
     }
     out += "}\n\n";
@@ -2118,10 +2529,12 @@ static void generateStructImpl(std::string &out, const CStructDef &s,
     std::string params = flatSerializeParams(s, ca, enumNames, opts);
     out += std::format("void {}::serialize({}) {{\n", sn, params);
     {
+      const char *open = s.ArrayLayout ? "[" : "{";
+      const char *close = s.ArrayLayout ? "]" : "}";
       CSerializeCodeBuilder writer(out);
-      writer.writeLiteral(1, "{");
+      writer.writeLiteral(1, open);
       generateSerializeBody(writer, s, ca, enumNames, opts);
-      writer.writeLiteral(1, "}");
+      writer.writeLiteral(1, close);
       writer.flush();
     }
     out += "}\n\n";

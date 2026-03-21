@@ -316,6 +316,7 @@ member_list:
       fd.Line = @2.first_line;
       for (auto &flag : *$4) {
         if (flag == "skip_unknown") fd.SkipUnknown = true;
+        else if (flag == "array_layout") fd.ArrayLayout = true;
         else { yyerror(&@4, file, scanner,
                ("unknown flag: " + flag).c_str()); YYERROR; }
       }
