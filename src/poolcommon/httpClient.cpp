@@ -65,14 +65,14 @@ static void parseCtxFree(HTTPParseDefaultContext *ctx)
 
 static HTTPClient *createConnection(asyncBase *base, const HostAddress &address, bool useTls)
 {
+  socketTy sock = socketCreate(address.family, SOCK_STREAM, IPPROTO_TCP, 1);
+  if (sock < 0)
+    return nullptr;
+  aioObject *socketObj = newSocketIo(base, sock);
   if (useTls) {
-    SSLSocket *sslSocket = sslSocketNew(base, nullptr);
+    SSLSocket *sslSocket = sslSocketNew(base, socketObj);
     return httpsClientNew(base, sslSocket);
   } else {
-    socketTy sock = socketCreate(address.family, SOCK_STREAM, IPPROTO_TCP, 1);
-    if (sock < 0)
-      return nullptr;
-    aioObject *socketObj = newSocketIo(base, sock);
     return httpClientNew(base, socketObj);
   }
 }
@@ -435,7 +435,7 @@ CHttpClient<ConnectionPolicy>::CHttpClient(asyncBase *base, const char *url) :
 
   if (!uri.domain.empty()) {
     struct addrinfo hints{}, *result = nullptr;
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     if (getaddrinfo(uri.domain.c_str(), nullptr, &hints, &result) != 0 || !result) {
       return;
