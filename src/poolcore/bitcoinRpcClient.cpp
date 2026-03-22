@@ -217,9 +217,29 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::signRawTransaction(CConnecti
   return EStatusOk;
 }
 
+static std::string buildRpcUrl(const char *address, uint16_t defaultPort, const char *wallet)
+{
+  std::string url = "http://";
+  url.append(address);
+
+  // Append default port if address has none
+  if (!strchr(address, ':')) {
+    url.push_back(':');
+    url.append(std::to_string(defaultPort));
+  }
+
+  if (wallet[0]) {
+    url.append("/wallet/");
+    url.append(wallet);
+  }
+  return url;
+}
+
 CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, const char *wallet, bool longPollEnabled) :
   CNetworkClient(threadsNum),
-  WorkFetcherBase_(base), CoinInfo_(coinInfo), HasLongPoll_(longPollEnabled)
+  WorkFetcherBase_(base), CoinInfo_(coinInfo),
+  WorkFetcherHttpClient_(base, buildRpcUrl(address, coinInfo.DefaultRpcPort, wallet).c_str()),
+  HasLongPoll_(longPollEnabled)
 {
   WorkFetcher_.Client = nullptr;
   httpParseDefaultInit(&WorkFetcher_.ParseCtx);
@@ -275,6 +295,8 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
   base64Encode(BasicAuth_.data(), reinterpret_cast<uint8_t*>(basicAuth.data()), basicAuth.size());
 
   Wallet_ = wallet;
+
+  WorkFetcherHttpClient_.setBasicAuth(login, password);
 
   BalanceQuery_ = buildPostQuery(gBalanceQuery.data(), gBalanceQuery.size(), HostName_, Wallet_, BasicAuth_);
   BalanceQueryWithImmatured_ = buildPostQuery(gBalanceQueryWithImmatured.data(), gBalanceQueryWithImmatured.size(), HostName_, Wallet_, BasicAuth_);

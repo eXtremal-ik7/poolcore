@@ -48,6 +48,8 @@ CPriceFetcher::CPriceFetcher(asyncBase *monitorBase,
   }
   QueryPath_.append("&vs_currencies=USD");
 
+  PreparedQuery_ = Client_.prepare({.Method = HttpMethod::GET, .Path = QueryPath_});
+
   TimerEvent_ = newUserEvent(monitorBase, 0, [](aioUserEvent*, void *arg){
     static_cast<CPriceFetcher*>(arg)->updatePrice();
   }, this);
@@ -89,7 +91,7 @@ void CPriceFetcher::resetPricesIfStale()
 void CPriceFetcher::updatePrice()
 {
   Client_.aioRequest<CCoinGeckoPrices>(
-    {.Method = HttpMethod::GET, .Path = QueryPath_, .Timeout = 10000000},
+    PreparedQuery_,
     [this](AsyncOpStatus status, CCoinGeckoPrices response) {
       if (status == aosSuccess) {
         processResponse(response);

@@ -2,6 +2,7 @@
 
 #include "poolcore/poolCore.h"
 #include "poolcore/thread.h"
+#include "poolcommon/httpClient.h"
 #include "asyncio/asyncio.h"
 #include "asyncio/http.h"
 #include "asyncio/socket.h"
@@ -179,6 +180,7 @@ private:
   std::string Wallet_;
   std::string BasicAuth_;
 
+  CHttpClient<ConnectionKeepAlive> WorkFetcherHttpClient_;
   GBTInstance WorkFetcher_;
   bool HasLongPoll_;
   bool HasGetWalletInfo_ = true;

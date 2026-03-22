@@ -1,0 +1,384 @@
+// Bitcoin JSON-RPC request/response definitions
+// Each method gets its own Request (serialize) and Response (parse) struct.
+
+import "../poolcommon/types.idl";
+
+// --- Common ---
+
+struct RpcError {
+  .generate(parse);
+  code: int64;
+  message: string;
+}
+
+// Common response for methods returning a single string result
+// (getbalance, getblockhash, createrawtransaction, sendrawtransaction, z_sendmany, z_getbalance)
+struct RpcStringResponse {
+  .generate(parse);
+  result: optional<string>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}
+
+// === getbalance ===
+
+// {"method": "getbalance", "params": []} or {"method": "getbalance", "params": ["*", 1]}
+struct GetBalanceRequest {
+  .generate(serialize);
+  method: string = "getbalance";
+  params: GetBalanceParams;
+}
+struct GetBalanceParams {
+  .flags(array_layout);
+  .generate(serialize);
+  account: optional<string>;
+  minConf: optional<int64>;
+}
+
+// === getwalletinfo ===
+
+// {"method": "getwalletinfo", "params": []}
+struct GetWalletInfoRequest {
+  .generate(serialize);
+  method: string = "getwalletinfo";
+  params: GetWalletInfoParams;
+}
+struct GetWalletInfoParams {
+  .flags(array_layout);
+  .generate(serialize);
+}
+
+struct WalletInfoResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  balance: string;
+  immature_balance: string;
+}
+struct GetWalletInfoResponse {
+  .generate(parse);
+  result: optional<WalletInfoResult>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}
+
+// === getblockchaininfo / getinfo ===
+
+struct GetBlockChainInfoRequest {
+  .generate(serialize);
+  method: string = "getblockchaininfo";
+  params: EmptyParams;
+}
+struct GetInfoRequest {
+  .generate(serialize);
+  method: string = "getinfo";
+  params: EmptyParams;
+}
+struct EmptyParams {
+  .flags(array_layout);
+  .generate(serialize);
+}
+
+struct ChainInfoResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  blocks: uint64;
+}
+struct GetChainInfoResponse {
+  .generate(parse);
+  result: optional<ChainInfoResult>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}
+
+// === getblockhash ===
+
+struct GetBlockHashRequest {
+  .generate(serialize);
+  method: string = "getblockhash";
+  params: GetBlockHashParams;
+}
+struct GetBlockHashParams {
+  .flags(array_layout);
+  .generate(serialize);
+  height: uint64;
+}
+
+// response: RpcStringResponse
+
+// === getblocktemplate ===
+
+struct GetBlockTemplateRequest {
+  .generate(serialize);
+  jsonrpc: string = "1.0";
+  method: string = "getblocktemplate";
+  params: GetBlockTemplateParams;
+}
+struct GetBlockTemplateParams {
+  .flags(array_layout);
+  .generate(serialize);
+  opts: GetBlockTemplateOpts;
+}
+struct GetBlockTemplateOpts {
+  .generate(serialize);
+  capabilities: [string];
+  longpollid: optional<string>;
+  rules: optional<[string]>;
+}
+
+// Response parsed manually (goes into CBlockTemplate::Document)
+
+// === submitblock ===
+
+struct SubmitBlockRequest {
+  .generate(serialize);
+  method: string = "submitblock";
+  params: SubmitBlockParams;
+}
+struct SubmitBlockParams {
+  .flags(array_layout);
+  .generate(serialize);
+  blockData: string;
+}
+
+// === sendtoaddress ===
+
+struct SendToAddressRequest {
+  .generate(serialize);
+  method: string = "sendtoaddress";
+  params: SendToAddressParams;
+}
+struct SendToAddressParams {
+  .flags(array_layout);
+  .generate(serialize);
+  destination: string;
+  amount: string;
+}
+
+// === gettransaction ===
+
+struct GetTransactionRequest {
+  .generate(serialize);
+  method: string = "gettransaction";
+  params: GetTransactionParams;
+}
+struct GetTransactionParams {
+  .flags(array_layout);
+  .generate(serialize);
+  txId: string;
+}
+
+struct GetTransactionResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  confirmations: int64;
+}
+struct GetTransactionResponse {
+  .generate(parse);
+  result: optional<GetTransactionResult>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}
+
+// === createrawtransaction ===
+
+struct CreateRawTransactionRequest {
+  .generate(serialize);
+  method: string = "createrawtransaction";
+  params: CreateRawTransactionParams;
+}
+struct CreateRawTransactionParams {
+  .flags(array_layout);
+  .generate(serialize);
+  inputs: [CreateRawTxInput];
+  outputs: map<string>;        // {address: amount_string}
+}
+struct CreateRawTxInput {
+  .generate(serialize);
+  txid: string;
+  vout: uint32;
+}
+
+// response: RpcStringResponse
+
+// === fundrawtransaction ===
+
+struct FundRawTransactionRequest {
+  .generate(serialize);
+  method: string = "fundrawtransaction";
+  params: FundRawTransactionParams;
+}
+struct FundRawTransactionParams {
+  .flags(array_layout);
+  .generate(serialize);
+  rawTx: string;
+  options: optional<FundRawTxOptions>;
+}
+struct FundRawTxOptions {
+  .generate(serialize);
+  changeAddress: string;
+}
+
+struct FundRawTransactionResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  hex: string;
+  fee: string;
+}
+struct FundRawTransactionResponse {
+  .generate(parse);
+  result: optional<FundRawTransactionResult>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}
+
+// === signrawtransaction / signrawtransactionwithwallet ===
+
+struct SignRawTransactionRequest {
+  .generate(serialize);
+  method: string = "signrawtransaction";
+  params: SignRawTransactionParams;
+}
+struct SignRawTransactionWithWalletRequest {
+  .generate(serialize);
+  method: string = "signrawtransactionwithwallet";
+  params: SignRawTransactionParams;
+}
+struct SignRawTransactionParams {
+  .flags(array_layout);
+  .generate(serialize);
+  rawTx: string;
+  privKeys: [string];         // empty array [] passed as second param
+}
+
+struct SignRawTransactionResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  hex: string;
+  complete: bool;
+  error: optional<string>;
+}
+struct SignRawTransactionResponse {
+  .generate(parse);
+  result: optional<SignRawTransactionResult>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}
+
+// === sendrawtransaction ===
+
+struct SendRawTransactionRequest {
+  .generate(serialize);
+  method: string = "sendrawtransaction";
+  params: SendRawTransactionParams;
+}
+struct SendRawTransactionParams {
+  .flags(array_layout);
+  .generate(serialize);
+  txData: string;
+}
+
+// response: RpcStringResponse
+
+// === decoderawtransaction ===
+
+struct DecodeRawTransactionRequest {
+  .generate(serialize);
+  method: string = "decoderawtransaction";
+  params: DecodeRawTransactionParams;
+}
+struct DecodeRawTransactionParams {
+  .flags(array_layout);
+  .generate(serialize);
+  txData: string;
+}
+
+struct DecodeRawTransactionResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  txid: string;
+}
+struct DecodeRawTransactionResponse {
+  .generate(parse);
+  result: optional<DecodeRawTransactionResult>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}
+
+// === listunspent ===
+
+struct ListUnspentRequest {
+  .generate(serialize);
+  method: string = "listunspent";
+  params: EmptyParams;
+}
+
+struct UnspentOutput {
+  .generate(parse);
+  .flags(skip_unknown);
+  address: string;
+  amount: string;
+  generated: bool;
+}
+struct ListUnspentResponse {
+  .generate(parse);
+  result: optional<[UnspentOutput]>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}
+
+// === z_sendmany (Zcash) ===
+
+struct ZSendManyRequest {
+  .generate(serialize);
+  method: string = "z_sendmany";
+  params: ZSendManyParams;
+}
+struct ZSendManyParams {
+  .flags(array_layout);
+  .generate(serialize);
+  source: string;
+  amounts: [ZSendManyDest];
+  minConf: int64;
+  fee: string;
+}
+struct ZSendManyDest {
+  .generate(serialize);
+  address: string;
+  amount: string;
+  memo: optional<string>;
+}
+
+// response: RpcStringResponse
+
+// === z_getbalance (Zcash) ===
+
+struct ZGetBalanceRequest {
+  .generate(serialize);
+  method: string = "z_getbalance";
+  params: ZGetBalanceParams;
+}
+struct ZGetBalanceParams {
+  .flags(array_layout);
+  .generate(serialize);
+  address: string;
+}
+
+// response: RpcStringResponse
+
+// === getblockstats ===
+
+struct GetBlockStatsRequest {
+  .generate(serialize);
+  method: string = "getblockstats";
+  params: GetBlockStatsParams;
+}
+struct GetBlockStatsParams {
+  .flags(array_layout);
+  .generate(serialize);
+  height: int64;
+  fields: [string];
+}
+
+struct GetBlockStatsResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  totalfee: int64;
+  time: int64;
+}
+struct GetBlockStatsResponse {
+  .generate(parse);
+  result: optional<GetBlockStatsResult>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}

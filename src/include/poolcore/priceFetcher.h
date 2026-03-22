@@ -23,6 +23,7 @@ private:
   std::vector<CCoinInfo> CoinInfo_;
   std::unordered_map<std::string, size_t> CoinIndexMap_;
   std::string QueryPath_;
+  std::string PreparedQuery_;
   std::atomic<double> BTCPrice_;
   std::unique_ptr<std::atomic<double>[]> CurrentPrices_;
   uint64_t PollInterval_;
