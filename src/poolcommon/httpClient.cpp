@@ -8,7 +8,6 @@
 #include <netdb.h>
 #include <atomic>
 #include <cstring>
-#include <type_traits>
 
 static const char *httpMethodString(HttpMethod method)
 {
@@ -78,7 +77,7 @@ static HTTPClient *createConnection(asyncBase *base, const HostAddress &address,
 }
 
 // ---------------------------------------------------------------------------
-// Per-request state for ConnectionPerRequest async operations.
+// Per-request state for CHttpEndpoint async operations.
 // Owns the HTTPClient. Self-destructs in the final callback.
 // ---------------------------------------------------------------------------
 
@@ -128,7 +127,7 @@ static constexpr uint8_t KA_DISCONNECT = 2;
 static constexpr uint8_t KA_DELETE = 3;
 
 // ---------------------------------------------------------------------------
-// Per-request state for ConnectionKeepAlive async operations.
+// Per-request state for CHttpConnection async operations.
 // Linked into combiner CAS-stack via Next pointer.
 //
 // Each async request carries its own HTTPParseDefaultContext because asyncio
@@ -156,7 +155,7 @@ static KeepAliveOp *const COMBINER_SENTINEL = reinterpret_cast<KeepAliveOp*>(uin
 // KeepAliveState — ref-counted keep-alive connection state.
 //
 // Ref-counting follows the asyncio pattern:
-//   - CHttpClient holds one ref (released in destructor)
+//   - CHttpConnection holds one ref (released in destructor)
 //   - Each KeepAliveOp holds one per-op ref (addRef at creation, release
 //     at deletion) — analogous to asyncio's initAsyncOpRoot/releaseAsyncOp
 //   - Connect callback holds one ref (between aioHttpConnect and callback)
@@ -176,7 +175,7 @@ struct KeepAliveState {
   // Embedded op for delete-through-combiner (never heap-allocated)
   KeepAliveOp DeleteOp_;
 
-  // Config (copied from CHttpClient at construction, immutable)
+  // Config (copied from CHttpBase at construction, immutable)
   asyncBase *Base = nullptr;
   HostAddress Address{};
   bool UseTls = false;
@@ -231,15 +230,6 @@ struct KeepAliveState {
     }
     PendingConnect.clear();
     return freedOps;
-  }
-
-  void disconnect()
-  {
-    addRef(); // per-op ref
-    auto *op = new KeepAliveOp{};
-    op->Action = KA_DISCONNECT;
-    op->Owner = this;
-    combinerPush(op);
   }
 
   // --- Flat combining (same pattern as asyncio) ---
@@ -417,13 +407,15 @@ struct KeepAliveState {
   }
 };
 
+// ===========================================================================
+// CHttpBase
+// ===========================================================================
+
 // ---------------------------------------------------------------------------
 // Constructors
 // ---------------------------------------------------------------------------
 
-template<typename ConnectionPolicy>
-CHttpClient<ConnectionPolicy>::CHttpClient(asyncBase *base, const char *url) :
-  Base_(base)
+CHttpBase::CHttpBase(const char *url)
 {
   URI uri;
   if (!uriParse(url, &uri))
@@ -479,14 +471,9 @@ CHttpClient<ConnectionPolicy>::CHttpClient(asyncBase *base, const char *url) :
 
   if (!uri.path.empty() && uri.path != "/")
     BasePath_ = uri.path;
-
-  if constexpr (std::is_same_v<ConnectionPolicy, ConnectionKeepAlive>)
-    State_ = new KeepAliveState(Base_, Address_, UseTls_, TlsHost_);
 }
 
-template<typename ConnectionPolicy>
-CHttpClient<ConnectionPolicy>::CHttpClient(asyncBase *base, HostAddress address, bool useTls) :
-  Base_(base),
+CHttpBase::CHttpBase(HostAddress address, bool useTls) :
   Address_(address),
   UseTls_(useTls)
 {
@@ -509,32 +496,13 @@ CHttpClient<ConnectionPolicy>::CHttpClient(asyncBase *base, HostAddress address,
     HostName_ += ":" + std::to_string(port);
 
   // TlsHost_ stays empty — call setHostName() for domain-based TLS SNI
-
-  if constexpr (std::is_same_v<ConnectionPolicy, ConnectionKeepAlive>)
-    State_ = new KeepAliveState(Base_, Address_, UseTls_, TlsHost_);
-}
-
-// ---------------------------------------------------------------------------
-// Destructor / move
-// ---------------------------------------------------------------------------
-
-template<typename ConnectionPolicy>
-CHttpClient<ConnectionPolicy>::~CHttpClient()
-{
-  if constexpr (std::is_same_v<ConnectionPolicy, ConnectionKeepAlive>) {
-    if (State_) {
-      State_->release();
-      State_ = nullptr;
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-template<typename ConnectionPolicy>
-void CHttpClient<ConnectionPolicy>::setBasicAuth(const char *login, const char *password)
+void CHttpBase::setBasicAuth(const char *login, const char *password)
 {
   std::string credentials = login;
   credentials.push_back(':');
@@ -544,8 +512,7 @@ void CHttpClient<ConnectionPolicy>::setBasicAuth(const char *login, const char *
   BasicAuth_.resize(encodedLen);
 }
 
-template<typename ConnectionPolicy>
-void CHttpClient<ConnectionPolicy>::setDefaultHeader(std::string name, std::string value)
+void CHttpBase::setDefaultHeader(std::string name, std::string value)
 {
   for (auto& [n, v]: DefaultHeaders_) {
     if (n == name) {
@@ -556,8 +523,7 @@ void CHttpClient<ConnectionPolicy>::setDefaultHeader(std::string name, std::stri
   DefaultHeaders_.emplace_back(std::move(name), std::move(value));
 }
 
-template<typename ConnectionPolicy>
-void CHttpClient<ConnectionPolicy>::setHostName(std::string hostName)
+void CHttpBase::setHostName(std::string hostName)
 {
   TlsHost_ = hostName;
   HostName_ = std::move(hostName);
@@ -565,37 +531,18 @@ void CHttpClient<ConnectionPolicy>::setHostName(std::string hostName)
   uint16_t defaultPort = UseTls_ ? 443 : 80;
   if (port != defaultPort)
     HostName_ += ":" + std::to_string(port);
-  if constexpr (std::is_same_v<ConnectionPolicy, ConnectionKeepAlive>) {
-    if (State_)
-      State_->TlsHost = TlsHost_;
-  }
 }
 
-template<typename ConnectionPolicy>
-void CHttpClient<ConnectionPolicy>::setDefaultTimeout(uint64_t timeoutUs)
+void CHttpBase::setDefaultTimeout(uint64_t timeoutUs)
 {
   DefaultTimeout_ = timeoutUs;
-}
-
-// ---------------------------------------------------------------------------
-// Connection management
-// ---------------------------------------------------------------------------
-
-template<typename ConnectionPolicy>
-void CHttpClient<ConnectionPolicy>::disconnect()
-{
-  if constexpr (std::is_same_v<ConnectionPolicy, ConnectionKeepAlive>) {
-    if (State_)
-      State_->disconnect();
-  }
 }
 
 // ---------------------------------------------------------------------------
 // prepare — build raw HTTP request text
 // ---------------------------------------------------------------------------
 
-template<typename ConnectionPolicy>
-std::string CHttpClient<ConnectionPolicy>::prepare(const HttpRequest &request) const
+std::string CHttpBase::prepare(const HttpRequest &request) const
 {
   std::string out;
   buildRawRequest(request, out);
@@ -606,8 +553,7 @@ std::string CHttpClient<ConnectionPolicy>::prepare(const HttpRequest &request) c
 // Raw HTTP request builder
 // ---------------------------------------------------------------------------
 
-template<typename ConnectionPolicy>
-void CHttpClient<ConnectionPolicy>::buildRawRequest(const HttpRequest &request, std::string &out) const
+void CHttpBase::buildRawRequest(const HttpRequest &request, std::string &out) const
 {
   out.clear();
 
@@ -621,10 +567,10 @@ void CHttpClient<ConnectionPolicy>::buildRawRequest(const HttpRequest &request, 
   out.append(HostName_);
   out.append("\r\n");
 
-  if constexpr (std::is_same_v<ConnectionPolicy, ConnectionPerRequest>)
-    out.append("Connection: close\r\n");
-  else
+  if (KeepAlive_)
     out.append("Connection: keep-alive\r\n");
+  else
+    out.append("Connection: close\r\n");
 
   if (!BasicAuth_.empty()) {
     out.append("Authorization: Basic ");
@@ -665,67 +611,40 @@ void CHttpClient<ConnectionPolicy>::buildRawRequest(const HttpRequest &request, 
     out.append(request.Body);
 }
 
-// ---------------------------------------------------------------------------
-// ioRequest — synchronous (coroutine-safe for keep-alive via combiner)
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// CHttpEndpoint
+// ===========================================================================
 
-template<typename ConnectionPolicy>
-AsyncOpStatus CHttpClient<ConnectionPolicy>::ioRequest(std::string request, HttpResponse &response, uint64_t timeout)
+AsyncOpStatus CHttpEndpoint::ioRequest(asyncBase *base, std::string request, HttpResponse &response, uint64_t timeout)
 {
   if (!isValid())
     return aosUnknownError;
 
   timeout = effectiveTimeout(timeout);
 
-  if constexpr (std::is_same_v<ConnectionPolicy, ConnectionKeepAlive>) {
-    AsyncOpStatus syncStatus;
-    coroutineTy *current = coroutineCurrent();
-
-    State_->addRef(); // per-op ref
-    auto *op = new KeepAliveOp{};
-    op->Owner = State_;
-    op->Action = KA_REQUEST;
-    op->Callback = [&syncStatus, &response, current](AsyncOpStatus status, HttpResponse resp) {
-      syncStatus = status;
-      response = std::move(resp);
-      coroutineCall(current);
-    };
-    op->Timeout = timeout;
-    op->RawRequest = std::move(request);
-    parseCtxInit(&op->ParseCtx);
-    State_->combinerPush(op);
-    coroutineYield();
-    return syncStatus;
-  } else {
-    HTTPClient *client = createConnection(Base_, Address_, UseTls_);
-    if (!client)
-      return aosUnknownError;
-    const char *tlsHost = (UseTls_ && !TlsHost_.empty()) ? TlsHost_.c_str() : nullptr;
-    int connectError = ioHttpConnect(client, &Address_, tlsHost, timeout);
-    if (connectError != 0) {
-      httpClientDelete(client);
-      return static_cast<AsyncOpStatus>(-connectError);
-    }
-
-    HTTPParseDefaultContext parseCtx;
-    parseCtxInit(&parseCtx);
-
-    AsyncOpStatus status = ioHttpRequest(client, request.c_str(), request.size(), timeout, httpParseDefault, &parseCtx);
-    if (status == aosSuccess)
-      response = extractResponse(parseCtx);
-
-    parseCtxFree(&parseCtx);
+  HTTPClient *client = createConnection(base, Address_, UseTls_);
+  if (!client)
+    return aosUnknownError;
+  const char *tlsHost = (UseTls_ && !TlsHost_.empty()) ? TlsHost_.c_str() : nullptr;
+  int connectError = ioHttpConnect(client, &Address_, tlsHost, timeout);
+  if (connectError != 0) {
     httpClientDelete(client);
-    return status;
+    return static_cast<AsyncOpStatus>(-connectError);
   }
+
+  HTTPParseDefaultContext parseCtx;
+  parseCtxInit(&parseCtx);
+
+  AsyncOpStatus status = ioHttpRequest(client, request.c_str(), request.size(), timeout, httpParseDefault, &parseCtx);
+  if (status == aosSuccess)
+    response = extractResponse(parseCtx);
+
+  parseCtxFree(&parseCtx);
+  httpClientDelete(client);
+  return status;
 }
 
-// ---------------------------------------------------------------------------
-// aioRequest — asynchronous (thread-safe for keep-alive via flat combining)
-// ---------------------------------------------------------------------------
-
-template<typename ConnectionPolicy>
-void CHttpClient<ConnectionPolicy>::aioRequest(std::string request, HttpResponseCb callback, uint64_t timeout)
+void CHttpEndpoint::aioRequest(asyncBase *base, std::string request, HttpResponseCb callback, uint64_t timeout)
 {
   if (!isValid()) {
     callback(aosUnknownError, HttpResponse{});
@@ -734,36 +653,101 @@ void CHttpClient<ConnectionPolicy>::aioRequest(std::string request, HttpResponse
 
   timeout = effectiveTimeout(timeout);
 
-  if constexpr (std::is_same_v<ConnectionPolicy, ConnectionKeepAlive>) {
-    State_->addRef(); // per-op ref
-    auto *op = new KeepAliveOp{};
-    op->Owner = State_;
-    op->Action = KA_REQUEST;
-    op->Callback = std::move(callback);
-    op->Timeout = timeout;
-    op->RawRequest = std::move(request);
-    parseCtxInit(&op->ParseCtx);
-    State_->combinerPush(op);
-  } else {
-    auto *op = new AioOperation();
-    op->Callback = std::move(callback);
-    op->Timeout = timeout;
-    op->RawRequest = std::move(request);
-    op->Client = createConnection(Base_, Address_, UseTls_);
-    if (!op->Client) {
-      op->Callback(aosUnknownError, HttpResponse{});
-      delete op;
-      return;
-    }
+  auto *op = new AioOperation();
+  op->Callback = std::move(callback);
+  op->Timeout = timeout;
+  op->RawRequest = std::move(request);
+  op->Client = createConnection(base, Address_, UseTls_);
+  if (!op->Client) {
+    op->Callback(aosUnknownError, HttpResponse{});
+    delete op;
+    return;
+  }
 
-    const char *tlsHost = (UseTls_ && !TlsHost_.empty()) ? TlsHost_.c_str() : nullptr;
-    aioHttpConnect(op->Client, &Address_, tlsHost, op->Timeout, AioOperation::onConnect, op);
+  const char *tlsHost = (UseTls_ && !TlsHost_.empty()) ? TlsHost_.c_str() : nullptr;
+  aioHttpConnect(op->Client, &Address_, tlsHost, op->Timeout, AioOperation::onConnect, op);
+}
+
+// ===========================================================================
+// CHttpConnection
+// ===========================================================================
+
+CHttpConnection::CHttpConnection(asyncBase *base, const char *url) :
+  CHttpBase(url),
+  Base_(base)
+{
+  KeepAlive_ = true;
+  if (isValid())
+    State_ = new KeepAliveState(base, Address_, UseTls_, TlsHost_);
+}
+
+CHttpConnection::CHttpConnection(asyncBase *base, HostAddress address, bool useTls) :
+  CHttpBase(address, useTls),
+  Base_(base)
+{
+  KeepAlive_ = true;
+  if (isValid())
+    State_ = new KeepAliveState(base, Address_, UseTls_, TlsHost_);
+}
+
+CHttpConnection::~CHttpConnection()
+{
+  if (State_) {
+    State_->release();
+    State_ = nullptr;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Explicit template instantiation
-// ---------------------------------------------------------------------------
+void CHttpConnection::setHostName(std::string hostName)
+{
+  CHttpBase::setHostName(std::move(hostName));
+  if (State_)
+    State_->TlsHost = TlsHost_;
+}
 
-template class CHttpClient<ConnectionPerRequest>;
-template class CHttpClient<ConnectionKeepAlive>;
+AsyncOpStatus CHttpConnection::ioRequest(std::string request, HttpResponse &response, uint64_t timeout)
+{
+  if (!isValid())
+    return aosUnknownError;
+
+  timeout = effectiveTimeout(timeout);
+
+  AsyncOpStatus syncStatus;
+  coroutineTy *current = coroutineCurrent();
+
+  State_->addRef(); // per-op ref
+  auto *op = new KeepAliveOp{};
+  op->Owner = State_;
+  op->Action = KA_REQUEST;
+  op->Callback = [&syncStatus, &response, current](AsyncOpStatus status, HttpResponse resp) {
+    syncStatus = status;
+    response = std::move(resp);
+    coroutineCall(current);
+  };
+  op->Timeout = timeout;
+  op->RawRequest = std::move(request);
+  parseCtxInit(&op->ParseCtx);
+  State_->combinerPush(op);
+  coroutineYield();
+  return syncStatus;
+}
+
+void CHttpConnection::aioRequest(std::string request, HttpResponseCb callback, uint64_t timeout)
+{
+  if (!isValid()) {
+    callback(aosUnknownError, HttpResponse{});
+    return;
+  }
+
+  timeout = effectiveTimeout(timeout);
+
+  State_->addRef(); // per-op ref
+  auto *op = new KeepAliveOp{};
+  op->Owner = State_;
+  op->Action = KA_REQUEST;
+  op->Callback = std::move(callback);
+  op->Timeout = timeout;
+  op->RawRequest = std::move(request);
+  parseCtxInit(&op->ParseCtx);
+  State_->combinerPush(op);
+}

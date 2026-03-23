@@ -153,7 +153,7 @@ void CNetworkClientDispatcher::aioSubmitBlock(asyncBase *base, const void *data,
 {
   CNetworkClient::CSubmitBlockOperation *submitOperation = new CNetworkClient::CSubmitBlockOperation(callback, GetWorkClients_.size());
   for (size_t i = 0, ie = GetWorkClients_.size(); i != ie; ++i)
-    GetWorkClients_[i]->aioSubmitBlock(base, GetWorkClients_[i]->prepareBlock(data, size), submitOperation);
+    GetWorkClients_[i]->aioSubmitBlock(base, data, size, submitOperation);
 }
 
 // ZEC specific

@@ -7,15 +7,9 @@
 #include "poolcore/clientDispatcher.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcommon/utils.h"
-#include "asyncio/asyncio.h"
-#include "p2putils/uriParse.h"
+#include "p2putils/xmstream.h"
 
-#ifndef WIN32
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#endif
+#include <inttypes.h>
 
 // Parse hex string (with or without "0x" prefix) as wei and return UInt<384> with wei in upper 128 bits
 static UInt<384> fromWeiHex(const char *hex) {
@@ -29,92 +23,40 @@ static std::string toWeiHex(const UInt<384> &value) {
   return (value >> 256).getHex(false, true, false);
 }
 
-static std::string buildPostQuery(const std::string address, const char *data, size_t size, const std::string &host)
+CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, PoolBackendConfig &config) :
+  CoinInfo_(coinInfo),
+  RpcEndpoint_([&]() -> std::string {
+    std::string url = "http://";
+    url += address;
+    if (!strchr(address, ':')) {
+      url.push_back(':');
+      url.append(std::to_string(coinInfo.DefaultRpcPort));
+    }
+    return url;
+  }().c_str()),
+  WorkFetcherClient_(base, [&]() -> std::string {
+    std::string url = "http://";
+    url += address;
+    if (!strchr(address, ':')) {
+      url.push_back(':');
+      url.append(std::to_string(coinInfo.DefaultRpcPort));
+    }
+    return url;
+  }().c_str())
 {
-  char dataLength[16];
-  xitoa(size, dataLength);
-
-  std::string query = "POST ";
-    query.append(address);
-    query.append(" HTTP/1.1\r\n");
-    query.append("Host: ");
-      query.append(host);
-      query.append("\r\n");
-    query.append("Connection: keep-alive\r\n");
-    query.append("Content-Length: ");
-      query.append(static_cast<const char*>(dataLength));
-      query.append("\r\n");
-    query.append("Content-Type: application/json\r\n");
-    query.append("\r\n");
-  if (data)
-    query.append(data, size);
-  return query;
-}
-
-static void buildPostQuery(const std::string address, const char *data, size_t size, const std::string &host, xmstream &out)
-{
-  char dataLength[16];
-  xitoa(size, dataLength);
-
-  out.write("POST ");
-    out.write(address.data(), address.size());
-    out.write(" HTTP/1.1\r\n");
-    out.write("Host: ");
-      out.write(host.data(), host.size());
-      out.write("\r\n");
-    out.write("Connection: keep-alive\r\n");
-    out.write("Content-Length: ");
-      out.write(static_cast<const char*>(dataLength));
-      out.write("\r\n");
-    out.write("Content-Type: application/json\r\n");
-    out.write("\r\n");
-  if (data)
-    out.write(data, size);
-}
-
-CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, PoolBackendConfig &config) : CNetworkClient(threadsNum),
-  WorkFetcherBase_(base), CoinInfo_(coinInfo)
-{
-  WorkFetcher_.Client = nullptr;
-  httpParseDefaultInit(&WorkFetcher_.ParseCtx);
-  WorkFetcher_.TimerEvent = newUserEvent(base, 0, [](aioUserEvent*, void *arg) {
-    static_cast<CEthereumRpcClient*>(arg)->onWorkFetchTimeout();
-  }, this);
-
-  URI uri;
-  std::string uriAddress = (std::string)"http://" + address;
-  if (!uriParse(uriAddress.c_str(), &uri)) {
-    CLOG_F(ERROR, "{}: can't parse address {}", coinInfo.Name, address);
+  if (!RpcEndpoint_.isValid()) {
+    CLOG_F(ERROR, "{}: can't resolve address {}", coinInfo.Name, address);
     exit(1);
   }
 
-  uint16_t port = uri.port ? uri.port : coinInfo.DefaultRpcPort;
-  if (!uri.domain.empty()) {
-    struct hostent *host = gethostbyname(uri.domain.c_str());
-    if (host) {
-      struct in_addr **hostAddrList = (struct in_addr**)host->h_addr_list;
-      if (hostAddrList[0]) {
-        Address_.ipv4 = hostAddrList[0]->s_addr;
-        Address_.port = htons(port);
-        Address_.family = AF_INET;
-      } else {
-        CLOG_F(ERROR, "{}: can't lookup address {}", coinInfo.Name, uri.domain);
-        exit(1);
-      }
-    }
+  FullHostName_ = RpcEndpoint_.hostName();
 
-    HostName_ = uri.domain;
-  } else {
-    Address_.ipv4 = uri.ipv4;
-    Address_.port = htons(port);
-    Address_.family = AF_INET;
-
-    struct in_addr addr;
-    addr.s_addr = uri.ipv4;
-    HostName_ = inet_ntoa(addr);
-  }
-
-  FullHostName_ = HostName_ + ":" + std::to_string(port);
+  WorkFetcher_.TimerEvent = newUserEvent(base, 0, [](aioUserEvent*, void *arg) {
+    static_cast<CEthereumRpcClient*>(arg)->onWorkFetchTimeout();
+  }, this);
+  WorkFetcher_.LastTemplateTime = std::chrono::time_point<std::chrono::steady_clock>::min();
+  WorkFetcher_.WorkId = 0;
+  WorkFetcher_.Height = 0;
 
   if (config.MiningAddresses.size() != 1) {
     CLOG_F(ERROR, "ERROR: ethereum-based backends support working with only one mining address");
@@ -123,13 +65,12 @@ CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, con
 
   MiningAddress_ = config.MiningAddresses.getByIndex(0).MiningAddress;
 
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-
-  // getWork
+  // Build EthGetWorkRequest_
   {
+    char buffer[1024];
+    xmstream jsonStream(buffer, sizeof(buffer));
+    jsonStream.reset();
     {
-      jsonStream.reset();
       JSON::Object queryObject(jsonStream);
       queryObject.addString("method", "eth_getWork");
       queryObject.addField("params");
@@ -139,46 +80,35 @@ CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, con
       queryObject.addInt("id", -1);
     }
 
-    buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_, EthGetWork_);
+    HttpRequest req;
+    req.Method = HttpMethod::POST;
+    req.Body = std::string_view(jsonStream.data<const char>(), jsonStream.sizeOf());
+    EthGetWorkRequest_ = WorkFetcherClient_.prepare(req);
   }
 }
 
-CPreparedQuery *CEthereumRpcClient::prepareBlock(const void *data, size_t)
+std::string CEthereumRpcClient::buildPostQuery(const char *data, size_t size)
 {
-  const ETH::BlockSubmitData *blockSubmitData = reinterpret_cast<const ETH::BlockSubmitData*>(data);
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_submitWork");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addString(blockSubmitData->Nonce);
-      paramsArray.addString(blockSubmitData->HeaderHash);
-      paramsArray.addString(blockSubmitData->MixHash);
-    }
-    queryObject.addInt("id", -1);
-  }
+  HttpRequest req;
+  req.Method = HttpMethod::POST;
+  req.Body = std::string_view(data, size);
+  return RpcEndpoint_.prepare(req);
+}
 
-  CPreparedSubmitBlock *query = new CPreparedSubmitBlock(this);
-  query->stream().reset();
-  buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_, query->stream());
-  return query;
+std::string CEthereumRpcClient::buildPostQuery(const std::string &jsonBody)
+{
+  return buildPostQuery(jsonBody.data(), jsonBody.size());
+}
+
+std::string CEthereumRpcClient::buildPostQuery(const xmstream &postData)
+{
+  return buildPostQuery(postData.data<const char>(), postData.sizeOf());
 }
 
 bool CEthereumRpcClient::ioGetBalance(asyncBase *base, GetBalanceResult &result)
 {
-  std::unique_ptr<CConnection> connection(getConnection(base));
-  if (!connection)
-    return false;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
-    return false;
-
   UInt<384> balance;
-  if (ethGetBalance(connection.get(), MiningAddress_, &balance) != EStatusOk)
+  if (ethGetBalance(base, MiningAddress_, &balance) != EStatusOk)
     return false;
 
   result.Balance = balance;
@@ -191,27 +121,21 @@ bool CEthereumRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphan
   for (auto &It: queries)
     It.Confirmations = -2;
 
-  std::unique_ptr<CConnection> connection(getConnection(base));
-  if (!connection)
-    return false;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
-    return false;
-
   // First, get best chain height
   uint64_t bestBlockHeight = 0;
-  if (ethBlockNumber(connection.get(), &bestBlockHeight) != EStatusOk)
+  if (ethBlockNumber(base, &bestBlockHeight) != EStatusOk)
     return false;
 
   for (auto &query: queries) {
     ETHBlock block;
-    if (ethGetBlockByNumber(connection.get(), query.Height, block) != EStatusOk)
+    if (ethGetBlockByNumber(base, query.Height, block) != EStatusOk)
       return false;
 
     if (block.MixHash == UInt<256>::fromHex(query.Hash.c_str())) {
       query.Confirmations = bestBlockHeight - query.Height;
     } else {
       std::string publicHash;
-      int64_t uncleHeight = ioSearchUncle(connection.get(), query.Height, query.Hash, bestBlockHeight, publicHash);
+      int64_t uncleHeight = ioSearchUncle(base, query.Height, query.Hash, bestBlockHeight, publicHash);
       if (uncleHeight) {
         query.Confirmations = bestBlockHeight - uncleHeight;
         // TODO: remove static_cast
@@ -231,25 +155,19 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
   for (auto &It: queries)
     It.Confirmations = -2;
 
-  std::unique_ptr<CConnection> connection(getConnection(base));
-  if (!connection)
-    return false;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
-    return false;
-
   // First, get best chain height
   uint64_t bestBlockHeight = 0;
-  if (ethBlockNumber(connection.get(), &bestBlockHeight) != EStatusOk)
+  if (ethBlockNumber(base, &bestBlockHeight) != EStatusOk)
     return false;
 
   for (auto &query: queries) {
     // Process each block separately
     ETHBlock block;
-    if (ethGetBlockByNumber(connection.get(), query.Height, block) != EStatusOk)
+    if (ethGetBlockByNumber(base, query.Height, block) != EStatusOk)
       return false;
 
     if (block.MixHash != UInt<256>::fromHex(query.Hash.c_str())) {
-      int64_t uncleHeight = ioSearchUncle(connection.get(), query.Height, query.Hash, bestBlockHeight, query.PublicHash);
+      int64_t uncleHeight = ioSearchUncle(base, query.Height, query.Hash, bestBlockHeight, query.PublicHash);
       if (uncleHeight) {
         UInt<384> reward = ETH::getConstBlockReward(CoinInfo_.Name, uncleHeight) * (8 - (uncleHeight-query.Height)) / 8u;
         query.Confirmations = bestBlockHeight - uncleHeight;
@@ -273,7 +191,7 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
       for (const auto &txObject: block.Transactions) {
         // Get receipt for each transaction
         ETHTransactionReceipt receipt;
-        if (ethGetTransactionReceipt(connection.get(), txObject.Hash, receipt) != EStatusOk)
+        if (ethGetTransactionReceipt(base, txObject.Hash, receipt) != EStatusOk)
           return false;
 
         totalTxFee += txObject.GasPrice * receipt.GasUsed;
@@ -298,18 +216,13 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
 CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string&, const UInt<384> &value, BuildTransactionResult &result)
 {
   EOperationStatus status;
-  std::unique_ptr<CConnection> connection(getConnection(base));
-  if (!connection)
-    return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
-    return CNetworkClient::EStatusNetworkError;
 
   // Check balance first
   // We require payout value + 5% at balance
   UInt<384> balance;
-  status = ethGetBalance(connection.get(), MiningAddress_, &balance);
+  status = ethGetBalance(base, MiningAddress_, &balance);
   if (status != CNetworkClient::EStatusOk) {
-    result.Error = connection->LastError;
+    result.Error = LastRpcError_;
     return status;
   }
   if (balance < (value + value/20u))
@@ -326,11 +239,11 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
   UInt<384> maxFeePerGas = 0u;
   uint64_t nonce = 0;
 
-  if ((status = ethGasPrice(connection.get(), &gasPrice)) != CNetworkClient::EStatusOk ||
-      (status = ethMaxPriorityFeePerGas(connection.get(), &maxPriorityFeePerGas)) != CNetworkClient::EStatusOk ||
-      (status = ethGetTransactionCount(connection.get(), MiningAddress_, &nonce)) != EStatusOk ||
-      (status = personalUnlockAccount(connection.get(), MiningAddress_, "", 60)) != EStatusOk) {
-    result.Error = connection->LastError;
+  if ((status = ethGasPrice(base, &gasPrice)) != CNetworkClient::EStatusOk ||
+      (status = ethMaxPriorityFeePerGas(base, &maxPriorityFeePerGas)) != CNetworkClient::EStatusOk ||
+      (status = ethGetTransactionCount(base, MiningAddress_, &nonce)) != EStatusOk ||
+      (status = personalUnlockAccount(base, MiningAddress_, "", 60)) != EStatusOk) {
+    result.Error = LastRpcError_;
     return status;
   }
 
@@ -338,7 +251,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
   maxFeePerGas = maxPriorityFeePerGas + 2u*baseFeePerGas;
 
   if (CoinInfo_.Name != "ETC") {
-    status = ethSignTransaction1559(connection.get(),
+    status = ethSignTransaction1559(base,
                                     MiningAddress_,
                                     address,
                                     value,
@@ -349,7 +262,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
                                     result.TxData,
                                     result.TxId);
   } else {
-    status = ethSignTransactionOld(connection.get(),
+    status = ethSignTransactionOld(base,
                                    MiningAddress_,
                                    address,
                                    value,
@@ -361,7 +274,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
   }
 
   if (status != EStatusOk) {
-    result.Error = connection->LastError;
+    result.Error = LastRpcError_;
     return status;
   }
 
@@ -374,22 +287,17 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBas
 CNetworkClient::EOperationStatus CEthereumRpcClient::ioSendTransaction(asyncBase *base, const std::string &txData, const std::string &txId, std::string &error)
 {
   CNetworkClient::EOperationStatus status;
-  std::unique_ptr<CConnection> connection(getConnection(base));
-  if (!connection)
-    return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
-    return CNetworkClient::EStatusNetworkError;
 
-  if ((status = ethSendRawTransaction(connection.get(), txData)) != EStatusOk) {
+  if ((status = ethSendRawTransaction(base, txData)) != EStatusOk) {
     constexpr int RPC_INVALID_INPUT = -32000;
 
-    error = connection->LastError;
-    if (connection->LastErrorCode == RPC_INVALID_INPUT) {
-      if (connection->LastError == "already known") {
+    error = LastRpcError_;
+    if (LastRpcErrorCode_ == RPC_INVALID_INPUT) {
+      if (LastRpcError_ == "already known") {
         return CNetworkClient::EStatusOk;
-      } else if (connection->LastError == "nonce too low") {
+      } else if (LastRpcError_ == "nonce too low") {
         ETHTransactionReceipt receipt;
-        if ((status = ethGetTransactionReceipt(connection.get(), UInt<256>::fromHex(txId.c_str()), receipt)) != EStatusOk)
+        if ((status = ethGetTransactionReceipt(base, UInt<256>::fromHex(txId.c_str()), receipt)) != EStatusOk)
           return status;
 
         return CNetworkClient::EStatusOk;
@@ -407,32 +315,24 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioSendTransaction(asyncBase
 CNetworkClient::EOperationStatus CEthereumRpcClient::ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error)
 {
   CNetworkClient::EOperationStatus status;
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-
-  std::unique_ptr<CConnection> connection(getConnection(base));
-  if (!connection)
-    return CNetworkClient::EStatusNetworkError;
-  if (ioHttpConnect(connection->Client, &Address_, nullptr, ConnectTimeout) != 0)
-    return CNetworkClient::EStatusNetworkError;
 
   ETHTransaction tx;
   ETHTransactionReceipt receipt;
 
   UInt<256> ltxId = UInt<256>::fromHex(txId.c_str());
-  if ((status = ethGetTransactionByHash(connection.get(), ltxId, tx)) != EStatusOk) {
-    error = connection->LastError;
+  if ((status = ethGetTransactionByHash(base, ltxId, tx)) != EStatusOk) {
+    error = LastRpcError_;
     return status;
   }
-  if ((status = ethGetTransactionReceipt(connection.get(), ltxId, receipt)) != EStatusOk) {
-    error = connection->LastError;
+  if ((status = ethGetTransactionReceipt(base, ltxId, receipt)) != EStatusOk) {
+    error = LastRpcError_;
     return EStatusInvalidAddressOrKey;
   }
 
   // get pending block
   uint64_t bestBlockHeight;
-  if ((status = ethBlockNumber(connection.get(), &bestBlockHeight)) != EStatusOk) {
-    error = connection->LastError;
+  if ((status = ethBlockNumber(base, &bestBlockHeight)) != EStatusOk) {
+    error = LastRpcError_;
     return status;
   }
 
@@ -446,85 +346,76 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioWalletService(asyncBase*,
   return CNetworkClient::EStatusOk;
 }
 
-void CEthereumRpcClient::aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation)
+void CEthereumRpcClient::aioSubmitBlock(asyncBase *base, const void *data, size_t, CSubmitBlockOperation *operation)
 {
-  CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(queryPtr);
-  query->Connection.reset(getConnection(base));
-  if (!query->Connection) {
-    operation->accept(false, FullHostName_, "Socket creation error");
-    return;
-  }
-  query->Operation = operation;
-  query->Base = base;
-  aioHttpConnect(query->Connection->Client, &Address_, nullptr, 10000000, [](AsyncOpStatus status, HTTPClient *httpClient, void *arg) {
-    CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(arg);
-    if (status != aosSuccess) {
-      query->Operation->accept(false, query->client<CEthereumRpcClient>()->FullHostName_, "http connection error");
-      delete query;
-      return;
+  const ETH::BlockSubmitData *blockSubmitData = reinterpret_cast<const ETH::BlockSubmitData*>(data);
+
+  char buffer[1024];
+  xmstream jsonStream(buffer, sizeof(buffer));
+  jsonStream.reset();
+  {
+    JSON::Object queryObject(jsonStream);
+    queryObject.addString("jsonrpc", "2.0");
+    queryObject.addString("method", "eth_submitWork");
+    queryObject.addField("params");
+    {
+      JSON::Array paramsArray(jsonStream);
+      paramsArray.addString(blockSubmitData->Nonce);
+      paramsArray.addString(blockSubmitData->HeaderHash);
+      paramsArray.addString(blockSubmitData->MixHash);
     }
+    queryObject.addInt("id", -1);
+  }
 
-    aioHttpRequest(httpClient, query->stream().data<const char>(), query->stream().sizeOf(), 180000000, httpParseDefault, &query->Connection->ParseCtx, [](AsyncOpStatus status, HTTPClient *, void *arg) {
-      CPreparedSubmitBlock *query = static_cast<CPreparedSubmitBlock*>(arg);
+  RpcEndpoint_.aioRequest(base, buildPostQuery(jsonStream),
+    [this, operation](AsyncOpStatus status, HttpResponse response) {
+      bool success = false;
+      std::string error;
       if (status != aosSuccess) {
-        query->Operation->accept(false, query->client<CEthereumRpcClient>()->FullHostName_, "http request error");
-        delete query;
-        return;
+        error = "http request error";
+      } else {
+        rapidjson::Document document;
+        document.Parse(response.Body.data(), response.Body.size());
+        if (!document.HasParseError() && document.HasMember("result")) {
+          if (document["result"].IsTrue())
+            success = true;
+          else
+            error = "?";
+        }
       }
-
-      query->client<CEthereumRpcClient>()->submitBlockRequestCb(query);
-    }, query);
-  }, query);
+      operation->accept(success, FullHostName_, error);
+    }, 180000000);
 }
 
 void CEthereumRpcClient::poll()
 {
-  socketTy S = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
-  aioObject *object = newSocketIo(WorkFetcherBase_, S);
-  WorkFetcher_.Client = httpClientNew(WorkFetcherBase_, object);
   WorkFetcher_.LastTemplateTime = std::chrono::time_point<std::chrono::steady_clock>::min();
   WorkFetcher_.WorkId = 0;
   WorkFetcher_.Height = 0;
-  dynamicBufferClear(&WorkFetcher_.ParseCtx.buffer);
 
-  aioHttpConnect(WorkFetcher_.Client, &Address_, nullptr, 3000000, [](AsyncOpStatus status, HTTPClient*, void *arg){
-    static_cast<CEthereumRpcClient*>(arg)->onWorkFetcherConnect(status);
-  }, this);
+  WorkFetcherClient_.aioRequest(EthGetWorkRequest_,
+    [this](AsyncOpStatus status, HttpResponse response) {
+      onWorkFetcherResponse(status, std::move(response));
+    }, 10000000);
 }
 
-void CEthereumRpcClient::onWorkFetcherConnect(AsyncOpStatus status)
+void CEthereumRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpResponse response)
 {
-  if (status != aosSuccess) {
-    // TODO: inform dispatcher
-    httpClientDelete(WorkFetcher_.Client);
-    Dispatcher_->onWorkFetcherConnectionError();
-    return;
-  }
-
-  aioHttpRequest(WorkFetcher_.Client, EthGetWork_.data<const char>(), EthGetWork_.sizeOf(), 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
-    static_cast<CEthereumRpcClient*>(arg)->onWorkFetcherIncomingData(status);
-  }, this);
-}
-
-void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
-{
-  if (status != aosSuccess || WorkFetcher_.ParseCtx.resultCode != 200) {
+  if (status != aosSuccess || response.StatusCode != 200) {
     CLOG_FC(*LogChannel_, WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
             CoinInfo_.Name,
             FullHostName_,
             static_cast<unsigned>(status),
-            WorkFetcher_.ParseCtx.resultCode,
-            WorkFetcher_.ParseCtx.body.data ? WorkFetcher_.ParseCtx.body.data : "<null>");
-    httpClientDelete(WorkFetcher_.Client);
+            response.StatusCode,
+            response.Body.empty() ? "<null>" : response.Body.c_str());
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
   std::unique_ptr<CBlockTemplate> blockTemplate(new CBlockTemplate(CoinInfo_.Name, CoinInfo_.WorkType));
-  blockTemplate->Document.Parse(WorkFetcher_.ParseCtx.body.data);
+  blockTemplate->Document.Parse(response.Body.data(), response.Body.size());
   if (blockTemplate->Document.HasParseError()) {
     CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
-    httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
@@ -592,33 +483,19 @@ void CEthereumRpcClient::onWorkFetcherIncomingData(AsyncOpStatus status)
     // Wait 100ms
     userEventStartTimer(WorkFetcher_.TimerEvent, 1*100000, 1);
   } else {
-    httpClientDelete(WorkFetcher_.Client);
     Dispatcher_->onWorkFetcherConnectionLost();
   }
-
 }
 
 void CEthereumRpcClient::onWorkFetchTimeout()
 {
-  aioHttpRequest(WorkFetcher_.Client, EthGetWork_.data<const char>(), EthGetWork_.sizeOf(), 10000000, httpParseDefault, &WorkFetcher_.ParseCtx, [](AsyncOpStatus status, HTTPClient*, void *arg){
-    static_cast<CEthereumRpcClient*>(arg)->onWorkFetcherIncomingData(status);
-  }, this);
+  WorkFetcherClient_.aioRequest(EthGetWorkRequest_,
+    [this](AsyncOpStatus status, HttpResponse response) {
+      onWorkFetcherResponse(status, std::move(response));
+    }, 10000000);
 }
 
-CEthereumRpcClient::CConnection *CEthereumRpcClient::getConnection(asyncBase *base)
-{
-  CConnection *connection = new CConnection;
-  connection->Socket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
-  // NOTE: Linux only
-  if (connection->Socket == -1) {
-    CLOG_F(ERROR, "Can't create socket (open file descriptors limit is over?)");
-    return nullptr;
-  }
-  connection->Client = httpClientNew(base, newSocketIo(base, connection->Socket));
-  return connection;
-}
-
-int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t height, const std::string &mixHash, int64_t bestBlockHeight, std::string &publicHash)
+int64_t CEthereumRpcClient::ioSearchUncle(asyncBase *base, int64_t height, const std::string &mixHash, int64_t bestBlockHeight, std::string &publicHash)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -626,12 +503,12 @@ int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t heigh
 
   for (int64_t currentHeight = height; currentHeight <= maxHeight; currentHeight++) {
     ETHBlock currentBlock;
-    if (ethGetBlockByNumber(connection, currentHeight, currentBlock) != EStatusOk)
+    if (ethGetBlockByNumber(base, currentHeight, currentBlock) != EStatusOk)
       return false;
 
     for (unsigned uncleIdx = 0; uncleIdx < currentBlock.Uncles.size(); uncleIdx++) {
       ETHBlock uncleBlock;
-      if (ethGetUncleByBlockNumberAndIndex(connection, currentHeight, uncleIdx, uncleBlock) != EStatusOk)
+      if (ethGetUncleByBlockNumberAndIndex(base, currentHeight, uncleIdx, uncleBlock) != EStatusOk)
         return false;
 
       if (uncleBlock.MixHash == UInt<256>::fromHex(mixHash.c_str())) {
@@ -644,7 +521,7 @@ int64_t CEthereumRpcClient::ioSearchUncle(CConnection *connection, int64_t heigh
   return 0;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(CConnection *connection, const std::string &address, UInt<384> *balance)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -664,7 +541,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(CConnection *
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -675,7 +552,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(CConnection *
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethGasPrice(CConnection *connection, UInt<384> *gasPrice)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethGasPrice(asyncBase *base, UInt<384> *gasPrice)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -693,7 +570,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGasPrice(CConnection *co
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -704,7 +581,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGasPrice(CConnection *co
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethMaxPriorityFeePerGas(CConnection *connection, UInt<384> *maxPriorityFeePerGas)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethMaxPriorityFeePerGas(asyncBase *base, UInt<384> *maxPriorityFeePerGas)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -722,7 +599,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethMaxPriorityFeePerGas(CCo
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -733,7 +610,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethMaxPriorityFeePerGas(CCo
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionCount(CConnection *connection, const std::string &address, uint64_t *count)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionCount(asyncBase *base, const std::string &address, uint64_t *count)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -753,7 +630,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionCount(CCon
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -763,7 +640,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionCount(CCon
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethBlockNumber(CConnection *connection, uint64_t *blockNumber)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethBlockNumber(asyncBase *base, uint64_t *blockNumber)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -781,7 +658,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethBlockNumber(CConnection 
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -792,7 +669,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethBlockNumber(CConnection 
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnection *connection, uint64_t height, ETHBlock &block)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(asyncBase *base, uint64_t height, ETHBlock &block)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -813,7 +690,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 60*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 60*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -881,7 +758,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(CConnec
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetUncleByBlockNumberAndIndex(CConnection *connection, uint64_t height, unsigned uncleIndex, ETHBlock &block)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetUncleByBlockNumberAndIndex(asyncBase *base, uint64_t height, unsigned uncleIndex, ETHBlock &block)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -900,7 +777,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetUncleByBlockNumberAnd
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -933,7 +810,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetUncleByBlockNumberAnd
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionByHash(CConnection *connection, const UInt<256> &txid, ETHTransaction &tx)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionByHash(asyncBase *base, const UInt<256> &txid, ETHTransaction &tx)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -952,7 +829,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionByHash(CCo
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -972,7 +849,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionByHash(CCo
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionReceipt(CConnection *connection, const UInt<256> &txid, ETHTransactionReceipt &receipt)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionReceipt(asyncBase *base, const UInt<256> &txid, ETHTransactionReceipt &receipt)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -991,7 +868,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionReceipt(CC
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -1010,7 +887,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionReceipt(CC
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(CConnection *connection,
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(asyncBase *base,
                                                                            const std::string &from,
                                                                            const std::string &to,
                                                                            const UInt<384> &value,
@@ -1046,7 +923,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(CConn
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -1071,7 +948,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(CConn
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction1559(CConnection *connection,
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction1559(asyncBase *base,
                                                                             const std::string &from,
                                                                             const std::string &to,
                                                                             const UInt<384> &value,
@@ -1109,7 +986,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction1559(CCon
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -1134,7 +1011,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction1559(CCon
   return EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ethSendRawTransaction(CConnection *connection, const std::string &txData)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ethSendRawTransaction(asyncBase *base, const std::string &txData)
 {
   char buffer[1024];
   xmstream jsonStream(buffer, sizeof(buffer));
@@ -1152,7 +1029,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSendRawTransaction(CConn
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 5*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
   if (status != EStatusOk)
     return status;
 
@@ -1162,7 +1039,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSendRawTransaction(CConn
   return CNetworkClient::EStatusOk;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::personalUnlockAccount(CConnection *connection,
+CNetworkClient::EOperationStatus CEthereumRpcClient::personalUnlockAccount(asyncBase *base,
                                                                            const std::string &address,
                                                                            const std::string &passPhrase,
                                                                            unsigned seconds)
@@ -1185,7 +1062,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::personalUnlockAccount(CConn
   }
 
   rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioQueryJson(*connection, buildPostQuery("/", jsonStream.data<const char>(), jsonStream.sizeOf(), HostName_), document, 180*1000000);
+  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 180*1000000);
   if (status != CNetworkClient::EStatusOk)
     return status;
 
@@ -1193,7 +1070,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::personalUnlockAccount(CConn
     return EStatusProtocolError;
 
   if (!document["result"].IsTrue()) {
-    connection->LastError = "Can't unlock wallet";
+    LastRpcError_ = "Can't unlock wallet";
     return CNetworkClient::EStatusUnknownError;
   }
 

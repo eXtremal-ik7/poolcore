@@ -1,5 +1,6 @@
 #include "poolcore/statistics.h"
 #include "poolcore/statsMergeOperator.h"
+#include "poolcore/thread.h"
 #include "poolcommon/debug.h"
 #include "loguru.hpp"
 #include <algorithm>

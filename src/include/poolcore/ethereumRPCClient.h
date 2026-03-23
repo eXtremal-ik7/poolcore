@@ -2,19 +2,18 @@
 
 #include "poolcore/poolCore.h"
 #include "poolcommon/uint.h"
-#include "asyncio/http.h"
-#include "asyncio/socket.h"
+#include "poolcommon/httpClient.h"
 #include <rapidjson/document.h>
 #include "loguru.hpp"
 #include <chrono>
 
 struct PoolBackendConfig;
+class xmstream;
 
 class CEthereumRpcClient : public CNetworkClient {
 public:
   CEthereumRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, PoolBackendConfig &config);
 
-  virtual CPreparedQuery *prepareBlock(const void *data, size_t) override;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
   virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &queries) override;
   virtual bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &queries) override;
@@ -22,7 +21,7 @@ public:
   virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string &txId, std::string &error) override;
   virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error) override;
   virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) override;
-  virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *queryPtr, CSubmitBlockOperation *operation) override;
+  virtual void aioSubmitBlock(asyncBase *base, const void *data, size_t size, CSubmitBlockOperation *operation) override;
 
   virtual EOperationStatus ioListUnspent(asyncBase*, ListUnspentResult&) final {
     return CNetworkClient::EOperationStatus::EStatusUnknownError;
@@ -42,97 +41,50 @@ public:
   virtual void poll() override;
 
 private:
-  struct CConnection {
-    CConnection() : Client(nullptr) {
-      httpParseDefaultInit(&ParseCtx);
-    }
-
-    ~CConnection() {
-      dynamicBufferFree(&ParseCtx.buffer);
-      if (Client)
-        httpClientDelete(Client);
-    }
-
-    CConnection(const CConnection&) = delete;
-    CConnection(CConnection&&) = default;
-
-    socketTy Socket;
-    HTTPClient *Client = nullptr;
-    HTTPParseDefaultContext ParseCtx;
-    std::string LastError;
-    int LastErrorCode = 0;
-  };
-
-  struct CPreparedSubmitBlock : public CPreparedQuery {
-    CPreparedSubmitBlock(CEthereumRpcClient *client) : CPreparedQuery(client) {}
-    asyncBase *Base;
+  struct SubmitBlockContext {
+    CEthereumRpcClient *Client;
     CSubmitBlockOperation *Operation;
-    std::unique_ptr<CConnection> Connection;
   };
 
   struct WorkFetcherContext {
-    HTTPClient *Client;
-    HTTPParseDefaultContext ParseCtx;
     std::chrono::time_point<std::chrono::steady_clock> LastTemplateTime;
     aioUserEvent *TimerEvent;
     uint64_t WorkId;
     uint64_t Height;
   };
 
+  struct RpcQueryResult {
+    std::string Error;
+    int ErrorCode = 0;
+  };
+
 private:
-  template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>
-  bool parseJson(CConnection &connection, rapidjson::Document &document) {
-    document.Parse<flag>(connection.ParseCtx.body.data, connection.ParseCtx.body.size);
-
-    if (connection.ParseCtx.resultCode != 200) {
-      if (!document.HasParseError()) {
-        if (document.HasMember("error") && document["error"].IsObject()) {
-          rapidjson::Value &value = document["error"];
-          if (value.HasMember("message") && value["message"].IsString())
-            connection.LastError = value["message"].GetString();
-        }
-      }
-
-      CLOG_F(WARNING, "{} {}: http result code: {}, data: {}",
-             CoinInfo_.Name,
-             FullHostName_,
-             connection.ParseCtx.resultCode,
-             connection.ParseCtx.body.data ? connection.ParseCtx.body.data : "<null>");
-      return false;
-    }
-
-    if (document.HasParseError()) {
-      CLOG_F(WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
-      return false;
-    }
-
-    if (!document.HasMember("result")) {
-      CLOG_F(WARNING, "{} {}: JSON: no 'result' object", CoinInfo_.Name, FullHostName_);
-      return false;
-    }
-
-    return true;
-  }
+  std::string buildPostQuery(const char *data, size_t size);
+  std::string buildPostQuery(const std::string &jsonBody);
+  std::string buildPostQuery(const xmstream &postData);
 
   template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>
-  EOperationStatus ioQueryJson(CConnection &connection, const std::string &query, rapidjson::Document &document, uint64_t timeout) {
-    AsyncOpStatus status = ioHttpRequest(connection.Client, query.data(), query.size(), timeout, httpParseDefault, &connection.ParseCtx);
+  EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, rapidjson::Document &document, uint64_t timeout)
+  {
+    HttpResponse response;
+    AsyncOpStatus status = RpcEndpoint_.ioRequest(base, request, response, timeout);
     if (status != aosSuccess) {
       CLOG_F(WARNING, "{} {}: error code: {}", CoinInfo_.Name, FullHostName_, static_cast<unsigned>(status));
       return status == aosTimeout ? EStatusTimeout : EStatusNetworkError;
     }
 
-    if (connection.ParseCtx.resultCode != 200) {
+    document.Parse<flag>(response.Body.data(), response.Body.size());
+
+    if (response.StatusCode != 200) {
       CLOG_F(WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
              CoinInfo_.Name,
              FullHostName_,
              static_cast<unsigned>(status),
-             connection.ParseCtx.resultCode,
-             connection.ParseCtx.body.data ? connection.ParseCtx.body.data : "<null>");
+             response.StatusCode,
+             response.Body.empty() ? "<null>" : response.Body.c_str());
       return EStatusUnknownError;
     }
 
-    document.Parse<flag>(connection.ParseCtx.body.data, connection.ParseCtx.body.size);
     if (document.HasParseError()) {
       CLOG_F(WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
       return EStatusProtocolError;
@@ -141,15 +93,15 @@ private:
     if (document.HasMember("error") && document["error"].IsObject()) {
       rapidjson::Value &value = document["error"];
       if (value.HasMember("code") && value["code"].IsInt())
-        connection.LastErrorCode = value["code"].GetInt();
+        LastRpcErrorCode_ = value["code"].GetInt();
       if (value.HasMember("message") && value["message"].IsString())
-        connection.LastError = value["message"].GetString();
+        LastRpcError_ = value["message"].GetString();
 
       CLOG_F(WARNING, "{} {}: Error code: {}, Error message: {}",
              CoinInfo_.Name,
              FullHostName_,
-             connection.LastErrorCode,
-             connection.LastError);
+             LastRpcErrorCode_,
+             LastRpcError_);
 
       return EStatusProtocolError;
     }
@@ -157,26 +109,8 @@ private:
     return EStatusOk;
   }
 
-  void submitBlockRequestCb(CPreparedSubmitBlock *query) {
-    std::unique_ptr<CPreparedSubmitBlock> queryHolder(query);
-    bool result = false;
-    rapidjson::Document document;
-    if (parseJson(*query->Connection, document)) {
-      if (document["result"].IsTrue()) {
-        result = true;
-      } else {
-        query->Connection->LastError = "?";
-      }
-    }
-
-    query->Operation->accept(result, FullHostName_, query->Connection->LastError);
-  }
-
-  void onWorkFetcherConnect(AsyncOpStatus status);
-  void onWorkFetcherIncomingData(AsyncOpStatus status);
+  void onWorkFetcherResponse(AsyncOpStatus status, HttpResponse response);
   void onWorkFetchTimeout();
-
-  CConnection *getConnection(asyncBase *base);
 
   // Raw Ethereum API - structures
   struct ETHTransaction {
@@ -198,20 +132,20 @@ private:
     std::vector<UInt<256>> Uncles;
   };
 
-  int64_t ioSearchUncle(CConnection *connection, int64_t height, const std::string &hash, int64_t bestBlockHeight, std::string &publicHash);
+  int64_t ioSearchUncle(asyncBase *base, int64_t height, const std::string &hash, int64_t bestBlockHeight, std::string &publicHash);
 
   // Raw Ethereum API - methods
-  CNetworkClient::EOperationStatus ethGetBalance(CConnection *connection, const std::string &address, UInt<384> *balance);
-  CNetworkClient::EOperationStatus ethGasPrice(CConnection *connection, UInt<384> *gasPrice);
-  CNetworkClient::EOperationStatus ethMaxPriorityFeePerGas(CConnection *connection, UInt<384> *maxPriorityFeePerGas);
-  CNetworkClient::EOperationStatus ethGetTransactionCount(CConnection *connection, const std::string &address, uint64_t *count);
-  CNetworkClient::EOperationStatus ethBlockNumber(CConnection *connection, uint64_t *blockNumber);
-  CNetworkClient::EOperationStatus ethGetBlockByNumber(CConnection *connection, uint64_t height, ETHBlock &block);
-  CNetworkClient::EOperationStatus ethGetUncleByBlockNumberAndIndex(CConnection *connection, uint64_t height, unsigned uncleIndex, ETHBlock &block);
-  CNetworkClient::EOperationStatus ethGetTransactionByHash(CConnection *connection, const UInt<256> &txid, ETHTransaction &tx);
-  CNetworkClient::EOperationStatus ethGetTransactionReceipt(CConnection *connection, const UInt<256> &txid, ETHTransactionReceipt &receipt);
+  CNetworkClient::EOperationStatus ethGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance);
+  CNetworkClient::EOperationStatus ethGasPrice(asyncBase *base, UInt<384> *gasPrice);
+  CNetworkClient::EOperationStatus ethMaxPriorityFeePerGas(asyncBase *base, UInt<384> *maxPriorityFeePerGas);
+  CNetworkClient::EOperationStatus ethGetTransactionCount(asyncBase *base, const std::string &address, uint64_t *count);
+  CNetworkClient::EOperationStatus ethBlockNumber(asyncBase *base, uint64_t *blockNumber);
+  CNetworkClient::EOperationStatus ethGetBlockByNumber(asyncBase *base, uint64_t height, ETHBlock &block);
+  CNetworkClient::EOperationStatus ethGetUncleByBlockNumberAndIndex(asyncBase *base, uint64_t height, unsigned uncleIndex, ETHBlock &block);
+  CNetworkClient::EOperationStatus ethGetTransactionByHash(asyncBase *base, const UInt<256> &txid, ETHTransaction &tx);
+  CNetworkClient::EOperationStatus ethGetTransactionReceipt(asyncBase *base, const UInt<256> &txid, ETHTransactionReceipt &receipt);
 
-  CNetworkClient::EOperationStatus ethSignTransactionOld(CConnection *connection,
+  CNetworkClient::EOperationStatus ethSignTransactionOld(asyncBase *base,
                                                          const std::string &from,
                                                          const std::string &to,
                                                          const UInt<384> &value,
@@ -221,7 +155,7 @@ private:
                                                          std::string &txData,
                                                          std::string &txId);
 
-  CNetworkClient::EOperationStatus ethSignTransaction1559(CConnection *connection,
+  CNetworkClient::EOperationStatus ethSignTransaction1559(asyncBase *base,
                                                           const std::string &from,
                                                           const std::string &to,
                                                           const UInt<384> &value,
@@ -232,18 +166,20 @@ private:
                                                           std::string &txData,
                                                           std::string &txId);
 
-  CNetworkClient::EOperationStatus ethSendRawTransaction(CConnection *connection, const std::string &txData);
+  CNetworkClient::EOperationStatus ethSendRawTransaction(asyncBase *base, const std::string &txData);
 
-  CNetworkClient::EOperationStatus personalUnlockAccount(CConnection *connection, const std::string &address, const std::string &passPhrase, unsigned seconds);
+  CNetworkClient::EOperationStatus personalUnlockAccount(asyncBase *base, const std::string &address, const std::string &passPhrase, unsigned seconds);
 
 private:
-  asyncBase *WorkFetcherBase_ = nullptr;
   CCoinInfo CoinInfo_;
-  std::string HostName_;
   std::string FullHostName_;
-  HostAddress Address_;
 
+  CHttpEndpoint RpcEndpoint_;
+  CHttpConnection WorkFetcherClient_;
   WorkFetcherContext WorkFetcher_;
   std::string MiningAddress_;
-  xmstream EthGetWork_;
+  std::string EthGetWorkRequest_;
+
+  std::string LastRpcError_;
+  int LastRpcErrorCode_ = 0;
 };

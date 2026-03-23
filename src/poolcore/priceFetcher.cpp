@@ -5,9 +5,10 @@
 CPriceFetcher::CPriceFetcher(asyncBase *monitorBase,
                              std::vector<CCoinInfo> &coinInfo,
                              const std::string &coinGeckoApiKey) :
-  Client_(monitorBase, coinGeckoApiKey.empty()
+  Client_(coinGeckoApiKey.empty()
     ? "https://api.coingecko.com"
     : "https://pro-api.coingecko.com"),
+  Base_(monitorBase),
   CoinInfo_(coinInfo),
   LastSuccessTime_(std::chrono::steady_clock::now())
 {
@@ -91,6 +92,7 @@ void CPriceFetcher::resetPricesIfStale()
 void CPriceFetcher::updatePrice()
 {
   Client_.aioRequest<CCoinGeckoPrices>(
+    Base_,
     PreparedQuery_,
     [this](AsyncOpStatus status, CCoinGeckoPrices response) {
       if (status == aosSuccess) {

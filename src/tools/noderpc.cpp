@@ -5,6 +5,8 @@
 #include "poolcore/coinLibrary.h"
 #include "poolcore/ethereumRPCClient.h"
 #include "poolcore/plugin.h"
+#include "asyncio/asyncio.h"
+#include "asyncio/socket.h"
 #include "loguru.hpp"
 #include <getopt.h>
 

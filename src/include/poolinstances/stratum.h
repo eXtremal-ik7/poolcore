@@ -10,6 +10,7 @@
 #include "poolcore/blockTemplate.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/poolInstance.h"
+#include "poolcore/thread.h"
 #include "poolcore/shareAccumulator.h"
 #include <openssl/rand.h>
 #include <unordered_map>

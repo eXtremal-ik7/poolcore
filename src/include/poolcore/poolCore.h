@@ -3,18 +3,14 @@
 #include "poolcommon/uint.h"
 #include "poolcommon/types.h"
 #include "workTypes.h"
-#include "p2putils/xmstream.h"
-#include "poolcore/thread.h"
 #include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
-#include <stack>
 #include <string>
 #include <vector>
 
 namespace loguru { class LogChannel; }
-class CPreparedQuery;
 class CNetworkClientDispatcher;
 struct asyncBase;
 
@@ -189,13 +185,8 @@ public:
   };
 
 public:
-  CNetworkClient(unsigned threadsNum) {
-    ThreadData_.reset(new ThreadData[threadsNum]);
-  }
-
   virtual ~CNetworkClient() {}
 
-  virtual CPreparedQuery *prepareBlock(const void *data, size_t size) = 0;
   virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &query) = 0;
   virtual bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &query) = 0;
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) = 0;
@@ -206,7 +197,7 @@ public:
   virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, const UInt<384> &amount, const std::string &memo, uint64_t minConf, const UInt<384> &fee, CNetworkClient::ZSendMoneyResult &result) = 0;
   virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance) = 0;
   virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) = 0;
-  virtual void aioSubmitBlock(asyncBase *base, CPreparedQuery *query, CSubmitBlockOperation *operation) = 0;
+  virtual void aioSubmitBlock(asyncBase *base, const void *data, size_t size, CSubmitBlockOperation *operation) = 0;
   virtual bool ioGetBlockTxFees(asyncBase *base, int64_t fromHeight, int64_t toHeight, std::vector<BlockTxFeeInfo> &result) = 0;
   virtual bool ioGetMiningInfo(asyncBase *, MiningInfo &) { return false; }
   virtual EFeeEstimationMode feeEstimationMode() const = 0;
@@ -219,42 +210,5 @@ public:
 protected:
   CNetworkClientDispatcher *Dispatcher_ = nullptr;
   loguru::LogChannel *LogChannel_ = nullptr;
-
-private:
-  struct ThreadData {
-    std::stack<std::unique_ptr<xmstream>> MemoryPool;
-  };
-
-private:
-  std::unique_ptr<ThreadData[]> ThreadData_;
-
-friend class CPreparedQuery;
-};
-
-class CPreparedQuery {
-public:
-  CPreparedQuery(CNetworkClient *client) : Client_(client) {
-    auto &memoryPool = Client_->ThreadData_[GetGlobalThreadId()].MemoryPool;
-    if (!memoryPool.empty()) {
-      Stream_ = memoryPool.top().release();
-      memoryPool.pop();
-    } else {
-      Stream_ = new xmstream;
-    }
-  }
-
-  virtual ~CPreparedQuery() {
-    Client_->ThreadData_[GetGlobalThreadId()].MemoryPool.emplace(Stream_);
-  }
-
-  template<typename T> T *client() { return static_cast<T*>(Client_); }
-  xmstream &stream() { return *Stream_; }
-  void setPayLoadOffset(size_t offset) { PayLoadOffset_ = offset; }
-  size_t payLoadOffset() { return PayLoadOffset_; }
-
-protected:
-  CNetworkClient *Client_ = nullptr;
-  xmstream *Stream_ = nullptr;
-  size_t PayLoadOffset_ = 0;
 };
 

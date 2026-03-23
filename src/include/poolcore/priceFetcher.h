@@ -18,7 +18,8 @@ private:
   void resetPricesIfStale();
 
 private:
-  CHttpClient<> Client_;
+  CHttpEndpoint Client_;
+  asyncBase *Base_;
   aioUserEvent *TimerEvent_ = nullptr;
   std::vector<CCoinInfo> CoinInfo_;
   std::unordered_map<std::string, size_t> CoinIndexMap_;
