@@ -1050,7 +1050,7 @@ TEST(IdlTool, DiagInlineMappedInvalid) {
   ParseError error;
   EXPECT_FALSE(m.parseVerbose(json, strlen(json), error));
   EXPECT_NE(error.message.find("field 'amount'"), std::string::npos);
-  EXPECT_NE(error.message.find("invalid mapped value"), std::string::npos);
+  EXPECT_NE(error.message.find("invalid plainVal value"), std::string::npos);
 }
 
 TEST(IdlTool, DiagInlineMappedValidNoDiagError) {
@@ -2440,10 +2440,10 @@ struct S { .generate(parse); c: Color; }
 )", "duplicate"));
 }
 
-TEST(IdlTool, DuplicateMappedTypeRejected) {
-  EXPECT_TRUE(generatedIdlFails("dup_mapped", R"(
-mapped type money("int64_t") : string include "support.h";
-mapped type money("double") : string include "support.h";
+TEST(IdlTool, DuplicateUsertypeRejected) {
+  EXPECT_TRUE(generatedIdlFails("dup_usertype", R"(
+usertype money("int64_t") include "support.h";
+usertype money("double") include "support.h";
 struct S { .generate(parse); v: money; }
 )", "duplicate"));
 }
@@ -2462,17 +2462,17 @@ enum Foo : string { a, b }
 )", "duplicate"));
 }
 
-TEST(IdlTool, NameCollisionStructMappedRejected) {
-  EXPECT_TRUE(generatedIdlFails("name_clash_struct_mapped", R"(
+TEST(IdlTool, NameCollisionStructUsertypeRejected) {
+  EXPECT_TRUE(generatedIdlFails("name_clash_struct_usertype", R"(
 struct Foo { .generate(parse); x: int32; }
-mapped type Foo("int64_t") : string include "support.h";
+usertype Foo("int64_t") include "support.h";
 )", "duplicate"));
 }
 
-TEST(IdlTool, NameCollisionEnumMappedRejected) {
-  EXPECT_TRUE(generatedIdlFails("name_clash_enum_mapped", R"(
+TEST(IdlTool, NameCollisionEnumDerivedRejected) {
+  EXPECT_TRUE(generatedIdlFails("name_clash_enum_derived", R"(
 enum Foo : string { a, b }
-mapped type Foo("int64_t") : string include "support.h";
+derived Foo("int64_t", string, uint32) include "support.h";
 struct S { .generate(parse); x: int32; }
 )", "duplicate"));
 }

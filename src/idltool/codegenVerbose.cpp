@@ -32,12 +32,12 @@ static void generateVerboseParseMappedValue(std::string &out,
 {
   auto wi = getVerboseWireTypeInfo(mappedWireType);
   std::string in = indent(ind);
-  std::string resolveFunc = "__" + mappedTypeName + "Resolve";
+  std::string resolveName = "__" + mappedTypeName + "Resolve";
   out += std::format("{}{{ {} _tmp;\n", in, wi.cppType);
   out += std::format("{}  if (auto _e = s.{}(_tmp); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); {}; }}\n",
                      in, wi.readMethod, fieldContext, wi.typeName, failureCode);
   out += std::format("{}  if (!{}(_tmp, {})) {{ s.setError(\"field '{}': invalid mapped value\"); {}; }}\n",
-                     in, resolveFunc, destExpr, fieldContext, failureCode);
+                     in, resolveName, destExpr, fieldContext, failureCode);
   out += std::format("{}}}\n", in);
 }
 
@@ -46,15 +46,25 @@ static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, con
   std::string in = indent(ind);
   std::string cn = fieldCppName(f.Name, pascalCase);
 
-  // Mapped field: parse wire value + resolve into destination value.
-  if (isMappedField(f)) {
+  // Usertype field: direct parse
+  if (f.Type.IsUserType) {
+    std::string readName = "__" + f.Type.RefName + "Parse";
+    out += std::format("{}if ({}(s.p, s.end, {}) != JsonReadError::Ok) {{ s.setError(\"field '{}': invalid {} value\"); return false; }}\n",
+                       in, readName, cn, fieldContext, f.Type.RefName);
+    if (foundBit >= 0)
+      out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
+    return;
+  }
+
+  // Derived field: parse wire value + resolve into destination value
+  if (isDerivedField(f)) {
     auto wi = getVerboseWireTypeInfo(f.Type.MappedWireType);
-    std::string resolveFunc = "__" + f.Type.RefName + "Resolve";
+    std::string resolveName = "__" + f.Type.RefName + "Resolve";
     out += std::format("{}{{ {} _tmp;\n", in, wi.cppType);
     out += std::format("{}  if (auto _e = s.{}(_tmp); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }}\n",
                        in, wi.readMethod, fieldContext, wi.typeName);
-    out += std::format("{}  if (!{}(_tmp, {})) {{ s.setError(\"field '{}': invalid mapped value\"); return false; }}\n",
-                       in, resolveFunc, cn, fieldContext);
+    out += std::format("{}  if (!{}(_tmp, {})) {{ s.setError(\"field '{}': invalid derived value\"); return false; }}\n",
+                       in, resolveName, cn, fieldContext);
     if (foundBit >= 0)
       out += std::format("{}  found |= (uint64_t)1 << {};\n", in, foundBit);
     out += std::format("{}}}\n", in);
@@ -122,7 +132,11 @@ static void generateVerboseParsePlainLeafElement(std::string &out, const CFieldD
     const std::string &containerExpr, const std::string &ctx, int ind)
 {
   std::string in = indent(ind);
-  if (isMappedField(f)) {
+  if (f.Type.IsUserType) {
+    std::string readName = "__" + f.Type.RefName + "Parse";
+    out += std::format("{}if ({}(s.p, s.end, {}) != JsonReadError::Ok) {{ s.setError(\"field '{}': invalid {} value\"); return false; }}\n",
+                       in, readName, containerExpr, ctx, f.Type.RefName);
+  } else if (isDerivedField(f)) {
     generateVerboseParseMappedValue(out, f.Type.RefName, f.Type.MappedWireType, containerExpr, ctx, ind, "return false");
   } else if (isStructRef(f, enumNames)) {
     out += std::format("{}if (!{}.parseVerboseImpl(s)) return false;\n", in, containerExpr);
@@ -377,14 +391,19 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       out += std::format("{}if (s.p < s.end && *s.p != ']') {{\n", in);
       out += std::format("{}  for (;;) {{\n", in);
 
-      if (isMappedField(f)) {
+      if (f.Type.IsUserType) {
+        std::string readName = "__" + f.Type.RefName + "Parse";
+        out += std::format("{}    {}.emplace_back();\n", in, cn);
+        out += std::format("{}    if ({}(s.p, s.end, {}.back()) != JsonReadError::Ok) {{ s.setError(\"field '{}': invalid {} value in array\"); return false; }}\n",
+                           in, readName, cn, ctx, f.Type.RefName);
+      } else if (isDerivedField(f)) {
         auto wi = getVerboseWireTypeInfo(f.Type.MappedWireType);
-        std::string resolveFunc = "__" + f.Type.RefName + "Resolve";
+        std::string resolveName = "__" + f.Type.RefName + "Resolve";
         out += std::format("{}    {{ {} _tmp; {}.emplace_back();\n", in, wi.cppType, cn);
         out += std::format("{}      if (auto _e = s.{}(_tmp); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"{}\"); return false; }}\n",
                            in, wi.readMethod, ctx, wi.typeName);
-        out += std::format("{}      if (!{}(_tmp, {}.back())) {{ s.setError(\"field '{}': invalid mapped value in array\"); return false; }}\n",
-                           in, resolveFunc, cn, ctx);
+        out += std::format("{}      if (!{}(_tmp, {}.back())) {{ s.setError(\"field '{}': invalid derived value in array\"); return false; }}\n",
+                           in, resolveName, cn, ctx);
         out += std::format("{}    }}\n", in);
       } else if (isStructRef(f, enumNames)) {
         out += std::format("{}    if (!{}.emplace_back().parseVerboseImpl(s)) return false;\n", in, cn);
@@ -463,7 +482,11 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
       if (!f.Type.InnerDims.empty() || f.Type.ArrayElementKind != EArrayElementKind::Plain) {
         generateVerboseNestedArrayParse(out, f, enumNames, f.Type.InnerDims, 0,
                                          std::format("{}[i_]", cn), ctx, ind + 1);
-      } else if (isMappedField(f)) {
+      } else if (f.Type.IsUserType) {
+        std::string readName = "__" + f.Type.RefName + "Parse";
+        out += std::format("{}  if ({}(s.p, s.end, {}[i_]) != JsonReadError::Ok) {{ s.setError(\"field '{}': invalid {} value\"); return false; }}\n",
+                           in, readName, cn, ctx, f.Type.RefName);
+      } else if (isDerivedField(f)) {
         generateVerboseParseMappedValue(out, f.Type.RefName, f.Type.MappedWireType, std::format("{}[i_]", cn), ctx, ind + 1, "return false");
       } else if (isStructRef(f, enumNames)) {
         out += std::format("{}  if (!{}[i_].parseVerboseImpl(s)) return false;\n", in, cn);

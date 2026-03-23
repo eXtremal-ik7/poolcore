@@ -108,9 +108,13 @@ static bool processIncludesImpl(CIdlFile &file, const std::vector<std::string> &
       s.IsImported = true;
       file.Structs.push_back(std::move(s));
     }
-    for (auto &ext : included.MappedTypes) {
-      ext.IsImported = true;
-      file.MappedTypes.push_back(std::move(ext));
+    for (auto &ut : included.UserTypes) {
+      ut.IsImported = true;
+      file.UserTypes.push_back(std::move(ut));
+    }
+    for (auto &dt : included.DerivedTypes) {
+      dt.IsImported = true;
+      file.DerivedTypes.push_back(std::move(dt));
     }
   }
   return true;
@@ -224,8 +228,11 @@ static bool validateTypes(CIdlFile &file)
   std::unordered_set<std::string> allNames; // cross-kind duplicate check
   std::unordered_set<std::string> structNames;
   std::unordered_set<std::string> enumNames;
-  std::unordered_set<std::string> mappedNames;
+  std::unordered_set<std::string> userTypeNames;
+  std::unordered_set<std::string> derivedNames;
   std::unordered_map<std::string, CEnumDef *> enumIndex;
+  std::unordered_map<std::string, CUserTypeDef *> userTypeIndex;
+  std::unordered_map<std::string, CDerivedTypeDef *> derivedIndex;
 
   for (auto &s : file.Structs) {
     if (s.IsMixin) continue;
@@ -251,31 +258,55 @@ static bool validateTypes(CIdlFile &file)
     enumNames.insert(e.Name);
     enumIndex[e.Name] = &e;
   }
-  for (auto &ext : file.MappedTypes) {
-    if (!allNames.insert(ext.Name).second) {
-      fprintf(stderr, "line %d: duplicate type name '%s'\n", ext.Line, ext.Name.c_str());
+  for (auto &ut : file.UserTypes) {
+    if (!allNames.insert(ut.Name).second) {
+      fprintf(stderr, "line %d: duplicate type name '%s'\n", ut.Line, ut.Name.c_str());
       return false;
     }
-    mappedNames.insert(ext.Name);
+    userTypeNames.insert(ut.Name);
+    userTypeIndex[ut.Name] = &ut;
   }
 
-  // Build mapped type index for context validation
-  std::unordered_map<std::string, CMappedTypeDef *> mappedIndex;
-  for (auto &m : file.MappedTypes)
-    mappedIndex[m.Name] = &m;
+  // Resolve derived types
+  for (auto &dt : file.DerivedTypes) {
+    if (!allNames.insert(dt.Name).second) {
+      fprintf(stderr, "line %d: duplicate type name '%s'\n", dt.Line, dt.Name.c_str());
+      return false;
+    }
+    derivedNames.insert(dt.Name);
+    derivedIndex[dt.Name] = &dt;
+
+    // Resolve wire type (must be scalar)
+    auto wt = parseScalarType(dt.WireTypeName);
+    if (!wt) {
+      fprintf(stderr, "line %d: invalid wire type '%s' for derived '%s'\n", dt.Line, dt.WireTypeName.c_str(), dt.Name.c_str());
+      return false;
+    }
+
+    // Resolve context type (must be scalar)
+    auto ct = parseScalarType(dt.ContextTypeName);
+    if (!ct) {
+      fprintf(stderr, "line %d: invalid context type '%s' for derived '%s'\n", dt.Line, dt.ContextTypeName.c_str(), dt.Name.c_str());
+      return false;
+    }
+    dt.ContextType = *ct;
+  }
 
   for (auto &s : file.Structs) {
     if (s.IsMixin) continue;
 
-    // Helper lambda: resolve a single type reference (scalar, struct, enum, mapped)
+    // Helper lambda: resolve a single type reference (scalar, struct, enum, usertype, derived)
     auto resolveRef = [&](const std::string &refName, bool isScalar, int line, const char *fieldName,
-                          bool &outIsScalar, bool &outIsMapped,
+                          bool &outIsScalar, bool &outIsUserType, bool &outIsDerived,
                           std::string &outMappedCppType, std::string &outMappedWireType) -> bool {
       if (isScalar || refName.empty()) return true;
-      if (mappedNames.count(refName)) {
-        outIsMapped = true;
-        outMappedCppType = mappedIndex[refName]->CppType;
-        outMappedWireType = mappedIndex[refName]->JsonWireType;
+      if (userTypeNames.count(refName)) {
+        outIsUserType = true;
+        outMappedCppType = userTypeIndex[refName]->CppType;
+      } else if (derivedNames.count(refName)) {
+        outIsDerived = true;
+        outMappedCppType = derivedIndex[refName]->CppType;
+        outMappedWireType = derivedIndex[refName]->WireTypeName;
       } else {
         bool found = structNames.count(refName) || enumNames.count(refName);
         if (!found) {
@@ -313,16 +344,13 @@ static bool validateTypes(CIdlFile &file)
         // Resolve each alternative
         for (auto &alt : f.Type.Alternatives) {
           if (!resolveRef(alt.RefName, alt.IsScalar, f.Line, f.Name.c_str(),
-                          alt.IsScalar, alt.IsMapped, alt.MappedCppType, alt.MappedWireType))
+                          alt.IsScalar, alt.IsUserType, alt.IsDerived, alt.MappedCppType, alt.MappedWireType))
             return false;
-          // Reject mapped types with context in variants
-          if (alt.IsMapped) {
-            auto mi = mappedIndex.find(alt.RefName);
-            if (mi != mappedIndex.end() && mi->second->ContextType) {
-              fprintf(stderr, "line %d: variant alternative '%s' is a mapped type with context (not supported)\n",
-                      f.Line, alt.RefName.c_str());
-              return false;
-            }
+          // Reject derived types in variants (they require context)
+          if (alt.IsDerived) {
+            fprintf(stderr, "line %d: variant alternative '%s' is a derived type with context (not supported)\n",
+                    f.Line, alt.RefName.c_str());
+            return false;
           }
         }
 
@@ -333,7 +361,7 @@ static bool validateTypes(CIdlFile &file)
       // Array element type resolution (optional/map element types, or non-variant plain arrays)
       if (!f.Type.IsScalar && !f.Type.RefName.empty()) {
         if (!resolveRef(f.Type.RefName, f.Type.IsScalar, f.Line, f.Name.c_str(),
-                        f.Type.IsScalar, f.Type.IsMapped, f.Type.MappedCppType, f.Type.MappedWireType))
+                        f.Type.IsScalar, f.Type.IsUserType, f.Type.IsDerived, f.Type.MappedCppType, f.Type.MappedWireType))
           return false;
       }
 
@@ -468,13 +496,16 @@ static bool topologicalSort(CIdlFile &file)
   std::unordered_map<std::string, std::unordered_set<std::string>> deps;
   std::unordered_map<std::string, CStructDef *> structIndex;
   std::unordered_set<std::string> enumNames;
-  std::unordered_set<std::string> mappedNames;
+  std::unordered_set<std::string> userTypeNames;
+  std::unordered_set<std::string> derivedNames;
   std::unordered_set<std::string> importedNames;
 
   for (auto &e : file.Enums)
     enumNames.insert(e.Name);
-  for (auto &ext : file.MappedTypes)
-    mappedNames.insert(ext.Name);
+  for (auto &ut : file.UserTypes)
+    userTypeNames.insert(ut.Name);
+  for (auto &dt : file.DerivedTypes)
+    derivedNames.insert(dt.Name);
 
   // First pass: collect imported names
   for (auto &s : file.Structs) {
@@ -491,14 +522,15 @@ static bool topologicalSort(CIdlFile &file)
     deps[s.Name]; // ensure entry exists
     for (auto &f : s.Fields) {
       if (!f.Type.RefName.empty() && !enumNames.count(f.Type.RefName) &&
-          !importedNames.count(f.Type.RefName) && !mappedNames.count(f.Type.RefName)) {
+          !importedNames.count(f.Type.RefName) && !userTypeNames.count(f.Type.RefName) &&
+          !derivedNames.count(f.Type.RefName)) {
         deps[s.Name].insert(f.Type.RefName);
       }
       // Variant alternatives may reference structs
       for (auto &alt : f.Type.Alternatives) {
-        if (!alt.RefName.empty() && !alt.IsScalar && !alt.IsMapped &&
+        if (!alt.RefName.empty() && !alt.IsScalar && !alt.IsUserType && !alt.IsDerived &&
             !enumNames.count(alt.RefName) && !importedNames.count(alt.RefName) &&
-            !mappedNames.count(alt.RefName)) {
+            !userTypeNames.count(alt.RefName) && !derivedNames.count(alt.RefName)) {
           deps[s.Name].insert(alt.RefName);
         }
       }
@@ -568,9 +600,9 @@ struct CStructContextSummary {
 
 static bool validateContextGroups(CIdlFile &file)
 {
-  std::unordered_map<std::string, CMappedTypeDef *> mappedIndex;
-  for (auto &m : file.MappedTypes)
-    mappedIndex[m.Name] = &m;
+  std::unordered_set<std::string> derivedNames;
+  for (auto &dt : file.DerivedTypes)
+    derivedNames.insert(dt.Name);
 
   std::unordered_map<std::string, CStructContextSummary> summaries;
 
@@ -586,13 +618,11 @@ static bool validateContextGroups(CIdlFile &file)
     bool hasContext = false;
     for (size_t i = 0; i < s.Fields.size(); i++) {
       auto &f = s.Fields[i];
-      if (f.Type.IsMapped) {
-        auto mi = mappedIndex.find(f.Type.RefName);
-        if (mi != mappedIndex.end() && mi->second->ContextType) {
-          fieldNeedsContext[i] = true;
-          hasContext = true;
-        }
-      } else if (!f.Type.IsScalar && !f.Type.RefName.empty()) {
+      if (f.Type.IsDerived) {
+        // All derived types have context
+        fieldNeedsContext[i] = true;
+        hasContext = true;
+      } else if (!f.Type.IsScalar && !f.Type.IsUserType && !f.Type.RefName.empty()) {
         auto si = summaries.find(f.Type.RefName);
         if (si != summaries.end() && si->second.HasContext) {
           fieldNeedsContext[i] = true;
@@ -652,11 +682,11 @@ bool resolveAst(CIdlFile &file)
 
 void dumpAst(const CIdlFile &file)
 {
-  for (auto &m : file.MappedTypes) {
-    if (m.ContextType)
-      printf("mapped type %s(\"%s\") : %s context(%s) include \"%s\";\n", m.Name.c_str(), m.CppType.c_str(), m.JsonWireType.c_str(), idlScalarTypeName(*m.ContextType), m.IncludePath.c_str());
-    else
-      printf("mapped type %s(\"%s\") : %s include \"%s\";\n", m.Name.c_str(), m.CppType.c_str(), m.JsonWireType.c_str(), m.IncludePath.c_str());
+  for (auto &ut : file.UserTypes) {
+    printf("usertype %s(\"%s\") include \"%s\";\n", ut.Name.c_str(), ut.CppType.c_str(), ut.IncludePath.c_str());
+  }
+  for (auto &dt : file.DerivedTypes) {
+    printf("derived %s(\"%s\", %s, %s) include \"%s\";\n", dt.Name.c_str(), dt.CppType.c_str(), dt.WireTypeName.c_str(), dt.ContextTypeName.c_str(), dt.IncludePath.c_str());
   }
   for (auto &e : file.Enums) {
     printf("enum %s : %s { ", e.Name.c_str(), e.BaseType.c_str());

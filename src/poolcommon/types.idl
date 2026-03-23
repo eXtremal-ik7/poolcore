@@ -1,7 +1,8 @@
-mapped type money("UInt<384>") : string context(uint32) include "poolcommon/mappedTypes.h";
-mapped type moneyBTC("UInt<384>") : string include "poolcommon/mappedTypes.h";
-mapped type unixTime("Timestamp") : int64 include "poolcommon/mappedTypes.h";
-mapped type uint256("UInt<256>") : string include "poolcommon/mappedTypes.h";
+usertype uint256("UInt<256>") include "poolcommon/userTypes.h";
+usertype unixTime("Timestamp") include "poolcommon/userTypes.h";
+usertype moneyBTC("UInt<384>") include "poolcommon/userTypes.h";
+
+derived money("UInt<384>", string, uint32) include "poolcommon/userTypes.h";
 
 enum MiningMode : string {
   pplns,

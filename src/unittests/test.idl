@@ -226,14 +226,15 @@ struct Level0 {
 }
 
 // ============================================================================
-// Context — mapped type with context
+// Usertypes and derived types
 // ============================================================================
 
-mapped type testVal("int64_t") : string context(uint32) include "testMappedTypes.h";
-mapped type aVal("int64_t") : string context(uint32) include "testMappedTypes.h";
-mapped type bVal("int64_t") : string context(uint32) include "testMappedTypes.h";
-mapped type plainVal("int64_t") : string include "testMappedTypes.h";
-mapped type ctxCounter32Val("uint32_t") : uint32 context(uint32) include "testMappedTypes.h";
+usertype plainVal("int64_t") include "testUserTypes.h";
+
+derived testVal("int64_t", string, uint32) include "testDerivedTypes.h";
+derived aVal("int64_t", string, uint32) include "testDerivedTypes.h";
+derived bVal("int64_t", string, uint32) include "testDerivedTypes.h";
+derived ctxCounter32Val("uint32_t", uint32, uint32) include "testDerivedTypes.h";
 
 struct InlineMapped {
   .generate(parse, parse.verbose, serialize);
@@ -282,11 +283,11 @@ struct CtxNumericWireParent {
 }
 
 // ============================================================================
-// Uint64 wire mapped type (bug: jsonWriteInt used instead of jsonWriteUInt)
+// Usertypes with integer wire types
 // ============================================================================
 
-mapped type counterVal("uint64_t") : uint64 include "testMappedTypes.h";
-mapped type counter32Val("uint32_t") : uint32 include "testMappedTypes.h";
+usertype counterVal("uint64_t") include "testUserTypes.h";
+usertype counter32Val("uint32_t") include "testUserTypes.h";
 
 struct WithUint64Mapped {
   .generate(parse, serialize);

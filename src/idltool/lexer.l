@@ -23,8 +23,8 @@
 "false"                 { return TOK_FALSE; }
 "now"                   { return TOK_NOW; }
 "include"               { return TOK_INCLUDE; }
-"mapped"                { return TOK_MAPPED; }
-"type"                  { return TOK_TYPE; }
+"usertype"              { return TOK_USERTYPE; }
+"derived"               { return TOK_DERIVED; }
 "context"               { return TOK_CONTEXT; }
 ".ctxgroup"             { return TOK_DOT_CTXGROUP; }
 ".generate"             { return TOK_DOT_GENERATE; }

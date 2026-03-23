@@ -17,7 +17,8 @@
     alt.IsScalar = type->IsScalar;
     alt.Scalar = type->Scalar;
     alt.RefName = std::move(type->RefName);
-    alt.IsMapped = type->IsMapped;
+    alt.IsUserType = type->IsUserType;
+    alt.IsDerived = type->IsDerived;
     alt.MappedCppType = std::move(type->MappedCppType);
     alt.MappedWireType = std::move(type->MappedWireType);
     alt.Dims = std::move(type->InnerDims);
@@ -110,7 +111,8 @@
   CFieldDef *fieldDef;
   CEnumDef *enumDef;
   CIncludeDirective *includeDef;
-  CMappedTypeDef *mappedDef;
+  CUserTypeDef *userTypeDef;
+  CDerivedTypeDef *derivedDef;
   CFieldType *fieldType;
   COptionalPolicySpec *optionalPolicy;
   CDefaultValue *defaultVal;
@@ -123,7 +125,7 @@
 }
 
 %token TOK_STRUCT TOK_MIXIN TOK_ENUM TOK_TRUE TOK_FALSE TOK_NOW TOK_INCLUDE
-%token TOK_MAPPED TOK_TYPE TOK_CONTEXT TOK_VARIANT TOK_MAP
+%token TOK_USERTYPE TOK_DERIVED TOK_CONTEXT TOK_VARIANT TOK_MAP
 %token TOK_OPTIONAL
 %token TOK_DOT_GENERATE TOK_DOT_EXTENSIONS TOK_DOT_CTXGROUP TOK_DOT_FLAGS
 %token <strVal> TOK_CPP_BLOCK
@@ -135,7 +137,8 @@
 %type <structDef> struct_def mixin_def
 %type <enumDef> enum_def
 %type <includeDef> include_directive
-%type <mappedDef> mapped_def
+%type <userTypeDef> usertype_def
+%type <derivedDef> derived_def
 %type <fieldDef> field
 %type <fieldType> type_spec base_type_spec array_elem
 %type <optionalPolicy> optional_policy_list optional_policy_clause
@@ -149,7 +152,7 @@
 %type <variantAlts> variant_alts variant_tail
 
 %destructor { free($$); } <strVal>
-%destructor { delete $$; } <structDef> <enumDef> <includeDef> <mappedDef> <fieldDef> <fieldType> <optionalPolicy> <defaultVal> <extensionsDecl> <memberList> <fieldList> <stringList> <variantAlts>
+%destructor { delete $$; } <structDef> <enumDef> <includeDef> <userTypeDef> <derivedDef> <fieldDef> <fieldType> <optionalPolicy> <defaultVal> <extensionsDecl> <memberList> <fieldList> <stringList> <variantAlts>
 
 %%
 
@@ -175,8 +178,12 @@ definition:
       file->Includes.push_back(std::move(*$1));
       delete $1;
     }
-  | mapped_def {
-      file->MappedTypes.push_back(std::move(*$1));
+  | usertype_def {
+      file->UserTypes.push_back(std::move(*$1));
+      delete $1;
+    }
+  | derived_def {
+      file->DerivedTypes.push_back(std::move(*$1));
       delete $1;
     }
   ;
@@ -190,38 +197,43 @@ include_directive:
     }
   ;
 
-mapped_def:
-    TOK_MAPPED TOK_TYPE TOK_IDENTIFIER '(' TOK_STRING_LITERAL ')' ':' TOK_IDENTIFIER TOK_INCLUDE TOK_STRING_LITERAL ';' {
-      $$ = new CMappedTypeDef();
-      $$->Name = $3;
-      $$->CppType = $5;
-      $$->JsonWireType = $8;
-      $$->IncludePath = $10;
+usertype_def:
+    TOK_USERTYPE TOK_IDENTIFIER '(' TOK_STRING_LITERAL ')' TOK_INCLUDE TOK_STRING_LITERAL ';' {
+      $$ = new CUserTypeDef();
+      $$->Name = $2;
+      $$->CppType = $4;
+      $$->IncludePath = $7;
       $$->Line = @1.first_line;
-      free($3);
-      free($5);
-      free($8);
-      free($10);
+      free($2);
+      free($4);
+      free($7);
     }
-  | TOK_MAPPED TOK_TYPE TOK_IDENTIFIER '(' TOK_STRING_LITERAL ')' ':' TOK_IDENTIFIER TOK_CONTEXT '(' type_name ')' TOK_INCLUDE TOK_STRING_LITERAL ';' {
-      $$ = new CMappedTypeDef();
-      $$->Name = $3;
-      $$->CppType = $5;
-      $$->JsonWireType = $8;
-      $$->IncludePath = $14;
+  ;
+
+derived_def:
+    TOK_DERIVED TOK_IDENTIFIER '(' TOK_STRING_LITERAL ',' TOK_IDENTIFIER ',' TOK_IDENTIFIER ')' TOK_INCLUDE TOK_STRING_LITERAL ';' {
+      $$ = new CDerivedTypeDef();
+      $$->Name = $2;
+      $$->CppType = $4;
+      $$->WireTypeName = $6;
+      $$->ContextTypeName = $8;
+      $$->IncludePath = $11;
       $$->Line = @1.first_line;
-      auto ct = parseScalarType($11);
-      if (ct) {
-        $$->ContextType = *ct;
-      } else {
-        yyerror(&@11, file, scanner, "invalid context type");
+      auto ct = parseScalarType($8);
+      if (!ct) {
+        yyerror(&@8, file, scanner, "invalid context type");
         YYERROR;
       }
-      free($3);
-      free($5);
+      auto wt = parseScalarType($6);
+      if (!wt) {
+        yyerror(&@6, file, scanner, "invalid wire type");
+        YYERROR;
+      }
+      free($2);
+      free($4);
+      free($6);
       free($8);
       free($11);
-      free($14);
     }
   ;
 
@@ -357,9 +369,9 @@ field_tag:
 
 field_name:
     TOK_IDENTIFIER { $$ = $1; }
-  | TOK_TYPE       { $$ = strdup("type"); }
   | TOK_CONTEXT    { $$ = strdup("context"); }
-  | TOK_MAPPED     { $$ = strdup("mapped"); }
+  | TOK_USERTYPE   { $$ = strdup("usertype"); }
+  | TOK_DERIVED    { $$ = strdup("derived"); }
   | TOK_VARIANT    { $$ = strdup("variant"); }
   | TOK_MAP        { $$ = strdup("map"); }
   ;

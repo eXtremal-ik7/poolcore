@@ -178,14 +178,14 @@ std::string fieldCppName(const std::string &name, bool pascalCase)
   return result;
 }
 
-// Build base type name for a single type reference (scalar/struct/enum/mapped)
-static std::string baseTypeName(bool isMapped,
+// Build base type name for a single type reference (scalar/struct/enum/usertype/derived)
+static std::string baseTypeName(bool isUserTypeOrDerived,
     EScalarType scalar, const std::string &refName,
     const std::string &mappedCppType,
     const std::unordered_set<std::string> &enumNames,
     const std::string &structPrefix)
 {
-  if (isMapped)
+  if (isUserTypeOrDerived)
     return mappedCppType;
   if (!refName.empty()) {
     if (enumNames.count(refName))
@@ -211,7 +211,8 @@ CFieldDef variantAltAsField(const CVariantAlt &alt, const std::string &name)
   CFieldDef f;
   f.Name = name;
   f.Type.IsScalar = alt.IsScalar;
-  f.Type.IsMapped = alt.IsMapped;
+  f.Type.IsUserType = alt.IsUserType;
+  f.Type.IsDerived = alt.IsDerived;
   f.Type.Scalar = alt.Scalar;
   f.Type.RefName = alt.RefName;
   f.Type.MappedCppType = alt.MappedCppType;
@@ -233,11 +234,11 @@ std::string cppVariantAltType(const CVariantAlt &alt,
     const std::string &structPrefix)
 {
   if (!alt.Dims.empty()) {
-    return wrapArrayDims(baseTypeName(alt.IsMapped, alt.Scalar, alt.RefName,
+    return wrapArrayDims(baseTypeName(alt.IsUserType || alt.IsDerived, alt.Scalar, alt.RefName,
                                       alt.MappedCppType, enumNames, structPrefix),
                          alt.Dims);
   }
-  return baseTypeName(alt.IsMapped, alt.Scalar, alt.RefName,
+  return baseTypeName(alt.IsUserType || alt.IsDerived, alt.Scalar, alt.RefName,
                       alt.MappedCppType, enumNames, structPrefix);
 }
 
@@ -272,17 +273,17 @@ std::string cppFieldType(const CFieldDef &f, const std::unordered_set<std::strin
   switch (f.Type.ArrayElementKind) {
     case EArrayElementKind::Optional:
       base = std::format("std::optional<{}>",
-        baseTypeName(f.Type.IsMapped, f.Type.Scalar, f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix));
+        baseTypeName(f.Type.IsUserType || f.Type.IsDerived, f.Type.Scalar, f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix));
       break;
     case EArrayElementKind::Variant:
       base = variantCppType(f.Type.Alternatives, enumNames, structPrefix);
       break;
     case EArrayElementKind::Map:
       base = std::format("std::unordered_map<std::string, {}>",
-        baseTypeName(f.Type.IsMapped, f.Type.Scalar, f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix));
+        baseTypeName(f.Type.IsUserType || f.Type.IsDerived, f.Type.Scalar, f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix));
       break;
     default:
-      base = baseTypeName(f.Type.IsMapped, f.Type.Scalar, f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix);
+      base = baseTypeName(f.Type.IsUserType || f.Type.IsDerived, f.Type.Scalar, f.Type.RefName, f.Type.MappedCppType, enumNames, structPrefix);
       break;
   }
 
@@ -359,7 +360,7 @@ bool isEnum(const std::string &refName, const std::unordered_set<std::string> &e
 
 bool isStructRef(const CFieldDef &f, const std::unordered_set<std::string> &enumNames)
 {
-  return !f.Type.RefName.empty() && !f.Type.IsMapped && !enumNames.count(f.Type.RefName);
+  return !f.Type.RefName.empty() && !f.Type.IsUserType && !f.Type.IsDerived && !enumNames.count(f.Type.RefName);
 }
 
 // --- Perfect hash ---
@@ -503,9 +504,14 @@ void emitSerializeValue(CSerializeCodeBuilder &code, const CFieldDef &f,
   }
 }
 
-bool isMappedField(const CFieldDef &f)
+bool isUserTypeField(const CFieldDef &f)
 {
-  return f.Type.IsMapped;
+  return f.Type.IsUserType;
+}
+
+bool isDerivedField(const CFieldDef &f)
+{
+  return f.Type.IsDerived;
 }
 
 static void emitSerializePlainArrayElem(CSerializeCodeBuilder &code, const CFieldDef &f,
@@ -513,6 +519,10 @@ static void emitSerializePlainArrayElem(CSerializeCodeBuilder &code, const CFiel
                                         const std::unordered_set<std::string> &enumNames,
                                         int ind)
 {
+  if (isUserTypeField(f)) {
+    emitUserTypeValueSerialize(code, f.Type.RefName, valueName, ind);
+    return;
+  }
   if (isStructRef(f, enumNames)) {
     code.appendRaw(std::format("{}{}.serialize(out);\n", indent(ind), valueName));
     return;
@@ -575,28 +585,26 @@ WireTypeInfo getWireTypeInfo(const std::string &wireType)
   return {"readStringValue", "jsonWriteString", "std::string", "string"};
 }
 
-void emitMappedInlineValueSerialize(CSerializeCodeBuilder &code,
-                                    const std::string &mappedTypeName,
-                                    const std::string &mappedWireType,
-                                    const std::string &valueName,
-                                    int ind)
+// Usertype serialize — direct __<name>Serialize(out, value)
+void emitUserTypeValueSerialize(CSerializeCodeBuilder &code,
+                                const std::string &userTypeName,
+                                const std::string &valueName,
+                                int ind)
 {
-  auto wi = getWireTypeInfo(mappedWireType);
   std::string in = indent(ind);
-  std::string formatFunc = "__" + mappedTypeName + "Format";
-  code.appendRaw(std::format("{}{}(out, {}({}));\n", in, wi.writeFunc, formatFunc, valueName));
+  std::string serializeName = "__" + userTypeName + "Serialize";
+  code.appendRaw(std::format("{}{}(out, {});\n", in, serializeName, valueName));
 }
 
-void emitMappedInlineNestedArraySerialize(CSerializeCodeBuilder &code,
-                                          const std::string &mappedTypeName,
-                                          const std::string &mappedWireType,
-                                          const std::vector<CArrayDim> &dims, int dimIndex,
-                                          const std::string &valueName,
-                                          int ind)
+void emitUserTypeNestedArraySerialize(CSerializeCodeBuilder &code,
+                                      const std::string &userTypeName,
+                                      const std::vector<CArrayDim> &dims, int dimIndex,
+                                      const std::string &valueName,
+                                      int ind)
 {
   std::string in = indent(ind);
   if (dimIndex >= (int)dims.size()) {
-    emitMappedInlineValueSerialize(code, mappedTypeName, mappedWireType, valueName, ind);
+    emitUserTypeValueSerialize(code, userTypeName, valueName, ind);
     return;
   }
 
@@ -604,8 +612,44 @@ void emitMappedInlineNestedArraySerialize(CSerializeCodeBuilder &code,
   std::string idx = std::format("i{}_", dimIndex);
   code.appendRaw(std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueName, idx));
   code.appendRaw(std::format("{}  if ({}) out.write(',');\n", in, idx));
-  emitMappedInlineNestedArraySerialize(code, mappedTypeName, mappedWireType, dims, dimIndex + 1,
-                                       std::format("{}[{}]", valueName, idx), ind + 1);
+  emitUserTypeNestedArraySerialize(code, userTypeName, dims, dimIndex + 1,
+                                   std::format("{}[{}]", valueName, idx), ind + 1);
+  code.appendRaw(std::format("{}}}\n", in));
+  code.writeLiteral(ind, "]");
+}
+
+// Derived inline serialize (context-free path, shouldn't normally be reached for derived)
+void emitDerivedInlineValueSerialize(CSerializeCodeBuilder &code,
+                                     const std::string &derivedTypeName,
+                                     const std::string &wireType,
+                                     const std::string &valueName,
+                                     int ind)
+{
+  auto wi = getWireTypeInfo(wireType);
+  std::string in = indent(ind);
+  std::string formatName = "__" + derivedTypeName + "Format";
+  code.appendRaw(std::format("{}{}(out, {}({}));\n", in, wi.writeFunc, formatName, valueName));
+}
+
+void emitDerivedInlineNestedArraySerialize(CSerializeCodeBuilder &code,
+                                           const std::string &derivedTypeName,
+                                           const std::string &wireType,
+                                           const std::vector<CArrayDim> &dims, int dimIndex,
+                                           const std::string &valueName,
+                                           int ind)
+{
+  std::string in = indent(ind);
+  if (dimIndex >= (int)dims.size()) {
+    emitDerivedInlineValueSerialize(code, derivedTypeName, wireType, valueName, ind);
+    return;
+  }
+
+  code.writeLiteral(ind, "[");
+  std::string idx = std::format("i{}_", dimIndex);
+  code.appendRaw(std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueName, idx));
+  code.appendRaw(std::format("{}  if ({}) out.write(',');\n", in, idx));
+  emitDerivedInlineNestedArraySerialize(code, derivedTypeName, wireType, dims, dimIndex + 1,
+                                        std::format("{}[{}]", valueName, idx), ind + 1);
   code.appendRaw(std::format("{}}}\n", in));
   code.writeLiteral(ind, "]");
 }
@@ -620,14 +664,23 @@ void emitSerializeExpr(CSerializeCodeBuilder &code, const CFieldDef &f,
     code.writeLiteral(ind, "[");
     code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, valueName));
     code.appendRaw(std::format("{}  if (i_) out.write(',');\n", in));
-    if (isMappedField(f)) {
+    if (isUserTypeField(f)) {
       if (f.Type.InnerDims.empty()) {
-        emitMappedInlineValueSerialize(code, f.Type.RefName, f.Type.MappedWireType,
-                                       std::format("{}[i_]", valueName), ind + 1);
+        emitUserTypeValueSerialize(code, f.Type.RefName,
+                                   std::format("{}[i_]", valueName), ind + 1);
       } else {
-        emitMappedInlineNestedArraySerialize(code, f.Type.RefName, f.Type.MappedWireType,
-                                             f.Type.InnerDims, 0,
-                                             std::format("{}[i_]", valueName), ind + 1);
+        emitUserTypeNestedArraySerialize(code, f.Type.RefName,
+                                         f.Type.InnerDims, 0,
+                                         std::format("{}[i_]", valueName), ind + 1);
+      }
+    } else if (isDerivedField(f)) {
+      if (f.Type.InnerDims.empty()) {
+        emitDerivedInlineValueSerialize(code, f.Type.RefName, f.Type.MappedWireType,
+                                        std::format("{}[i_]", valueName), ind + 1);
+      } else {
+        emitDerivedInlineNestedArraySerialize(code, f.Type.RefName, f.Type.MappedWireType,
+                                              f.Type.InnerDims, 0,
+                                              std::format("{}[i_]", valueName), ind + 1);
       }
     } else if (f.Type.InnerDims.empty()) {
       emitSerializeArrayElem(code, f, std::format("{}[i_]", valueName), enumNames, ind + 1);
@@ -660,8 +713,12 @@ void emitSerializeExpr(CSerializeCodeBuilder &code, const CFieldDef &f,
     return;
   }
 
-  if (isMappedField(f)) {
-    emitMappedInlineValueSerialize(code, f.Type.RefName, f.Type.MappedWireType, valueName, ind);
+  if (isUserTypeField(f)) {
+    emitUserTypeValueSerialize(code, f.Type.RefName, valueName, ind);
+    return;
+  }
+  if (isDerivedField(f)) {
+    emitDerivedInlineValueSerialize(code, f.Type.RefName, f.Type.MappedWireType, valueName, ind);
     return;
   }
   if (isStructRef(f, enumNames)) {
@@ -736,8 +793,8 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
     code.writeLiteral(keyInd, std::format("\"{}\":", jsonKey));
   };
 
-  // Mapped field: write empty string in standard serialize
-  if (isMappedField(f)) {
+  // Derived field: write empty string in standard serialize (context serialize handles actual value)
+  if (isDerivedField(f)) {
     emitKey(f.Name);
     code.appendRaw(std::format("{}jsonWriteString(out, \"\");\n", in));
     return;
@@ -746,7 +803,9 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
   switch (f.Kind) {
     case EFieldKind::Required: {
       emitKey(f.Name);
-      if (isStructRef(f, enumNames)) {
+      if (isUserTypeField(f)) {
+        emitUserTypeValueSerialize(code, f.Type.RefName, cn, ind);
+      } else if (isStructRef(f, enumNames)) {
         code.appendRaw(std::format("{}{}.serialize(out);\n", in, cn));
       } else {
         emitSerializeValue(code, f, cn, enumNames, ind);
@@ -756,7 +815,9 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
 
     case EFieldKind::HasDefault: {
       emitKey(f.Name);
-      if (isStructRef(f, enumNames)) {
+      if (isUserTypeField(f)) {
+        emitUserTypeValueSerialize(code, f.Type.RefName, cn, ind);
+      } else if (isStructRef(f, enumNames)) {
         code.appendRaw(std::format("{}{}.serialize(out);\n", in, cn));
       } else {
         emitSerializeValue(code, f, cn, enumNames, ind);
@@ -768,7 +829,9 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
       if (!fieldEmptyOutIsNull(f)) {
         code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
         emitKey(f.Name, ind + 1);
-        if (isStructRef(f, enumNames)) {
+        if (isUserTypeField(f)) {
+          emitUserTypeValueSerialize(code, f.Type.RefName, std::format("*{}", cn), ind + 1);
+        } else if (isStructRef(f, enumNames)) {
           code.appendRaw(std::format("{}{}->serialize(out);\n", indent(ind + 1), cn));
         } else {
           emitSerializeValue(code, f, std::format("*{}", cn), enumNames, ind + 1);
@@ -779,7 +842,9 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
 
       emitKey(f.Name);
       code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
-      if (isStructRef(f, enumNames)) {
+      if (isUserTypeField(f)) {
+        emitUserTypeValueSerialize(code, f.Type.RefName, std::format("*{}", cn), ind + 1);
+      } else if (isStructRef(f, enumNames)) {
         code.appendRaw(std::format("{}{}->serialize(out);\n", indent(ind + 1), cn));
       } else {
         emitSerializeValue(code, f, std::format("*{}", cn), enumNames, ind + 1);

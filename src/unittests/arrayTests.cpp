@@ -247,7 +247,7 @@ TEST(IdlTool, DiagInlineMappedArrayElementError) {
   ParseError error;
   EXPECT_FALSE(m.parseVerbose(json, strlen(json), error));
   EXPECT_NE(error.message.find("field 'amounts'"), std::string::npos);
-  EXPECT_NE(error.message.find("invalid mapped value in array"), std::string::npos);
+  EXPECT_NE(error.message.find("invalid plainVal value in array"), std::string::npos);
 }
 
 // ============================================================================

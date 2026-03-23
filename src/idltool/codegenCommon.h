@@ -19,7 +19,8 @@ CFieldDef variantAltAsField(const CVariantAlt &alt, const std::string &name = ""
 
 bool isEnum(const std::string &refName, const std::unordered_set<std::string> &enumNames);
 bool isStructRef(const CFieldDef &f, const std::unordered_set<std::string> &enumNames);
-bool isMappedField(const CFieldDef &f);
+bool isUserTypeField(const CFieldDef &f);
+bool isDerivedField(const CFieldDef &f);
 
 struct CSerializeCodeBuilder {
   explicit CSerializeCodeBuilder(std::string &code);
@@ -61,17 +62,26 @@ struct WireTypeInfo {
 
 WireTypeInfo getWireTypeInfo(const std::string &wireType);
 
-void emitMappedInlineValueSerialize(CSerializeCodeBuilder &code,
-                                    const std::string &mappedTypeName,
-                                    const std::string &mappedWireType,
-                                    const std::string &valueName,
-                                    int ind);
-void emitMappedInlineNestedArraySerialize(CSerializeCodeBuilder &code,
-                                          const std::string &mappedTypeName,
-                                          const std::string &mappedWireType,
-                                          const std::vector<CArrayDim> &dims, int dimIndex,
-                                          const std::string &valueName,
-                                          int ind);
+void emitUserTypeValueSerialize(CSerializeCodeBuilder &code,
+                                const std::string &userTypeName,
+                                const std::string &valueName,
+                                int ind);
+void emitUserTypeNestedArraySerialize(CSerializeCodeBuilder &code,
+                                      const std::string &userTypeName,
+                                      const std::vector<CArrayDim> &dims, int dimIndex,
+                                      const std::string &valueName,
+                                      int ind);
+void emitDerivedInlineValueSerialize(CSerializeCodeBuilder &code,
+                                     const std::string &derivedTypeName,
+                                     const std::string &wireType,
+                                     const std::string &valueName,
+                                     int ind);
+void emitDerivedInlineNestedArraySerialize(CSerializeCodeBuilder &code,
+                                           const std::string &derivedTypeName,
+                                           const std::string &wireType,
+                                           const std::vector<CArrayDim> &dims, int dimIndex,
+                                           const std::string &valueName,
+                                           int ind);
 
 // --- Serialize generation ---
 

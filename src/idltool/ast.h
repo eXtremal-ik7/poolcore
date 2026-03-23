@@ -80,7 +80,8 @@ struct CVariantAlt {
   bool IsScalar = false;
   EScalarType Scalar = EScalarType::String;
   std::string RefName;
-  bool IsMapped = false;
+  bool IsUserType = false;
+  bool IsDerived = false;
   std::string MappedCppType;
   std::string MappedWireType;
   std::vector<CArrayDim> Dims; // outermost first for array alternatives
@@ -88,10 +89,11 @@ struct CVariantAlt {
   std::string DiscriminatingField;
 };
 
-// Type of a field — scalar or reference to struct/enum/mapped
+// Type of a field — scalar or reference to struct/enum/usertype/derived
 struct CFieldType {
   bool IsScalar = false;
-  bool IsMapped = false;
+  bool IsUserType = false;
+  bool IsDerived = false;
   EScalarType Scalar = EScalarType::String;
   std::string RefName; // non-empty if referencing struct/enum/mapped type
   std::string MappedCppType; // C++ type from mapped type definition
@@ -227,12 +229,22 @@ struct CIncludeDirective {
   int Line = 0;
 };
 
-struct CMappedTypeDef {
+struct CUserTypeDef {
   std::string Name;
   std::string CppType;
-  std::string JsonWireType;
   std::string IncludePath;
-  std::optional<EScalarType> ContextType;
+  int Line = 0;
+  bool IsImported = false;
+};
+
+struct CDerivedTypeDef {
+  std::string Name;
+  std::string CppType;          // C++ target type (string literal from IDL)
+  std::string WireTypeName;     // scalar (wire type for JSON read/write)
+  std::string ContextTypeName;  // scalar (context parameter type)
+  std::string IncludePath;
+  // Resolved during validation:
+  EScalarType ContextType = EScalarType::Uint32;
   int Line = 0;
   bool IsImported = false;
 };
@@ -241,7 +253,8 @@ struct CIdlFile {
   std::vector<CIncludeDirective> Includes;
   std::vector<CStructDef> Structs; // includes mixins
   std::vector<CEnumDef> Enums;
-  std::vector<CMappedTypeDef> MappedTypes;
+  std::vector<CUserTypeDef> UserTypes;
+  std::vector<CDerivedTypeDef> DerivedTypes;
 };
 
 // Parse IDL from file, returns false on error
