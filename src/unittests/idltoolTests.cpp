@@ -779,7 +779,7 @@ TEST(IdlTool, SerializeMixedFields) {
   EXPECT_EQ(doc["optional3"].GetBool(), true);
 }
 
-TEST(IdlTool, SerializeOptionalDefaultsOmitted) {
+TEST(IdlTool, SerializeDefaultsAlwaysPresent) {
   ScalarDefaults d;
 
   xmstream stream;
@@ -787,13 +787,19 @@ TEST(IdlTool, SerializeOptionalDefaultsOmitted) {
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   ASSERT_TRUE(doc.IsObject());
-  EXPECT_EQ(doc.MemberCount(), 0u);
+  EXPECT_EQ(doc.MemberCount(), 8u);
 
-  std::string json(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
-  EXPECT_EQ(json, "{}");
+  EXPECT_STREQ(doc["fieldString"].GetString(), "hello");
+  EXPECT_EQ(doc["fieldBool"].GetBool(), true);
+  EXPECT_EQ(doc["fieldInt32"].GetInt(), -1);
+  EXPECT_EQ(doc["fieldUint32"].GetUint(), 42u);
+  EXPECT_EQ(doc["fieldInt64"].GetInt64(), 0);
+  EXPECT_EQ(doc["fieldUint64"].GetUint64(), 100u);
+  EXPECT_DOUBLE_EQ(doc["fieldDouble"].GetDouble(), 3.14);
+  EXPECT_DOUBLE_EQ(doc["fieldNegDouble"].GetDouble(), -3.14);
 }
 
-TEST(IdlTool, SerializeOnlyLastOptionalFieldPresent) {
+TEST(IdlTool, SerializeDefaultsOverridden) {
   ScalarDefaults d;
   d.fieldDouble = 4.5;
 
@@ -802,12 +808,12 @@ TEST(IdlTool, SerializeOnlyLastOptionalFieldPresent) {
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
   ASSERT_TRUE(doc.IsObject());
-  EXPECT_EQ(doc.MemberCount(), 1u);
-  ASSERT_TRUE(doc.HasMember("fieldDouble"));
+  EXPECT_EQ(doc.MemberCount(), 8u);
   EXPECT_DOUBLE_EQ(doc["fieldDouble"].GetDouble(), 4.5);
 
-  std::string json(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
-  EXPECT_EQ(json, "{\"fieldDouble\":4.5}");
+  // other fields still present with their defaults
+  EXPECT_STREQ(doc["fieldString"].GetString(), "hello");
+  EXPECT_EQ(doc["fieldBool"].GetBool(), true);
 }
 
 TEST(IdlTool, SerializeEnum) {
@@ -2510,7 +2516,7 @@ TEST(IdlTool, StringDefaultWithSpecialCharsEscaped) {
   // cppStringLiteral() must re-escape them for valid C++.
   // IDL "hello\"world" → StringVal = hello\"world → C++ "hello\\\"world"
   // IDL "back\\slash"  → StringVal = back\\slash  → C++ "back\\\\slash"
-  EXPECT_TRUE(generatedIdlSourceContains("str_escape_default",
+  EXPECT_TRUE(generatedIdlHeaderContains("str_escape_default",
     R"(
 struct Escaped {
   .generate(parse, serialize);

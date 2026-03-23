@@ -755,25 +755,11 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
     }
 
     case EFieldKind::HasDefault: {
-      bool isStatic = f.Default.Kind != EDefaultKind::RuntimeNow &&
-                      f.Default.Kind != EDefaultKind::RuntimeNowOffset;
-      if (isStatic) {
-        std::string defaultVal = cppDefault(f, enumNames, pascalCase);
-        code.appendRaw(std::format("{}if ({} != {}) {{\n", in, cn, defaultVal));
-        emitKey(f.Name, ind + 1);
-        if (isStructRef(f, enumNames)) {
-          code.appendRaw(std::format("{}{}.serialize(out);\n", indent(ind + 1), cn));
-        } else {
-          emitSerializeValue(code, f, cn, enumNames, ind + 1);
-        }
-        code.appendRaw(std::format("{}}}\n", in));
+      emitKey(f.Name);
+      if (isStructRef(f, enumNames)) {
+        code.appendRaw(std::format("{}{}.serialize(out);\n", in, cn));
       } else {
-        emitKey(f.Name);
-        if (isStructRef(f, enumNames)) {
-          code.appendRaw(std::format("{}{}.serialize(out);\n", in, cn));
-        } else {
-          emitSerializeValue(code, f, cn, enumNames, ind);
-        }
+        emitSerializeValue(code, f, cn, enumNames, ind);
       }
       break;
     }
