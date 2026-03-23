@@ -320,12 +320,17 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphanA
   // Check getblockhash responses
   for (rapidjson::SizeType i = 1, ie = document.GetArray().Size(); i != ie; ++i) {
     rapidjson::Value &value = document.GetArray()[i];
-    if (!value.IsObject() || !value.HasMember("result") || !value["result"].IsString()) {
+    if (!value.IsObject() || !value.HasMember("result")) {
       CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
       return false;
     }
 
-    query[i-1].Confirmations = query[i-1].Hash == value["result"].GetString() ? bestBlockHeight - query[i-1].Height : -1;
+    if (value["result"].IsString()) {
+      query[i-1].Confirmations = query[i-1].Hash == value["result"].GetString() ? bestBlockHeight - query[i-1].Height : -1;
+    } else {
+      // getblockhash returned null (block height out of range) — treat as orphan
+      query[i-1].Confirmations = -1;
+    }
   }
 
   return true;

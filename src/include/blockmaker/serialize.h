@@ -23,10 +23,23 @@ template<typename T> static inline void unpackFinalize(DynamicPtr<T> dst) { Io<T
 
 static inline void serializeForCoinbase(xmstream &stream, int64_t value)
 {
+  // Match Bitcoin Core's CScript::operator<<(int64_t) encoding:
+  // heights 1-16 use OP_N opcodes, height 0 uses OP_0, height -1 uses OP_1NEGATE
+  if (value == 0) {
+    stream.write<uint8_t>(0x00); // OP_0
+    return;
+  }
+  if (value >= 1 && value <= 16) {
+    stream.write<uint8_t>(static_cast<uint8_t>(0x50 + value)); // OP_1..OP_16
+    return;
+  }
+  if (value == -1) {
+    stream.write<uint8_t>(0x4f); // OP_1NEGATE
+    return;
+  }
+
   size_t offset = stream.offsetOf();
   stream.write<uint8_t>(0);
-  if (value == 0)
-    return;
 
   bool isNegative = value < 0;
   uint64_t absValue = isNegative ? -value : value;
