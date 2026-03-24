@@ -10,6 +10,7 @@
 #include "poolcore/shareAccumulator.h"
 #include <asyncio/socket.h>
 #include <asyncioextras/zmtp.h>
+#include "blockmaker/bitcoinBlockTemplate.h"
 #include "blockmaker/protocol.pb.h"
 #include <cmath>
 
@@ -477,7 +478,7 @@ private:
     }
 
     std::string error;
-    if (!X::Zmq::loadFromTemplate(data.Work, blockTemplate->Document, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg, error)) {
+    if (!X::Zmq::loadFromTemplate(data.Work, *static_cast<CBitcoinBlockTemplate*>(blockTemplate)->Data.Result, MiningCfg_, backend, coinInfo.Name, miningAddress, backendConfig.CoinBaseMsg, error)) {
       CLOG_FC(LogChannel_, ERROR, "{}: can't process block template; error: {}", Name_, error);
       return;
     }

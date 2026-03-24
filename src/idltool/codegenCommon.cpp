@@ -73,6 +73,7 @@ std::string cppScalarType(EScalarType t)
     case EScalarType::Seconds: return "std::chrono::seconds";
     case EScalarType::Minutes: return "std::chrono::minutes";
     case EScalarType::Hours:   return "std::chrono::hours";
+    case EScalarType::HexData: return "std::vector<uint8_t>";
   }
   return "void";
 }
@@ -501,6 +502,8 @@ void emitSerializeValue(CSerializeCodeBuilder &code, const CFieldDef &f,
       code.appendRaw(std::format("{}jsonWriteDouble(out, {});\n", in, valueName)); break;
     case EScalarType::Seconds: case EScalarType::Minutes: case EScalarType::Hours:
       code.appendRaw(std::format("{}jsonWriteInt(out, {}.count());\n", in, valueName)); break;
+    case EScalarType::HexData:
+      code.appendRaw(std::format("{}jsonWriteHexData(out, {});\n", in, valueName)); break;
   }
 }
 

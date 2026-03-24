@@ -102,6 +102,17 @@ static void generateVerboseParseScalar(std::string &out, const CFieldDef &f, con
     return;
   }
 
+  // HexData type
+  if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+    out += std::format("{}if (jsonReadHexData(s.p, s.end, {}) != JsonReadError::Ok) {{\n", in, cn);
+    out += std::format("{}  s.setError(\"field '{}': invalid hex data\");\n", in, fieldContext);
+    out += std::format("{}  return false;\n", in);
+    out += std::format("{}}}\n", in);
+    if (foundBit >= 0)
+      out += std::format("{}found |= (uint64_t)1 << {};\n", in, foundBit);
+    return;
+  }
+
   const char *readMethod = nullptr;
   switch (f.Type.Scalar) {
     case EScalarType::String: readMethod = "readStringValue"; break;
@@ -150,6 +161,9 @@ static void generateVerboseParsePlainLeafElement(std::string &out, const CFieldD
     std::string chronoType = cppScalarType(f.Type.Scalar);
     out += std::format("{}{{ int64_t _t; if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"integer\"); return false; }} {} = {}(_t); }}\n",
                        in, ctx, containerExpr, chronoType);
+  } else if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+    out += std::format("{}if (jsonReadHexData(s.p, s.end, {}) != JsonReadError::Ok) {{ s.setError(\"field '{}': invalid hex data\"); return false; }}\n",
+                       in, containerExpr, ctx);
   } else {
     const char *readMethod = "readInt64";
     switch (f.Type.Scalar) {
@@ -190,6 +204,9 @@ static void generateVerboseParseMapElement(std::string &out, const CFieldDef &f,
     out += std::format("{}      if (!s.readString(eStr, eLen)) {{ s.error->message = \"field '{}': \" + s.error->message; return false; }}\n", in, ctx);
     out += std::format("{}      if (!parseE{}(eStr, eLen, _mapVal)) {{ s.setError(\"field '{}': invalid enum value\"); return false; }} }}\n",
                        in, f.Type.RefName, ctx);
+  } else if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+    out += std::format("{}    if (jsonReadHexData(s.p, s.end, _mapVal) != JsonReadError::Ok) {{ s.setError(\"field '{}': invalid hex data\"); return false; }}\n",
+                       in, ctx);
   } else {
     const char *readMethod = "readInt64";
     switch (f.Type.Scalar) {
@@ -423,6 +440,9 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
         std::string chronoType = cppScalarType(f.Type.Scalar);
         out += std::format("{}    {{ int64_t _t; if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"integer\"); return false; }} "
                            "{}.push_back({}(_t)); }}\n", in, ctx, cn, chronoType);
+      } else if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+        out += std::format("{}    {{ std::vector<uint8_t> tmp; if (jsonReadHexData(s.p, s.end, tmp) != JsonReadError::Ok) {{ s.setError(\"field '{}': invalid hex data in array\"); return false; }} "
+                           "{}.push_back(std::move(tmp)); }}\n", in, ctx, cn);
       } else {
         const char *cppType = nullptr;
         const char *readMethod = nullptr;
@@ -500,6 +520,9 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
         std::string chronoType = cppScalarType(f.Type.Scalar);
         out += std::format("{}  {{ int64_t _t; if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"integer\"); return false; }} {}[i_] = {}(_t); }}\n",
                            in, ctx, cn, chronoType);
+      } else if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+        out += std::format("{}  if (jsonReadHexData(s.p, s.end, {}[i_]) != JsonReadError::Ok) {{ s.setError(\"field '{}': invalid hex data\"); return false; }}\n",
+                           in, cn, ctx);
       } else {
         const char *readMethod = nullptr;
         switch (f.Type.Scalar) {
@@ -563,6 +586,9 @@ void generateVerboseParseField(std::string &out, const CFieldDef &f, const std::
         std::string chronoType = cppScalarType(f.Type.Scalar);
         out += std::format("{}    {{ int64_t _t; if (auto _e = s.readInt64(_t); _e != JsonReadError::Ok) {{ s.formatReadError(_e, \"{}\", \"integer\"); return false; }} _mapVal = {}(_t); }}\n",
                            in, ctx, chronoType);
+      } else if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+        out += std::format("{}    if (jsonReadHexData(s.p, s.end, _mapVal) != JsonReadError::Ok) {{ s.setError(\"field '{}': invalid hex data\"); return false; }}\n",
+                           in, ctx);
       } else {
         const char *readMethod = nullptr;
         switch (f.Type.Scalar) {

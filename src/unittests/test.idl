@@ -657,6 +657,13 @@ struct ArrayLayoutBarrier {
   opt2: optional<string>(null_in=allow, empty_out=null);
 }
 
+struct ArrayLayoutOptionalObject {
+  .generate(parse, parse.verbose, serialize);
+  .flags(array_layout);
+  name: string;
+  child: optional<Inner>;
+}
+
 // ============================================================================
 // Typed array elements — optional, variant, map inside arrays
 // ============================================================================
@@ -687,4 +694,19 @@ struct MapElements {
   .generate(parse, parse.verbose, serialize);
   scalars: [map<int64>];
   objects: [map<Inner>];
+}
+
+// ============================================================================
+// HexData fields
+// ============================================================================
+
+struct HexDataFields {
+  .generate(parse, parse.verbose, serialize);
+  payload: hexdata;
+  optionalPayload: optional<hexdata>;
+}
+
+struct HexDataArray {
+  .generate(parse, parse.verbose, serialize);
+  items: [hexdata];
 }

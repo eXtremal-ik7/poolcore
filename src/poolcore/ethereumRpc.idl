@@ -1,0 +1,19 @@
+// Ethereum JSON-RPC response structures
+
+include "poolcommon/hash.idl";
+
+// eth_getWork result: positional array [headerHash, seedHash, target, blockHeight]
+struct ETHGetWorkResult {
+  .generate(parse);
+  .flags(array_layout);
+  header_hash: hash256x;
+  seed_hash: hash256x;
+  target: string;          // 0x-prefixed hex, variable precision
+  block_height: string;    // 0x-prefixed hex
+}
+
+struct ETHTemplate {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<ETHGetWorkResult>(null_in=allow);
+}

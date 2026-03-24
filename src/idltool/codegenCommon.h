@@ -120,10 +120,11 @@ struct CJsonHelperUsage {
   bool WriteUInt = false;
   bool WriteDouble = false;
   bool WriteBool = false;
+  bool WriteHexData = false;
 
   bool any() const
   {
-    return WriteString || WriteInt || WriteUInt || WriteDouble || WriteBool;
+    return WriteString || WriteInt || WriteUInt || WriteDouble || WriteBool || WriteHexData;
   }
 };
 
@@ -133,10 +134,11 @@ struct CJsonReadUsage {
   bool ReadInt = false;
   bool ReadUInt = false;
   bool ReadDouble = false;
+  bool ReadHexData = false;
 
   bool any() const
   {
-    return ReadString || ReadBool || ReadInt || ReadUInt || ReadDouble;
+    return ReadString || ReadBool || ReadInt || ReadUInt || ReadDouble || ReadHexData;
   }
 };
 
@@ -149,6 +151,7 @@ inline const char *scalarTypeName(EScalarType type) {
     case EScalarType::Int64:  return "integer";
     case EScalarType::Uint64: return "unsigned integer";
     case EScalarType::Double: return "number";
+    case EScalarType::HexData: return "hex string";
     default: return "value";
   }
 }

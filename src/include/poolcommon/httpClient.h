@@ -127,18 +127,18 @@ public:
   }
 
   template<JsonParseable T>
-  void aioRequest(asyncBase *base, std::string request, std::function<void(AsyncOpStatus, T)> callback, uint64_t timeout = 0) {
+  void aioRequest(asyncBase *base, std::string request, std::function<void(AsyncOpStatus, unsigned, T)> callback, uint64_t timeout = 0) {
     aioRequest(base, std::move(request), [cb = std::move(callback)](AsyncOpStatus status, HttpResponse response) {
       if (status != aosSuccess) {
-        cb(status, T{});
+        cb(status, 0, T{});
         return;
       }
       T result;
       if (!result.parse(response.Body.data(), response.Body.size())) {
-        cb(aosParseError, T{});
+        cb(aosParseError, response.StatusCode, T{});
         return;
       }
-      cb(aosSuccess, std::move(result));
+      cb(aosSuccess, response.StatusCode, std::move(result));
     }, timeout);
   }
 
@@ -212,18 +212,18 @@ public:
   }
 
   template<JsonParseable T>
-  void aioRequest(std::string request, std::function<void(AsyncOpStatus, T)> callback, uint64_t timeout = 0) {
+  void aioRequest(std::string request, std::function<void(AsyncOpStatus, unsigned, T)> callback, uint64_t timeout = 0) {
     aioRequest(std::move(request), [cb = std::move(callback)](AsyncOpStatus status, HttpResponse response) {
       if (status != aosSuccess) {
-        cb(status, T{});
+        cb(status, 0, T{});
         return;
       }
       T result;
       if (!result.parse(response.Body.data(), response.Body.size())) {
-        cb(aosParseError, T{});
+        cb(aosParseError, response.StatusCode, T{});
         return;
       }
-      cb(aosSuccess, std::move(result));
+      cb(aosSuccess, response.StatusCode, std::move(result));
     }, timeout);
   }
 

@@ -5,7 +5,6 @@ extern "C" {
 #include "blockmaker/ethash.h"
 }
 #include "poolcommon/intrusive_ptr.h"
-#include "rapidjson/document.h"
 #include <atomic>
 #include <string>
 
@@ -31,8 +30,6 @@ private:
   mutable std::atomic<uintptr_t> Refs_ = 0;
 public:
   CBlockTemplate(const std::string &ticker, EWorkType workType) : Ticker(ticker), WorkType(workType) {}
-  // TODO: Don't send json document to stratum workers
-  rapidjson::Document Document;
   std::string Ticker;
   EWorkType WorkType;
   uint64_t UniqueWorkId;

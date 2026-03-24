@@ -19,6 +19,7 @@ std::optional<EScalarType> parseScalarType(const std::string &name)
   if (name == "chrono::seconds") return EScalarType::Seconds;
   if (name == "chrono::minutes") return EScalarType::Minutes;
   if (name == "chrono::hours")   return EScalarType::Hours;
+  if (name == "hexdata") return EScalarType::HexData;
   return std::nullopt;
 }
 
@@ -35,6 +36,7 @@ const char *idlScalarTypeName(EScalarType t)
     case EScalarType::Seconds: return "chrono::seconds";
     case EScalarType::Minutes: return "chrono::minutes";
     case EScalarType::Hours:   return "chrono::hours";
+    case EScalarType::HexData: return "hexdata";
   }
   return "unknown";
 }

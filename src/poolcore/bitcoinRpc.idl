@@ -1,7 +1,7 @@
 // Bitcoin JSON-RPC request/response definitions
 // Each method gets its own Request (serialize) and Response (parse) struct.
 
-import "../poolcommon/types.idl";
+include "poolcommon/hash.idl";
 
 // --- Common ---
 
@@ -122,7 +122,104 @@ struct GetBlockTemplateOpts {
   rules: optional<[string]>;
 }
 
-// Response parsed manually (goes into CBlockTemplate::Document)
+// --- getblocktemplate response ---
+
+// Transaction entry in block template
+struct BlockTemplateTx {
+  .generate(parse);
+  .flags(skip_unknown);
+  data: string;                              // raw transaction hex (used as-is in submitblock)
+  txid: optional<hash256>;                   // transaction id (without witness, segwit only)
+  hash: hash256;                             // transaction hash (always present)
+  fee: uint64 = 0;                           // transaction fee in satoshis
+}
+
+// Real-Time Target — XEC only
+struct BlockTemplateRtt {
+  .generate(parse);
+  .flags(skip_unknown);
+  prevheadertime: [int64; 5];
+  prevbits: string;                          // 8-char hex
+}
+
+// Dev reward output — FreeCash (FCH) only
+struct CoinbaseDevReward {
+  .generate(parse);
+  .flags(skip_unknown);
+  value: uint64;
+  scriptpubkey: hexdata;
+}
+
+// Script descriptor inside staking rewards
+struct PayoutScript {
+  .generate(parse);
+  .flags(skip_unknown);
+  hex: hexdata;
+}
+
+// Staking rewards — XEC only
+struct StakingRewards {
+  .generate(parse);
+  .flags(skip_unknown);
+  payoutscript: PayoutScript;
+  minimumvalue: int64;
+}
+
+// Miner fund — XEC only
+struct MinerFund {
+  .generate(parse);
+  .flags(skip_unknown);
+  addresses: [string];
+  minimumvalue: int64;
+}
+
+// Coinbase transaction object — ZEC (data), XEC (minerfund, stakingrewards), JKC (developmentfund)
+struct CoinbaseTxn {
+  .generate(parse);
+  .flags(skip_unknown);
+  data: optional<hexdata>;                   // ZEC: raw coinbase tx
+  minerfund: optional<MinerFund>;            // XEC
+  stakingrewards: optional<StakingRewards>;  // XEC
+  developmentfund: optional<uint64>;         // JKC: dev fund amount
+  developmentfundaddress: optional<[string]>;// JKC: dev fund addresses
+}
+
+// Complete getblocktemplate result
+struct BlockTemplateResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  // Header fields
+  version: uint32;
+  previousblockhash: hash256;
+  curtime: uint32;
+  bits: string;                              // compact target as hex
+  height: uint64;
+  // Coinbase value (subsidy + fees)
+  coinbasevalue: int64;
+  // Transactions
+  transactions: [BlockTemplateTx];
+  // Long polling
+  longpollid: optional<string>;
+  // SegWit witness commitment
+  default_witness_commitment: optional<hexdata>;
+  // MimbleWimble extension data hex (LTC)
+  mweb: optional<string>;
+  // Real-Time Target (XEC)
+  rtt: optional<BlockTemplateRtt>;
+  // Dev reward (FreeCash)
+  coinbasedevreward: optional<CoinbaseDevReward>;
+  // Coinbase transaction (ZEC, XEC, JKC)
+  coinbasetxn: optional<CoinbaseTxn>;
+  // Sapling root hash (ZEC)
+  finalsaplingroothash: optional<hash256>;
+}
+
+struct BTCTemplate {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<BlockTemplateResult>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}
 
 // === submitblock ===
 

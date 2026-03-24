@@ -1,6 +1,7 @@
 #pragma once
 
 #include "poolcore/poolCore.h"
+#include "poolcore/bitcoinRpc.idl.h"
 #include "poolcommon/httpClient.h"
 #include "asyncio/asyncio.h"
 #include <rapidjson/document.h>

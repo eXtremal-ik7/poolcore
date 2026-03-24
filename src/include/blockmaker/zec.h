@@ -182,7 +182,7 @@ public:
   using Block = BTC::Proto::BlockTy<ZEC::Proto>;
   struct CheckConsensusCtx {
   public:
-    void initialize(CBlockTemplate&, const std::string &ticker) {
+    void initialize(const CBlockTemplateResult&, const std::string &ticker) {
       if (ticker.find(".regtest") != ticker.npos) {
         N = 48;
         K = 5;
@@ -356,12 +356,12 @@ public:
   using CWork = StratumWork;
 
   struct HeaderBuilder {
-    static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<BaseBlob<256> > &merklePath, rapidjson::Value &blockTemplate);
+    static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<BaseBlob<256> > &merklePath, const CBlockTemplateResult &blockTemplate);
   };
 
   struct CoinbaseBuilder {
   public:
-    bool prepare(uint64_t *blockReward, rapidjson::Value &blockTemplate);
+    bool prepare(uint64_t *blockReward, const CBlockTemplateResult &blockTemplate);
 
     void build(int64_t height,
                int64_t blockReward,

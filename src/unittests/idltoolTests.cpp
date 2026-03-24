@@ -2654,3 +2654,176 @@ TEST(IdlTool, ParseMapVerboseError) {
   EXPECT_FALSE(mf.parseVerbose(json, strlen(json), error));
 }
 
+// ============================================================================
+// HexData tests
+// ============================================================================
+
+TEST(IdlTool, ParseHexData) {
+  const char *json = R"({"payload":"48656c6c6f"})";
+  HexDataFields hf;
+  ASSERT_TRUE(hf.parse(json, strlen(json)));
+  EXPECT_EQ(hf.payload.size(), 5u);
+  EXPECT_EQ(hf.payload[0], 0x48);
+  EXPECT_EQ(hf.payload[1], 0x65);
+  EXPECT_EQ(hf.payload[2], 0x6c);
+  EXPECT_EQ(hf.payload[3], 0x6c);
+  EXPECT_EQ(hf.payload[4], 0x6f);
+}
+
+TEST(IdlTool, ParseHexDataEmpty) {
+  const char *json = R"({"payload":""})";
+  HexDataFields hf;
+  ASSERT_TRUE(hf.parse(json, strlen(json)));
+  EXPECT_TRUE(hf.payload.empty());
+}
+
+TEST(IdlTool, ParseHexDataUpperCase) {
+  const char *json = R"({"payload":"AABB"})";
+  HexDataFields hf;
+  ASSERT_TRUE(hf.parse(json, strlen(json)));
+  ASSERT_EQ(hf.payload.size(), 2u);
+  EXPECT_EQ(hf.payload[0], 0xaa);
+  EXPECT_EQ(hf.payload[1], 0xbb);
+}
+
+TEST(IdlTool, ParseHexDataOddLengthRejected) {
+  const char *json = R"({"payload":"abc"})";
+  HexDataFields hf;
+  EXPECT_FALSE(hf.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, ParseHexDataInvalidCharRejected) {
+  const char *json = R"({"payload":"gg"})";
+  HexDataFields hf;
+  EXPECT_FALSE(hf.parse(json, strlen(json)));
+}
+
+TEST(IdlTool, ParseHexDataOptionalAbsent) {
+  const char *json = R"({"payload":"ff"})";
+  HexDataFields hf;
+  ASSERT_TRUE(hf.parse(json, strlen(json)));
+  EXPECT_FALSE(hf.optionalPayload.has_value());
+}
+
+TEST(IdlTool, ParseHexDataOptionalPresent) {
+  const char *json = R"({"payload":"ff","optionalPayload":"0102"})";
+  HexDataFields hf;
+  ASSERT_TRUE(hf.parse(json, strlen(json)));
+  ASSERT_TRUE(hf.optionalPayload.has_value());
+  ASSERT_EQ(hf.optionalPayload->size(), 2u);
+  EXPECT_EQ((*hf.optionalPayload)[0], 0x01);
+  EXPECT_EQ((*hf.optionalPayload)[1], 0x02);
+}
+
+TEST(IdlTool, SerializeHexData) {
+  HexDataFields hf;
+  hf.payload = {0x48, 0x65, 0x6c, 0x6c, 0x6f};
+  xmstream out;
+  hf.serialize(out);
+  std::string result(reinterpret_cast<const char*>(out.data()), out.sizeOf());
+  EXPECT_NE(result.find("\"48656c6c6f\""), std::string::npos);
+}
+
+TEST(IdlTool, SerializeHexDataEmpty) {
+  HexDataFields hf;
+  xmstream out;
+  hf.serialize(out);
+  std::string result(reinterpret_cast<const char*>(out.data()), out.sizeOf());
+  EXPECT_NE(result.find("\"payload\":\"\""), std::string::npos);
+}
+
+TEST(IdlTool, SerializeHexDataOptionalPresent) {
+  HexDataFields hf;
+  hf.payload = {0xff};
+  hf.optionalPayload = std::vector<uint8_t>{0x01, 0x02};
+  xmstream out;
+  hf.serialize(out);
+  std::string result(reinterpret_cast<const char*>(out.data()), out.sizeOf());
+  EXPECT_NE(result.find("\"optionalPayload\":\"0102\""), std::string::npos);
+}
+
+TEST(IdlTool, RoundtripHexData) {
+  HexDataFields original;
+  original.payload = {0xde, 0xad, 0xbe, 0xef};
+  original.optionalPayload = std::vector<uint8_t>{0x00, 0xff};
+  xmstream out;
+  original.serialize(out);
+
+  HexDataFields parsed;
+  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  EXPECT_EQ(parsed.payload, original.payload);
+  ASSERT_TRUE(parsed.optionalPayload.has_value());
+  EXPECT_EQ(*parsed.optionalPayload, *original.optionalPayload);
+}
+
+TEST(IdlTool, ParseHexDataArray) {
+  const char *json = R"({"items":["0102","aabb",""]})";
+  HexDataArray ha;
+  ASSERT_TRUE(ha.parse(json, strlen(json)));
+  ASSERT_EQ(ha.items.size(), 3u);
+  EXPECT_EQ(ha.items[0], (std::vector<uint8_t>{0x01, 0x02}));
+  EXPECT_EQ(ha.items[1], (std::vector<uint8_t>{0xaa, 0xbb}));
+  EXPECT_TRUE(ha.items[2].empty());
+}
+
+TEST(IdlTool, SerializeHexDataArray) {
+  HexDataArray ha;
+  ha.items = {{0x01}, {0xab, 0xcd}};
+  xmstream out;
+  ha.serialize(out);
+  std::string result(reinterpret_cast<const char*>(out.data()), out.sizeOf());
+  EXPECT_NE(result.find("[\"01\",\"abcd\"]"), std::string::npos);
+}
+
+TEST(IdlTool, RoundtripHexDataArray) {
+  HexDataArray original;
+  original.items = {{0xde, 0xad}, {0xbe, 0xef}, {}};
+  xmstream out;
+  original.serialize(out);
+
+  HexDataArray parsed;
+  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  EXPECT_EQ(parsed.items, original.items);
+}
+
+TEST(IdlTool, VerboseParseHexData) {
+  const char *json = R"({"payload":"48656c6c6f"})";
+  HexDataFields hf;
+  ParseError error;
+  ASSERT_TRUE(hf.parseVerbose(json, strlen(json), error));
+  EXPECT_EQ(hf.payload.size(), 5u);
+  EXPECT_EQ(hf.payload[0], 0x48);
+}
+
+TEST(IdlTool, VerboseParseHexDataInvalid) {
+  const char *json = R"({"payload":"xyz"})";
+  HexDataFields hf;
+  ParseError error;
+  EXPECT_FALSE(hf.parseVerbose(json, strlen(json), error));
+}
+
+TEST(IdlTool, HexDataIncludesInGeneratedSource) {
+  const std::string idl = R"(
+struct HexOnly {
+  .generate(parse, serialize);
+  data: hexdata;
+}
+)";
+  EXPECT_TRUE(generatedIdlSourceContains("hexdata-includes", idl, {
+    "#include \"idltool/jsonReadHexData.h\"",
+    "#include \"idltool/jsonWriteHexData.h\""
+  }));
+}
+
+TEST(IdlTool, HexDataHeaderType) {
+  const std::string idl = R"(
+struct HexOnly {
+  .generate(parse, serialize);
+  data: hexdata;
+}
+)";
+  EXPECT_TRUE(generatedIdlHeaderContains("hexdata-type", idl, {
+    "std::vector<uint8_t> data"
+  }));
+}
+

@@ -94,11 +94,11 @@ void CPriceFetcher::updatePrice()
   Client_.aioRequest<CCoinGeckoPrices>(
     Base_,
     PreparedQuery_,
-    [this](AsyncOpStatus status, CCoinGeckoPrices response) {
-      if (status == aosSuccess) {
+    [this](AsyncOpStatus status, unsigned httpStatusCode, CCoinGeckoPrices response) {
+      if (status == aosSuccess && httpStatusCode == 200) {
         processResponse(response);
       } else {
-        CLOG_F(ERROR, "PriceFetcher request error {}", static_cast<int>(status));
+        CLOG_F(ERROR, "PriceFetcher request error {} (http: {})", static_cast<int>(status), httpStatusCode);
         resetPricesIfStale();
       }
       userEventStartTimer(TimerEvent_, PollInterval_, 1);

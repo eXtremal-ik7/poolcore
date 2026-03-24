@@ -1,6 +1,6 @@
 #include "poolcore/bitcoinRPCClient.h"
 
-#include "poolcore/blockTemplate.h"
+#include "blockmaker/bitcoinBlockTemplate.h"
 #include "poolcore/clientDispatcher.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcommon/utils.h"
@@ -842,58 +842,47 @@ void CBitcoinRpcClient::sendWorkFetchRequest()
 
 void CBitcoinRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpResponse response)
 {
-  if (status != aosSuccess || response.StatusCode != 200) {
-    CLOG_FC(*LogChannel_, WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
+  if (status != aosSuccess) {
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: request error code: {} (http: {})",
             CoinInfo_.Name,
             FullHostName_,
             static_cast<unsigned>(status),
-            response.StatusCode,
-            response.Body.empty() ? "<null>" : response.Body.c_str());
+            response.StatusCode);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
-  std::unique_ptr<CBlockTemplate> blockTemplate(new CBlockTemplate(CoinInfo_.Name, CoinInfo_.WorkType));
-  blockTemplate->Document.Parse(response.Body.data(), response.Body.size());
-  if (blockTemplate->Document.HasParseError()) {
-    CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
+  std::unique_ptr<CBitcoinBlockTemplate> blockTemplate(new CBitcoinBlockTemplate(CoinInfo_.Name, CoinInfo_.WorkType));
+  if (!blockTemplate->Data.parse(response.Body.data(), response.Body.size())) {
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON parse error (http: {})", CoinInfo_.Name, FullHostName_, response.StatusCode);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
-  if (!blockTemplate->Document["result"].IsObject()) {
+  if (!blockTemplate->Data.Result.has_value()) {
     CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON invalid format: no result object", CoinInfo_.Name, FullHostName_);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
-  int64_t height = 0;
-  std::string prevBlockHash;
-  std::string bits;
-  bool validAcc = true;
-  rapidjson::Value &resultObject = blockTemplate->Document["result"];
-  jsonParseString(resultObject, "previousblockhash", prevBlockHash, true, &validAcc);
-  jsonParseInt(resultObject, "height", &height, &validAcc);
-  jsonParseString(resultObject, "bits", bits, true, &validAcc);
-  if (!validAcc || prevBlockHash.size() < 16) {
-    CLOG_FC(*LogChannel_, WARNING, "{} {}: getblocktemplate invalid format", CoinInfo_.Name, FullHostName_);
-    Dispatcher_->onWorkFetcherConnectionLost();
-    return;
-  }
+  CBlockTemplateResult &result = *blockTemplate->Data.Result;
 
   if (!WorkFetcher_.LongPollId.empty()) {
-    jsonParseString(resultObject, "longpollid", WorkFetcher_.LongPollId, true, &validAcc);
-    if (!validAcc) {
+    if (result.Longpollid.has_value()) {
+      WorkFetcher_.LongPollId = *result.Longpollid;
+    } else {
       CLOG_FC(*LogChannel_, WARNING, "{} {}: does not support long poll, strongly recommended update your node", CoinInfo_.Name, FullHostName_);
       WorkFetcher_.LongPollId.clear();
     }
   }
 
-  blockTemplate->Height = height;
+  blockTemplate->Height = result.Height;
 
-  // Get unique work id
-  uint64_t workId = blockTemplate->UniqueWorkId = readHexBE<uint64_t>(prevBlockHash.c_str(), 16);
-  uint32_t nBits = strtoul(bits.c_str(), nullptr, 16);
+  // Get unique work id from low bytes of previousblockhash
+  uint64_t workId;
+  memcpy(&workId, result.Previousblockhash.begin(), sizeof(workId));
+  blockTemplate->UniqueWorkId = workId;
+  uint32_t nBits = strtoul(result.Bits.c_str(), nullptr, 16);
   double difficulty;
   if (CoinInfo_.PowerUnitType == CCoinInfo::ECPD) {
     // PrimePOW: difficulty is chain length encoded as fixed-point (24-bit fractional part)
@@ -906,7 +895,7 @@ void CBitcoinRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpResponse
 
   // Check new work available
   if (WorkFetcher_.WorkId != workId) {
-    CLOG_FC(*LogChannel_, INFO, "{}: new work available; previous block: {}; height: {}; difficulty: {}", CoinInfo_.Name, prevBlockHash, static_cast<unsigned>(height), formatDifficulty(difficulty));
+    CLOG_FC(*LogChannel_, INFO, "{}: new work available; previous block: {}; height: {}; difficulty: {}; transactions: {}", CoinInfo_.Name, result.Previousblockhash.getHexLE(), static_cast<unsigned>(result.Height), formatDifficulty(difficulty), result.Transactions.size());
     Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
   }
 

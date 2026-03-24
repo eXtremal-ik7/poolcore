@@ -25,7 +25,7 @@ public:
   using Transaction = BTC::Proto::Transaction;
 
   struct CheckConsensusCtx {
-    void initialize(CBlockTemplate&, const std::string &ticker) {
+    void initialize(const CBlockTemplateResult&, const std::string &ticker) {
       if (ticker.find(".testnet")) {
         OdoShapechangeInterval = 1*24*60*60; // 1 day
       } else if (ticker.find(".regtest") != ticker.npos) {

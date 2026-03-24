@@ -73,7 +73,7 @@ public:
   using Transaction = BTC::Proto::Transaction;
   using Block = BTC::Proto::BlockTy<XPM::Proto>;
 
-  static bool loadHeaderFromTemplate(Proto::BlockHeader &header, rapidjson::Value &blockTemplate);
+  static bool loadHeaderFromTemplate(Proto::BlockHeader &header, const CBlockTemplateResult &blockTemplate);
 
   // Consensus (PoW)
   struct CheckConsensusCtx {
@@ -198,7 +198,7 @@ public:
   static void buildBlockProto(Work &work, MiningConfig &miningCfg, pool::proto::Block &proto);
   static void buildWorkProto(Work &work, pool::proto::Work &proto);
 
-  static bool loadFromTemplate(Work &work, rapidjson::Value &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string&, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error);
+  static bool loadFromTemplate(Work &work, const CBlockTemplateResult &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string&, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error);
   static void generateNewWork(Work &work, WorkerConfig &workerCfg, ThreadConfig &threadCfg, MiningConfig &miningCfg);
   static bool prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &miningCfg, pool::proto::Request &req, pool::proto::Reply &rep);
 

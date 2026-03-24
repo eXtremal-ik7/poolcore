@@ -19,7 +19,8 @@ enum class EScalarType {
   Double,
   Seconds,
   Minutes,
-  Hours
+  Hours,
+  HexData
 };
 
 enum class ENullInPolicy {

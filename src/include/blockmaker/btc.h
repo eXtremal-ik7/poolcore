@@ -5,6 +5,7 @@
 #include "sha256.h"
 #include "poolcommon/baseBlob.h"
 #include "poolconfig/config.h"
+#include "rapidjson/document.h"
 
 struct CCoinInfo;
 struct PoolBackendConfig;
@@ -143,7 +144,7 @@ public:
     uint32_t PrevBits;
     int64_t PrevHeaderTime[5];
 
-    void initialize(CBlockTemplate&, const std::string&);
+    void initialize(const CBlockTemplateResult&, const std::string&);
     bool hasRtt() { return HasRtt; }
   };
 
@@ -230,12 +231,12 @@ public:
 
   // TODO: Use this for headers non-compatible with BTC
   struct HeaderBuilder {
-    static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, CoinbaseTx &legacy, const std::vector<BaseBlob<256>> &merklePath, rapidjson::Value &blockTemplate);
+    static bool build(Proto::BlockHeader &header, uint32_t *jobVersion, CoinbaseTx &legacy, const std::vector<BaseBlob<256>> &merklePath, const CBlockTemplateResult &blockTemplate);
   };
 
   struct CoinbaseBuilder {
   public:
-    bool prepare(uint64_t *blockReward, rapidjson::Value &blockTemplate);
+    bool prepare(uint64_t *blockReward, const CBlockTemplateResult &blockTemplate);
 
     void build(int64_t height,
                uint64_t blockReward,

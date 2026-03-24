@@ -603,28 +603,10 @@ CCheckStatus Proto::checkConsensus(const ZEC::Proto::BlockHeader &header, CheckC
   return status;
 }
 
-bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<BaseBlob<256>> &merklePath, rapidjson::Value &blockTemplate)
+bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVersion, BTC::CoinbaseTx &legacy, const std::vector<BaseBlob<256>> &merklePath, const CBlockTemplateResult &blockTemplate)
 {
-  // Check fields:
-  // header:
-  //   version
-  //   previousblockhash
-  //   curtime
-  //   bits
-  if (!blockTemplate.HasMember("version") ||
-      !blockTemplate.HasMember("previousblockhash") ||
-      !blockTemplate.HasMember("curtime") ||
-      !blockTemplate.HasMember("bits")) {
-    return false;
-  }
-
-  rapidjson::Value &version = blockTemplate["version"];
-  rapidjson::Value &hashPrevBlock = blockTemplate["previousblockhash"];
-  rapidjson::Value &curtime = blockTemplate["curtime"];
-  rapidjson::Value &bits = blockTemplate["bits"];
-
-  header.nVersion = version.GetUint();
-  header.hashPrevBlock.setHexLE(hashPrevBlock.GetString());
+  header.nVersion = blockTemplate.Version;
+  header.hashPrevBlock = blockTemplate.Previousblockhash;
   {
     BaseBlob<256> coinbaseTxHash;
     CCtxSha256 sha256;
@@ -636,13 +618,13 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
     sha256Final(&sha256, coinbaseTxHash.begin());
     header.hashMerkleRoot = calculateMerkleRootWithPath(coinbaseTxHash, &merklePath[0], merklePath.size(), 0);
   }
-  header.nTime = curtime.GetUint();
-  header.nBits = strtoul(bits.GetString(), nullptr, 16);
+  header.nTime = blockTemplate.Curtime;
+  header.nBits = strtoul(blockTemplate.Bits.c_str(), nullptr, 16);
   header.nNonce.setNull();
   header.nSolution.resize(0);
 
-  if (blockTemplate.HasMember("finalsaplingroothash") && blockTemplate["finalsaplingroothash"].IsString())
-    header.hashLightClientRoot.setHexLE(blockTemplate["finalsaplingroothash"].GetString());
+  if (blockTemplate.Finalsaplingroothash.has_value())
+    header.hashLightClientRoot = *blockTemplate.Finalsaplingroothash;
   else
     header.hashLightClientRoot.setNull();
 
@@ -650,20 +632,16 @@ bool Stratum::HeaderBuilder::build(Proto::BlockHeader &header, uint32_t *jobVers
   return true;
 }
 
-bool Stratum::CoinbaseBuilder::prepare(uint64_t *blockReward, rapidjson::Value &blockTemplate)
+bool Stratum::CoinbaseBuilder::prepare(uint64_t *blockReward, const CBlockTemplateResult &blockTemplate)
 {
-  if (!blockTemplate.HasMember("coinbasetxn") || !blockTemplate["coinbasetxn"].IsObject())
+  if (!blockTemplate.Coinbasetxn.has_value() || !blockTemplate.Coinbasetxn->Data.has_value())
     return false;
 
-  rapidjson::Value &coinbasetxn = blockTemplate["coinbasetxn"];
-  if (!coinbasetxn.HasMember("data") || !coinbasetxn["data"].IsString())
-    return false;
-
-  rapidjson::Value &data = coinbasetxn["data"];
+  const auto &data = *blockTemplate.Coinbasetxn->Data;
   uint8_t buffer[1024];
   xmstream stream(buffer, sizeof(buffer));
   stream.reset();
-  hex2bin(data.GetString(), data.GetStringLength(), stream.reserve(data.GetStringLength()/2));
+  stream.write(data.data(), data.size());
 
   stream.seekSet(0);
   BTC::unserialize(stream, CoinbaseTx);

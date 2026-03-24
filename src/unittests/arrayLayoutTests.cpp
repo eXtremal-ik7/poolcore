@@ -434,3 +434,63 @@ TEST(ArrayLayout, BarrierAllEmptyTruncatesAll) {
   std::string output(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
   EXPECT_EQ(output, R"(["test"])");
 }
+
+// ============================================================================
+// Optional sub-object in array_layout
+// ============================================================================
+
+TEST(ArrayLayout, OptionalObjectPresent) {
+  const char *json = R"(["hello",{"value":"v","count":5}])";
+  ArrayLayoutOptionalObject t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_EQ(t.name, "hello");
+  ASSERT_TRUE(t.child.has_value());
+  EXPECT_EQ(t.child->value, "v");
+  EXPECT_EQ(t.child->count, 5);
+}
+
+TEST(ArrayLayout, OptionalObjectAbsent) {
+  const char *json = R"(["hello"])";
+  ArrayLayoutOptionalObject t;
+  ASSERT_TRUE(t.parse(json, strlen(json)));
+  EXPECT_EQ(t.name, "hello");
+  EXPECT_FALSE(t.child.has_value());
+}
+
+TEST(ArrayLayout, OptionalObjectSerializePresent) {
+  ArrayLayoutOptionalObject t;
+  t.name = "hi";
+  t.child.emplace();
+  t.child->value = "x";
+  t.child->count = 3;
+  xmstream stream;
+  t.serialize(stream);
+  std::string output(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  EXPECT_EQ(output, R"(["hi",{"value":"x","count":3}])");
+}
+
+TEST(ArrayLayout, OptionalObjectSerializeAbsent) {
+  ArrayLayoutOptionalObject t;
+  t.name = "hi";
+  xmstream stream;
+  t.serialize(stream);
+  std::string output(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  EXPECT_EQ(output, R"(["hi"])");
+}
+
+TEST(ArrayLayout, OptionalObjectRoundtrip) {
+  ArrayLayoutOptionalObject t;
+  t.name = "rt";
+  t.child.emplace();
+  t.child->value = "rval";
+  t.child->count = 42;
+  xmstream stream;
+  t.serialize(stream);
+
+  ArrayLayoutOptionalObject parsed;
+  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  EXPECT_EQ(parsed.name, "rt");
+  ASSERT_TRUE(parsed.child.has_value());
+  EXPECT_EQ(parsed.child->value, "rval");
+  EXPECT_EQ(parsed.child->count, 42);
+}

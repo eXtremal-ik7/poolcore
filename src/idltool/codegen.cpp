@@ -359,6 +359,9 @@ static void markJsonHelperForScalar(CJsonHelperUsage &usage, EScalarType scalar)
     case EScalarType::Double:
       usage.WriteDouble = true;
       break;
+    case EScalarType::HexData:
+      usage.WriteHexData = true;
+      break;
   }
 }
 
@@ -432,6 +435,9 @@ static void markJsonReadForScalar(CJsonReadUsage &usage, EScalarType scalar)
       break;
     case EScalarType::Double:
       usage.ReadDouble = true;
+      break;
+    case EScalarType::HexData:
+      usage.ReadHexData = true;
       break;
   }
 }
@@ -573,6 +579,14 @@ static void generateParseScalar(std::string &out, const CFieldDef &f,
     return;
   }
 
+  // HexData type
+  if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+    out += std::format("{}if (jsonReadHexData(s.p, s.end, {}) != JsonReadError::Ok) valid = false;\n", in, cn);
+    if (foundBit >= 0)
+      out += std::format("{}else found |= (uint64_t)1 << {};\n", in, foundBit);
+    return;
+  }
+
   const char *readMethod = nullptr;
   switch (f.Type.Scalar) {
     case EScalarType::String: readMethod = "readStringValue"; break;
@@ -629,6 +643,8 @@ static void generateParsePlainLeafElement(std::string &out, const CFieldDef &f,
     std::string chronoType = cppScalarType(f.Type.Scalar);
     out += std::format("{}{{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} {} = {}(_t); }}\n",
                        in, containerExpr, chronoType);
+  } else if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+    out += std::format("{}if (jsonReadHexData(s.p, s.end, {}) != JsonReadError::Ok) {{ valid = false; break; }}\n", in, containerExpr);
   } else {
     const char *readMethod = "readInt64";
     switch (f.Type.Scalar) {
@@ -672,6 +688,8 @@ static void generateParseMapElement(std::string &out, const CFieldDef &f,
     std::string chronoType = cppScalarType(f.Type.Scalar);
     out += std::format("{}    {{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} _mapVal = {}(_t); }}\n",
                        in, chronoType);
+  } else if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+    out += std::format("{}    if (jsonReadHexData(s.p, s.end, _mapVal) != JsonReadError::Ok) {{ valid = false; break; }}\n", in);
   } else {
     const char *readMethod = "readInt64";
     switch (f.Type.Scalar) {
@@ -938,6 +956,9 @@ static void generateParseField(std::string &out, const CFieldDef &f,
         std::string chronoType = cppScalarType(f.Type.Scalar);
         out += std::format("{}    {{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} "
                            "{}.push_back({}(_t)); }}\n", in, cn, chronoType);
+      } else if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+        out += std::format("{}    {{ std::vector<uint8_t> tmp; if (jsonReadHexData(s.p, s.end, tmp) != JsonReadError::Ok) {{ valid = false; break; }} "
+                           "{}.push_back(std::move(tmp)); }}\n", in, cn);
       } else {
         const char *cppType = nullptr;
         const char *readMethod = nullptr;
@@ -1025,6 +1046,8 @@ static void generateParseField(std::string &out, const CFieldDef &f,
         std::string chronoType = cppScalarType(f.Type.Scalar);
         out += std::format("{}  {{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} {}[i_] = {}(_t); }}\n",
                            in, cn, chronoType);
+      } else if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+        out += std::format("{}  if (jsonReadHexData(s.p, s.end, {}[i_]) != JsonReadError::Ok) {{ valid = false; break; }}\n", in, cn);
       } else {
         const char *readMethod = nullptr;
         switch (f.Type.Scalar) {
@@ -1086,6 +1109,8 @@ static void generateParseField(std::string &out, const CFieldDef &f,
         std::string chronoType = cppScalarType(f.Type.Scalar);
         out += std::format("{}    {{ int64_t _t; if (s.readInt64(_t) != JsonReadError::Ok) {{ valid = false; break; }} _mapVal = {}(_t); }}\n",
                            in, chronoType);
+      } else if (f.Type.IsScalar && f.Type.Scalar == EScalarType::HexData) {
+        out += std::format("{}    if (jsonReadHexData(s.p, s.end, _mapVal) != JsonReadError::Ok) {{ valid = false; break; }}\n", in);
       } else {
         const char *readMethod = nullptr;
         switch (f.Type.Scalar) {
@@ -2183,11 +2208,11 @@ static void emitArrayLayoutOptionalValue(CSerializeCodeBuilder &writer, const CF
   CFieldDef innerField = f;
   std::string innerCn;
   switch (f.Kind) {
-    case EFieldKind::OptionalObject:  innerField.Kind = EFieldKind::Required; innerCn = std::format("*{}", cn); break;
-    case EFieldKind::OptionalArray:   innerField.Kind = EFieldKind::Array; innerCn = std::format("*{}", cn); break;
-    case EFieldKind::OptionalFixedArray: innerField.Kind = EFieldKind::FixedArray; innerCn = std::format("*{}", cn); break;
-    case EFieldKind::OptionalVariant: innerField.Kind = EFieldKind::Variant; innerCn = std::format("*{}", cn); break;
-    case EFieldKind::OptionalMap:     innerField.Kind = EFieldKind::Map; innerCn = std::format("*{}", cn); break;
+    case EFieldKind::OptionalObject:  innerField.Kind = EFieldKind::Required; innerCn = std::format("(*{})", cn); break;
+    case EFieldKind::OptionalArray:   innerField.Kind = EFieldKind::Array; innerCn = std::format("(*{})", cn); break;
+    case EFieldKind::OptionalFixedArray: innerField.Kind = EFieldKind::FixedArray; innerCn = std::format("(*{})", cn); break;
+    case EFieldKind::OptionalVariant: innerField.Kind = EFieldKind::Variant; innerCn = std::format("(*{})", cn); break;
+    case EFieldKind::OptionalMap:     innerField.Kind = EFieldKind::Map; innerCn = std::format("(*{})", cn); break;
     default: innerCn = cn; break;
   }
   emitArrayLayoutValue(writer, innerField, innerCn, enumNames, ind + 1);
@@ -2857,6 +2882,10 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   }
   if (jsonHelperUsage.WriteBool)
     source += "#include \"idltool/jsonWriteBool.h\"\n";
+  if (jsonReadUsage.ReadHexData)
+    source += "#include \"idltool/jsonReadHexData.h\"\n";
+  if (jsonHelperUsage.WriteHexData)
+    source += "#include \"idltool/jsonWriteHexData.h\"\n";
   source += "\n";
 
   generateEnumDefinitions(source, file, opts.PascalCaseFields);

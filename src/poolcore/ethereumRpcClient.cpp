@@ -3,7 +3,7 @@
 #include "blockmaker/eth.h"
 #include "blockmaker/ethash.h"
 #include "poolcore/backend.h"
-#include "poolcore/blockTemplate.h"
+#include "blockmaker/ethereumBlockTemplate.h"
 #include "poolcore/clientDispatcher.h"
 #include "poolcommon/jsonSerializer.h"
 #include "poolcommon/utils.h"
@@ -401,90 +401,70 @@ void CEthereumRpcClient::poll()
 
 void CEthereumRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpResponse response)
 {
-  if (status != aosSuccess || response.StatusCode != 200) {
-    CLOG_FC(*LogChannel_, WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
+  if (status != aosSuccess) {
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: request error code: {} (http: {})",
             CoinInfo_.Name,
             FullHostName_,
             static_cast<unsigned>(status),
-            response.StatusCode,
-            response.Body.empty() ? "<null>" : response.Body.c_str());
+            response.StatusCode);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
 
-  std::unique_ptr<CBlockTemplate> blockTemplate(new CBlockTemplate(CoinInfo_.Name, CoinInfo_.WorkType));
-  blockTemplate->Document.Parse(response.Body.data(), response.Body.size());
-  if (blockTemplate->Document.HasParseError()) {
-    CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
+  auto blockTemplate = std::make_unique<CEthereumBlockTemplate>(CoinInfo_.Name, CoinInfo_.WorkType);
+  if (!blockTemplate->Data.parse(response.Body.data(), response.Body.size()) || !blockTemplate->Data.Result.has_value()) {
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON parse error (http: {})", CoinInfo_.Name, FullHostName_, response.StatusCode);
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
+
+  CETHGetWorkResult &work = *blockTemplate->Data.Result;
+
+  BaseBlob<256> seedHash = work.Seed_hash;
+  std::reverse(seedHash.begin(), seedHash.end());
+
+  UInt<256> target;
+  if (work.Target.size() >= 3 && work.Target[0] == '0' && work.Target[1] == 'x')
+    target.setHex(work.Target.c_str() + 2);
+  double difficulty = UInt<256>::fpdiv(CoinInfo_.PowLimit, target);
 
   uint64_t height = 0;
-  bool templateIsOk = false;
-  uint64_t workId = 0;
-  double difficulty = 0.0;
+  if (work.Block_height.size() >= 3 && work.Block_height[0] == '0' && work.Block_height[1] == 'x')
+    height = strtoul(work.Block_height.c_str() + 2, nullptr, 16);
+  uint64_t workId = height;
 
-  for (;;) {
-    if (!blockTemplate->Document.HasMember("result") || !blockTemplate->Document["result"].IsArray())
-      break;
-    rapidjson::Value::Array resultValue = blockTemplate->Document["result"].GetArray();
-    if (resultValue.Size() != 4 ||
-        !resultValue[0].IsString() || resultValue[0].GetStringLength() != 66 ||
-        !resultValue[1].IsString() || resultValue[1].GetStringLength() != 66 ||
-        !resultValue[2].IsString() || resultValue[2].GetStringLength() != 66 ||
-        !resultValue[3].IsString())
-      break;
-
-    BaseBlob<256> headerHash;
-    BaseBlob<256> seedHash;
-    headerHash.setHexLE(resultValue[0].GetString() + 2);
-    seedHash.setHexLE(resultValue[1].GetString() + 2);
-    std::reverse(seedHash.begin(), seedHash.end());
-
-    // TODO optimize it
-    UInt<256> target;
-    target.setHex(resultValue[2].GetString() + 2);
-    difficulty = UInt<256>::fpdiv(CoinInfo_.PowLimit, target);
-
-    height = strtoul(resultValue[3].GetString()+2, nullptr, 16);
-    // Use height as unique block identifier
-    workId = height;
-
-    // Check DAG presence
-    int epochNumber = ethashGetEpochNumber(seedHash.begin());
-    if (epochNumber == -1) {
-      CLOG_FC(*LogChannel_, ERROR, "Can't find epoch number for seed {}", seedHash.getHexLE());
-      break;
-    }
-
-    // For ETC
-    if (CoinInfo_.BigEpoch)
-      epochNumber /= 2;
-
-    blockTemplate->Height = static_cast<int64_t>(height);
-    blockTemplate->Difficulty = difficulty;
-    blockTemplate->DagFile = Dispatcher_->backend()->dagFile(epochNumber);
-    if (blockTemplate->DagFile.get() != nullptr)
-      templateIsOk = true;
-
-    Dispatcher_->backend()->updateDag(epochNumber, CoinInfo_.BigEpoch);
-    break;
-  }
-
-  if (templateIsOk) {
-    if (WorkFetcher_.WorkId != workId) {
-      Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
-      WorkFetcher_.Height = height;
-      WorkFetcher_.WorkId = workId;
-      CLOG_FC(*LogChannel_, INFO, "{}: new work available; height: {}; difficulty: {}", CoinInfo_.Name, height, formatDifficulty(difficulty));
-    }
-
-    // Wait 100ms
-    userEventStartTimer(WorkFetcher_.TimerEvent, 1*100000, 1);
-  } else {
+  // Check DAG presence
+  int epochNumber = ethashGetEpochNumber(seedHash.begin());
+  if (epochNumber == -1) {
+    CLOG_FC(*LogChannel_, ERROR, "Can't find epoch number for seed {}", seedHash.getHexLE());
     Dispatcher_->onWorkFetcherConnectionLost();
+    return;
   }
+
+  // For ETC
+  if (CoinInfo_.BigEpoch)
+    epochNumber /= 2;
+
+  blockTemplate->Height = static_cast<int64_t>(height);
+  blockTemplate->Difficulty = difficulty;
+  blockTemplate->DagFile = Dispatcher_->backend()->dagFile(epochNumber);
+
+  Dispatcher_->backend()->updateDag(epochNumber, CoinInfo_.BigEpoch);
+
+  if (blockTemplate->DagFile.get() == nullptr) {
+    Dispatcher_->onWorkFetcherConnectionLost();
+    return;
+  }
+
+  if (WorkFetcher_.WorkId != workId) {
+    CLOG_FC(*LogChannel_, INFO, "{}: new work available; height: {}; difficulty: {}", CoinInfo_.Name, height, formatDifficulty(difficulty));
+    Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
+    WorkFetcher_.Height = height;
+    WorkFetcher_.WorkId = workId;
+  }
+
+  // Wait 100ms
+  userEventStartTimer(WorkFetcher_.TimerEvent, 1*100000, 1);
 }
 
 void CEthereumRpcClient::onWorkFetchTimeout()

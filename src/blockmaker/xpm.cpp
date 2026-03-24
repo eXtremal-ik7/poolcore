@@ -568,7 +568,7 @@ bool Zmq::prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &min
   return true;
 }
 
-bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningConfig &cfg, PoolBackend *backend, const std::string &ticker, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error)
+bool Zmq::loadFromTemplate(Work &work, const CBlockTemplateResult &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string &ticker, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error)
 {
   work.Height = 0;
   work.MerklePath.clear();
@@ -577,54 +577,13 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   work.BlockHexData.reset();
   work.Backend = backend;
 
-  if (!document.HasMember("result") || !document["result"].IsObject()) {
-    error = "no result";
-    return false;
-  }
-
-  rapidjson::Value &blockTemplate = document["result"];
-
-  // Check fields:
-  // height
-  // header:
-  //   version
-  //   previousblockhash
-  //   curtime
-  //   bits
-  // transactions
-  if (!blockTemplate.HasMember("height") ||
-      !blockTemplate.HasMember("version") ||
-      !blockTemplate.HasMember("previousblockhash") ||
-      !blockTemplate.HasMember("curtime") ||
-      !blockTemplate.HasMember("bits") ||
-      !blockTemplate.HasMember("coinbasevalue") ||
-      !blockTemplate.HasMember("transactions") || !blockTemplate["transactions"].IsArray()) {
-    error = "missing data";
-    return false;
-  }
-
-  rapidjson::Value &height = blockTemplate["height"];
-  rapidjson::Value &version = blockTemplate["version"];
-  rapidjson::Value &hashPrevBlock = blockTemplate["previousblockhash"];
-  rapidjson::Value &curtime = blockTemplate["curtime"];
-  rapidjson::Value &bits = blockTemplate["bits"];
-  rapidjson::Value::Array transactions = blockTemplate["transactions"].GetArray();
-  if (!height.IsUint64() ||
-      !version.IsUint() ||
-      !hashPrevBlock.IsString() ||
-      !curtime.IsUint() ||
-      !bits.IsString()) {
-    error = "height or header data invalid format";
-    return false;
-  }
-
-  work.Height = height.GetUint64();
+  work.Height = blockTemplate.Height;
   Proto::BlockHeader &header = work.Header;
-  header.nVersion = version.GetUint();
-  header.hashPrevBlock.setHexLE(hashPrevBlock.GetString());
+  header.nVersion = blockTemplate.Version;
+  header.hashPrevBlock = blockTemplate.Previousblockhash;
   header.hashMerkleRoot.setNull();
-  header.nTime = curtime.GetUint();
-  header.nBits = strtoul(bits.GetString(), nullptr, 16);
+  header.nTime = blockTemplate.Curtime;
+  header.nBits = strtoul(blockTemplate.Bits.c_str(), nullptr, 16);
   header.nNonce = 0;
   header.bnPrimeChainMultiplier = 0;
 
@@ -633,7 +592,7 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
     uint8_t txNumSerialized[16];
     xmstream stream(txNumSerialized, sizeof(txNumSerialized));
     stream.reset();
-    BTC::serializeVarSize(stream, transactions.Size() + 1);
+    BTC::serializeVarSize(stream, blockTemplate.Transactions.size() + 1);
     bin2hexLowerCase(stream.data(), work.TxHexData.reserve<char>(stream.sizeOf()*2), stream.sizeOf());
   }
 
@@ -709,26 +668,14 @@ bool Zmq::loadFromTemplate(Work &work, rapidjson::Value &document, const MiningC
   std::vector<BaseBlob<256>> txHashes;
   txHashes.emplace_back();
   txHashes.back().setNull();
-  for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
-    rapidjson::Value &txSrc = transactions[i];
-    if (!txSrc.HasMember("data") || !txSrc["data"].IsString()) {
-      error = "no 'data' for transaction";
-      return false;
-    }
-
-    work.TxHexData.write(txSrc["data"].GetString(), txSrc["data"].GetStringLength());
-    if (!txSrc.HasMember("txid") || !txSrc["txid"].IsString()) {
-      error = "no 'hash' for transaction";
-      return false;
-    }
-
-    txHashes.emplace_back();
-    txHashes.back().setHexLE(txSrc["txid"].GetString());
+  for (const auto &tx : blockTemplate.Transactions) {
+    work.TxHexData.write(tx.Data.c_str(), tx.Data.size());
+    txHashes.push_back(tx.Hash);
   }
 
   // Build merkle path
   buildMerklePath(txHashes, 0, work.MerklePath);
-  work.TransactionsNum = transactions.Size() + 1;
+  work.TransactionsNum = blockTemplate.Transactions.size() + 1;
 
 
 

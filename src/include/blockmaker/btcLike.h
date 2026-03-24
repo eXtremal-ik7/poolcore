@@ -2,6 +2,7 @@
 #include "poolcommon/utils.h"
 #include "poolinstances/stratumMsg.h"
 
+#include "bitcoinBlockTemplate.h"
 #include "stratumWork.h"
 #include "serialize.h"
 #include "loguru.hpp"
@@ -33,9 +34,9 @@ struct TxData {
   BaseBlob<256> WitnessHash;
 };
 
-bool transactionChecker(rapidjson::Value::Array transactions, std::vector<TxData> &result);
-bool isSegwitEnabled(rapidjson::Value::Array transactions);
-bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, xmstream &witnessCommitment, std::string &error);
+bool transactionChecker(const std::vector<CBlockTemplateTx> &transactions, std::vector<TxData> &result);
+bool isSegwitEnabled(const std::vector<CBlockTemplateTx> &transactions);
+bool calculateWitnessCommitment(const CBlockTemplateResult &blockTemplate, xmstream &witnessCommitment, std::string &error);
 void collectTransactions(const std::vector<TxData> &processedTransactions, xmstream &txHexData, std::vector<BaseBlob<256> > &merklePath, size_t &txNum);
 
 template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy>
@@ -73,56 +74,33 @@ public:
   }
 
   virtual bool loadFromTemplate(CBlockTemplate &blockTemplate, std::string &error) override {
-    if (!blockTemplate.Document.HasMember("result") || !blockTemplate.Document["result"].IsObject()) {
-      error = "no result";
-      return false;
-    }
+    CBlockTemplateResult &work = *static_cast<CBitcoinBlockTemplate&>(blockTemplate).Data.Result;
 
-    rapidjson::Value &resultValue = blockTemplate.Document["result"];
-
-    // Check fields:
-    // height
-    // transactions
-    if (!resultValue.HasMember("height") ||
-        !resultValue.HasMember("transactions") || !resultValue["transactions"].IsArray()) {
-      error = "missing data";
-      return false;
-    }
-
-    rapidjson::Value &height = resultValue["height"];
-    rapidjson::Value::Array transactions = resultValue["transactions"].GetArray();
-    if (!height.IsUint64()) {
-      error = "missing height";
-      return false;
-    }
-
-    this->Height_ = height.GetUint64();
+    this->Height_ = work.Height;
 
     // Check segwit enabled (compare txid and hash for all transactions)
-    SegwitEnabled = isSegwitEnabled(transactions);
+    SegwitEnabled = isSegwitEnabled(work.Transactions);
 
     // Checking transactions
     std::vector<TxData> processedTransactions;
-    if (!transactionChecker(transactions, processedTransactions)) {
+    if (!transactionChecker(work.Transactions, processedTransactions)) {
       error = "template contains invalid transactions";
       return false;
     }
 
-    CoinbaseBuilder_.prepare(&this->BlockReward_, resultValue);
+    CoinbaseBuilder_.prepare(&this->BlockReward_, work);
 
     // Compute base block reward (subsidy without fees) for PPS
     {
       uint64_t totalFees = 0;
-      for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
-        if (transactions[i].HasMember("fee") && transactions[i]["fee"].IsUint64())
-          totalFees += transactions[i]["fee"].GetUint64();
-      }
+      for (auto &tx : work.Transactions)
+        totalFees += tx.Fee;
       BaseBlockReward_ = this->BlockReward_ - totalFees;
     }
 
     // Calculate witness commitment
     if (SegwitEnabled) {
-      if (!calculateWitnessCommitment(resultValue, WitnessCommitment, error))
+      if (!calculateWitnessCommitment(work, WitnessCommitment, error))
         return false;
     }
 
@@ -134,16 +112,16 @@ public:
 
     // Mimble wimble data
     MimbleWimbleData.reset();
-    if (resultValue.HasMember("mweb") && resultValue["mweb"].IsString())
-      MimbleWimbleData.write(resultValue["mweb"].GetString(), resultValue["mweb"].GetStringLength());
+    if (work.Mweb.has_value())
+      MimbleWimbleData.write(work.Mweb->data(), work.Mweb->size());
 
     // Fill header
-    if (!HeaderBuilderTy::build(Header, &JobVersion, CBTxLegacy_, MerklePath, resultValue)) {
+    if (!HeaderBuilderTy::build(Header, &JobVersion, CBTxLegacy_, MerklePath, work)) {
       error = "missing header data";
       return false;
     }
 
-    ConsensusCtx_.initialize(blockTemplate, blockTemplate.Ticker);
+    ConsensusCtx_.initialize(work, blockTemplate.Ticker);
     return true;
   }
 

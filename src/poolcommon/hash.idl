@@ -1,0 +1,3 @@
+usertype hash256("BaseBlob<256>") include "poolcommon/hashTypes.h";
+usertype hash256x("BaseBlob<256>") include "poolcommon/hashTypes.h";
+usertype hash256be("BaseBlob<256>") include "poolcommon/hashTypes.h";

@@ -2,60 +2,45 @@
 #include "blockmaker/merkleTree.h"
 
 namespace BTC {
-bool transactionChecker(rapidjson::Value::Array transactions, std::vector<TxData> &result)
+bool transactionChecker(const std::vector<CBlockTemplateTx> &transactions, std::vector<TxData> &result)
 {
-  result.resize(transactions.Size());
-  for (size_t i = 0, ie = transactions.Size(); i != ie; ++i) {
-    rapidjson::Value &txSrc = transactions[i];
+  result.resize(transactions.size());
+  for (size_t i = 0, ie = transactions.size(); i != ie; ++i) {
+    const CBlockTemplateTx &txSrc = transactions[i];
 
-    if (!txSrc.HasMember("data") || !txSrc["data"].IsString())
-      return false;
-    result[i].HexData = txSrc["data"].GetString();
-    result[i].HexDataSize = txSrc["data"].GetStringLength();
+    result[i].HexData = txSrc.Data.c_str();
+    result[i].HexDataSize = txSrc.Data.size();
 
-    if (txSrc.HasMember("txid") && txSrc["txid"].IsString()) {
-      result[i].TxId.setHexLE(txSrc["txid"].GetString());
-      if (txSrc.HasMember("hash"))
-        result[i].WitnessHash.setHexLE(txSrc["hash"].GetString());
-    } else if (txSrc.HasMember("hash") && txSrc["hash"].IsString()) {
-      result[i].TxId.setHexLE(txSrc["hash"].GetString());
+    if (txSrc.Txid.has_value()) {
+      result[i].TxId = *txSrc.Txid;
+      result[i].WitnessHash = txSrc.Hash;
     } else {
-      return false;
+      result[i].TxId = txSrc.Hash;
     }
   }
 
   return true;
 }
 
-bool isSegwitEnabled(rapidjson::Value::Array transactions)
+bool isSegwitEnabled(const std::vector<CBlockTemplateTx> &transactions)
 {
-  for (rapidjson::SizeType i = 0, ie = transactions.Size(); i != ie; ++i) {
-    rapidjson::Value &tx = transactions[i];
-    if (tx.HasMember("txid") && tx["txid"].IsString() &&
-        tx.HasMember("hash") && tx["hash"].IsString()) {
-      rapidjson::Value &txid = tx["txid"];
-      rapidjson::Value &hash = tx["hash"];
-      if (txid.GetStringLength() == hash.GetStringLength()) {
-        if (memcmp(txid.GetString(), hash.GetString(), txid.GetStringLength()) != 0) {
-          return true;
-        }
-      }
-    }
+  for (const auto &tx : transactions) {
+    if (tx.Txid.has_value() && *tx.Txid != tx.Hash)
+      return true;
   }
 
   return false;
 }
 
-bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, xmstream &witnessCommitment, std::string &error)
+bool calculateWitnessCommitment(const CBlockTemplateResult &blockTemplate, xmstream &witnessCommitment, std::string &error)
 {
-  if (!blockTemplate.HasMember("default_witness_commitment") || !blockTemplate["default_witness_commitment"].IsString()) {
+  if (!blockTemplate.Default_witness_commitment.has_value()) {
     error = "default_witness_commitment missing";
     return false;
   }
 
-  const char *originalWitnessCommitment = blockTemplate["default_witness_commitment"].GetString();
-  rapidjson::SizeType originalWitnessCommitmentSize = blockTemplate["default_witness_commitment"].GetStringLength();
-  hex2bin(originalWitnessCommitment, originalWitnessCommitmentSize, witnessCommitment.reserve(originalWitnessCommitmentSize/2));
+  const auto &commitment = *blockTemplate.Default_witness_commitment;
+  witnessCommitment.write(commitment.data(), commitment.size());
   return true;
 }
 

@@ -1,29 +1,22 @@
 #include "blockmaker/eth.h"
+#include "blockmaker/ethereumBlockTemplate.h"
 
 namespace ETH {
 bool Stratum::Work::loadFromTemplate(CBlockTemplate &blockTemplate, std::string &error)
 {
-  if (!blockTemplate.Document.HasMember("result") || !blockTemplate.Document["result"].IsArray()) {
-    error = "no result";
-    return false;
-  }
+  CETHGetWorkResult &work = *static_cast<CEthereumBlockTemplate&>(blockTemplate).Data.Result;
 
-  rapidjson::Value::Array resultValue = blockTemplate.Document["result"].GetArray();
-  if (resultValue.Size() != 4 ||
-      !resultValue[0].IsString() || resultValue[0].GetStringLength() != 66 ||
-      !resultValue[1].IsString() || resultValue[1].GetStringLength() != 66 ||
-      !resultValue[2].IsString() || resultValue[2].GetStringLength() != 66 ||
-      !resultValue[3].IsString()) {
-    error = "getWork format error";
-    return false;
-  }
-
-  HeaderHashHex_ = resultValue[0].GetString() + 2;
-  SeedHashHex_ = resultValue[1].GetString() + 2;
-  HeaderHash_.setHexLE(HeaderHashHex_.c_str());
+  HeaderHash_ = work.Header_hash;
   std::reverse(HeaderHash_.begin(), HeaderHash_.end());
-  Target_.setHex(resultValue[2].GetString() + 2);
-  this->Height_ = strtoul(resultValue[3].GetString()+2, nullptr, 16);
+  HeaderHashHex_ = work.Header_hash.getHexLE();
+  SeedHashHex_ = work.Seed_hash.getHexLE();
+
+  if (work.Target.size() >= 3 && work.Target[0] == '0' && work.Target[1] == 'x')
+    Target_.setHex(work.Target.c_str() + 2);
+
+  if (work.Block_height.size() >= 3 && work.Block_height[0] == '0' && work.Block_height[1] == 'x')
+    this->Height_ = strtoul(work.Block_height.c_str() + 2, nullptr, 16);
+
   // Block reward can't be calculated at this moment
   this->BlockReward_ = UInt<384>::zero();
   this->BaseBlockReward_ = ETH::getConstBlockReward(blockTemplate.Ticker, this->Height_);
