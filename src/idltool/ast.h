@@ -99,6 +99,8 @@ struct CFieldType {
   std::string RefName; // non-empty if referencing struct/enum/mapped type
   std::string MappedCppType; // C++ type from mapped type definition
   std::string MappedWireType; // JSON wire type from mapped type definition
+  bool MappedWireIsUserType = false; // true if wire type is a usertype
+  std::string MappedWireUserTypeCppType; // C++ type of usertype wire
   ETypeShape Shape = ETypeShape::Plain;
   ENullInPolicy NullIn = ENullInPolicy::Deny;
   EEmptyOutPolicy EmptyOut = EEmptyOutPolicy::Omit;
@@ -241,11 +243,13 @@ struct CUserTypeDef {
 struct CDerivedTypeDef {
   std::string Name;
   std::string CppType;          // C++ target type (string literal from IDL)
-  std::string WireTypeName;     // scalar (wire type for JSON read/write)
+  std::string WireTypeName;     // scalar or usertype (wire type for JSON read/write)
   std::string ContextTypeName;  // scalar (context parameter type)
   std::string IncludePath;
   // Resolved during validation:
   EScalarType ContextType = EScalarType::Uint32;
+  bool WireIsUserType = false;
+  std::string WireUserTypeCppType; // C++ type of usertype wire (when WireIsUserType)
   int Line = 0;
   bool IsImported = false;
 };

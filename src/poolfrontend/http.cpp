@@ -248,42 +248,37 @@ UserManager &PoolHttpConnection::userManager() { return Server_.userManager(); }
 PoolBackend *PoolHttpConnection::backend(const std::string &coin) { return Server_.backend(coin); }
 StatisticDb *PoolHttpConnection::statistic(const std::string &coin) { return Server_.statisticDb(coin); }
 
-void PoolHttpConnection::reply200(xmstream &stream)
+void PoolHttpConnection::reply200(std::string &out)
 {
-  const char reply200[] = "HTTP/1.1 200 OK\r\nServer: bcnode\r\nContent-Type: application/json\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n";
-  stream.write(reply200, sizeof(reply200)-1);
+  static constexpr char header[] = "HTTP/1.1 200 OK\r\nServer: bcnode\r\nContent-Type: application/json\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n";
+  out.append(header, sizeof(header) - 1);
 }
 
 void PoolHttpConnection::reply404()
 {
-  const char reply404[] = "HTTP/1.1 404 Not Found\r\nServer: bcnode\r\nTransfer-Encoding: chunked\r\n\r\n";
-  const char html[] = "<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>";
+  static constexpr char header[] = "HTTP/1.1 404 Not Found\r\nServer: bcnode\r\nTransfer-Encoding: chunked\r\n\r\n";
+  static constexpr char html[] = "<html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>";
 
-  char buffer[4096];
-  xmstream stream(buffer, sizeof(buffer));
-  stream.write(reply404, sizeof(reply404)-1);
-
-  size_t offset = startChunk(stream);
-  stream.write(html);
-  finishChunk(stream, offset);
-
-  aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
+  std::string reply(header, sizeof(header) - 1);
+  size_t offset = startChunk(reply);
+  reply.append(html, sizeof(html) - 1);
+  finishChunk(reply, offset);
+  aioWrite(Socket_, reply.data(), reply.size(), afWaitAll, 0, writeCb, this);
 }
 
-size_t PoolHttpConnection::startChunk(xmstream &stream)
+size_t PoolHttpConnection::startChunk(std::string &out)
 {
-  size_t offset = stream.offsetOf();
-  stream.write("00000000\r\n", 10);
+  size_t offset = out.size();
+  out.append("00000000\r\n", 10);
   return offset;
 }
 
-void PoolHttpConnection::finishChunk(xmstream &stream, size_t offset)
+void PoolHttpConnection::finishChunk(std::string &out, size_t offset)
 {
   char hex[16];
-  char finishData[] = "\r\n0\r\n\r\n";
-  snprintf(hex, sizeof(hex), "%08x", static_cast<unsigned>(stream.offsetOf() - offset - 10));
-  memcpy(stream.data<uint8_t>() + offset, hex, 8);
-  stream.write(finishData, sizeof(finishData) - 1);
+  snprintf(hex, sizeof(hex), "%08x", static_cast<unsigned>(out.size() - offset - 10));
+  memcpy(out.data() + offset, hex, 8);
+  out.append("\r\n0\r\n\r\n", 7);
 }
 
 void PoolHttpConnection::close()

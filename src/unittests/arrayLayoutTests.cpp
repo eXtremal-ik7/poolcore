@@ -1,14 +1,13 @@
 #include "gtest/gtest.h"
 #include "test.idl.h"
-#include "p2putils/xmstream.h"
 #include "rapidjson/document.h"
 #include <cmath>
 #include <cstring>
 #include <string>
 
-static rapidjson::Document parseRapidArray(const xmstream &stream) {
+static rapidjson::Document parseRapidArray(const std::string &stream) {
   rapidjson::Document doc;
-  doc.Parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  doc.Parse(stream.data(), stream.size());
   return doc;
 }
 
@@ -148,7 +147,7 @@ TEST(ArrayLayout, ParseEnumOverride) {
 TEST(ArrayLayout, SerializeAllRequired) {
   ArrayLayoutAllRequired t;
   t.x = 1; t.y = 2; t.z = 3;
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
   auto doc = parseRapidArray(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -164,7 +163,7 @@ TEST(ArrayLayout, SerializeDefaultsTrimmed) {
   t.name = "a";
   t.count = 1;
   // label, score, extra all at defaults
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
   auto doc = parseRapidArray(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -180,7 +179,7 @@ TEST(ArrayLayout, SerializeMiddleNonDefault) {
   t.count = 1;
   t.label = "default"; // default value
   t.score = 9.9; // non-default — forces label to be serialized too
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
   auto doc = parseRapidArray(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -198,7 +197,7 @@ TEST(ArrayLayout, SerializeOptionalInMiddle) {
   t.count = 1;
   // label and score at defaults, but extra is set — forces all to be emitted
   t.extra = "yes";
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
   auto doc = parseRapidArray(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -217,7 +216,7 @@ TEST(ArrayLayout, SerializeNested) {
   t.child.value = "inner";
   t.child.count = 7;
   t.items = {1, 2, 3};
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
   auto doc = parseRapidArray(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -232,9 +231,9 @@ TEST(ArrayLayout, SerializeNested) {
 
 TEST(ArrayLayout, SerializeAllDefaultsEmpty) {
   ArrayLayoutAllDefaults t; // x=0, y=0 — all at defaults
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
-  std::string output(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  std::string output(stream.data(), stream.size());
   EXPECT_EQ(output, "[]");
 }
 
@@ -242,7 +241,7 @@ TEST(ArrayLayout, SerializeEnum) {
   ArrayLayoutEnum t;
   t.color = EColor::green;
   // priority stays at default "medium"
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
   auto doc = parseRapidArray(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -255,7 +254,7 @@ TEST(ArrayLayout, SerializeEnumNonDefault) {
   ArrayLayoutEnum t;
   t.color = EColor::blue;
   t.priority = EPriority::critical;
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
   auto doc = parseRapidArray(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -272,10 +271,10 @@ TEST(ArrayLayout, SerializeEnumNonDefault) {
 TEST(ArrayLayout, RoundtripAllRequired) {
   ArrayLayoutAllRequired original;
   original.x = -5; original.y = 0; original.z = 999;
-  xmstream stream;
+  std::string stream;
   original.serialize(stream);
   ArrayLayoutAllRequired parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.x, original.x);
   EXPECT_EQ(parsed.y, original.y);
   EXPECT_EQ(parsed.z, original.z);
@@ -288,10 +287,10 @@ TEST(ArrayLayout, RoundtripMixed) {
   original.label = "custom";
   original.score = 3.14;
   original.extra = "data";
-  xmstream stream;
+  std::string stream;
   original.serialize(stream);
   ArrayLayoutMixed parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.name, original.name);
   EXPECT_EQ(parsed.count, original.count);
   EXPECT_EQ(parsed.label, original.label);
@@ -305,10 +304,10 @@ TEST(ArrayLayout, RoundtripMixedDefaults) {
   original.name = "test";
   original.count = 42;
   // trailing fields at defaults
-  xmstream stream;
+  std::string stream;
   original.serialize(stream);
   ArrayLayoutMixed parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.name, original.name);
   EXPECT_EQ(parsed.count, original.count);
   EXPECT_EQ(parsed.label, "default");
@@ -322,10 +321,10 @@ TEST(ArrayLayout, RoundtripNested) {
   original.child.value = "nested";
   original.child.count = 55;
   original.items = {10, 20, 30};
-  xmstream stream;
+  std::string stream;
   original.serialize(stream);
   ArrayLayoutNested parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.id, original.id);
   EXPECT_EQ(parsed.child.value, original.child.value);
   EXPECT_EQ(parsed.child.count, original.child.count);
@@ -385,9 +384,9 @@ TEST(ArrayLayout, BarrierTruncatesAtEmptyDenyOptional) {
   t.name = "test";
   // opt1 empty (nullopt), opt2 has a value
   t.opt2 = "after";
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
-  std::string output(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  std::string output(stream.data(), stream.size());
   // Should be just ["test"] — opt1 empty with deny, so truncate there
   EXPECT_EQ(output, R"(["test"])");
 }
@@ -398,7 +397,7 @@ TEST(ArrayLayout, BarrierNotTriggeredWhenPresent) {
   t.name = "test";
   t.opt1 = "first";
   t.opt2 = "second";
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
   auto doc = parseRapidArray(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -415,10 +414,10 @@ TEST(ArrayLayout, BarrierRoundtrip) {
   t.name = "test";
   t.opt1 = "first";
   // opt2 empty — null_in=allow, so null is OK
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
   ArrayLayoutBarrier parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.name, "test");
   ASSERT_TRUE(parsed.opt1.has_value());
   EXPECT_EQ(*parsed.opt1, "first");
@@ -429,9 +428,9 @@ TEST(ArrayLayout, BarrierAllEmptyTruncatesAll) {
   // Both optionals empty. opt1 is deny, so truncate immediately.
   ArrayLayoutBarrier t;
   t.name = "test";
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
-  std::string output(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  std::string output(stream.data(), stream.size());
   EXPECT_EQ(output, R"(["test"])");
 }
 
@@ -463,18 +462,18 @@ TEST(ArrayLayout, OptionalObjectSerializePresent) {
   t.child.emplace();
   t.child->value = "x";
   t.child->count = 3;
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
-  std::string output(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  std::string output(stream.data(), stream.size());
   EXPECT_EQ(output, R"(["hi",{"value":"x","count":3}])");
 }
 
 TEST(ArrayLayout, OptionalObjectSerializeAbsent) {
   ArrayLayoutOptionalObject t;
   t.name = "hi";
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
-  std::string output(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  std::string output(stream.data(), stream.size());
   EXPECT_EQ(output, R"(["hi"])");
 }
 
@@ -484,11 +483,11 @@ TEST(ArrayLayout, OptionalObjectRoundtrip) {
   t.child.emplace();
   t.child->value = "rval";
   t.child->count = 42;
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
 
   ArrayLayoutOptionalObject parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.name, "rt");
   ASSERT_TRUE(parsed.child.has_value());
   EXPECT_EQ(parsed.child->value, "rval");

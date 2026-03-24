@@ -37,10 +37,10 @@ private:
   int onParse(HttpRequestComponent *component);
   void close();
 
-  void reply200(xmstream &stream);
+  void reply200(std::string &out);
   void reply404();
-  size_t startChunk(xmstream &stream);
-  void finishChunk(xmstream &stream, size_t offset);
+  size_t startChunk(std::string &out);
+  void finishChunk(std::string &out, size_t offset);
 
   UserManager &userManager();
   PoolBackend *backend(const std::string &coin);
@@ -108,13 +108,14 @@ private:
 
   template<typename T, typename... Args>
   void sendReply(Args&&... args) {
-    xmstream stream;
-    reply200(stream);
-    size_t offset = startChunk(stream);
-    T::serialize(stream, std::forward<Args>(args)...);
-    stream.write('\n');
-    finishChunk(stream, offset);
-    aioWrite(Socket_, stream.data(), stream.sizeOf(), afWaitAll, 0, writeCb, this);
+    std::string reply;
+    reply.reserve(512);
+    reply200(reply);
+    size_t offset = startChunk(reply);
+    T::serialize(reply, std::forward<Args>(args)...);
+    reply += '\n';
+    finishChunk(reply, offset);
+    aioWrite(Socket_, reply.data(), reply.size(), afWaitAll, 0, writeCb, this);
   }
 
   template<typename> struct HandlerTraits;

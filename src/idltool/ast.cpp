@@ -278,11 +278,16 @@ static bool validateTypes(CIdlFile &file)
     derivedNames.insert(dt.Name);
     derivedIndex[dt.Name] = &dt;
 
-    // Resolve wire type (must be scalar)
+    // Resolve wire type (scalar or usertype)
     auto wt = parseScalarType(dt.WireTypeName);
     if (!wt) {
-      fprintf(stderr, "line %d: invalid wire type '%s' for derived '%s'\n", dt.Line, dt.WireTypeName.c_str(), dt.Name.c_str());
-      return false;
+      if (userTypeNames.count(dt.WireTypeName)) {
+        dt.WireIsUserType = true;
+        dt.WireUserTypeCppType = userTypeIndex[dt.WireTypeName]->CppType;
+      } else {
+        fprintf(stderr, "line %d: invalid wire type '%s' for derived '%s' (must be scalar or usertype)\n", dt.Line, dt.WireTypeName.c_str(), dt.Name.c_str());
+        return false;
+      }
     }
 
     // Resolve context type (must be scalar)
@@ -300,7 +305,8 @@ static bool validateTypes(CIdlFile &file)
     // Helper lambda: resolve a single type reference (scalar, struct, enum, usertype, derived)
     auto resolveRef = [&](const std::string &refName, bool isScalar, int line, const char *fieldName,
                           bool &outIsScalar, bool &outIsUserType, bool &outIsDerived,
-                          std::string &outMappedCppType, std::string &outMappedWireType) -> bool {
+                          std::string &outMappedCppType, std::string &outMappedWireType,
+                          bool &outMappedWireIsUserType, std::string &outMappedWireUserTypeCppType) -> bool {
       if (isScalar || refName.empty()) return true;
       if (userTypeNames.count(refName)) {
         outIsUserType = true;
@@ -309,6 +315,8 @@ static bool validateTypes(CIdlFile &file)
         outIsDerived = true;
         outMappedCppType = derivedIndex[refName]->CppType;
         outMappedWireType = derivedIndex[refName]->WireTypeName;
+        outMappedWireIsUserType = derivedIndex[refName]->WireIsUserType;
+        outMappedWireUserTypeCppType = derivedIndex[refName]->WireUserTypeCppType;
       } else {
         bool found = structNames.count(refName) || enumNames.count(refName);
         if (!found) {
@@ -345,8 +353,10 @@ static bool validateTypes(CIdlFile &file)
 
         // Resolve each alternative
         for (auto &alt : f.Type.Alternatives) {
+          bool dummyWireIsUT = false; std::string dummyWireUTCpp;
           if (!resolveRef(alt.RefName, alt.IsScalar, f.Line, f.Name.c_str(),
-                          alt.IsScalar, alt.IsUserType, alt.IsDerived, alt.MappedCppType, alt.MappedWireType))
+                          alt.IsScalar, alt.IsUserType, alt.IsDerived, alt.MappedCppType, alt.MappedWireType,
+                          dummyWireIsUT, dummyWireUTCpp))
             return false;
           // Reject derived types in variants (they require context)
           if (alt.IsDerived) {
@@ -363,7 +373,8 @@ static bool validateTypes(CIdlFile &file)
       // Array element type resolution (optional/map element types, or non-variant plain arrays)
       if (!f.Type.IsScalar && !f.Type.RefName.empty()) {
         if (!resolveRef(f.Type.RefName, f.Type.IsScalar, f.Line, f.Name.c_str(),
-                        f.Type.IsScalar, f.Type.IsUserType, f.Type.IsDerived, f.Type.MappedCppType, f.Type.MappedWireType))
+                        f.Type.IsScalar, f.Type.IsUserType, f.Type.IsDerived, f.Type.MappedCppType, f.Type.MappedWireType,
+                        f.Type.MappedWireIsUserType, f.Type.MappedWireUserTypeCppType))
           return false;
       }
 

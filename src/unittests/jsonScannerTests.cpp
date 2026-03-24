@@ -16,9 +16,7 @@
 // Helpers
 // ============================================================================
 
-static std::string streamStr(const xmstream &s) {
-  return {reinterpret_cast<const char *>(s.data()), s.sizeOf()};
-}
+
 
 // ============================================================================
 // Int64
@@ -63,7 +61,7 @@ TEST(JsonScanner, ReadInt) {
 }
 
 TEST(JsonScanner, WriteInt) {
-  auto write = [](int64_t v) { xmstream s; jsonWriteInt(s, v); return streamStr(s); };
+  auto write = [](int64_t v) { std::string s; jsonWriteInt(s, v); return s; };
   auto ref = [](int64_t v) { char b[24]; snprintf(b, sizeof(b), "%" PRId64, v); return std::string(b); };
   auto check = [&](int64_t v) { EXPECT_EQ(write(v), ref(v)) << v; };
 
@@ -78,11 +76,10 @@ TEST(JsonScanner, WriteInt) {
 TEST(JsonScanner, RoundtripInt) {
   int64_t values[] = {0, 1, -1, INT64_MAX, INT64_MIN, -4585056937269909242LL, 4630517887836878971LL};
   for (int64_t v : values) {
-    xmstream buf;
-    jsonWriteInt(buf, v);
-    auto str = streamStr(buf);
+    std::string buffer;
+    jsonWriteInt(buffer, v);
     int64_t parsed = 0;
-    const char *p = str.c_str(), *end = p + str.size();
+    const char *p = buffer.c_str(), *end = p + buffer.size();
     ASSERT_EQ(jsonReadInt64(p, end, parsed), JsonReadError::Ok) << v;
     EXPECT_EQ(v, parsed) << v;
   }
@@ -117,7 +114,7 @@ TEST(JsonScanner, ReadUInt) {
 }
 
 TEST(JsonScanner, WriteUInt) {
-  auto write = [](uint64_t v) { xmstream s; jsonWriteUInt(s, v); return streamStr(s); };
+  auto write = [](uint64_t v) { std::string s; jsonWriteUInt(s, v); return s; };
   auto ref = [](uint64_t v) { char b[24]; snprintf(b, sizeof(b), "%" PRIu64, v); return std::string(b); };
   auto check = [&](uint64_t v) { EXPECT_EQ(write(v), ref(v)) << v; };
 
@@ -129,11 +126,10 @@ TEST(JsonScanner, WriteUInt) {
 TEST(JsonScanner, RoundtripUInt) {
   uint64_t values[] = {0, 1, UINT64_MAX, 10000000000000000000ULL};
   for (uint64_t v : values) {
-    xmstream buf;
-    jsonWriteUInt(buf, v);
-    auto str = streamStr(buf);
+    std::string buffer;
+    jsonWriteUInt(buffer, v);
     uint64_t parsed = 0;
-    const char *p = str.c_str(), *end = p + str.size();
+    const char *p = buffer.c_str(), *end = p + buffer.size();
     ASSERT_EQ(jsonReadUInt64(p, end, parsed), JsonReadError::Ok) << v;
     EXPECT_EQ(v, parsed) << v;
   }
@@ -184,7 +180,7 @@ TEST(JsonScanner, ReadDouble) {
 }
 
 TEST(JsonScanner, WriteDouble) {
-  auto write = [](double v) { xmstream s; jsonWriteDouble(s, v); return streamStr(s); };
+  auto write = [](double v) { std::string s; jsonWriteDouble(s, v); return s; };
   auto ref = [](double v) { char b[64]; snprintf(b, sizeof(b), "%.12g", v); return std::string(b); };
   auto check = [&](double v) { EXPECT_EQ(write(v), ref(v)) << std::format("{:.17g}", v); };
 
@@ -210,11 +206,10 @@ TEST(JsonScanner, WriteDouble) {
 TEST(JsonScanner, RoundtripDouble) {
   double values[] = {3.141592653589793, -122.42200352825247, 1e-10, 1e20, 0.0};
   for (double v : values) {
-    xmstream buf;
-    jsonWriteDouble(buf, v);
-    auto str = streamStr(buf);
+    std::string buffer;
+    jsonWriteDouble(buffer, v);
     double parsed = 0;
-    const char *p = str.c_str(), *end = p + str.size();
+    const char *p = buffer.c_str(), *end = p + buffer.size();
     ASSERT_EQ(jsonReadDouble(p, end, parsed), JsonReadError::Ok) << v;
     EXPECT_NEAR(v, parsed, std::abs(v) * 1e-10 + 1e-300) << v;
   }
@@ -255,7 +250,7 @@ TEST(JsonScanner, ReadString) {
 }
 
 TEST(JsonScanner, WriteString) {
-  auto write = [](std::string_view v) { xmstream s; jsonWriteString(s, v); return streamStr(s); };
+  auto write = [](std::string_view v) { std::string s; jsonWriteString(s, v); return s; };
 
   EXPECT_EQ(write("hello"), "\"hello\"");
   EXPECT_EQ(write(""), "\"\"");
@@ -270,11 +265,10 @@ TEST(JsonScanner, WriteString) {
 TEST(JsonScanner, RoundtripString) {
   const char *values[] = {"", "hello", "line1\nline2\ttab\"quote\\backslash", "\xC3\xA9"};
   for (const char *v : values) {
-    xmstream buf;
-    jsonWriteString(buf, v);
-    auto str = streamStr(buf);
+    std::string buffer;
+    jsonWriteString(buffer, v);
     std::string parsed;
-    const char *p = str.c_str(), *end = p + str.size();
+    const char *p = buffer.c_str(), *end = p + buffer.size();
     ASSERT_EQ(jsonReadStringValue(p, end, parsed), JsonReadError::Ok) << v;
     EXPECT_EQ(parsed, v);
   }
@@ -299,6 +293,6 @@ TEST(JsonScanner, ReadBool) {
 }
 
 TEST(JsonScanner, WriteBool) {
-  { xmstream s; jsonWriteBool(s, true); EXPECT_EQ(streamStr(s), "true"); }
-  { xmstream s; jsonWriteBool(s, false); EXPECT_EQ(streamStr(s), "false"); }
+  { std::string s; jsonWriteBool(s, true); EXPECT_EQ(s, "true"); }
+  { std::string s; jsonWriteBool(s, false); EXPECT_EQ(s, "false"); }
 }

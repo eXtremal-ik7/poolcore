@@ -1,8 +1,10 @@
 usertype uint256("UInt<256>") include "poolcommon/userTypes.h";
 usertype unixTime("Timestamp") include "poolcommon/userTypes.h";
 usertype moneyBTC("UInt<384>") include "poolcommon/userTypes.h";
+usertype numberLiteral("std::string") include "poolcommon/numberLiteral.h";
 
 derived money("UInt<384>", string, uint32) include "poolcommon/userTypes.h";
+derived moneyLiteral("UInt<384>", numberLiteral, uint32) include "poolcommon/userTypes.h";
 
 enum MiningMode : string {
   pplns,

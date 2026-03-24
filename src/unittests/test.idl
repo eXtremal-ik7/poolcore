@@ -236,6 +236,16 @@ derived aVal("int64_t", string, uint32) include "testDerivedTypes.h";
 derived bVal("int64_t", string, uint32) include "testDerivedTypes.h";
 derived ctxCounter32Val("uint32_t", uint32, uint32) include "testDerivedTypes.h";
 
+usertype numberLiteral("std::string") include "testNumberLiteral.h";
+derived scaledNumber("int64_t", numberLiteral, uint32) include "testDerivedTypes.h";
+
+struct DerivedWithUserTypeWire {
+  .generate(parse, serialize);
+  .ctxgroup(value, optionalValue);
+  value: scaledNumber;
+  optionalValue: optional<scaledNumber>;
+}
+
 struct InlineMapped {
   .generate(parse, parse.verbose, serialize);
   amount: plainVal;

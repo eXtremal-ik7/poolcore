@@ -1,14 +1,14 @@
 // Generated JSON write helper — jsonWriteString
 #pragma once
 
-#include "p2putils/xmstream.h"
+#include <string>
 #include <string_view>
 #include <cstdint>
 
 inline char jsonHexDigit(uint8_t b) { return b < 10 ? '0' + b : 'a' + b - 10; }
 
-inline void jsonWriteString(xmstream &out, std::string_view value) {
-  out.write('"');
+inline void jsonWriteString(std::string &out, std::string_view value) {
+  out += '"';
   const char *p = value.data();
   const char *end = p + value.size();
   while (p < end) {
@@ -17,25 +17,25 @@ inline void jsonWriteString(xmstream &out, std::string_view value) {
     while (p < end && static_cast<uint8_t>(*p) >= 0x20 && *p != '"' && *p != '\\')
       p++;
     if (p > start)
-      out.write(start, p - start);
+      out.append(start, p - start);
     if (p >= end)
       break;
     // Slow path: escape one character
     char ch = *p++;
     switch (ch) {
-      case '"': out.write("\\\""); break;
-      case '\\': out.write("\\\\"); break;
-      case '\b': out.write("\\b"); break;
-      case '\f': out.write("\\f"); break;
-      case '\n': out.write("\\n"); break;
-      case '\r': out.write("\\r"); break;
-      case '\t': out.write("\\t"); break;
+      case '"': out.append("\\\""); break;
+      case '\\': out.append("\\\\"); break;
+      case '\b': out.append("\\b"); break;
+      case '\f': out.append("\\f"); break;
+      case '\n': out.append("\\n"); break;
+      case '\r': out.append("\\r"); break;
+      case '\t': out.append("\\t"); break;
       default:
-        out.write("\\u00");
-        out.write(jsonHexDigit(static_cast<uint8_t>(ch) >> 4));
-        out.write(jsonHexDigit(static_cast<uint8_t>(ch) & 0xF));
+        out.append("\\u00");
+        out += jsonHexDigit(static_cast<uint8_t>(ch) >> 4);
+        out += jsonHexDigit(static_cast<uint8_t>(ch) & 0xF);
         break;
     }
   }
-  out.write('"');
+  out += '"';
 }

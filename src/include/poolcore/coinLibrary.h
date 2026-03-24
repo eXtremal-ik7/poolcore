@@ -1062,6 +1062,23 @@ public:
       info.WorkType = EWorkBitcoin;
       info.DefaultInstantMinimalPayout = payout("500000");
       info.DefaultRegularMinimalPayout = payout("25000");
+    } else if (strcmp(coinName, "XEC.regtest") == 0) {
+      info.FullName = "eCash regtest";
+      info.Name = "XEC.regtest";
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EECash);
+      info.FractionalPartSize = 2;
+      info.SegwitEnabled = false;
+      info.PowerUnitType = CCoinInfo::EHash;
+      info.PowerMultLog10 = 6;
+      info.PubkeyAddressPrefix = {111};
+      info.ScriptAddressPrefix = {196};
+      info.DefaultRpcPort = 18443;
+      info.Algorithm = "sha256";
+      info.PowLimit = UInt<256>::fromHex("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      info.HasRtt = true;
+      info.WorkType = EWorkBitcoin;
+      info.DefaultInstantMinimalPayout = payout("500000");
+      info.DefaultRegularMinimalPayout = payout("25000");
     } else if (strcmp(coinName, "XPM") == 0) {
       info.Name = "XPM";
       info.FullName = "Primecoin";

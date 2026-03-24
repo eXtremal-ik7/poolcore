@@ -55,7 +55,7 @@ void CSerializeCodeBuilder::flush()
 {
   if (PendingIndent_ == -1)
     return;
-  Code_ += std::format("{}out.write({});\n", indent(PendingIndent_), cppStringLiteral(PendingLiteral_));
+  Code_ += std::format("{}out.append({});\n", indent(PendingIndent_), cppStringLiteral(PendingLiteral_));
   PendingIndent_ = -1;
   PendingLiteral_.clear();
 }
@@ -485,7 +485,7 @@ void emitSerializeValue(CSerializeCodeBuilder &code, const CFieldDef &f,
   std::string in = indent(ind);
   if (isEnum(f.Type.RefName, enumNames)) {
     code.writeLiteral(ind, "\"");
-    code.appendRaw(std::format("{}out.write(E{}ToString({}));\n", in, f.Type.RefName, valueName));
+    code.appendRaw(std::format("{}out.append(E{}ToString({}));\n", in, f.Type.RefName, valueName));
     code.writeLiteral(ind, "\"");
     return;
   }
@@ -544,7 +544,7 @@ void emitSerializeArrayElem(CSerializeCodeBuilder &code, const CFieldDef &f,
       code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, valueName));
       emitSerializePlainArrayElem(code, f, std::format("(*{})", valueName), enumNames, ind + 1);
       code.appendRaw(std::format("{}}} else {{\n", in));
-      code.appendRaw(std::format("{}  out.write(\"null\", 4);\n", in));
+      code.appendRaw(std::format("{}  out.append(\"null\", 4);\n", in));
       code.appendRaw(std::format("{}}}\n", in));
       return;
     case EArrayElementKind::Variant:
@@ -555,10 +555,10 @@ void emitSerializeArrayElem(CSerializeCodeBuilder &code, const CFieldDef &f,
       code.writeLiteral(ind, "{");
       code.appendRaw(std::format("{}{{ bool _first = true;\n", in));
       code.appendRaw(std::format("{}for (auto &[_k, _v] : {}) {{\n", in, valueName));
-      code.appendRaw(std::format("{}  if (!_first) out.write(',');\n", in));
+      code.appendRaw(std::format("{}  if (!_first) out += ',';\n", in));
       code.appendRaw(std::format("{}  _first = false;\n", in));
       code.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", in));
-      code.appendRaw(std::format("{}  out.write(':');\n", in));
+      code.appendRaw(std::format("{}  out += ':';\n", in));
       CFieldDef elemField = f;
       elemField.Kind = EFieldKind::Required;
       if (isStructRef(f, enumNames))
@@ -614,7 +614,7 @@ void emitUserTypeNestedArraySerialize(CSerializeCodeBuilder &code,
   code.writeLiteral(ind, "[");
   std::string idx = std::format("i{}_", dimIndex);
   code.appendRaw(std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueName, idx));
-  code.appendRaw(std::format("{}  if ({}) out.write(',');\n", in, idx));
+  code.appendRaw(std::format("{}  if ({}) out += ',';\n", in, idx));
   emitUserTypeNestedArraySerialize(code, userTypeName, dims, dimIndex + 1,
                                    std::format("{}[{}]", valueName, idx), ind + 1);
   code.appendRaw(std::format("{}}}\n", in));
@@ -650,7 +650,7 @@ void emitDerivedInlineNestedArraySerialize(CSerializeCodeBuilder &code,
   code.writeLiteral(ind, "[");
   std::string idx = std::format("i{}_", dimIndex);
   code.appendRaw(std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueName, idx));
-  code.appendRaw(std::format("{}  if ({}) out.write(',');\n", in, idx));
+  code.appendRaw(std::format("{}  if ({}) out += ',';\n", in, idx));
   emitDerivedInlineNestedArraySerialize(code, derivedTypeName, wireType, dims, dimIndex + 1,
                                         std::format("{}[{}]", valueName, idx), ind + 1);
   code.appendRaw(std::format("{}}}\n", in));
@@ -666,7 +666,7 @@ void emitSerializeExpr(CSerializeCodeBuilder &code, const CFieldDef &f,
   if (f.Kind == EFieldKind::Array || f.Kind == EFieldKind::FixedArray) {
     code.writeLiteral(ind, "[");
     code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, valueName));
-    code.appendRaw(std::format("{}  if (i_) out.write(',');\n", in));
+    code.appendRaw(std::format("{}  if (i_) out += ',';\n", in));
     if (isUserTypeField(f)) {
       if (f.Type.InnerDims.empty()) {
         emitUserTypeValueSerialize(code, f.Type.RefName,
@@ -699,10 +699,10 @@ void emitSerializeExpr(CSerializeCodeBuilder &code, const CFieldDef &f,
     code.writeLiteral(ind, "{");
     code.appendRaw(std::format("{}{{ bool _first = true;\n", in));
     code.appendRaw(std::format("{}for (auto &[_k, _v] : {}) {{\n", in, valueName));
-    code.appendRaw(std::format("{}  if (!_first) out.write(',');\n", in));
+    code.appendRaw(std::format("{}  if (!_first) out += ',';\n", in));
     code.appendRaw(std::format("{}  _first = false;\n", in));
     code.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", in));
-    code.appendRaw(std::format("{}  out.write(':');\n", in));
+    code.appendRaw(std::format("{}  out += ':';\n", in));
     CFieldDef elemField = f;
     elemField.Kind = EFieldKind::Required;
     if (isStructRef(f, enumNames)) {
@@ -768,7 +768,7 @@ void emitNestedArraySerialize(CSerializeCodeBuilder &code, const CFieldDef &f,
   code.writeLiteral(ind, "[");
   std::string idx = std::format("i{}_", dimIndex);
   code.appendRaw(std::format("{}for (size_t {} = 0; {} < {}.size(); {}++) {{\n", in, idx, idx, valueName, idx));
-  code.appendRaw(std::format("{}  if ({}) out.write(',');\n", in, idx));
+  code.appendRaw(std::format("{}  if ({}) out += ',';\n", in, idx));
   std::string elemExpr = std::format("{}[{}]", valueName, idx);
   emitNestedArraySerialize(code, f, dims, dimIndex + 1, elemExpr, enumNames, ind + 1);
   code.appendRaw(std::format("{}}}\n", in));
@@ -784,7 +784,7 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
       keyInd = ind;
     if (useRuntimeComma) {
       std::string keyIndent = indent(keyInd);
-      code.appendRaw(std::format("{}if ({}) out.write(',');\n", keyIndent, commaVar));
+      code.appendRaw(std::format("{}if ({}) out += ',';\n", keyIndent, commaVar));
       code.appendRaw(std::format("{}{} = true;\n", keyIndent, commaVar));
       code.writeLiteral(keyInd, std::format("\"{}\":", jsonKey));
       return;
@@ -862,7 +862,7 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
       emitKey(f.Name);
       code.writeLiteral(ind, "[");
       code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn));
-      code.appendRaw(std::format("{}  if (i_) out.write(',');\n", in));
+      code.appendRaw(std::format("{}  if (i_) out += ',';\n", in));
       if (f.Type.InnerDims.empty())
         emitSerializeArrayElem(code, f, std::format("{}[i_]", cn), enumNames, ind + 1);
       else
@@ -878,7 +878,7 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
         emitKey(f.Name, ind + 1);
         code.writeLiteral(ind + 1, "[");
         code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", indent(ind + 1), cn));
-        code.appendRaw(std::format("{}  if (i_) out.write(',');\n", indent(ind + 1)));
+        code.appendRaw(std::format("{}  if (i_) out += ',';\n", indent(ind + 1)));
         if (f.Type.InnerDims.empty()) {
           emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
         } else {
@@ -894,7 +894,7 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
       code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
       code.writeLiteral(ind + 1, "[");
       code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", indent(ind + 1), cn));
-      code.appendRaw(std::format("{}  if (i_) out.write(',');\n", indent(ind + 1)));
+      code.appendRaw(std::format("{}  if (i_) out += ',';\n", indent(ind + 1)));
       if (f.Type.InnerDims.empty()) {
         emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
       } else {
@@ -912,7 +912,7 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
       emitKey(f.Name);
       code.writeLiteral(ind, "[");
       code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}.size(); i_++) {{\n", in, cn));
-      code.appendRaw(std::format("{}  if (i_) out.write(',');\n", in));
+      code.appendRaw(std::format("{}  if (i_) out += ',';\n", in));
       if (f.Type.InnerDims.empty()) {
         emitSerializeArrayElem(code, f, std::format("{}[i_]", cn), enumNames, ind + 1);
       } else {
@@ -929,7 +929,7 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
         emitKey(f.Name, ind + 1);
         code.writeLiteral(ind + 1, "[");
         code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", indent(ind + 1), cn));
-        code.appendRaw(std::format("{}  if (i_) out.write(',');\n", indent(ind + 1)));
+        code.appendRaw(std::format("{}  if (i_) out += ',';\n", indent(ind + 1)));
         if (f.Type.InnerDims.empty()) {
           emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
         } else {
@@ -945,7 +945,7 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
       code.appendRaw(std::format("{}if ({}.has_value()) {{\n", in, cn));
       code.writeLiteral(ind + 1, "[");
       code.appendRaw(std::format("{}for (size_t i_ = 0; i_ < {}->size(); i_++) {{\n", indent(ind + 1), cn));
-      code.appendRaw(std::format("{}  if (i_) out.write(',');\n", indent(ind + 1)));
+      code.appendRaw(std::format("{}  if (i_) out += ',';\n", indent(ind + 1)));
       if (f.Type.InnerDims.empty()) {
         emitSerializeArrayElem(code, f, std::format("(*{})[i_]", cn), enumNames, ind + 2);
       } else {
@@ -964,10 +964,10 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
       code.writeLiteral(ind, "{");
       code.appendRaw(std::format("{}{{ bool _first = true;\n", in));
       code.appendRaw(std::format("{}for (auto &[_k, _v] : {}) {{\n", in, cn));
-      code.appendRaw(std::format("{}  if (!_first) out.write(',');\n", in));
+      code.appendRaw(std::format("{}  if (!_first) out += ',';\n", in));
       code.appendRaw(std::format("{}  _first = false;\n", in));
       code.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", in));
-      code.appendRaw(std::format("{}  out.write(':');\n", in));
+      code.appendRaw(std::format("{}  out += ':';\n", in));
       if (isStructRef(f, enumNames)) {
         code.appendRaw(std::format("{}  _v.serialize(out);\n", in));
       } else {
@@ -988,10 +988,10 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
         code.writeLiteral(ind + 1, "{");
         code.appendRaw(std::format("{}{{ bool _first = true;\n", indent(ind + 1)));
         code.appendRaw(std::format("{}for (auto &[_k, _v] : *{}) {{\n", indent(ind + 1), cn));
-        code.appendRaw(std::format("{}  if (!_first) out.write(',');\n", indent(ind + 1)));
+        code.appendRaw(std::format("{}  if (!_first) out += ',';\n", indent(ind + 1)));
         code.appendRaw(std::format("{}  _first = false;\n", indent(ind + 1)));
         code.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", indent(ind + 1)));
-        code.appendRaw(std::format("{}  out.write(':');\n", indent(ind + 1)));
+        code.appendRaw(std::format("{}  out += ':';\n", indent(ind + 1)));
         if (isStructRef(f, enumNames)) {
           code.appendRaw(std::format("{}  _v.serialize(out);\n", indent(ind + 1)));
         } else {
@@ -1011,10 +1011,10 @@ void generateSerializeField(CSerializeCodeBuilder &code, const CFieldDef &f, con
       code.writeLiteral(ind + 1, "{");
       code.appendRaw(std::format("{}{{ bool _first = true;\n", indent(ind + 1)));
       code.appendRaw(std::format("{}for (auto &[_k, _v] : *{}) {{\n", indent(ind + 1), cn));
-      code.appendRaw(std::format("{}  if (!_first) out.write(',');\n", indent(ind + 1)));
+      code.appendRaw(std::format("{}  if (!_first) out += ',';\n", indent(ind + 1)));
       code.appendRaw(std::format("{}  _first = false;\n", indent(ind + 1)));
       code.appendRaw(std::format("{}  jsonWriteString(out, _k);\n", indent(ind + 1)));
-      code.appendRaw(std::format("{}  out.write(':');\n", indent(ind + 1)));
+      code.appendRaw(std::format("{}  out += ':';\n", indent(ind + 1)));
       if (isStructRef(f, enumNames)) {
         code.appendRaw(std::format("{}  _v.serialize(out);\n", indent(ind + 1)));
       } else {

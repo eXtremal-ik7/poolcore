@@ -1,28 +1,28 @@
 // Generated JSON write helper — jsonWriteDouble
 #pragma once
 
-#include "p2putils/xmstream.h"
+#include <string>
 #include <cmath>
 #include <cstdint>
 
-inline void jsonWriteDouble(xmstream &out, double v) {
+inline void jsonWriteDouble(std::string &out, double v) {
   // Fast %.12g compatible formatter
   char buf[32];
   char *p = buf;
 
   if (v != v) {
-    out.write("nan", 3);
+    out.append("nan", 3);
     return;
   }
   if (v == 0.0) {
     if (std::signbit(v))
-      out.write("-0", 2);
+      out.append("-0", 2);
     else
-      out.write('0');
+      out += '0';
     return;
   }
   if (std::isinf(v)) {
-    out.write(v < 0 ? "-inf" : "inf", v < 0 ? 4 : 3);
+    out.append(v < 0 ? "-inf" : "inf", v < 0 ? 4 : 3);
     return;
   }
 
@@ -165,5 +165,5 @@ inline void jsonWriteDouble(xmstream &out, double v) {
     *p++ = '0' + ae % 10;
   }
 
-  out.write(buf, p - buf);
+  out.append(buf, p - buf);
 }

@@ -33,44 +33,17 @@ static inline void jsonParseString(const rapidjson::Value &value, const char *na
 
 static std::string buildGetBlockTemplate(const std::string &longPollId, bool segwitEnabled, bool mwebEnabled)
 {
-  char buffer[2048];
-  xmstream stream(buffer, sizeof(buffer));
-  stream.reset();
-  {
-    JSON::Object query1(stream);
-    query1.addString("jsonrpc", "1.0");
-    query1.addString("method", "getblocktemplate");
-    query1.addField("params");
-    {
-      JSON::Array paramsArray(stream);
-      {
-        JSON::Object paramsObjectObject(stream);
-        paramsObjectObject.addField("capabilities");
-        {
-          JSON::Array capabilitesArray(stream);
-          capabilitesArray.addString("coinbasetxn");
-          capabilitesArray.addString("workid");
-          capabilitesArray.addString("coinbase/append");
-        }
-
-        if (!longPollId.empty())
-          paramsObjectObject.addString("longpollid", longPollId);
-
-        if (segwitEnabled || mwebEnabled) {
-          paramsObjectObject.addField("rules");
-          {
-            JSON::Array rulesArray(stream);
-            if (segwitEnabled)
-              rulesArray.addString("segwit");
-            if (mwebEnabled)
-              rulesArray.addString("mweb");
-          }
-        }
-      }
-    }
-  }
-
-  return std::string(stream.data<char>(), stream.sizeOf());
+  CGetBlockTemplateRequest request;
+  request.Params.Opts.Capabilities = {"coinbasetxn", "workid", "coinbase/append"};
+  if (!longPollId.empty())
+    request.Params.Opts.Longpollid = longPollId;
+  if (segwitEnabled)
+    request.Params.Opts.Rules.push_back("segwit");
+  if (mwebEnabled)
+    request.Params.Opts.Rules.push_back("mweb");
+  std::string result;
+  request.serialize(result);
+  return result;
 }
 
 CNetworkClient::EOperationStatus CBitcoinRpcClient::signRawTransaction(asyncBase *base, const std::string &fundedTransaction, std::string &signedTransaction, std::string &error)
@@ -170,9 +143,9 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
   WorkFetcherHttpClient_.setBasicAuth(login, password);
   WorkFetcherHttpClient_.setDefaultTimeout(0);
 
-  GetWalletInfoRequest_ = buildPostQuery(R"json({"method": "getwalletinfo", "params": [] })json");
-  BalanceRequest_ = buildPostQuery(R"json({"method": "getbalance", "params": [] })json");
-  BalanceWithImmaturedRequest_ = buildPostQuery(R"json({"method": "getbalance", "params": ["*", 1] })json");
+  GetWalletInfoRequest_ = buildPostQuery(CGetWalletInfoRequest{});
+  BalanceRequest_ = buildPostQuery(CGetBalanceRequest{});
+  BalanceWithImmaturedRequest_ = buildPostQuery(CGetBalanceRequest{.Params = {"*", 1}});
 
   if (!longPollEnabled) {
     std::string gbtBody = buildGetBlockTemplate("", coinInfo.SegwitEnabled, coinInfo.MWebEnabled);
@@ -204,23 +177,16 @@ std::string CBitcoinRpcClient::buildPostQuery(const xmstream &postData)
 bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result)
 {
   if (HasGetWalletInfo_) {
-    rapidjson::Document document;
+    CGetWalletInfoResponse response;
     RpcQueryResult rpcResult;
-    if (ioRpcQuery<rapidjson::kParseNumbersAsStringsFlag>(base, GetWalletInfoRequest_, document, 10000000, rpcResult) == EStatusOk) {
-      bool errorAcc = true;
-      rapidjson::Value &value = document["result"];
-      std::string balance;
-      std::string immatureBalance;
-      jsonParseString(value, "balance", balance, true, &errorAcc);
-      jsonParseString(value, "immature_balance", immatureBalance, true, &errorAcc);
-      if (errorAcc &&
-          parseMoneyValue(balance.c_str(), CoinInfo_.FractionalPartSize, &result.Balance) &&
-          parseMoneyValue(immatureBalance.c_str(), CoinInfo_.FractionalPartSize, &result.Immatured)) {
-        return true;
-      } else {
+    if (ioRpcQuery(base, GetWalletInfoRequest_, response, 10000000, rpcResult) == EStatusOk) {
+      if (!response.Result.has_value()) {
         CLOG_F(WARNING, "{} {}: getwalletinfo invalid format", CoinInfo_.Name, FullHostName_);
         return false;
       }
+      result.Balance = response.Result->Balance;
+      result.Immatured = response.Result->Immature_balance;
+      return true;
     } else if (rpcResult.HttpStatus == 404) {
       CLOG_F(WARNING, "{} {}: doesn't support getwalletinfo api; recommended update your node", CoinInfo_.Name, FullHostName_);
       HasGetWalletInfo_ = false;
@@ -230,25 +196,16 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
   }
 
   if (!HasGetWalletInfo_) {
-    rapidjson::Document balanceValue;
-    rapidjson::Document fullBalanceValue;
-    if (ioRpcQuery<rapidjson::kParseNumbersAsStringsFlag>(base, BalanceRequest_, balanceValue, 10000000) == EStatusOk &&
-        ioRpcQuery<rapidjson::kParseNumbersAsStringsFlag>(base, BalanceWithImmaturedRequest_, fullBalanceValue, 10000000) == EStatusOk) {
-      std::string balanceS;
-      std::string balanceFullS;
-      UInt<384> balanceFull;
-      bool errorAcc = true;
-      jsonParseString(balanceValue, "result", balanceS, true, &errorAcc);
-      jsonParseString(fullBalanceValue, "result", balanceFullS, true, &errorAcc);
-      if (errorAcc &&
-          parseMoneyValue(balanceS.c_str(), CoinInfo_.FractionalPartSize, &result.Balance) &&
-          parseMoneyValue(balanceFullS.c_str(), CoinInfo_.FractionalPartSize, &balanceFull)) {
-        result.Immatured = balanceFull - result.Balance;
-        return true;
-      } else {
+    CGetBalanceResponse balanceResponse, fullBalanceResponse;
+    if (ioRpcQuery(base, BalanceRequest_, balanceResponse, 10000000) == EStatusOk &&
+        ioRpcQuery(base, BalanceWithImmaturedRequest_, fullBalanceResponse, 10000000) == EStatusOk) {
+      if (!balanceResponse.Result.has_value() || !fullBalanceResponse.Result.has_value()) {
         CLOG_F(WARNING, "{} {}: getbalance invalid format", CoinInfo_.Name, FullHostName_);
         return false;
       }
+      result.Balance = *balanceResponse.Result;
+      result.Immatured = *fullBalanceResponse.Result - result.Balance;
+      return true;
     }
     CLOG_F(INFO, "{} {}: ioGetBalance: getbalance failed", CoinInfo_.Name, FullHostName_);
   }

@@ -52,6 +52,13 @@ private:
   std::string buildPostQuery(const std::string &jsonBody);
   std::string buildPostQuery(const xmstream &postData);
 
+  template<typename T>
+  std::string buildPostQuery(const T &request) {
+    std::string body;
+    request.serialize(body);
+    return buildPostQuery(body);
+  }
+
   template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>
   EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, rapidjson::Document &document,
                               uint64_t timeout, RpcQueryResult &rpcResult)
@@ -97,6 +104,60 @@ private:
   EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, rapidjson::Document &document, uint64_t timeout) {
     RpcQueryResult unused;
     return ioRpcQuery<flag>(base, request, document, timeout, unused);
+  }
+
+  template<typename T>
+    requires requires { typename T::Capture; }
+  EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, T &response, uint64_t timeout, RpcQueryResult &rpcResult)
+  {
+    constexpr bool NeedResolve = requires(T &r, const typename T::Capture &c) {
+      T::resolve(r, c, uint32_t{});
+    };
+
+    HttpResponse httpResponse;
+    AsyncOpStatus status = RpcEndpoint_.ioRequest(base, request, httpResponse, timeout);
+    if (status != aosSuccess) {
+      CLOG_F(WARNING, "{} {}: error code: {}", CoinInfo_.Name, FullHostName_, static_cast<unsigned>(status));
+      return status == aosTimeout ? EStatusTimeout : EStatusNetworkError;
+    }
+
+    rpcResult.HttpStatus = httpResponse.StatusCode;
+    [[maybe_unused]] typename T::Capture capture;
+    bool parsed;
+    if constexpr (NeedResolve)
+      parsed = response.parse(httpResponse.Body.data(), httpResponse.Body.size(), capture);
+    else
+      parsed = response.parse(httpResponse.Body.data(), httpResponse.Body.size());
+
+    if (!parsed) {
+      CLOG_F(WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
+      return EStatusProtocolError;
+    }
+
+    if (httpResponse.StatusCode != 200) {
+      if (response.Error.has_value()) {
+        rpcResult.ErrorCode = response.Error->Code;
+        rpcResult.Error = response.Error->Message;
+      }
+      CLOG_F(WARNING, "{} {}: http result code: {}, data: {}",
+             CoinInfo_.Name, FullHostName_, httpResponse.StatusCode,
+             httpResponse.Body.empty() ? "<null>" : httpResponse.Body.c_str());
+      return EStatusProtocolError;
+    }
+
+    if constexpr (NeedResolve) {
+      if (!T::resolve(response, capture, CoinInfo_.FractionalPartSize))
+        return EStatusProtocolError;
+    }
+
+    return EStatusOk;
+  }
+
+  template<typename T>
+    requires requires { typename T::Capture; }
+  EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, T &response, uint64_t timeout) {
+    RpcQueryResult unused;
+    return ioRpcQuery(base, request, response, timeout, unused);
   }
 
   void sendWorkFetchRequest();

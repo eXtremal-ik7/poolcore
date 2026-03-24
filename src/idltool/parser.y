@@ -224,11 +224,7 @@ derived_def:
         yyerror(&@8, file, scanner, "invalid context type");
         YYERROR;
       }
-      auto wt = parseScalarType($6);
-      if (!wt) {
-        yyerror(&@6, file, scanner, "invalid wire type");
-        YYERROR;
-      }
+      // wire type validated later in ast.cpp (scalar or usertype)
       free($2);
       free($4);
       free($6);

@@ -20,12 +20,13 @@ inline JsonReadError __hash256Parse(const char *&p, const char *end, BaseBlob<25
   return JsonReadError::Ok;
 }
 
-inline void __hash256Serialize(xmstream &out, const BaseBlob<256> &value) {
-  char buf[65];
-  value.getHexLE(buf);
-  out.write('"');
-  out.write(buf, 64);
-  out.write('"');
+inline void __hash256Serialize(std::string &out, const BaseBlob<256> &value) {
+  size_t pos = out.size();
+  out.resize(pos + 66);
+  char *p = out.data() + pos;
+  p[0] = '"';
+  value.getHexLE(p + 1);
+  p[65] = '"';
 }
 
 // hash256x: BaseBlob<256> as "0x" + 64-char LE hex string (Ethereum display order)
@@ -45,8 +46,10 @@ inline JsonReadError __hash256xParse(const char *&p, const char *end, BaseBlob<2
   return JsonReadError::Ok;
 }
 
-inline void __hash256xSerialize(xmstream &out, const BaseBlob<256> &value) {
-  char *p = out.reserve<char>(68);
+inline void __hash256xSerialize(std::string &out, const BaseBlob<256> &value) {
+  size_t pos = out.size();
+  out.resize(pos + 68);
+  char *p = out.data() + pos;
   p[0] = '"';
   p[1] = '0';
   p[2] = 'x';
@@ -70,10 +73,11 @@ inline JsonReadError __hash256beParse(const char *&p, const char *end, BaseBlob<
   return JsonReadError::Ok;
 }
 
-inline void __hash256beSerialize(xmstream &out, const BaseBlob<256> &value) {
-  char buf[65];
-  value.getHexRaw(buf);
-  out.write('"');
-  out.write(buf, 64);
-  out.write('"');
+inline void __hash256beSerialize(std::string &out, const BaseBlob<256> &value) {
+  size_t pos = out.size();
+  out.resize(pos + 66);
+  char *p = out.data() + pos;
+  p[0] = '"';
+  value.getHexRaw(p + 1);
+  p[65] = '"';
 }

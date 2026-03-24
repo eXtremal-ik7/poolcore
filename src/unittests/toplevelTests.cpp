@@ -1,6 +1,5 @@
 #include "gtest/gtest.h"
 #include "test.idl.h"
-#include "p2putils/xmstream.h"
 #include <cstring>
 #include <string>
 
@@ -50,9 +49,9 @@ TEST(IdlTool, ParseTopLevelMapVerboseInvalid) {
 TEST(IdlTool, SerializeTopLevelMap) {
   TopLevelMap t;
   t.data["k"] = Inner{"val", 7};
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
-  std::string s(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  std::string s = stream;
   TopLevelMap t2;
   ASSERT_TRUE(t2.parse(s.data(), s.size()));
   EXPECT_EQ(t2.data.at("k").value, "val");
@@ -99,9 +98,9 @@ TEST(IdlTool, SerializeTopLevelArray) {
   TopLevelArray t;
   t.items.push_back(Inner{"a", 1});
   t.items.push_back(Inner{"b", 2});
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
-  std::string s(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  std::string s = stream;
   TopLevelArray t2;
   ASSERT_TRUE(t2.parse(s.data(), s.size()));
   ASSERT_EQ(t2.items.size(), 2u);

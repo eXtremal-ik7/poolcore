@@ -1,12 +1,12 @@
 // Generated JSON write helper — jsonWriteUInt
 #pragma once
 
-#include "p2putils/xmstream.h"
+#include <string>
 #include <cstdint>
 
-inline void jsonWriteUInt(xmstream &out, uint64_t v) {
+inline void jsonWriteUInt(std::string &out, uint64_t v) {
   if (v == 0) {
-    out.write('0');
+    out += '0';
     return;
   }
   char buf[20];
@@ -15,5 +15,5 @@ inline void jsonWriteUInt(xmstream &out, uint64_t v) {
     *--p = '0' + static_cast<char>(v % 10);
     v /= 10;
   }
-  out.write(p, buf + sizeof(buf) - p);
+  out.append(p, buf + sizeof(buf) - p);
 }

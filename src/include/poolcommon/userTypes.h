@@ -26,7 +26,7 @@ inline JsonReadError __uint256Parse(const char *&p, const char *end, UInt<256> &
   return JsonReadError::Ok;
 }
 
-inline void __uint256Serialize(xmstream &out, const UInt<256> &value) {
+inline void __uint256Serialize(std::string &out, const UInt<256> &value) {
   jsonWriteString(out, value.getHex());
 }
 
@@ -40,7 +40,7 @@ inline JsonReadError __unixTimeParse(const char *&p, const char *end, Timestamp 
   return JsonReadError::Ok;
 }
 
-inline void __unixTimeSerialize(xmstream &out, const Timestamp &value) {
+inline void __unixTimeSerialize(std::string &out, const Timestamp &value) {
   jsonWriteInt(out, value.toUnixTime());
 }
 
@@ -55,17 +55,26 @@ inline JsonReadError __moneyBTCParse(const char *&p, const char *end, UInt<384> 
   return JsonReadError::Ok;
 }
 
-inline void __moneyBTCSerialize(xmstream &out, const UInt<384> &value) {
+inline void __moneyBTCSerialize(std::string &out, const UInt<384> &value) {
   jsonWriteString(out, FormatMoney(value, 8));
 }
 
 // --- derived: Resolve/Serialize with context ---
 
-// money: UInt<384> from decimal string with variable precision (context = fractional digits)
+// money: UInt<384> from JSON string with variable precision (context = fractional digits)
 inline bool __moneyResolve(const std::string &raw, uint32_t fractionalPart, UInt<384> &out) {
   return parseMoneyValue(raw.c_str(), fractionalPart, &out);
 }
 
-inline void __moneySerialize(xmstream &out, const UInt<384> &value, uint32_t fractionalPart) {
+inline void __moneySerialize(std::string &out, const UInt<384> &value, uint32_t fractionalPart) {
   jsonWriteString(out, FormatMoney(value, fractionalPart));
+}
+
+// moneyLiteral: UInt<384> from JSON number literal with variable precision (context = fractional digits)
+inline bool __moneyLiteralResolve(const std::string &raw, uint32_t fractionalPart, UInt<384> &out) {
+  return parseMoneyValue(raw.c_str(), fractionalPart, &out);
+}
+
+inline void __moneyLiteralSerialize(std::string &out, const UInt<384> &value, uint32_t fractionalPart) {
+  out.append(FormatMoney(value, fractionalPart));
 }

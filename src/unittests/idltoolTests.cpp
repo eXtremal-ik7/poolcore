@@ -1,6 +1,5 @@
 #include "gtest/gtest.h"
 #include "test.idl.h"
-#include "p2putils/xmstream.h"
 #include "rapidjson/document.h"
 #include <chrono>
 #include <cmath>
@@ -12,9 +11,9 @@
 #include <string>
 #include <vector>
 
-static rapidjson::Document parseRapid(const xmstream &stream) {
+static rapidjson::Document parseRapid(const std::string &stream) {
   rapidjson::Document doc;
-  doc.Parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  doc.Parse(stream.data(), stream.size());
   return doc;
 }
 
@@ -249,7 +248,7 @@ static testing::AssertionResult generatedIdlSourceOmits(const std::string &stem,
 template<typename T>
 concept ParseSerializeWithNoCtx = requires(T value,
                                            const typename T::Capture &capture,
-                                           xmstream &out) {
+                                           std::string &out) {
   value.serialize(out);
   T::resolve(value, capture);
 };
@@ -257,7 +256,7 @@ concept ParseSerializeWithNoCtx = requires(T value,
 template<typename T>
 concept ParseSerializeWithOneCtx = requires(T value,
                                             const typename T::Capture &capture,
-                                            xmstream &out) {
+                                            std::string &out) {
   value.serialize(out, uint32_t{});
   T::resolve(value, capture, uint32_t{});
 };
@@ -265,18 +264,18 @@ concept ParseSerializeWithOneCtx = requires(T value,
 template<typename T>
 concept ParseSerializeWithTwoCtx = requires(T value,
                                             const typename T::Capture &capture,
-                                            xmstream &out) {
+                                            std::string &out) {
   value.serialize(out, uint32_t{}, uint32_t{});
   T::resolve(value, capture, uint32_t{}, uint32_t{});
 };
 
 template<typename TParent, typename TField>
-concept FlatSerializeWithOneCtx = requires(const TField &field, xmstream &out) {
+concept FlatSerializeWithOneCtx = requires(const TField &field, std::string &out) {
   TParent::serialize(out, field, uint32_t{});
 };
 
 template<typename TParent, typename TField>
-concept FlatSerializeWithTwoCtx = requires(const TField &field, xmstream &out) {
+concept FlatSerializeWithTwoCtx = requires(const TField &field, std::string &out) {
   TParent::serialize(out, field, uint32_t{}, uint32_t{});
 };
 
@@ -327,10 +326,10 @@ struct MergeWrites {
 )";
 
   EXPECT_TRUE(generatedIdlSourceContains("merge-writes", idl, {
-    "out.write(\"{\\\"first\\\":\");",
-    "out.write(\",\\\"second\\\":\");",
-    "out.write(\",\\\"items\\\":[\");",
-    "out.write(\"]}\");"
+    "out.append(\"{\\\"first\\\":\");",
+    "out.append(\",\\\"second\\\":\");",
+    "out.append(\",\\\"items\\\":[\");",
+    "out.append(\"]}\");"
   }));
 }
 
@@ -608,10 +607,10 @@ TEST(IdlTool, KeywordsAsFieldNames) {
   EXPECT_EQ(obj.map, 55);
 
   // Roundtrip: serialize must produce original JSON keys
-  xmstream stream;
+  std::string stream;
   obj.serialize(stream);
   KeywordsAsFields obj2;
-  ASSERT_TRUE(obj2.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(obj2.parse(stream.data(), stream.size()));
   EXPECT_EQ(obj2.type, "t");
   EXPECT_EQ(obj2.generate, 99);
   EXPECT_EQ(obj2.flags, 42u);
@@ -730,7 +729,7 @@ TEST(IdlTool, SerializeScalarTypes) {
   t.fieldUint64 = 12345;
   t.fieldDouble = 2.718;
 
-  xmstream stream;
+  std::string stream;
   t.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -749,7 +748,7 @@ TEST(IdlTool, SerializeChronoFields) {
   f.retryMin = std::chrono::minutes(2);
   f.ttlHours = std::chrono::hours(8);
 
-  xmstream stream;
+  std::string stream;
   f.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -767,7 +766,7 @@ TEST(IdlTool, SerializeMixedFields) {
   m.optional2 = 456;
   m.optional3 = true;
 
-  xmstream stream;
+  std::string stream;
   m.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -782,7 +781,7 @@ TEST(IdlTool, SerializeMixedFields) {
 TEST(IdlTool, SerializeDefaultsAlwaysPresent) {
   ScalarDefaults d;
 
-  xmstream stream;
+  std::string stream;
   d.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -803,7 +802,7 @@ TEST(IdlTool, SerializeDefaultsOverridden) {
   ScalarDefaults d;
   d.fieldDouble = 4.5;
 
-  xmstream stream;
+  std::string stream;
   d.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -821,7 +820,7 @@ TEST(IdlTool, SerializeEnum) {
   we.color = EColor::green;
   we.priority = EPriority::high;
 
-  xmstream stream;
+  std::string stream;
   we.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -835,7 +834,7 @@ TEST(IdlTool, SerializeNested) {
   o.child.value = "inner";
   o.child.count = 7;
 
-  xmstream stream;
+  std::string stream;
   o.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -852,7 +851,7 @@ TEST(IdlTool, SerializeOptionalPresent) {
   oc.first->value = "a";
   oc.first->count = 1;
 
-  xmstream stream;
+  std::string stream;
   oc.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -865,7 +864,7 @@ TEST(IdlTool, SerializeNullableScalars) {
   NullableScalars s;
   s.title = "x";
 
-  xmstream stream1;
+  std::string stream1;
   s.serialize(stream1);
   auto doc1 = parseRapid(stream1);
   ASSERT_FALSE(doc1.HasParseError());
@@ -877,7 +876,7 @@ TEST(IdlTool, SerializeNullableScalars) {
 
   s.note = "present";
   s.numbers = std::vector<int64_t>{4, 5};
-  xmstream stream2;
+  std::string stream2;
   s.serialize(stream2);
   auto doc2 = parseRapid(stream2);
   ASSERT_FALSE(doc2.HasParseError());
@@ -890,7 +889,7 @@ TEST(IdlTool, SerializeNullableScalars) {
 TEST(IdlTool, SerializeOptionalPolicyScalars) {
   OptionalPolicyScalars s;
 
-  xmstream stream1;
+  std::string stream1;
   s.serialize(stream1);
   auto doc1 = parseRapid(stream1);
   ASSERT_FALSE(doc1.HasParseError());
@@ -906,7 +905,7 @@ TEST(IdlTool, SerializeOptionalPolicyScalars) {
   s.denyOmit = "a";
   s.allowOmit = "b";
   s.requiredNull = "c";
-  xmstream stream2;
+  std::string stream2;
   s.serialize(stream2);
   auto doc2 = parseRapid(stream2);
   ASSERT_FALSE(doc2.HasParseError());
@@ -919,7 +918,7 @@ TEST(IdlTool, SerializeInlineMapped) {
   InlineMapped m;
   m.amount = 100;
 
-  xmstream stream1;
+  std::string stream1;
   m.serialize(stream1);
   auto doc1 = parseRapid(stream1);
   ASSERT_FALSE(doc1.HasParseError());
@@ -930,7 +929,7 @@ TEST(IdlTool, SerializeInlineMapped) {
 
   m.optionalAmount = 5;
   m.nullableAmount = 7;
-  xmstream stream2;
+  std::string stream2;
   m.serialize(stream2);
   auto doc2 = parseRapid(stream2);
   ASSERT_FALSE(doc2.HasParseError());
@@ -957,7 +956,7 @@ TEST(IdlTool, RoundtripCombined) {
   EXPECT_EQ(c.children.size(), 1u);
   EXPECT_EQ(c.nested.label, "n");
 
-  xmstream stream;
+  std::string stream;
   c.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -983,10 +982,10 @@ TEST(IdlTool, RoundtripScalars) {
   original.fieldUint64 = 200000;
   original.fieldDouble = 1.23456;
 
-  xmstream stream;
+  std::string stream;
   original.serialize(stream);
   ScalarTypes parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.fieldString, original.fieldString);
   EXPECT_EQ(parsed.fieldBool, original.fieldBool);
   EXPECT_EQ(parsed.fieldInt32, original.fieldInt32);
@@ -1146,7 +1145,7 @@ TEST(IdlTool, ContextVectorSerialize) {
   // ctx[0]=2 → 123.45, ctx[1]=3 → 67.890, ctx[2]=0 → 100
   std::vector<uint32_t> ctx = {2, 3, 0};
 
-  xmstream stream;
+  std::string stream;
   parent.serialize(stream, ctx);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -1196,9 +1195,9 @@ TEST(IdlTool, BugUint64WireSerialize) {
   WithUint64Mapped m;
   m.counter = 10000000000000000000ULL;  // > INT64_MAX
 
-  xmstream stream;
+  std::string stream;
   m.serialize(stream);
-  std::string json(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  std::string json(stream.data(), stream.size());
 
   // Bug: jsonWriteInt formats uint64 as signed → negative number in output
   EXPECT_EQ(json.find('-'), std::string::npos) << "Large uint64 serialized as negative: " << json;
@@ -1208,7 +1207,7 @@ TEST(IdlTool, BugUint32WireSerialize) {
   WithUint32Mapped m;
   m.counter = 4000000000U;
 
-  xmstream stream;
+  std::string stream;
   m.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -1298,7 +1297,7 @@ TEST(IdlTool, SerializeNullableObjectPresent) {
   no.inner->value = "v";
   no.inner->count = 42;
 
-  xmstream stream;
+  std::string stream;
   no.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -1314,7 +1313,7 @@ TEST(IdlTool, SerializeNullableObjectAbsent) {
   no.title = "t";
   // inner is nullopt
 
-  xmstream stream;
+  std::string stream;
   no.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -1347,10 +1346,10 @@ TEST(IdlTool, RoundtripNullableObject) {
   original.inner->value = "inner";
   original.inner->count = 99;
 
-  xmstream stream;
+  std::string stream;
   original.serialize(stream);
   NullableObject parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.title, original.title);
   ASSERT_TRUE(parsed.inner.has_value());
   EXPECT_EQ(parsed.inner->value, original.inner->value);
@@ -1416,7 +1415,7 @@ TEST(IdlTool, SerializeControlChars) {
   inner.value = std::string("a\b" "b\fc\rd", 7);  // \b, \f, \r
   inner.count = 1;
 
-  xmstream stream;
+  std::string stream;
   inner.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -1432,10 +1431,10 @@ TEST(IdlTool, SerializeNullChar) {
   inner.value = std::string("ab\0cd", 5);  // embedded null
   inner.count = 1;
 
-  xmstream stream;
+  std::string stream;
   inner.serialize(stream);
   // At least it should produce valid JSON (rapidjson may truncate at \0)
-  std::string json(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  std::string json(stream.data(), stream.size());
   EXPECT_NE(json.find("\\u0000"), std::string::npos);
 }
 
@@ -1556,7 +1555,7 @@ TEST(IdlTool, SerializeLargeEnum) {
   ws.status = EStatus::cancelled;
   ws.label = "test";
 
-  xmstream stream;
+  std::string stream;
   ws.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -1568,10 +1567,10 @@ TEST(IdlTool, RoundtripLargeEnum) {
   original.status = EStatus::failed;
   original.label = "rt";
 
-  xmstream stream;
+  std::string stream;
   original.serialize(stream);
   WithStatus parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.status, original.status);
   EXPECT_EQ(parsed.label, original.label);
 }
@@ -1585,7 +1584,7 @@ TEST(IdlTool, ContextScalarSerialize) {
 
   uint32_t ctx = 2;  // scale = 100 → "123.45"
 
-  xmstream stream;
+  std::string stream;
   parent.serialize(stream, ctx);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -1612,7 +1611,7 @@ TEST(IdlTool, ContextSplitGroupsSerialize) {
   parent.leftAmounts = {12345, 600};
   parent.rightAmounts = {67890, 7000};
 
-  xmstream stream;
+  std::string stream;
   parent.serialize(stream, 2, 3);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -1645,7 +1644,7 @@ TEST(IdlTool, ContextSharedGroupSerialize) {
   parent.leftAmounts = {12345};
   parent.rightAmounts = {67890};
 
-  xmstream stream;
+  std::string stream;
   parent.serialize(stream, 3);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -1663,10 +1662,10 @@ TEST(IdlTool, RoundtripOptionalChildren) {
   original.first->count = 10;
   // second is absent (nullopt)
 
-  xmstream stream;
+  std::string stream;
   original.serialize(stream);
   OptionalChildren parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.name, "test");
   ASSERT_TRUE(parsed.first.has_value());
   EXPECT_EQ(parsed.first->value, "first");
@@ -1681,7 +1680,7 @@ TEST(IdlTool, SerializeAbsentOptionalObject) {
   oc.name = "empty";
   // both first and second are nullopt
 
-  xmstream stream;
+  std::string stream;
   oc.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -1696,7 +1695,7 @@ TEST(IdlTool, SerializeAbsentOptionalObject) {
 // ============================================================================
 
 TEST(IdlTool, FlatSerialize) {
-  xmstream stream;
+  std::string stream;
   std::vector<Inner> items;
   items.push_back(Inner{});
   items.back().value = "hello";
@@ -1742,7 +1741,7 @@ TEST(IdlTool, ParseVariantBool) {
 TEST(IdlTool, SerializeVariantString) {
   VariantScalars t;
   t.value = std::string("world");
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -1752,7 +1751,7 @@ TEST(IdlTool, SerializeVariantString) {
 TEST(IdlTool, SerializeVariantInt) {
   VariantScalars t;
   t.value = (int64_t)99;
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -1762,7 +1761,7 @@ TEST(IdlTool, SerializeVariantInt) {
 TEST(IdlTool, SerializeVariantBool) {
   VariantScalars t;
   t.value = false;
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -1774,10 +1773,10 @@ TEST(IdlTool, RoundtripVariantScalars) {
   {
     VariantScalars t;
     t.value = std::string("test");
-    xmstream out;
+    std::string out;
     t.serialize(out);
     VariantScalars t2;
-    ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+    ASSERT_TRUE(t2.parse(out.data(), out.size()));
     ASSERT_EQ(t2.value.index(), 0u);
     EXPECT_EQ(std::get<0>(t2.value), "test");
   }
@@ -1785,10 +1784,10 @@ TEST(IdlTool, RoundtripVariantScalars) {
   {
     VariantScalars t;
     t.value = (int64_t)-100;
-    xmstream out;
+    std::string out;
     t.serialize(out);
     VariantScalars t2;
-    ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+    ASSERT_TRUE(t2.parse(out.data(), out.size()));
     ASSERT_EQ(t2.value.index(), 1u);
     EXPECT_EQ(std::get<1>(t2.value), -100);
   }
@@ -1817,7 +1816,7 @@ TEST(IdlTool, SerializeVariantWithStruct) {
   inner.value = "v";
   inner.count = 7;
   t.data = inner;
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -1848,7 +1847,7 @@ TEST(IdlTool, SerializeVariantMultiStruct) {
   ShapeCircle c;
   c.radius = 3.0;
   t.shape = c;
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -1863,10 +1862,10 @@ TEST(IdlTool, RoundtripVariantMultiStruct) {
     ShapeCircle c;
     c.radius = 7.5;
     t.shape = c;
-    xmstream out;
+    std::string out;
     t.serialize(out);
     VariantMultiStruct t2;
-    ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+    ASSERT_TRUE(t2.parse(out.data(), out.size()));
     ASSERT_EQ(t2.shape.index(), 0u);
     EXPECT_DOUBLE_EQ(std::get<0>(t2.shape).radius, 7.5);
   }
@@ -1877,10 +1876,10 @@ TEST(IdlTool, RoundtripVariantMultiStruct) {
     r.width = 4.0;
     r.height = 6.0;
     t.shape = r;
-    xmstream out;
+    std::string out;
     t.serialize(out);
     VariantMultiStruct t2;
-    ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+    ASSERT_TRUE(t2.parse(out.data(), out.size()));
     ASSERT_EQ(t2.shape.index(), 1u);
     EXPECT_DOUBLE_EQ(std::get<1>(t2.shape).width, 4.0);
     EXPECT_DOUBLE_EQ(std::get<1>(t2.shape).height, 6.0);
@@ -1923,7 +1922,7 @@ TEST(IdlTool, ParseOptionalVariantNullRejected) {
 TEST(IdlTool, SerializeOptionalVariantAbsent) {
   OptionalVariant t;
   t.label = "test";
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -1935,7 +1934,7 @@ TEST(IdlTool, SerializeOptionalVariantPresent) {
   OptionalVariant t;
   t.label = "test";
   t.extra = std::variant<std::string, int64_t>(std::string("val"));
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -1953,7 +1952,7 @@ TEST(IdlTool, ParseVariantMappedString) {
 TEST(IdlTool, SerializeVariantMappedString) {
   VariantMappedString t;
   t.data = int64_t(73);
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -1972,7 +1971,7 @@ TEST(IdlTool, ParseVariantMappedUInt) {
 TEST(IdlTool, SerializeVariantMappedUInt) {
   VariantMappedUInt t;
   t.data = uint64_t(1234567890123ULL);
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -2102,7 +2101,7 @@ TEST(IdlTool, SerializeVariantTensorThenMatrixFirstAlternative) {
   VariantTensorThenMatrix t;
   std::vector<std::vector<std::vector<double>>> tensor = {{{1.0, 2.0}}, {{3.0}}};
   t.value = tensor;
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -2118,10 +2117,10 @@ TEST(IdlTool, RoundtripVariantMatrixThenTensorTensorAlternative) {
   VariantMatrixThenTensor t;
   std::vector<std::vector<std::vector<double>>> tensor = {{{4.0}}, {{5.0, 6.0}}};
   t.value = tensor;
-  xmstream out;
+  std::string out;
   t.serialize(out);
   VariantMatrixThenTensor t2;
-  ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_TRUE(t2.parse(out.data(), out.size()));
   ASSERT_EQ(t2.value.index(), 1u);
   EXPECT_DOUBLE_EQ(std::get<1>(t2.value)[0][0][0], 4.0);
   EXPECT_DOUBLE_EQ(std::get<1>(t2.value)[1][0][1], 6.0);
@@ -2413,7 +2412,7 @@ TEST(IdlTool, SerializeNegativeFloatDefault) {
   ScalarDefaults d;
   d.fieldNegDouble = -2.718;
 
-  xmstream stream;
+  std::string stream;
   d.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -2620,9 +2619,9 @@ TEST(IdlTool, SerializeMapRoundtrip) {
   mf.optionalScalarMap.emplace();
   (*mf.optionalScalarMap)["k"] = 42;
 
-  xmstream stream;
+  std::string stream;
   mf.serialize(stream);
-  std::string serialized(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  std::string serialized(stream.data(), stream.size());
 
   MapFields mf2;
   ASSERT_TRUE(mf2.parse(serialized.data(), serialized.size()));
@@ -2718,17 +2717,17 @@ TEST(IdlTool, ParseHexDataOptionalPresent) {
 TEST(IdlTool, SerializeHexData) {
   HexDataFields hf;
   hf.payload = {0x48, 0x65, 0x6c, 0x6c, 0x6f};
-  xmstream out;
+  std::string out;
   hf.serialize(out);
-  std::string result(reinterpret_cast<const char*>(out.data()), out.sizeOf());
+  std::string result(out.data(), out.size());
   EXPECT_NE(result.find("\"48656c6c6f\""), std::string::npos);
 }
 
 TEST(IdlTool, SerializeHexDataEmpty) {
   HexDataFields hf;
-  xmstream out;
+  std::string out;
   hf.serialize(out);
-  std::string result(reinterpret_cast<const char*>(out.data()), out.sizeOf());
+  std::string result(out.data(), out.size());
   EXPECT_NE(result.find("\"payload\":\"\""), std::string::npos);
 }
 
@@ -2736,9 +2735,9 @@ TEST(IdlTool, SerializeHexDataOptionalPresent) {
   HexDataFields hf;
   hf.payload = {0xff};
   hf.optionalPayload = std::vector<uint8_t>{0x01, 0x02};
-  xmstream out;
+  std::string out;
   hf.serialize(out);
-  std::string result(reinterpret_cast<const char*>(out.data()), out.sizeOf());
+  std::string result(out.data(), out.size());
   EXPECT_NE(result.find("\"optionalPayload\":\"0102\""), std::string::npos);
 }
 
@@ -2746,11 +2745,11 @@ TEST(IdlTool, RoundtripHexData) {
   HexDataFields original;
   original.payload = {0xde, 0xad, 0xbe, 0xef};
   original.optionalPayload = std::vector<uint8_t>{0x00, 0xff};
-  xmstream out;
+  std::string out;
   original.serialize(out);
 
   HexDataFields parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_TRUE(parsed.parse(out.data(), out.size()));
   EXPECT_EQ(parsed.payload, original.payload);
   ASSERT_TRUE(parsed.optionalPayload.has_value());
   EXPECT_EQ(*parsed.optionalPayload, *original.optionalPayload);
@@ -2769,20 +2768,20 @@ TEST(IdlTool, ParseHexDataArray) {
 TEST(IdlTool, SerializeHexDataArray) {
   HexDataArray ha;
   ha.items = {{0x01}, {0xab, 0xcd}};
-  xmstream out;
+  std::string out;
   ha.serialize(out);
-  std::string result(reinterpret_cast<const char*>(out.data()), out.sizeOf());
+  std::string result(out.data(), out.size());
   EXPECT_NE(result.find("[\"01\",\"abcd\"]"), std::string::npos);
 }
 
 TEST(IdlTool, RoundtripHexDataArray) {
   HexDataArray original;
   original.items = {{0xde, 0xad}, {0xbe, 0xef}, {}};
-  xmstream out;
+  std::string out;
   original.serialize(out);
 
   HexDataArray parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_TRUE(parsed.parse(out.data(), out.size()));
   EXPECT_EQ(parsed.items, original.items);
 }
 
@@ -2825,5 +2824,57 @@ struct HexOnly {
   EXPECT_TRUE(generatedIdlHeaderContains("hexdata-type", idl, {
     "std::vector<uint8_t> data"
   }));
+}
+
+// ============================================================================
+// Derived type with usertype wire
+// ============================================================================
+
+TEST(IdlTool, DerivedWithUserTypeWireParse) {
+  // JSON number literal → scaledNumber (int64_t with scale context)
+  const char *json = R"({"value":1.23})";
+  DerivedWithUserTypeWire obj;
+  DerivedWithUserTypeWire::Capture capture;
+  ASSERT_TRUE(obj.parse(json, strlen(json), capture));
+  ASSERT_TRUE(DerivedWithUserTypeWire::resolve(obj, capture, 2));
+  EXPECT_EQ(obj.value, 123);
+  EXPECT_FALSE(obj.optionalValue.has_value());
+}
+
+TEST(IdlTool, DerivedWithUserTypeWireParseOptional) {
+  const char *json = R"({"value":5.5,"optionalValue":2.25})";
+  DerivedWithUserTypeWire obj;
+  DerivedWithUserTypeWire::Capture capture;
+  ASSERT_TRUE(obj.parse(json, strlen(json), capture));
+  ASSERT_TRUE(DerivedWithUserTypeWire::resolve(obj, capture, 2));
+  EXPECT_EQ(obj.value, 550);
+  ASSERT_TRUE(obj.optionalValue.has_value());
+  EXPECT_EQ(*obj.optionalValue, 225);
+}
+
+TEST(IdlTool, DerivedWithUserTypeWireSerialize) {
+  DerivedWithUserTypeWire obj;
+  obj.value = 123;
+  obj.optionalValue = 456;
+  std::string out;
+  obj.serialize(out, 2);
+  EXPECT_EQ(out, R"({"value":1.23,"optionalValue":4.56})");
+}
+
+TEST(IdlTool, DerivedWithUserTypeWireRoundtrip) {
+  const char *json = R"({"value":3.14})";
+  DerivedWithUserTypeWire obj;
+  DerivedWithUserTypeWire::Capture capture;
+  ASSERT_TRUE(obj.parse(json, strlen(json), capture));
+  ASSERT_TRUE(DerivedWithUserTypeWire::resolve(obj, capture, 2));
+
+  std::string out;
+  obj.serialize(out, 2);
+
+  DerivedWithUserTypeWire obj2;
+  DerivedWithUserTypeWire::Capture capture2;
+  ASSERT_TRUE(obj2.parse(out.data(), out.size(), capture2));
+  ASSERT_TRUE(DerivedWithUserTypeWire::resolve(obj2, capture2, 2));
+  EXPECT_EQ(obj.value, obj2.value);
 }
 

@@ -2,6 +2,7 @@
 // Each method gets its own Request (serialize) and Response (parse) struct.
 
 include "poolcommon/hash.idl";
+include "poolcommon/types.idl";
 
 // --- Common ---
 
@@ -12,10 +13,19 @@ struct RpcError {
 }
 
 // Common response for methods returning a single string result
-// (getbalance, getblockhash, createrawtransaction, sendrawtransaction, z_sendmany, z_getbalance)
+// (getblockhash, createrawtransaction, sendrawtransaction, z_sendmany, z_getbalance)
 struct RpcStringResponse {
   .generate(parse);
+  .flags(skip_unknown);
   result: optional<string>(null_in=allow);
+  error: optional<RpcError>(null_in=allow);
+}
+
+// Response for getbalance — result is a JSON number parsed as money
+struct GetBalanceResponse {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<moneyLiteral>(null_in=allow);
   error: optional<RpcError>(null_in=allow);
 }
 
@@ -50,11 +60,13 @@ struct GetWalletInfoParams {
 struct WalletInfoResult {
   .generate(parse);
   .flags(skip_unknown);
-  balance: string;
-  immature_balance: string;
+  .ctxgroup(balance, immature_balance);
+  balance: moneyLiteral;
+  immature_balance: moneyLiteral;
 }
 struct GetWalletInfoResponse {
   .generate(parse);
+  .flags(skip_unknown);
   result: optional<WalletInfoResult>(null_in=allow);
   error: optional<RpcError>(null_in=allow);
 }
@@ -83,6 +95,7 @@ struct ChainInfoResult {
 }
 struct GetChainInfoResponse {
   .generate(parse);
+  .flags(skip_unknown);
   result: optional<ChainInfoResult>(null_in=allow);
   error: optional<RpcError>(null_in=allow);
 }
@@ -119,7 +132,7 @@ struct GetBlockTemplateOpts {
   .generate(serialize);
   capabilities: [string];
   longpollid: optional<string>;
-  rules: optional<[string]>;
+  rules: [string];
 }
 
 // --- getblocktemplate response ---
@@ -268,6 +281,7 @@ struct GetTransactionResult {
 }
 struct GetTransactionResponse {
   .generate(parse);
+  .flags(skip_unknown);
   result: optional<GetTransactionResult>(null_in=allow);
   error: optional<RpcError>(null_in=allow);
 }
@@ -319,6 +333,7 @@ struct FundRawTransactionResult {
 }
 struct FundRawTransactionResponse {
   .generate(parse);
+  .flags(skip_unknown);
   result: optional<FundRawTransactionResult>(null_in=allow);
   error: optional<RpcError>(null_in=allow);
 }
@@ -351,6 +366,7 @@ struct SignRawTransactionResult {
 }
 struct SignRawTransactionResponse {
   .generate(parse);
+  .flags(skip_unknown);
   result: optional<SignRawTransactionResult>(null_in=allow);
   error: optional<RpcError>(null_in=allow);
 }
@@ -390,6 +406,7 @@ struct DecodeRawTransactionResult {
 }
 struct DecodeRawTransactionResponse {
   .generate(parse);
+  .flags(skip_unknown);
   result: optional<DecodeRawTransactionResult>(null_in=allow);
   error: optional<RpcError>(null_in=allow);
 }
@@ -411,6 +428,7 @@ struct UnspentOutput {
 }
 struct ListUnspentResponse {
   .generate(parse);
+  .flags(skip_unknown);
   result: optional<[UnspentOutput]>(null_in=allow);
   error: optional<RpcError>(null_in=allow);
 }
@@ -476,6 +494,7 @@ struct GetBlockStatsResult {
 }
 struct GetBlockStatsResponse {
   .generate(parse);
+  .flags(skip_unknown);
   result: optional<GetBlockStatsResult>(null_in=allow);
   error: optional<RpcError>(null_in=allow);
 }

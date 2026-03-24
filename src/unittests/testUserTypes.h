@@ -22,7 +22,7 @@ inline JsonReadError __plainValParse(const char *&p, const char *end, int64_t &o
   return JsonReadError::Ok;
 }
 
-inline void __plainValSerialize(xmstream &out, int64_t value) {
+inline void __plainValSerialize(std::string &out, int64_t value) {
   jsonWriteString(out, std::to_string(value));
 }
 
@@ -31,7 +31,7 @@ inline JsonReadError __counterValParse(const char *&p, const char *end, uint64_t
   return jsonReadUInt64(p, end, out);
 }
 
-inline void __counterValSerialize(xmstream &out, uint64_t value) {
+inline void __counterValSerialize(std::string &out, uint64_t value) {
   jsonWriteUInt(out, value);
 }
 
@@ -40,6 +40,6 @@ inline JsonReadError __counter32ValParse(const char *&p, const char *end, uint32
   return jsonReadUInt32(p, end, out);
 }
 
-inline void __counter32ValSerialize(xmstream &out, uint32_t value) {
+inline void __counter32ValSerialize(std::string &out, uint32_t value) {
   jsonWriteUInt(out, value);
 }

@@ -1,15 +1,14 @@
 #include "gtest/gtest.h"
 #include "test.idl.h"
-#include "p2putils/xmstream.h"
 #include "rapidjson/document.h"
 #include <chrono>
 #include <cstring>
 #include <string>
 #include <vector>
 
-static rapidjson::Document parseRapid(const xmstream &stream) {
+static rapidjson::Document parseRapid(const std::string &stream) {
   rapidjson::Document doc;
-  doc.Parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf());
+  doc.Parse(stream.data(), stream.size());
   return doc;
 }
 
@@ -30,7 +29,7 @@ TEST(IdlTool, SerializeEnumArray) {
   EnumArray ea;
   ea.priorities = {EPriority::low, EPriority::critical};
 
-  xmstream stream;
+  std::string stream;
   ea.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -77,7 +76,7 @@ TEST(IdlTool, SerializeArray) {
   af.items[0].value = "item";
   af.items[0].count = 3;
 
-  xmstream stream;
+  std::string stream;
   af.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -119,7 +118,7 @@ TEST(IdlTool, VerboseParseEmptyArrays) {
 
 TEST(IdlTool, SerializeEmptyArrays) {
   ArrayFields af;
-  xmstream stream;
+  std::string stream;
   af.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -157,7 +156,7 @@ TEST(IdlTool, SerializeOptionalArray) {
   oa.label = "test";
   oa.tags.emplace(std::vector<std::string>{"a", "b"});
 
-  xmstream stream;
+  std::string stream;
   oa.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -217,7 +216,7 @@ TEST(IdlTool, SerializeInlineMappedArray) {
   InlineMappedArray m;
   m.amounts = {1, 2};
 
-  xmstream stream1;
+  std::string stream1;
   m.serialize(stream1);
   auto doc1 = parseRapid(stream1);
   ASSERT_FALSE(doc1.HasParseError());
@@ -231,7 +230,7 @@ TEST(IdlTool, SerializeInlineMappedArray) {
 
   m.optionalAmounts = std::vector<int64_t>{3};
   m.nullableAmounts = std::vector<int64_t>{4, 5};
-  xmstream stream2;
+  std::string stream2;
   m.serialize(stream2);
   auto doc2 = parseRapid(stream2);
   ASSERT_FALSE(doc2.HasParseError());
@@ -268,7 +267,7 @@ TEST(IdlTool, BugChronoArraySerialize) {
   ChronoArray ca;
   ca.durations = {std::chrono::seconds(5), std::chrono::seconds(15)};
 
-  xmstream stream;
+  std::string stream;
   ca.serialize(stream);
   auto doc = parseRapid(stream);
   ASSERT_FALSE(doc.HasParseError());
@@ -298,10 +297,10 @@ TEST(IdlTool, RoundtripNullableArrays) {
   original.note = "hello";
   original.numbers = std::vector<int64_t>{10, 20, 30};
 
-  xmstream stream;
+  std::string stream;
   original.serialize(stream);
   NullableScalars parsed;
-  ASSERT_TRUE(parsed.parse(reinterpret_cast<const char*>(stream.data()), stream.sizeOf()));
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
   EXPECT_EQ(parsed.title, "test");
   ASSERT_TRUE(parsed.note.has_value());
   EXPECT_EQ(*parsed.note, "hello");
@@ -329,7 +328,7 @@ TEST(IdlTool, SerializeFixedArrayScalar) {
   FixedArrayScalar t;
   t.coords = {1.5, 2.5, 3.5};
   t.flags = {false, true};
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -347,10 +346,10 @@ TEST(IdlTool, RoundtripFixedArrayScalar) {
   FixedArrayScalar t;
   t.coords = {10.0, 20.0, 30.0};
   t.flags = {true, true};
-  xmstream out;
+  std::string out;
   t.serialize(out);
   FixedArrayScalar t2;
-  ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_TRUE(t2.parse(out.data(), out.size()));
   EXPECT_DOUBLE_EQ(t2.coords[0], 10.0);
   EXPECT_DOUBLE_EQ(t2.coords[1], 20.0);
   EXPECT_DOUBLE_EQ(t2.coords[2], 30.0);
@@ -434,7 +433,7 @@ TEST(IdlTool, ParseMatrix2D) {
 TEST(IdlTool, SerializeMatrix2D) {
   Matrix2D t;
   t.grid = {{1, 2}, {3, 4, 5}};
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -447,10 +446,10 @@ TEST(IdlTool, SerializeMatrix2D) {
 TEST(IdlTool, RoundtripMatrix2D) {
   Matrix2D t;
   t.grid = {{10, 20}, {30}};
-  xmstream out;
+  std::string out;
   t.serialize(out);
   Matrix2D t2;
-  ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_TRUE(t2.parse(out.data(), out.size()));
   ASSERT_EQ(t2.grid.size(), 2u);
   EXPECT_EQ(t2.grid[0][0], 10);
   EXPECT_EQ(t2.grid[0][1], 20);
@@ -493,7 +492,7 @@ TEST(IdlTool, ParseFixedMatrix) {
 TEST(IdlTool, SerializeFixedMatrix) {
   FixedMatrix t;
   t.mat = {{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}}};
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -517,10 +516,10 @@ TEST(IdlTool, ParseMixedDims) {
 TEST(IdlTool, RoundtripMixedDims) {
   MixedDims t;
   t.rows = {{{1, 2}}, {{3, 4}}};
-  xmstream out;
+  std::string out;
   t.serialize(out);
   MixedDims t2;
-  ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_TRUE(t2.parse(out.data(), out.size()));
   ASSERT_EQ(t2.rows.size(), 2u);
   EXPECT_EQ(t2.rows[0][0], 1);
   EXPECT_EQ(t2.rows[1][1], 4);
@@ -530,7 +529,7 @@ TEST(IdlTool, SerializeOptionalMatrix2DPresent) {
   OptionalMatrix2D t;
   t.label = "m";
   t.grid = std::vector<std::vector<int32_t>>{{1, 2}, {3, 4, 5}};
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -544,7 +543,7 @@ TEST(IdlTool, SerializeOptionalMatrix2DPresent) {
 TEST(IdlTool, SerializeOptionalMatrix2DAbsent) {
   OptionalMatrix2D t;
   t.label = "m";
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -554,7 +553,7 @@ TEST(IdlTool, SerializeOptionalMatrix2DAbsent) {
 TEST(IdlTool, SerializeNullableMatrix2DNull) {
   NullableMatrix2D t;
   t.label = "m";
-  xmstream out;
+  std::string out;
   t.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_FALSE(doc.HasParseError());
@@ -566,10 +565,10 @@ TEST(IdlTool, RoundtripOptionalFixedMatrix) {
   OptionalFixedMatrix t;
   t.label = "fixed";
   t.mat = std::array<std::array<double, 2>, 2>{{{{1.0, 2.0}}, {{3.0, 4.0}}}};
-  xmstream out;
+  std::string out;
   t.serialize(out);
   OptionalFixedMatrix t2;
-  ASSERT_TRUE(t2.parse(reinterpret_cast<const char*>(out.data()), out.sizeOf()));
+  ASSERT_TRUE(t2.parse(out.data(), out.size()));
   ASSERT_TRUE(t2.mat.has_value());
   EXPECT_DOUBLE_EQ((*t2.mat)[0][0], 1.0);
   EXPECT_DOUBLE_EQ((*t2.mat)[1][1], 4.0);
@@ -645,7 +644,7 @@ TEST(IdlTool, SerializeNullableElements) {
   NullableElements obj;
   obj.strings = {std::optional<std::string>("a"), std::nullopt, std::optional<std::string>("b")};
   obj.numbers = {std::optional<int64_t>(1), std::nullopt};
-  xmstream out;
+  std::string out;
   obj.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_TRUE(doc["strings"].IsArray());
@@ -663,10 +662,10 @@ TEST(IdlTool, RoundtripNullableStringArray) {
   const char json[] = R"({"strings":["x",null,"y"],"numbers":[],"objects":[],"colors":[],"denied":[]})";
   NullableElements obj;
   ASSERT_TRUE(obj.parse(json, strlen(json)));
-  xmstream out;
+  std::string out;
   obj.serialize(out);
   NullableElements obj2;
-  ASSERT_TRUE(obj2.parse((const char*)out.data(), out.sizeOf()));
+  ASSERT_TRUE(obj2.parse(out.data(), out.size()));
   ASSERT_EQ(obj2.strings.size(), 3u);
   EXPECT_EQ(*obj2.strings[0], "x");
   EXPECT_FALSE(obj2.strings[1].has_value());
@@ -740,10 +739,10 @@ TEST(IdlTool, RoundtripNullableMatrix) {
   NullableElementCombos obj;
   obj.fixedArray = {std::optional<int32_t>(10), std::nullopt, std::optional<int32_t>(30)};
   obj.matrix = {{std::optional<int32_t>(1), std::nullopt}, {std::nullopt}};
-  xmstream out;
+  std::string out;
   obj.serialize(out);
   NullableElementCombos obj2;
-  ASSERT_TRUE(obj2.parse((const char*)out.data(), out.sizeOf()));
+  ASSERT_TRUE(obj2.parse(out.data(), out.size()));
   EXPECT_EQ(*obj2.fixedArray[0], 10);
   EXPECT_FALSE(obj2.fixedArray[1].has_value());
   EXPECT_EQ(*obj2.fixedArray[2], 30);
@@ -781,7 +780,7 @@ TEST(IdlTool, SerializeVariantElementArray) {
   VariantElements obj;
   obj.scalars.emplace_back(std::string("abc"));
   obj.scalars.emplace_back(int64_t(99));
-  xmstream out;
+  std::string out;
   obj.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_TRUE(doc["scalars"].IsArray());
@@ -794,10 +793,10 @@ TEST(IdlTool, RoundtripVariantElementArray) {
   const char json[] = R"({"scalars":["a",1,"b",2],"mixed":[{"value":"v","count":0},"str"]})";
   VariantElements obj;
   ASSERT_TRUE(obj.parse(json, strlen(json)));
-  xmstream out;
+  std::string out;
   obj.serialize(out);
   VariantElements obj2;
-  ASSERT_TRUE(obj2.parse((const char*)out.data(), out.sizeOf()));
+  ASSERT_TRUE(obj2.parse(out.data(), out.size()));
   ASSERT_EQ(obj2.scalars.size(), 4u);
   EXPECT_EQ(std::get<std::string>(obj2.scalars[0]), "a");
   EXPECT_EQ(std::get<int64_t>(obj2.scalars[1]), 1);
@@ -844,7 +843,7 @@ TEST(IdlTool, ParseMapStructElementArray) {
 TEST(IdlTool, SerializeMapElementArray) {
   MapElements obj;
   obj.scalars.push_back({{"k", 42}});
-  xmstream out;
+  std::string out;
   obj.serialize(out);
   auto doc = parseRapid(out);
   ASSERT_TRUE(doc["scalars"].IsArray());
@@ -857,10 +856,10 @@ TEST(IdlTool, RoundtripMapElementArray) {
   MapElements obj;
   obj.scalars.push_back({{"x", 10}, {"y", 20}});
   obj.scalars.push_back({{"z", 30}});
-  xmstream out;
+  std::string out;
   obj.serialize(out);
   MapElements obj2;
-  ASSERT_TRUE(obj2.parse((const char*)out.data(), out.sizeOf()));
+  ASSERT_TRUE(obj2.parse(out.data(), out.size()));
   ASSERT_EQ(obj2.scalars.size(), 2u);
   EXPECT_EQ(obj2.scalars[0].at("x"), 10);
   EXPECT_EQ(obj2.scalars[0].at("y"), 20);
