@@ -6,7 +6,6 @@
 #include "serialize.h"
 #include "loguru.hpp"
 #include <openssl/rand.h>
-#include <unordered_map>
 
 namespace BTC {
 namespace Script {
@@ -34,95 +33,10 @@ struct TxData {
   BaseBlob<256> WitnessHash;
 };
 
-struct TxTree {
-  TxData Data;
-  uint64_t Fee;
-  size_t DependsOn = std::numeric_limits<size_t>::max();
-  bool Visited = false;
-};
-
-bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<TxData> &result, uint64_t *blockReward);
 bool transactionChecker(rapidjson::Value::Array transactions, std::vector<TxData> &result);
 bool isSegwitEnabled(rapidjson::Value::Array transactions);
-bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, bool txFilter, std::vector<TxData> &processedTransactions, xmstream &witnessCommitment, std::string &error);
+bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, xmstream &witnessCommitment, std::string &error);
 void collectTransactions(const std::vector<TxData> &processedTransactions, xmstream &txHexData, std::vector<BaseBlob<256> > &merklePath, size_t &txNum);
-
-template<typename Proto>
-bool transactionFilter(rapidjson::Value::Array transactions, size_t txNumLimit, std::vector<TxData> &result, uint64_t *blockReward, bool sortByHash)
-{
-  size_t txNum = transactions.Size();
-  std::unique_ptr<TxTree[]> txTree(new TxTree[txNum]);
-
-  // Build hashmap txid -> index
-  std::unordered_map<BaseBlob<256>, size_t> txidMap;
-  for (size_t i = 0; i < txNum; i++) {
-    rapidjson::Value &txSrc = transactions[i];
-
-    if (!txSrc.HasMember("data") || !txSrc["data"].IsString())
-      return false;
-    txTree[i].Data.HexData = txSrc["data"].GetString();
-    txTree[i].Data.HexDataSize = txSrc["data"].GetStringLength();
-
-    if (txSrc.HasMember("txid") && txSrc["txid"].IsString()) {
-      txTree[i].Data.TxId.setHexLE(txSrc["txid"].GetString());
-      if (txSrc.HasMember("hash"))
-        txTree[i].Data.WitnessHash.setHexLE(txSrc["hash"].GetString());
-    } else if (txSrc.HasMember("hash") && txSrc["hash"].IsString()) {
-      txTree[i].Data.TxId.setHexLE(txSrc["hash"].GetString());
-    } else {
-      return false;
-    }
-
-    if (!txSrc.HasMember("fee") || !txSrc["fee"].IsInt64())
-      return false;
-    txTree[i].Fee = txSrc["fee"].GetUint64();
-
-    txidMap[txTree[i].Data.TxId] = i;
-    *blockReward -= txTree[i].Fee;
-  }
-
-  xmstream txBinaryData;
-  typename Proto::Transaction tx;
-  for (size_t i = 0; i < txNum; i++) {
-    rapidjson::Value &txSrc = transactions[i];
-    if (!txSrc.HasMember("data") || !txSrc["data"].IsString())
-      return false;
-
-    // Convert hex -> binary data
-    txBinaryData.reset();
-    const char *txHexData = txSrc["data"].GetString();
-    size_t txHexSize = txSrc["data"].GetStringLength();
-    hex2bin(txHexData, txHexSize, txBinaryData.reserve<uint8_t>(txHexSize/2));
-
-    // Decode BTC transaction
-    txBinaryData.seekSet(0);
-    BTC::unserialize(txBinaryData, tx);
-    if (txBinaryData.eof() || txBinaryData.remaining())
-      return false;
-
-    // Iterate txin, found in-block dependencies
-    for (const auto &txin: tx.txIn) {
-      auto It = txidMap.find(txin.previousOutputHash);
-      if (It != txidMap.end())
-        txTree[i].DependsOn = It->second;
-    }
-  }
-
-  for (size_t i = 0; i < txNum; i++) {
-    // Add transactions with its dependencies recursively
-    if (!addTransaction(txTree.get(), i, txNumLimit, result, blockReward))
-      break;
-  }
-
-  // TODO: sort by hash (for BCHN, BCHABC)
-  if (sortByHash)
-    std::sort(result.begin(), result.end(), [](const TxData &l, const TxData &r) {
-      // TODO: use binary representation of txid
-      return l.TxId.getHexLE() < r.TxId.getHexLE();
-    });
-
-  return true;
-}
 
 template<typename Proto, typename HeaderBuilderTy, typename CoinbaseBuilderTy, typename NotifyTy, typename PrepareForSubmitTy>
 class WorkTy : public StratumSingleWork {
@@ -187,18 +101,9 @@ public:
     // Check segwit enabled (compare txid and hash for all transactions)
     SegwitEnabled = isSegwitEnabled(transactions);
 
-    // Checking/filtering transactions
-    uint64_t blockRewardDelta = 0;
-    bool txFilter = this->MiningCfg_.TxNumLimit && transactions.Size() > this->MiningCfg_.TxNumLimit;
+    // Checking transactions
     std::vector<TxData> processedTransactions;
-    bool needSortByHash = (blockTemplate.Ticker == "BCHN" || blockTemplate.Ticker == "BCHABC");
-
-    bool transactionCheckResult;
-    if (txFilter)
-      transactionCheckResult = transactionFilter<Proto>(transactions, this->MiningCfg_.TxNumLimit, processedTransactions, &blockRewardDelta, needSortByHash);
-    else
-      transactionCheckResult = transactionChecker(transactions, processedTransactions);
-    if (!transactionCheckResult) {
+    if (!transactionChecker(transactions, processedTransactions)) {
       error = "template contains invalid transactions";
       return false;
     }
@@ -215,11 +120,9 @@ public:
       BaseBlockReward_ = this->BlockReward_ - totalFees;
     }
 
-    this->BlockReward_ -= blockRewardDelta;
-
     // Calculate witness commitment
     if (SegwitEnabled) {
-      if (!calculateWitnessCommitment(resultValue, txFilter, processedTransactions, WitnessCommitment, error))
+      if (!calculateWitnessCommitment(resultValue, WitnessCommitment, error))
         return false;
     }
 

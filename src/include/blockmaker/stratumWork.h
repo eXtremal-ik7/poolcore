@@ -20,7 +20,6 @@ struct ThreadConfig {
 struct CMiningConfig {
   unsigned FixedExtraNonceSize;
   unsigned MutableExtraNonceSize;
-  unsigned TxNumLimit;
 };
 
 // Worker config contains set of fields for all supported stratums

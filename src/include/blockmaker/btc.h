@@ -442,7 +442,6 @@ public:
   static void miningConfigInitialize(CMiningConfig &miningCfg, const CInstanceConfig &instanceCfg) {
     miningCfg.FixedExtraNonceSize = instanceCfg.FixedExtraNonceSize.value_or(4);
     miningCfg.MutableExtraNonceSize = instanceCfg.MutableExtraNonceSize.value_or(4);
-    miningCfg.TxNumLimit = 0;
   }
 
   static void workerConfigInitialize(CWorkerConfig &workerCfg, ThreadConfig &threadCfg) {

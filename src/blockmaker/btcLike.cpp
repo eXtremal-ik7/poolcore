@@ -2,20 +2,6 @@
 #include "blockmaker/merkleTree.h"
 
 namespace BTC {
-bool addTransaction(TxTree *tree, size_t index, size_t txNumLimit, std::vector<TxData> &result, uint64_t *blockReward)
-{
-  // TODO: keep transactions depend on other transactions in same block
-  if (tree[index].Visited || tree[index].DependsOn != std::numeric_limits<size_t>::max())
-    return true;
-  if (result.size() >= txNumLimit)
-    return false;
-
-  result.push_back(tree[index].Data);
-  tree[index].Visited = true;
-  *blockReward += tree[index].Fee;
-  return true;
-}
-
 bool transactionChecker(rapidjson::Value::Array transactions, std::vector<TxData> &result)
 {
   result.resize(transactions.Size());
@@ -60,7 +46,7 @@ bool isSegwitEnabled(rapidjson::Value::Array transactions)
   return false;
 }
 
-bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, bool txFilter, std::vector<TxData> &processedTransactions, xmstream &witnessCommitment, std::string &error)
+bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, xmstream &witnessCommitment, std::string &error)
 {
   if (!blockTemplate.HasMember("default_witness_commitment") || !blockTemplate["default_witness_commitment"].IsString()) {
     error = "default_witness_commitment missing";
@@ -69,39 +55,7 @@ bool calculateWitnessCommitment(rapidjson::Value &blockTemplate, bool txFilter, 
 
   const char *originalWitnessCommitment = blockTemplate["default_witness_commitment"].GetString();
   rapidjson::SizeType originalWitnessCommitmentSize = blockTemplate["default_witness_commitment"].GetStringLength();
-
-  if (!txFilter) {
-    hex2bin(originalWitnessCommitment, originalWitnessCommitmentSize, witnessCommitment.reserve(originalWitnessCommitmentSize/2));
-  } else {
-    // Collect witness hashes to array
-    std::vector<BaseBlob<256>> witnessHashes;
-    witnessHashes.emplace_back();
-    witnessHashes.back().setNull();
-    for (const auto &tx: processedTransactions)
-      witnessHashes.push_back(tx.WitnessHash);
-
-    // Calculate witness merkle root
-    BaseBlob<256> witnessMerkleRoot = calculateMerkleRoot(&witnessHashes[0], witnessHashes.size());
-    // Calculate witness commitment
-    BaseBlob<256> commitment;
-    {
-      uint8_t defaultWitnessNonce[32];
-      memset(defaultWitnessNonce, 0, sizeof(defaultWitnessNonce));
-      CCtxSha256 ctx;
-      sha256Init(&ctx);
-      sha256Update(&ctx, witnessMerkleRoot.begin(), witnessMerkleRoot.size());
-      sha256Update(&ctx, defaultWitnessNonce, 32);
-      sha256Final(&ctx, commitment.begin());
-      sha256Init(&ctx);
-      sha256Update(&ctx, commitment.begin(), commitment.size());
-      sha256Final(&ctx, commitment.begin());
-    }
-
-    uint8_t prefix[6] = {0x6A, 0x24, 0xAA, 0x21, 0xA9, 0xED};
-    witnessCommitment.write(prefix, sizeof(prefix));
-    witnessCommitment.write(commitment.begin(), commitment.size());
-  }
-
+  hex2bin(originalWitnessCommitment, originalWitnessCommitmentSize, witnessCommitment.reserve(originalWitnessCommitmentSize/2));
   return true;
 }
 
