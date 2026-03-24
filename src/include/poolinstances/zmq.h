@@ -50,6 +50,10 @@ public:
       : CPoolInstance(monitorBase, userMgr, linkedBackends, threadPool, algoMetaStatistic)
   {
     Name_ = (std::string)X::Proto::TickerName + ".zmq";
+
+    auto logPath = (logsPath / ("zmq." + std::to_string(config.Port)) / "log-%Y-%m.log").generic_string();
+    LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
+
     Data_.reset(new ThreadData[threadPool.threadsNum()]);
     X::Zmq::initialize();
 
@@ -93,9 +97,6 @@ public:
     WorkerPort_ = config.ZmqWorkerPort.value();
     HostName_ = config.ZmqHostName.value();
     X::Zmq::initializeMiningConfig(MiningCfg_, config);
-
-    auto logPath = (logsPath / ("zmq." + std::to_string(ListenPort_)) / "log-%Y-%m.log").generic_string();
-    LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
   }
 
   virtual void start() override {

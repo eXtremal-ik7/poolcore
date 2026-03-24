@@ -67,6 +67,9 @@ public:
         CurrentThreadId_(0),
         PriceFetcher_(priceFetcher)
   {
+    auto logPath = (logsPath / ("stratum." + std::to_string(config.Port)) / "log-%Y-%m.log").generic_string();
+    LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
+
     ConstantShareDiff_ = config.ShareDiff;
     ProfitSwitcherEnabled_ = config.ProfitSwitcherEnabled;
 
@@ -153,9 +156,6 @@ public:
     HasRtt_ = hasRtt;
     ListenPort_ = config.Port;
     X::Stratum::miningConfigInitialize(MiningCfg_, config);
-
-    auto logPath = (logsPath / ("stratum." + std::to_string(config.Port)) / "log-%Y-%m.log").generic_string();
-    LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
   }
 
   virtual void start() override {

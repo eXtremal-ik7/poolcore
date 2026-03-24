@@ -4,11 +4,8 @@
 #include "poolcore/bitcoinRpc.idl.h"
 #include "poolcommon/httpClient.h"
 #include "asyncio/asyncio.h"
-#include <rapidjson/document.h>
 #include <vector>
 #include "loguru.hpp"
-
-class xmstream;
 
 class CBitcoinRpcClient : public CNetworkClient {
 public:
@@ -50,7 +47,6 @@ private:
 
   std::string buildPostQuery(const char *data, size_t size);
   std::string buildPostQuery(const std::string &jsonBody);
-  std::string buildPostQuery(const xmstream &postData);
 
   template<typename T>
   std::string buildPostQuery(const T &request) {
@@ -59,55 +55,7 @@ private:
     return buildPostQuery(body);
   }
 
-  template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>
-  EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, rapidjson::Document &document,
-                              uint64_t timeout, RpcQueryResult &rpcResult)
-  {
-    HttpResponse response;
-    AsyncOpStatus status = RpcEndpoint_.ioRequest(base, request, response, timeout);
-    if (status != aosSuccess) {
-      CLOG_F(WARNING, "{} {}: error code: {}", CoinInfo_.Name, FullHostName_, static_cast<unsigned>(status));
-      return status == aosTimeout ? EStatusTimeout : EStatusNetworkError;
-    }
-
-    document.Parse<flag>(response.Body.data(), response.Body.size());
-    rpcResult.HttpStatus = response.StatusCode;
-
-    if (response.StatusCode != 200) {
-      if (!document.HasParseError()) {
-        if (document.HasMember("error") && document["error"].IsObject()) {
-          rapidjson::Value &value = document["error"];
-          if (value.HasMember("code") && value["code"].IsInt())
-            rpcResult.ErrorCode = value["code"].GetInt();
-          if (value.HasMember("message") && value["message"].IsString())
-            rpcResult.Error = value["message"].GetString();
-        }
-      }
-
-      CLOG_F(WARNING, "{} {}: http result code: {}, data: {}",
-             CoinInfo_.Name,
-             FullHostName_,
-             response.StatusCode,
-             response.Body.empty() ? "<null>" : response.Body.c_str());
-      return EStatusProtocolError;
-    }
-
-    if (document.HasParseError()) {
-      CLOG_F(WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
-      return EStatusProtocolError;
-    }
-
-    return EStatusOk;
-  }
-
-  template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>
-  EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, rapidjson::Document &document, uint64_t timeout) {
-    RpcQueryResult unused;
-    return ioRpcQuery<flag>(base, request, document, timeout, unused);
-  }
-
   template<typename T>
-    requires requires { typename T::Capture; }
   EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, T &response, uint64_t timeout, RpcQueryResult &rpcResult)
   {
     constexpr bool NeedResolve = requires(T &r, const typename T::Capture &c) {
@@ -135,9 +83,11 @@ private:
     }
 
     if (httpResponse.StatusCode != 200) {
-      if (response.Error.has_value()) {
-        rpcResult.ErrorCode = response.Error->Code;
-        rpcResult.Error = response.Error->Message;
+      if constexpr (requires { response.Error; }) {
+        if (response.Error.has_value()) {
+          rpcResult.ErrorCode = response.Error->Code;
+          rpcResult.Error = response.Error->Message;
+        }
       }
       CLOG_F(WARNING, "{} {}: http result code: {}, data: {}",
              CoinInfo_.Name, FullHostName_, httpResponse.StatusCode,
@@ -154,7 +104,6 @@ private:
   }
 
   template<typename T>
-    requires requires { typename T::Capture; }
   EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, T &response, uint64_t timeout) {
     RpcQueryResult unused;
     return ioRpcQuery(base, request, response, timeout, unused);
@@ -181,5 +130,7 @@ private:
   std::string GetWalletInfoRequest_;
   std::string BalanceRequest_;
   std::string BalanceWithImmaturedRequest_;
+  std::string BlockChainInfoRequest_;
+  std::string InfoRequest_;
   std::string GbtRequestNoLongPoll_; // non-longpoll getblocktemplate (body is constant)
 };

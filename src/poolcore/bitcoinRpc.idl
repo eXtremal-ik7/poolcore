@@ -21,6 +21,13 @@ struct RpcStringResponse {
   error: optional<RpcError>(null_in=allow);
 }
 
+// Batch of string responses — top-level JSON array, e.g. for batched getblockhash
+struct RpcStringBatch {
+  .generate(parse);
+  .flags(toplevel);
+  items: [RpcStringResponse];
+}
+
 // Response for getbalance — result is a JSON number parsed as money
 struct GetBalanceResponse {
   .generate(parse);
@@ -106,6 +113,11 @@ struct GetBlockHashRequest {
   .generate(serialize);
   method: string = "getblockhash";
   params: GetBlockHashParams;
+}
+struct GetBlockHashBatch {
+  .generate(serialize);
+  .flags(toplevel);
+  items: [GetBlockHashRequest];
 }
 struct GetBlockHashParams {
   .flags(array_layout);
@@ -297,7 +309,7 @@ struct CreateRawTransactionParams {
   .flags(array_layout);
   .generate(serialize);
   inputs: [CreateRawTxInput];
-  outputs: map<string>;        // {address: amount_string}
+  outputs: map<numberLiteral>;  // {address: amount} — bare number, no quotes
 }
 struct CreateRawTxInput {
   .generate(serialize);
@@ -329,7 +341,7 @@ struct FundRawTransactionResult {
   .generate(parse);
   .flags(skip_unknown);
   hex: string;
-  fee: string;
+  fee: moneyLiteral;
 }
 struct FundRawTransactionResponse {
   .generate(parse);
@@ -423,8 +435,8 @@ struct UnspentOutput {
   .generate(parse);
   .flags(skip_unknown);
   address: string;
-  amount: string;
-  generated: bool;
+  amount: moneyLiteral;
+  generated: bool = false;
 }
 struct ListUnspentResponse {
   .generate(parse);
@@ -446,12 +458,12 @@ struct ZSendManyParams {
   source: string;
   amounts: [ZSendManyDest];
   minConf: int64;
-  fee: string;
+  fee: numberLiteral;
 }
 struct ZSendManyDest {
   .generate(serialize);
   address: string;
-  amount: string;
+  amount: numberLiteral;
   memo: optional<string>;
 }
 
@@ -478,6 +490,16 @@ struct GetBlockStatsRequest {
   .generate(serialize);
   method: string = "getblockstats";
   params: GetBlockStatsParams;
+}
+struct GetBlockStatsBatch {
+  .generate(serialize);
+  .flags(toplevel);
+  items: [GetBlockStatsRequest];
+}
+struct GetBlockStatsResponseBatch {
+  .generate(parse);
+  .flags(toplevel);
+  items: [GetBlockStatsResponse];
 }
 struct GetBlockStatsParams {
   .flags(array_layout);
