@@ -674,6 +674,14 @@ struct ArrayLayoutOptionalObject {
   child: optional<Inner>;
 }
 
+struct ArrayLayoutUserType {
+  .generate(parse, parse.verbose, serialize);
+  .flags(array_layout);
+  name: string;
+  value: counterVal;
+  optValue: optional<counterVal>;
+}
+
 // ============================================================================
 // Typed array elements — optional, variant, map inside arrays
 // ============================================================================

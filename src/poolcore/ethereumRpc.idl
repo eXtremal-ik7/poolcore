@@ -1,6 +1,36 @@
-// Ethereum JSON-RPC response structures
+// Ethereum JSON-RPC request/response definitions
 
 include "poolcommon/hash.idl";
+
+usertype weiHex("UInt<384>") include "poolcore/ethUserTypes.h";
+usertype uint256x("UInt<256>") include "poolcore/ethUserTypes.h";
+usertype uint64Hex("uint64_t") include "poolcore/ethUserTypes.h";
+
+// --- Common ---
+
+struct EthRpcError {
+  .generate(parse);
+  code: int64;
+  message: string;
+}
+
+// Common response for methods returning a hex string result (e.g. eth_sendRawTransaction)
+struct EthRpcHexResponse {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<string>(null_in=allow);
+  error: optional<EthRpcError>(null_in=allow);
+}
+
+// Common response for methods returning a boolean result
+struct EthRpcBoolResponse {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<bool>(null_in=allow);
+  error: optional<EthRpcError>(null_in=allow);
+}
+
+// === eth_getWork (block template) ===
 
 // eth_getWork result: positional array [headerHash, seedHash, target, blockHeight]
 struct ETHGetWorkResult {
@@ -17,3 +47,354 @@ struct ETHTemplate {
   .flags(skip_unknown);
   result: optional<ETHGetWorkResult>(null_in=allow);
 }
+
+// === eth_submitWork ===
+
+struct EthSubmitWorkRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_submitWork";
+  params: EthSubmitWorkParams;
+  id: int64 = -1;
+}
+struct EthSubmitWorkParams {
+  .flags(array_layout);
+  .generate(serialize);
+  nonce: string;
+  headerHash: string;
+  mixHash: string;
+}
+
+// response: EthRpcBoolResponse
+
+// === eth_getBalance ===
+
+struct EthGetBalanceRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_getBalance";
+  params: EthGetBalanceParams;
+  id: int64 = -1;
+}
+struct EthGetBalanceParams {
+  .flags(array_layout);
+  .generate(serialize);
+  address: string;
+  block: string = "latest";
+}
+
+struct EthGetBalanceResponse {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<weiHex>(null_in=allow);
+  error: optional<EthRpcError>(null_in=allow);
+}
+
+// === eth_gasPrice ===
+
+struct EthGasPriceRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_gasPrice";
+  params: EthEmptyParams;
+  id: int64 = -1;
+}
+struct EthEmptyParams {
+  .flags(array_layout);
+  .generate(serialize);
+}
+
+// response: EthGetBalanceResponse (same weiHex result)
+
+// === eth_maxPriorityFeePerGas ===
+
+struct EthMaxPriorityFeePerGasRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_maxPriorityFeePerGas";
+  params: EthEmptyParams;
+  id: int64 = -1;
+}
+
+// response: EthGetBalanceResponse (same weiHex result)
+
+// === eth_getTransactionCount ===
+
+struct EthGetTransactionCountRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_getTransactionCount";
+  params: EthGetTransactionCountParams;
+  id: int64 = -1;
+}
+struct EthGetTransactionCountParams {
+  .flags(array_layout);
+  .generate(serialize);
+  address: string;
+  block: string = "pending";
+}
+
+struct EthUint64HexResponse {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<uint64Hex>(null_in=allow);
+  error: optional<EthRpcError>(null_in=allow);
+}
+
+// === eth_blockNumber ===
+
+struct EthBlockNumberRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_blockNumber";
+  params: EthEmptyParams;
+  id: int64 = -1;
+}
+
+// response: EthUint64HexResponse
+
+// === eth_getBlockByNumber ===
+
+struct EthGetBlockByNumberRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_getBlockByNumber";
+  params: EthGetBlockByNumberParams;
+  id: int64 = -1;
+}
+struct EthGetBlockByNumberParams {
+  .flags(array_layout);
+  .generate(serialize);
+  blockNumber: uint64Hex;
+  fullTransactions: bool;
+}
+
+struct EthBlockTransaction {
+  .generate(parse);
+  .flags(skip_unknown);
+  hash: uint256x;
+  gasPrice: weiHex;
+}
+
+struct EthBlockResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  hash: uint256x;
+  mixHash: uint256x;
+  gasUsed: uint64Hex;
+  baseFeePerGas: optional<weiHex>;
+  transactions: [EthBlockTransaction];
+  uncles: [uint256x];
+}
+
+struct EthGetBlockByNumberResponse {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<EthBlockResult>(null_in=allow);
+  error: optional<EthRpcError>(null_in=allow);
+}
+
+// === eth_getUncleByBlockNumberAndIndex ===
+
+struct EthGetUncleByBlockNumberAndIndexRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_getUncleByBlockNumberAndIndex";
+  params: EthGetUncleParams;
+  id: int64 = -1;
+}
+struct EthGetUncleParams {
+  .flags(array_layout);
+  .generate(serialize);
+  blockNumber: uint64Hex;
+  uncleIndex: uint64Hex;
+}
+
+// Uncle response uses a subset of EthBlockResult (no transactions/uncles needed,
+// but skip_unknown handles that)
+
+struct EthUncleResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  hash: uint256x;
+  mixHash: uint256x;
+  gasUsed: uint64Hex;
+  baseFeePerGas: optional<weiHex>;
+}
+
+struct EthGetUncleResponse {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<EthUncleResult>(null_in=allow);
+  error: optional<EthRpcError>(null_in=allow);
+}
+
+// === eth_getTransactionByHash ===
+
+struct EthGetTransactionByHashRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_getTransactionByHash";
+  params: EthTxHashParams;
+  id: int64 = -1;
+}
+struct EthTxHashParams {
+  .flags(array_layout);
+  .generate(serialize);
+  txHash: string;            // 0x-prefixed hex
+}
+
+struct EthTransactionResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  gasPrice: weiHex;
+}
+
+struct EthGetTransactionByHashResponse {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<EthTransactionResult>(null_in=allow);
+  error: optional<EthRpcError>(null_in=allow);
+}
+
+// === eth_getTransactionReceipt ===
+
+struct EthGetTransactionReceiptRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_getTransactionReceipt";
+  params: EthTxHashParams;
+  id: int64 = -1;
+}
+
+struct EthTransactionReceiptResult {
+  .generate(parse);
+  .flags(skip_unknown);
+  gasUsed: uint64Hex;
+  blockNumber: uint64Hex;
+}
+
+struct EthGetTransactionReceiptResponse {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<EthTransactionReceiptResult>(null_in=allow);
+  error: optional<EthRpcError>(null_in=allow);
+}
+
+// === eth_signTransaction (legacy, EIP-155) ===
+
+struct EthSignTransactionOldRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_signTransaction";
+  params: EthSignTransactionOldParams;
+  id: int64 = -1;
+}
+struct EthSignTransactionOldParams {
+  .flags(array_layout);
+  .generate(serialize);
+  tx: EthSignTransactionOldTx;
+}
+struct EthSignTransactionOldTx {
+  .generate(serialize);
+  from: string;
+  to: string;
+  value: weiHex;
+  gas: uint64Hex;
+  gasPrice: weiHex;
+  nonce: uint64Hex;
+}
+
+// === eth_signTransaction (EIP-1559) ===
+
+struct EthSignTransaction1559Request {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_signTransaction";
+  params: EthSignTransaction1559Params;
+  id: int64 = -1;
+}
+struct EthSignTransaction1559Params {
+  .flags(array_layout);
+  .generate(serialize);
+  tx: EthSignTransaction1559Tx;
+}
+struct EthSignTransaction1559Tx {
+  .generate(serialize);
+  from: string;
+  to: string;
+  value: weiHex;
+  gas: uint64Hex;
+  maxPriorityFeePerGas: weiHex;
+  maxFeePerGas: weiHex;
+  nonce: uint64Hex;
+}
+
+// Common response for eth_signTransaction
+struct EthSignTransactionTx {
+  .generate(parse);
+  .flags(skip_unknown);
+  hash: string;
+}
+
+struct EthSignTransactionResultData {
+  .generate(parse);
+  .flags(skip_unknown);
+  raw: string;
+  tx: EthSignTransactionTx;
+}
+
+struct EthSignTransactionResponse {
+  .generate(parse);
+  .flags(skip_unknown);
+  result: optional<EthSignTransactionResultData>(null_in=allow);
+  error: optional<EthRpcError>(null_in=allow);
+}
+
+// === eth_sendRawTransaction ===
+
+struct EthSendRawTransactionRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_sendRawTransaction";
+  params: EthSendRawTransactionParams;
+  id: int64 = -1;
+}
+struct EthSendRawTransactionParams {
+  .flags(array_layout);
+  .generate(serialize);
+  txData: string;            // 0x-prefixed hex
+}
+
+// response: EthRpcHexResponse
+
+// === personal_unlockAccount ===
+
+struct PersonalUnlockAccountRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "personal_unlockAccount";
+  params: PersonalUnlockAccountParams;
+  id: int64 = -1;
+}
+struct PersonalUnlockAccountParams {
+  .flags(array_layout);
+  .generate(serialize);
+  address: string;
+  passPhrase: string;
+  seconds: uint64;
+}
+
+// response: EthRpcBoolResponse
+
+// === eth_getWork ===
+
+struct EthGetWorkRequest {
+  .generate(serialize);
+  jsonrpc: string = "2.0";
+  method: string = "eth_getWork";
+  params: EthEmptyParams;
+  id: int64 = -1;
+}
+
+// response: ETHTemplate (defined above)

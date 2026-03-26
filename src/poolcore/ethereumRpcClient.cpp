@@ -1,27 +1,13 @@
 #include "poolcore/ethereumRPCClient.h"
+#include "ethereumRpc.idl.h"
 
 #include "blockmaker/eth.h"
 #include "blockmaker/ethash.h"
 #include "poolcore/backend.h"
 #include "blockmaker/ethereumBlockTemplate.h"
 #include "poolcore/clientDispatcher.h"
-#include "poolcommon/jsonSerializer.h"
 #include "poolcommon/utils.h"
-#include "p2putils/xmstream.h"
 
-#include <inttypes.h>
-
-// Parse hex string (with or without "0x" prefix) as wei and return UInt<384> with wei in upper 128 bits
-static UInt<384> fromWeiHex(const char *hex) {
-  if (hex[0] == '0' && hex[1] == 'x')
-    hex += 2;
-  return UInt<384>::fromHex(hex) << 256;
-}
-
-// Convert UInt<384> (wei in upper 128 bits) to hex string with "0x" prefix
-static std::string toWeiHex(const UInt<384> &value) {
-  return (value >> 256).getHex(false, true, false);
-}
 
 CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, const CCoinInfo &coinInfo, const char *address, const SelectorByWeight<CMiningAddress> &miningAddresses) :
   CoinInfo_(coinInfo),
@@ -67,22 +53,11 @@ CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, const CCoinInfo &coinInf
 
   // Build EthGetWorkRequest_
   {
-    char buffer[1024];
-    xmstream jsonStream(buffer, sizeof(buffer));
-    jsonStream.reset();
-    {
-      JSON::Object queryObject(jsonStream);
-      queryObject.addString("method", "eth_getWork");
-      queryObject.addField("params");
-      {
-        JSON::Array paramsArray(jsonStream);
-      }
-      queryObject.addInt("id", -1);
-    }
-
+    std::string body;
+    CEthGetWorkRequest{}.serialize(body);
     HttpRequest req;
     req.Method = HttpMethod::POST;
-    req.Body = std::string_view(jsonStream.data<const char>(), jsonStream.sizeOf());
+    req.Body = body;
     EthGetWorkRequest_ = WorkFetcherClient_.prepare(req);
   }
 }
@@ -100,10 +75,6 @@ std::string CEthereumRpcClient::buildPostQuery(const std::string &jsonBody)
   return buildPostQuery(jsonBody.data(), jsonBody.size());
 }
 
-std::string CEthereumRpcClient::buildPostQuery(const xmstream &postData)
-{
-  return buildPostQuery(postData.data<const char>(), postData.sizeOf());
-}
 
 bool CEthereumRpcClient::ioGetBalance(asyncBase *base, GetBalanceResult &result)
 {
@@ -350,38 +321,27 @@ void CEthereumRpcClient::aioSubmitBlock(asyncBase *base, const void *data, size_
 {
   const ETH::BlockSubmitData *blockSubmitData = reinterpret_cast<const ETH::BlockSubmitData*>(data);
 
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_submitWork");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addString(blockSubmitData->Nonce);
-      paramsArray.addString(blockSubmitData->HeaderHash);
-      paramsArray.addString(blockSubmitData->MixHash);
-    }
-    queryObject.addInt("id", -1);
-  }
+  CEthSubmitWorkRequest request;
+  request.Params.Nonce = blockSubmitData->Nonce;
+  request.Params.HeaderHash = blockSubmitData->HeaderHash;
+  request.Params.MixHash = blockSubmitData->MixHash;
 
-  RpcEndpoint_.aioRequest(base, buildPostQuery(jsonStream),
+  RpcEndpoint_.aioRequest(base, buildPostQuery(request),
     [this, operation](AsyncOpStatus status, HttpResponse response) {
       bool success = false;
       std::string error;
       if (status != aosSuccess) {
         error = "http request error";
       } else {
-        rapidjson::Document document;
-        document.Parse(response.Body.data(), response.Body.size());
-        if (!document.HasParseError() && document.HasMember("result")) {
-          if (document["result"].IsTrue())
+        CEthRpcBoolResponse parsed;
+        if (parsed.parse(response.Body.data(), response.Body.size())) {
+          if (parsed.Result.has_value() && *parsed.Result)
             success = true;
           else
             error = "?";
         }
+        if (response.StatusCode != 200 && error.empty() && parsed.Error.has_value())
+          error = std::move(parsed.Error->Message);
       }
       operation->accept(success, FullHostName_, error);
     }, 180000000);
@@ -477,8 +437,6 @@ void CEthereumRpcClient::onWorkFetchTimeout()
 
 int64_t CEthereumRpcClient::ioSearchUncle(asyncBase *base, int64_t height, const std::string &mixHash, int64_t bestBlockHeight, std::string &publicHash)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
   int64_t maxHeight = std::min(height + 16, bestBlockHeight);
 
   for (int64_t currentHeight = height; currentHeight <= maxHeight; currentHeight++) {
@@ -503,368 +461,183 @@ int64_t CEthereumRpcClient::ioSearchUncle(asyncBase *base, int64_t height, const
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
+  CEthGetBalanceRequest request;
+  request.Params.Address = address;
 
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_getBalance");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addString(address);
-      paramsArray.addString("latest");
-    }
-    queryObject.addInt("id", -1);
-  }
-
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthGetBalanceResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(request), response, 5*1000000);
   if (status != EStatusOk)
     return status;
-
-  if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() < 3)
+  if (!response.Result.has_value())
     return EStatusProtocolError;
 
-  *balance = fromWeiHex(document["result"].GetString());
+  *balance = *response.Result;
   return EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethGasPrice(asyncBase *base, UInt<384> *gasPrice)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_gasPrice");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-    }
-    queryObject.addInt("id", -1);
-  }
-
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthGetBalanceResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(CEthGasPriceRequest{}), response, 5*1000000);
   if (status != EStatusOk)
     return status;
-
-  if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() < 3)
+  if (!response.Result.has_value())
     return EStatusProtocolError;
 
-  *gasPrice = fromWeiHex(document["result"].GetString());
+  *gasPrice = *response.Result;
   return EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethMaxPriorityFeePerGas(asyncBase *base, UInt<384> *maxPriorityFeePerGas)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_maxPriorityFeePerGas");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-    }
-    queryObject.addInt("id", -1);
-  }
-
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthGetBalanceResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(CEthMaxPriorityFeePerGasRequest{}), response, 5*1000000);
   if (status != EStatusOk)
     return status;
-
-  if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() < 3)
+  if (!response.Result.has_value())
     return EStatusProtocolError;
 
-  *maxPriorityFeePerGas = fromWeiHex(document["result"].GetString());
+  *maxPriorityFeePerGas = *response.Result;
   return EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionCount(asyncBase *base, const std::string &address, uint64_t *count)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
+  CEthGetTransactionCountRequest request;
+  request.Params.Address = address;
 
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_getTransactionCount");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addString(address);
-      paramsArray.addString("pending");
-    }
-    queryObject.addInt("id", -1);
-  }
-
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthUint64HexResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(request), response, 5*1000000);
   if (status != EStatusOk)
     return status;
-
-  if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() < 3)
+  if (!response.Result.has_value())
     return EStatusProtocolError;
-  *count = strtoull(document["result"].GetString() + 2, nullptr, 16);
+
+  *count = *response.Result;
   return EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethBlockNumber(asyncBase *base, uint64_t *blockNumber)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_blockNumber");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-    }
-    queryObject.addInt("id", -1);
-  }
-
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthUint64HexResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(CEthBlockNumberRequest{}), response, 5*1000000);
   if (status != EStatusOk)
     return status;
-
-  if (!document.HasMember("result") || !document["result"].IsString() || document["result"].GetStringLength() < 3)
+  if (!response.Result.has_value())
     return EStatusProtocolError;
 
-  *blockNumber = strtoull(document["result"].GetString() + 2, nullptr, 16);
+  *blockNumber = *response.Result;
   return EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetBlockByNumber(asyncBase *base, uint64_t height, ETHBlock &block)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_getBlockByNumber");
-    queryObject.addField("params");
-    {
-      char hex[64];
-      snprintf(hex, sizeof(hex), "0x%" PRIx64 "", height);
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addString(hex);
-      paramsArray.addBoolean(true);
-    }
-    queryObject.addInt("id", -1);
-  }
+  CEthGetBlockByNumberRequest request;
+  request.Params.BlockNumber = height;
+  request.Params.FullTransactions = true;
 
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 60*1000000);
+  CEthGetBlockByNumberResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(request), response, 60*1000000);
   if (status != EStatusOk)
     return status;
-
-  if (!document.HasMember("result") || !document["result"].IsObject()) {
+  if (!response.Result.has_value()) {
     CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
     return EStatusProtocolError;
   }
 
-  rapidjson::Value &blockObject = document["result"].GetObject();
-  if (!blockObject.HasMember("mixHash") || !blockObject["mixHash"].IsString() || blockObject["mixHash"].GetStringLength() != 66 ||
-      !blockObject.HasMember("hash") || !blockObject["hash"].IsString() || blockObject["hash"].GetStringLength() != 66 ||
-      !blockObject.HasMember("gasUsed") || !blockObject["gasUsed"].IsString() || blockObject["gasUsed"].GetStringLength() < 3) {
-    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
-    return EStatusProtocolError;
-  }
+  CEthBlockResult &result = *response.Result;
+  block.Hash = result.Hash;
+  block.MixHash = result.MixHash;
+  block.GasUsed = result.GasUsed;
+  if (result.BaseFeePerGas.has_value())
+    block.BaseFeePerGas = *result.BaseFeePerGas;
 
-  block.Hash = UInt<256>::fromHex(blockObject["hash"].GetString());
-  block.MixHash = UInt<256>::fromHex(blockObject["mixHash"].GetString());
-  block.GasUsed = strtoull(blockObject["gasUsed"].GetString() + 2, nullptr, 16);
-
-  if (blockObject.HasMember("baseFeePerGas")) {
-    if (!blockObject["baseFeePerGas"].IsString() || blockObject["gasUsed"].GetStringLength() < 3) {
-      CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
-      return EStatusProtocolError;
-    }
-
-    block.BaseFeePerGas = fromWeiHex(blockObject["baseFeePerGas"].GetString());
-  }
-
-  // transactions
-  if (!blockObject.HasMember("transactions") || !blockObject["transactions"].IsArray()) {
-    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
-    return EStatusProtocolError;
-  }
-
-  for (const auto &txObject: blockObject["transactions"].GetArray()) {
-    // Here we need hash and gas price
-    if (!txObject.HasMember("gasPrice") || !txObject["gasPrice"].IsString() || txObject["gasPrice"].GetStringLength() < 3 ||
-        !txObject.HasMember("hash") || !txObject["hash"].IsString() || txObject["hash"].GetStringLength() != 66) {
-      CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
-      return EStatusProtocolError;
-    }
-
-    // use gwei for transaction fee
+  for (auto &txResult : result.Transactions) {
     ETHTransaction &tx = block.Transactions.emplace_back();
-    tx.GasPrice = fromWeiHex(txObject["gasPrice"].GetString());
-    tx.Hash = UInt<256>::fromHex(txObject["hash"].GetString());
+    tx.GasPrice = txResult.GasPrice;
+    tx.Hash = txResult.Hash;
   }
 
-  // uncles
-  if (!blockObject.HasMember("uncles") || !blockObject["uncles"].IsArray()) {
-    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
-    return EStatusProtocolError;
-  }
-
-  for (const auto &uncle: blockObject["uncles"].GetArray()) {
-    if (!uncle.IsString() || uncle.GetStringLength() != 66) {
-      CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
-      return EStatusProtocolError;
-    }
-
-    block.Uncles.emplace_back(UInt<256>::fromHex(uncle.GetString()));
-  }
-
+  block.Uncles = std::move(result.Uncles);
   return EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetUncleByBlockNumberAndIndex(asyncBase *base, uint64_t height, unsigned uncleIndex, ETHBlock &block)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_getUncleByBlockNumberAndIndex");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addIntHex(height, false, true);
-      paramsArray.addIntHex(uncleIndex, false, true);
-    }
-    queryObject.addInt("id", -1);
-  }
+  CEthGetUncleByBlockNumberAndIndexRequest request;
+  request.Params.BlockNumber = height;
+  request.Params.UncleIndex = uncleIndex;
 
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthGetUncleResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(request), response, 5*1000000);
   if (status != EStatusOk)
     return status;
-
-  if (!document.HasMember("result") || !document["result"].IsObject()) {
+  if (!response.Result.has_value()) {
     CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
     return EStatusProtocolError;
   }
 
-  rapidjson::Value &blockObject = document["result"].GetObject();
-  if (!blockObject.HasMember("mixHash") || !blockObject["mixHash"].IsString() || blockObject["mixHash"].GetStringLength() != 66 ||
-      !blockObject.HasMember("hash") || !blockObject["hash"].IsString() || blockObject["hash"].GetStringLength() != 66 ||
-      !blockObject.HasMember("gasUsed") || !blockObject["gasUsed"].IsString() || blockObject["gasUsed"].GetStringLength() < 3) {
-    CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
-    return EStatusProtocolError;
-  }
-
-  block.Hash = UInt<256>::fromHex(blockObject["hash"].GetString());
-  block.MixHash = UInt<256>::fromHex(blockObject["mixHash"].GetString());
-  block.GasUsed = strtoull(blockObject["gasUsed"].GetString() + 2, nullptr, 16);
-
-  if (blockObject.HasMember("baseFeePerGas")) {
-    if (!blockObject["baseFeePerGas"].IsString() || blockObject["gasUsed"].GetStringLength() < 3) {
-      CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
-      return EStatusProtocolError;
-    }
-
-    block.BaseFeePerGas = fromWeiHex(blockObject["baseFeePerGas"].GetString());
-  }
+  CEthUncleResult &result = *response.Result;
+  block.Hash = result.Hash;
+  block.MixHash = result.MixHash;
+  block.GasUsed = result.GasUsed;
+  if (result.BaseFeePerGas.has_value())
+    block.BaseFeePerGas = *result.BaseFeePerGas;
 
   return EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionByHash(asyncBase *base, const UInt<256> &txid, ETHTransaction &tx)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-  jsonStream.reset();
+  CEthGetTransactionByHashRequest request;
+  request.Params.TxHash = txid.getHex(true, true, false);
 
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_getTransactionByHash");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addString(txid.getHex(true, true, false));
-    }
-    queryObject.addInt("id", -1);
-  }
-
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthGetTransactionByHashResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(request), response, 5*1000000);
   if (status != EStatusOk)
     return status;
-
-  if (!document.HasMember("result"))
-    return CNetworkClient::EStatusProtocolError;
-  if (document["result"].IsNull())
+  if (!response.Result.has_value())
     return EStatusInvalidAddressOrKey;
-  else if (!document["result"].IsObject())
-    return CNetworkClient::EStatusProtocolError;
-  const auto &resultObject = document["result"];
 
-  if (!resultObject.HasMember("gasPrice") || !resultObject["gasPrice"].IsString() || resultObject["gasPrice"].GetStringLength() < 3)
-    return CNetworkClient::EStatusProtocolError;
-
-  tx.GasPrice = fromWeiHex(resultObject["gasPrice"].GetString());
+  tx.GasPrice = response.Result->GasPrice;
   tx.Hash = txid;
   return EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethGetTransactionReceipt(asyncBase *base, const UInt<256> &txid, ETHTransactionReceipt &receipt)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-  jsonStream.reset();
+  CEthGetTransactionReceiptRequest request;
+  request.Params.TxHash = txid.getHex(true, true, false);
 
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_getTransactionReceipt");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addString(txid.getHex(true, true, false));
-    }
-    queryObject.addInt("id", -1);
-  }
-
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthGetTransactionReceiptResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(request), response, 5*1000000);
   if (status != EStatusOk)
     return status;
-
-  if (!document.HasMember("result") || !document["result"].IsObject()) {
+  if (!response.Result.has_value()) {
     CLOG_F(WARNING, "{} {}: response invalid format", CoinInfo_.Name, FullHostName_);
     return EStatusProtocolError;
   }
 
-  const auto &resultObject = document["result"];
-  if (!resultObject.HasMember("gasUsed") || !resultObject["gasUsed"].IsString() || resultObject["gasUsed"].GetStringLength() < 3 ||
-      !resultObject.HasMember("blockNumber") || !resultObject["blockNumber"].IsString() || resultObject["blockNumber"].GetStringLength() < 3)
-    return EStatusProtocolError;
-
-  receipt.GasUsed = strtoull(resultObject["gasUsed"].GetString() + 2, nullptr, 16);
-  receipt.BlockNumber = strtoull(resultObject["blockNumber"].GetString() + 2, 0, 16);
+  receipt.GasUsed = response.Result->GasUsed;
+  receipt.BlockNumber = response.Result->BlockNumber;
   return EStatusOk;
+}
+
+static void stripHexPrefix(std::string &s)
+{
+  if (s.size() >= 2 && s[0] == '0' && s[1] == 'x')
+    s.erase(0, 2);
+}
+
+static CNetworkClient::EOperationStatus parseSignTransactionResponse(CEthSignTransactionResponse &response, std::string &txData, std::string &txId)
+{
+  if (!response.Result.has_value())
+    return CNetworkClient::EStatusProtocolError;
+  txData = std::move(response.Result->Raw);
+  stripHexPrefix(txData);
+  txId = std::move(response.Result->Tx.Hash);
+  stripHexPrefix(txId);
+  return CNetworkClient::EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(asyncBase *base,
@@ -877,55 +650,20 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransactionOld(async
                                                                            std::string &txData,
                                                                            std::string &txId)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
+  CEthSignTransactionOldRequest request;
+  request.Params.Tx.From = from;
+  request.Params.Tx.To = to;
+  request.Params.Tx.Value = value;
+  request.Params.Tx.Gas = gas;
+  request.Params.Tx.GasPrice = gasPrice;
+  request.Params.Tx.Nonce = nonce;
 
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_signTransaction");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addField();
-      {
-        JSON::Object transaction(jsonStream);
-        transaction.addString("from", from);
-        transaction.addString("to", to);
-        transaction.addString("value", toWeiHex(value));
-        transaction.addIntHex("gas", gas, false, true);
-        transaction.addString("gasPrice", toWeiHex(gasPrice));
-        transaction.addIntHex("nonce", nonce, false, true);
-      }
-    }
-    queryObject.addInt("id", -1);
-  }
-
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthSignTransactionResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(request), response, 5*1000000);
   if (status != EStatusOk)
     return status;
 
-  if (!document.HasMember("result") || !document["result"].IsObject())
-    return CNetworkClient::EStatusProtocolError;
-
-  // get raw transaction
-  const auto &resultObject = document["result"];
-  if (!resultObject.HasMember("raw") || !resultObject["raw"].IsString() || resultObject["raw"].GetStringLength() < 4)
-    return CNetworkClient::EStatusProtocolError;
-  txData = resultObject["raw"].GetString() + 2;
-
-  // get txid
-  if (!resultObject.HasMember("tx") || !resultObject["tx"].IsObject())
-    return CNetworkClient::EStatusProtocolError;
-  const auto &txObject = resultObject["tx"];
-
-  if (!txObject.HasMember("hash") || !txObject["hash"].IsString() || txObject["hash"].GetStringLength() < 4)
-    return CNetworkClient::EStatusProtocolError;
-  txId = txObject["hash"].GetString() + 2;
-
-  return EStatusOk;
+  return parseSignTransactionResponse(response, txData, txId);
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction1559(asyncBase *base,
@@ -939,84 +677,36 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ethSignTransaction1559(asyn
                                                                             std::string &txData,
                                                                             std::string &txId)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
+  CEthSignTransaction1559Request request;
+  request.Params.Tx.From = from;
+  request.Params.Tx.To = to;
+  request.Params.Tx.Value = value;
+  request.Params.Tx.Gas = gas;
+  request.Params.Tx.MaxPriorityFeePerGas = maxPriorityFeePerGas;
+  request.Params.Tx.MaxFeePerGas = maxFeePerGas;
+  request.Params.Tx.Nonce = nonce;
 
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_signTransaction");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addField();
-      {
-        JSON::Object transaction(jsonStream);
-        transaction.addString("from", from);
-        transaction.addString("to", to);
-        transaction.addString("value", toWeiHex(value));
-        transaction.addIntHex("gas", gas, false, true);
-        transaction.addString("maxPriorityFeePerGas", toWeiHex(maxPriorityFeePerGas));
-        transaction.addString("maxFeePerGas", toWeiHex(maxFeePerGas));
-        transaction.addIntHex("nonce", nonce, false, true);
-      }
-    }
-    queryObject.addInt("id", -1);
-  }
-
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthSignTransactionResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(request), response, 5*1000000);
   if (status != EStatusOk)
     return status;
 
-  if (!document.HasMember("result") || !document["result"].IsObject())
-    return CNetworkClient::EStatusProtocolError;
-
-  // get raw transaction
-  const auto &resultObject = document["result"];
-  if (!resultObject.HasMember("raw") || !resultObject["raw"].IsString() || resultObject["raw"].GetStringLength() < 4)
-    return CNetworkClient::EStatusProtocolError;
-  txData = resultObject["raw"].GetString() + 2;
-
-  // get txid
-  if (!resultObject.HasMember("tx") || !resultObject["tx"].IsObject())
-    return CNetworkClient::EStatusProtocolError;
-  const auto &txObject = resultObject["tx"];
-
-  if (!txObject.HasMember("hash") || !txObject["hash"].IsString() || txObject["hash"].GetStringLength() < 4)
-    return CNetworkClient::EStatusProtocolError;
-  txId = txObject["hash"].GetString() + 2;
-
-  return EStatusOk;
+  return parseSignTransactionResponse(response, txData, txId);
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::ethSendRawTransaction(asyncBase *base, const std::string &txData)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "eth_sendRawTransaction");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addString("0x" + txData);
-    }
-    queryObject.addInt("id", -1);
-  }
+  CEthSendRawTransactionRequest request;
+  request.Params.TxData = "0x" + txData;
 
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 5*1000000);
+  CEthRpcHexResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(request), response, 5*1000000);
   if (status != EStatusOk)
     return status;
+  if (!response.Result.has_value())
+    return EStatusProtocolError;
 
-  if (!document.HasMember("result") || !document["result"].IsString())
-    return CNetworkClient::EStatusProtocolError;
-
-  return CNetworkClient::EStatusOk;
+  return EStatusOk;
 }
 
 CNetworkClient::EOperationStatus CEthereumRpcClient::personalUnlockAccount(asyncBase *base,
@@ -1024,34 +714,21 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::personalUnlockAccount(async
                                                                            const std::string &passPhrase,
                                                                            unsigned seconds)
 {
-  char buffer[1024];
-  xmstream jsonStream(buffer, sizeof(buffer));
-  jsonStream.reset();
-  {
-    JSON::Object queryObject(jsonStream);
-    queryObject.addString("jsonrpc", "2.0");
-    queryObject.addString("method", "personal_unlockAccount");
-    queryObject.addField("params");
-    {
-      JSON::Array paramsArray(jsonStream);
-      paramsArray.addString(address);
-      paramsArray.addString(passPhrase);
-      paramsArray.addInt(seconds);
-    }
-    queryObject.addInt("id", -1);
-  }
+  CPersonalUnlockAccountRequest request;
+  request.Params.Address = address;
+  request.Params.PassPhrase = passPhrase;
+  request.Params.Seconds = seconds;
 
-  rapidjson::Document document;
-  CNetworkClient::EOperationStatus status = ioRpcQuery(base, buildPostQuery(jsonStream), document, 180*1000000);
-  if (status != CNetworkClient::EStatusOk)
+  CEthRpcBoolResponse response;
+  auto status = ioRpcQuery(base, buildPostQuery(request), response, 180*1000000);
+  if (status != EStatusOk)
     return status;
-
-  if (!document.HasMember("result") || !document["result"].IsBool())
+  if (!response.Result.has_value())
     return EStatusProtocolError;
 
-  if (!document["result"].IsTrue()) {
+  if (!*response.Result) {
     LastRpcError_ = "Can't unlock wallet";
-    return CNetworkClient::EStatusUnknownError;
+    return EStatusUnknownError;
   }
 
   return EStatusOk;

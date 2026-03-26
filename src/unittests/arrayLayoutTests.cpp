@@ -493,3 +493,38 @@ TEST(ArrayLayout, OptionalObjectRoundtrip) {
   EXPECT_EQ(parsed.child->value, "rval");
   EXPECT_EQ(parsed.child->count, 42);
 }
+
+TEST(ArrayLayout, UserTypeSerialize) {
+  ArrayLayoutUserType t;
+  t.name = "test";
+  t.value = 42;
+  std::string stream;
+  t.serialize(stream);
+  EXPECT_EQ(stream, R"(["test",42])");
+}
+
+TEST(ArrayLayout, UserTypeSerializeWithOptional) {
+  ArrayLayoutUserType t;
+  t.name = "test";
+  t.value = 10;
+  t.optValue = 20;
+  std::string stream;
+  t.serialize(stream);
+  EXPECT_EQ(stream, R"(["test",10,20])");
+}
+
+TEST(ArrayLayout, UserTypeRoundtrip) {
+  ArrayLayoutUserType t;
+  t.name = "rt";
+  t.value = 99;
+  t.optValue = 7;
+  std::string stream;
+  t.serialize(stream);
+
+  ArrayLayoutUserType parsed;
+  ASSERT_TRUE(parsed.parse(stream.data(), stream.size()));
+  EXPECT_EQ(parsed.name, "rt");
+  EXPECT_EQ(parsed.value, 99u);
+  ASSERT_TRUE(parsed.optValue.has_value());
+  EXPECT_EQ(*parsed.optValue, 7u);
+}

@@ -2168,6 +2168,8 @@ static void emitArrayLayoutValue(CSerializeCodeBuilder &writer, const CFieldDef 
     case EFieldKind::HasDefault:
       if (isStructRef(f, enumNames))
         writer.appendRaw(std::format("{}{}.serialize(out);\n", in, cn));
+      else if (isUserTypeField(f))
+        emitUserTypeValueSerialize(writer, f.Type.RefName, cn, ind);
       else
         emitSerializeValue(writer, f, cn, enumNames, ind);
       break;

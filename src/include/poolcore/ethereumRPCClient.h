@@ -4,11 +4,8 @@
 #include "poolcore/miningAddress.h"
 #include "poolcommon/uint.h"
 #include "poolcommon/httpClient.h"
-#include <rapidjson/document.h>
 #include "loguru.hpp"
 #include <chrono>
-
-class xmstream;
 
 class CEthereumRpcClient : public CNetworkClient {
 public:
@@ -61,49 +58,45 @@ private:
 private:
   std::string buildPostQuery(const char *data, size_t size);
   std::string buildPostQuery(const std::string &jsonBody);
-  std::string buildPostQuery(const xmstream &postData);
 
-  template<rapidjson::ParseFlag flag = rapidjson::kParseDefaultFlags>
-  EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, rapidjson::Document &document, uint64_t timeout)
+  template<typename T>
+  std::string buildPostQuery(const T &request) {
+    std::string body;
+    request.serialize(body);
+    return buildPostQuery(body);
+  }
+
+  template<typename T>
+  EOperationStatus ioRpcQuery(asyncBase *base, const std::string &request, T &response, uint64_t timeout)
   {
-    HttpResponse response;
-    AsyncOpStatus status = RpcEndpoint_.ioRequest(base, request, response, timeout);
+    HttpResponse httpResponse;
+    AsyncOpStatus status = RpcEndpoint_.ioRequest(base, request, httpResponse, timeout);
     if (status != aosSuccess) {
       CLOG_F(WARNING, "{} {}: error code: {}", CoinInfo_.Name, FullHostName_, static_cast<unsigned>(status));
       return status == aosTimeout ? EStatusTimeout : EStatusNetworkError;
     }
 
-    document.Parse<flag>(response.Body.data(), response.Body.size());
-
-    if (response.StatusCode != 200) {
+    if (httpResponse.StatusCode != 200) {
       CLOG_F(WARNING, "{} {}: request error code: {} (http result code: {}, data: {})",
-             CoinInfo_.Name,
-             FullHostName_,
-             static_cast<unsigned>(status),
-             response.StatusCode,
-             response.Body.empty() ? "<null>" : response.Body.c_str());
+             CoinInfo_.Name, FullHostName_, static_cast<unsigned>(status),
+             httpResponse.StatusCode,
+             httpResponse.Body.empty() ? "<null>" : httpResponse.Body.c_str());
       return EStatusUnknownError;
     }
 
-    if (document.HasParseError()) {
+    if (!response.parse(httpResponse.Body.data(), httpResponse.Body.size())) {
       CLOG_F(WARNING, "{} {}: JSON parse error", CoinInfo_.Name, FullHostName_);
       return EStatusProtocolError;
     }
 
-    if (document.HasMember("error") && document["error"].IsObject()) {
-      rapidjson::Value &value = document["error"];
-      if (value.HasMember("code") && value["code"].IsInt())
-        LastRpcErrorCode_ = value["code"].GetInt();
-      if (value.HasMember("message") && value["message"].IsString())
-        LastRpcError_ = value["message"].GetString();
-
-      CLOG_F(WARNING, "{} {}: Error code: {}, Error message: {}",
-             CoinInfo_.Name,
-             FullHostName_,
-             LastRpcErrorCode_,
-             LastRpcError_);
-
-      return EStatusProtocolError;
+    if constexpr (requires { response.Error; }) {
+      if (response.Error.has_value()) {
+        LastRpcErrorCode_ = response.Error->Code;
+        LastRpcError_ = response.Error->Message;
+        CLOG_F(WARNING, "{} {}: Error code: {}, Error message: {}",
+               CoinInfo_.Name, FullHostName_, LastRpcErrorCode_, LastRpcError_);
+        return EStatusProtocolError;
+      }
     }
 
     return EStatusOk;
