@@ -23,7 +23,7 @@ static std::string toWeiHex(const UInt<384> &value) {
   return (value >> 256).getHex(false, true, false);
 }
 
-CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, PoolBackendConfig &config) :
+CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, const CCoinInfo &coinInfo, const char *address, const SelectorByWeight<CMiningAddress> &miningAddresses) :
   CoinInfo_(coinInfo),
   RpcEndpoint_([&]() -> std::string {
     std::string url = "http://";
@@ -58,12 +58,12 @@ CEthereumRpcClient::CEthereumRpcClient(asyncBase *base, unsigned threadsNum, con
   WorkFetcher_.WorkId = 0;
   WorkFetcher_.Height = 0;
 
-  if (config.MiningAddresses.size() != 1) {
+  if (miningAddresses.size() != 1) {
     CLOG_F(ERROR, "ERROR: ethereum-based backends support working with only one mining address");
     exit(1);
   }
 
-  MiningAddress_ = config.MiningAddresses.getByIndex(0).MiningAddress;
+  MiningAddress_ = miningAddresses.getByIndex(0).MiningAddress;
 
   // Build EthGetWorkRequest_
   {

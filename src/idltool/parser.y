@@ -117,7 +117,6 @@
   COptionalPolicySpec *optionalPolicy;
   CDefaultValue *defaultVal;
   int tagVal;
-  CExtensionsDecl *extensionsDecl;
   std::vector<CStructMember> *memberList;
   std::vector<CFieldDef> *fieldList;
   std::vector<std::string> *stringList;
@@ -152,7 +151,7 @@
 %type <variantAlts> variant_alts variant_tail
 
 %destructor { free($$); } <strVal>
-%destructor { delete $$; } <structDef> <enumDef> <includeDef> <userTypeDef> <derivedDef> <fieldDef> <fieldType> <optionalPolicy> <defaultVal> <extensionsDecl> <memberList> <fieldList> <stringList> <variantAlts>
+%destructor { delete $$; } <structDef> <enumDef> <includeDef> <userTypeDef> <derivedDef> <fieldDef> <fieldType> <optionalPolicy> <defaultVal> <memberList> <fieldList> <stringList> <variantAlts>
 
 %%
 

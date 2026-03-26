@@ -2782,7 +2782,6 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   // Check features
   bool hasTaggedSchema = false;
   bool hasChrono = false;
-  bool anyVerbose = false;
   bool anyComments = false;
   bool anyFlatSerialize = false;
   bool hasFixedArray = false;
@@ -2793,7 +2792,6 @@ CCodegenResult generateCode(const CIdlFile &file, const std::string &headerName,
   for (auto &s : file.Structs) {
     if (!s.IsMixin && !s.IsImported) {
       if (s.HasTaggedSchema) hasTaggedSchema = true;
-      if (s.GenerateFlags.ParseVerbose) anyVerbose = true;
       if (s.CommentsEnabled) anyComments = true;
       if (s.GenerateFlags.SerializeFlat) anyFlatSerialize = true;
       if (s.GenerateFlags.Serialize || s.GenerateFlags.SerializeFlat) {

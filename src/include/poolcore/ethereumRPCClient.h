@@ -1,18 +1,18 @@
 #pragma once
 
 #include "poolcore/poolCore.h"
+#include "poolcore/miningAddress.h"
 #include "poolcommon/uint.h"
 #include "poolcommon/httpClient.h"
 #include <rapidjson/document.h>
 #include "loguru.hpp"
 #include <chrono>
 
-struct PoolBackendConfig;
 class xmstream;
 
 class CEthereumRpcClient : public CNetworkClient {
 public:
-  CEthereumRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, PoolBackendConfig &config);
+  CEthereumRpcClient(asyncBase *base, const CCoinInfo &coinInfo, const char *address, const SelectorByWeight<CMiningAddress> &miningAddresses);
 
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
   virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &queries) override;

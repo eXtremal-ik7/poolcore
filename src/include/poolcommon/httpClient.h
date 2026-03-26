@@ -21,9 +21,9 @@ enum class HttpMethod {
 struct HttpRequest {
   HttpMethod Method = HttpMethod::GET;
   std::string_view Path = "/";
-  std::string_view Body;
-  std::string_view ContentType;
-  std::vector<std::pair<std::string_view, std::string_view>> Headers;
+  std::string_view Body = {};
+  std::string_view ContentType = {};
+  std::vector<std::pair<std::string_view, std::string_view>> Headers = {};
 };
 
 struct HttpResponse {

@@ -111,16 +111,15 @@ void sendTransactionCoro(CContext *context)
   CNetworkClient::EOperationStatus status =
     context->Client->ioSendTransaction(context->Base, txData, txId, error);
   if (status == CNetworkClient::EStatusOk) {
-    // Nothing to do
+    if (!error.empty())
+      CLOG_F(INFO, "sending ok ({})", error);
+    else
+      CLOG_F(INFO, "sending ok");
   } else if (status == CNetworkClient::EStatusVerifyRejected) {
     CLOG_F(ERROR, "Transaction {} rejected", txData);
-    return;
   } else {
     CLOG_F(WARNING, "Sending transaction {} error \"{}\", will try send later...", txData, error);
-    return;
   }
-
-  CLOG_F(INFO, "sending ok");
 }
 
 void getTxConfirmationsCoro(CContext *context)
@@ -402,7 +401,7 @@ int main(int argc, char **argv)
       fprintf(stderr, "Error: you must specify --user and --password\n");
       exit(1);
     }
-    context.Client.reset(new CBitcoinRpcClient(context.Base, 1, context.CoinInfo, address, user, password, wallet, true));
+    context.Client.reset(new CBitcoinRpcClient(context.Base, context.CoinInfo, address, user, password, wallet, true));
   } else if (type == "ethereumrpc") {
     if ((method == "getBalance" || method == "buildTransaction") &&
         miningAddresses.size() != 1) {
@@ -410,11 +409,11 @@ int main(int argc, char **argv)
       exit(1);
     }
 
-    context.Client.reset(new CEthereumRpcClient(context.Base, 1, context.CoinInfo, address, config));
+    context.Client.reset(new CEthereumRpcClient(context.Base, context.CoinInfo, address, config.MiningAddresses));
   } else {
     // lookup client type in extras
     for (const auto &proc: gPluginContext.AddRpcClientForTerminalProcs) {
-      context.Client.reset(proc(type, context.Base, 1, context.CoinInfo, nodeConfig, config, method, miningAddresses, privateKeys));
+      context.Client.reset(proc(type, context.Base, context.CoinInfo, nodeConfig, config.MiningAddresses, method, miningAddresses, privateKeys));
       if (context.Client)
         break;
     }

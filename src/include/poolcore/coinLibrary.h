@@ -89,8 +89,10 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {60};
       info.ScriptAddressPrefix = {85};
+      info.PrivateKeyPrefix = 188;
       info.DefaultRpcPort = 7771;
       info.CoinGeckoName = "pirate-chain";
+      info.NodeRepository = "https://github.com/PirateNetwork/pirate";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
@@ -108,6 +110,7 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 17771;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
@@ -126,6 +129,7 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {60};
       info.ScriptAddressPrefix = {85};
+      info.PrivateKeyPrefix = 188;
       info.DefaultRpcPort = 18232;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.48.5";
@@ -145,8 +149,10 @@ public:
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
       info.Bech32Prefix = "bc";
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "bitcoin";
+      info.NodeRepository = "https://github.com/bitcoin/bitcoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -164,6 +170,7 @@ public:
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
       info.Bech32Prefix = "tb";
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18332;
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -181,6 +188,7 @@ public:
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
       info.Bech32Prefix = "bcrt";
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18443;
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -197,8 +205,10 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "bitcoin-cash";
+      info.NodeRepository = "https://gitlab.com/bitcoin-cash-node/bitcoin-cash-node";
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
@@ -207,15 +217,18 @@ public:
     } else if (strcmp(coinName, "BELLS") == 0) {
       info.Name = "BELLS";
       info.FullName = "Bellscoin";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {25};
       info.ScriptAddressPrefix = {30};
+      info.Bech32Prefix = "bel";
+      info.PrivateKeyPrefix = 153;
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "bellscoin";
+      info.NodeRepository = "https://github.com/bellscoin/bellscoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -228,13 +241,15 @@ public:
     } else if (strcmp(coinName, "BELLS.testnet") == 0) {
       info.Name = "BELLS.testnet";
       info.FullName = "Bellscoin";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {33};
       info.ScriptAddressPrefix = {22};
+      info.Bech32Prefix = "tbel";
+      info.PrivateKeyPrefix = 158;
       info.DefaultRpcPort = 18332;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -247,13 +262,15 @@ public:
     } else if (strcmp(coinName, "BELLS.regtest") == 0) {
       info.Name = "BELLS.regtest";
       info.FullName = "Bellscoin";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.FractionalPartSize = 8;
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
+      info.Bech32Prefix = "bcrt";
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18443;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -273,8 +290,10 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "bitcoin-cash-sv";
+      info.NodeRepository = "https://github.com/bitcoin-sv/bitcoin-sv";
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
@@ -290,6 +309,7 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18332;
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -306,8 +326,10 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {76};
       info.ScriptAddressPrefix = {16};
+      info.PrivateKeyPrefix = 204;
       info.DefaultRpcPort = 9998;
       info.CoinGeckoName = "dash";
+      info.NodeRepository = "https://github.com/dashpay/dash";
       info.MinimalConfirmationsNumber = 6;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "x11";
@@ -326,8 +348,10 @@ public:
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {63};
       info.Bech32Prefix = "dgb";
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 14022;
       info.CoinGeckoName = "digibyte";
+      info.NodeRepository = "https://github.com/DigiByte-Core/digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "sha256";
@@ -347,6 +371,7 @@ public:
       info.PubkeyAddressPrefix = {126};
       info.ScriptAddressPrefix = {140};
       info.Bech32Prefix = "dgbt";
+      info.PrivateKeyPrefix = 254;
       info.DefaultRpcPort = 14023;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "sha256";
@@ -366,8 +391,10 @@ public:
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {63};
       info.Bech32Prefix = "dgb";
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 14022;
       info.CoinGeckoName = "digibyte";
+      info.NodeRepository = "https://github.com/DigiByte-Core/digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "scrypt";
@@ -387,6 +414,7 @@ public:
       info.PubkeyAddressPrefix = {126};
       info.ScriptAddressPrefix = {140};
       info.Bech32Prefix = "dgbt";
+      info.PrivateKeyPrefix = 254;
       info.DefaultRpcPort = 14023;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "scrypt";
@@ -406,8 +434,10 @@ public:
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {63};
       info.Bech32Prefix = "dgb";
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 14022;
       info.CoinGeckoName = "digibyte";
+      info.NodeRepository = "https://github.com/DigiByte-Core/digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "qubit";
@@ -427,6 +457,7 @@ public:
       info.PubkeyAddressPrefix = {126};
       info.ScriptAddressPrefix = {140};
       info.Bech32Prefix = "dgbt";
+      info.PrivateKeyPrefix = 254;
       info.DefaultRpcPort = 14023;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "qubit";
@@ -446,8 +477,10 @@ public:
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {63};
       info.Bech32Prefix = "dgb";
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 14022;
       info.CoinGeckoName = "digibyte";
+      info.NodeRepository = "https://github.com/DigiByte-Core/digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "skein";
@@ -467,6 +500,7 @@ public:
       info.PubkeyAddressPrefix = {126};
       info.ScriptAddressPrefix = {140};
       info.Bech32Prefix = "dgbt";
+      info.PrivateKeyPrefix = 254;
       info.DefaultRpcPort = 14023;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "skein";
@@ -486,8 +520,10 @@ public:
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {63};
       info.Bech32Prefix = "dgb";
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 14022;
       info.CoinGeckoName = "digibyte";
+      info.NodeRepository = "https://github.com/DigiByte-Core/digibyte";
       info.ProfitSwitchDefaultCoeff = 0.7;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "odocrypt";
@@ -507,6 +543,7 @@ public:
       info.PubkeyAddressPrefix = {126};
       info.ScriptAddressPrefix = {140};
       info.Bech32Prefix = "dgbt";
+      info.PrivateKeyPrefix = 254;
       info.DefaultRpcPort = 14023;
       info.MinimalConfirmationsNumber = 32;
       info.Algorithm = "odocrypt";
@@ -525,8 +562,10 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {22};
+      info.PrivateKeyPrefix = 158;
       info.DefaultRpcPort = 34646;
       info.CoinGeckoName = "dingocoin";
+      info.NodeRepository = "https://github.com/dingocoincrypto/dingocoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -546,6 +585,7 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {113};
       info.ScriptAddressPrefix = {196};
+      info.PrivateKeyPrefix = 241;
       info.DefaultRpcPort = 44555;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -565,8 +605,10 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {30};
       info.ScriptAddressPrefix = {22};
+      info.PrivateKeyPrefix = 158;
       info.DefaultRpcPort = 22555;
       info.CoinGeckoName = "dogecoin";
+      info.NodeRepository = "https://github.com/dogecoin/dogecoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -585,6 +627,7 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {113};
       info.ScriptAddressPrefix = {196};
+      info.PrivateKeyPrefix = 241;
       info.DefaultRpcPort = 44555;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -603,6 +646,7 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18332;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -614,14 +658,17 @@ public:
     } else if (strcmp(coinName, "DTC") == 0) {
       info.Name = "DTC";
       info.FullName = "Datacoin";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
       info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = -3;
       info.PubkeyAddressPrefix = {30};
+      info.ScriptAddressPrefix = {90};
+      info.PrivateKeyPrefix = 158;
       info.DefaultRpcPort = 11777;
       info.CoinGeckoName = "datacoin";
+      info.NodeRepository = "https://github.com/datacoinproject/datacoin-core";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
@@ -632,14 +679,17 @@ public:
     } else if (strcmp(coinName, "DTC.testnet") == 0) {
       info.Name = "DTC";
       info.FullName = "Datacoin";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
       info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = -3;
       info.PubkeyAddressPrefix = {70};
+      info.ScriptAddressPrefix = {132};
+      info.PrivateKeyPrefix = 198;
       info.DefaultRpcPort = 11776;
       info.CoinGeckoName = "datacoin";
+      info.NodeRepository = "https://github.com/datacoinproject/datacoin-core";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
@@ -656,6 +706,7 @@ public:
       info.PowerMultLog10 = 6;
       info.DefaultRpcPort = 8545;
       info.CoinGeckoName = "ethereum-classic";
+      info.NodeRepository = "https://github.com/ethereumclassic/ethereumclassic.github.io";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 64;
       info.Algorithm = "etchash";
@@ -668,16 +719,18 @@ public:
     } else if (strcmp(coinName, "FCH") == 0) {
       info.Name = "FCH";
       info.FullName = "FreeCash";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
       info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {35};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 8332;
       info.ProfitSwitchDefaultCoeff = 0.4;
       info.CoinGeckoName = "freecash";
+      info.NodeRepository = "https://github.com/freecashorg/freecash";
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
@@ -694,8 +747,10 @@ public:
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
       info.Bech32Prefix = "bc";
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "fractal-bitcoin";
+      info.NodeRepository = "https://github.com/fractal-bitcoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -712,8 +767,10 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {100};
       info.ScriptAddressPrefix = {15};
+      info.PrivateKeyPrefix = 75;
       info.DefaultRpcPort = 6886;
       info.CoinGeckoName = "hootchain";
+      info.NodeRepository = "https://github.com/HootChain/HootChain";
       info.MinimalConfirmationsNumber = 6;
       info.Algorithm = "x11";
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -731,8 +788,10 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {16};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 144;
       info.DefaultRpcPort = 9771;
       info.CoinGeckoName = "junkcoin";
+      info.NodeRepository = "https://github.com/JunkcoinCommunity/junkcoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -750,8 +809,9 @@ public:
       info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 3;
-      info.PubkeyAddressPrefix = {111};
+      info.PubkeyAddressPrefix = {16};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 150;
       info.DefaultRpcPort = 19771;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -771,8 +831,10 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {60};
       info.ScriptAddressPrefix = {85};
+      info.PrivateKeyPrefix = 188;
       info.DefaultRpcPort = 7771;
       info.CoinGeckoName = "komodo";
+      info.NodeRepository = "https://github.com/KomodoPlatform/komodo";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
@@ -790,6 +852,7 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 17771;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
@@ -808,6 +871,7 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {60};
       info.ScriptAddressPrefix = {85};
+      info.PrivateKeyPrefix = 188;
       info.DefaultRpcPort = 18232;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.48.5";
@@ -819,16 +883,19 @@ public:
     } else if (strcmp(coinName, "LCC") == 0) {
       info.Name = "LCC";
       info.FullName = "LitecoinCash";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H | CCoinInfo::EBech32);
       info.FractionalPartSize = 8;
-      info.SegwitEnabled = false;
+      info.SegwitEnabled = true;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {28};
       info.ScriptAddressPrefix = {5};
+      info.Bech32Prefix = "lcc";
+      info.PrivateKeyPrefix = 176;
       info.DefaultRpcPort = 62457;
       info.ProfitSwitchDefaultCoeff = 0.1;
       info.CoinGeckoName = "litecoin-cash";
+      info.NodeRepository = "https://github.com/litecoincash-project/litecoincash";
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
@@ -844,8 +911,10 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {47};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 175;
       info.DefaultRpcPort = 19918;
       info.CoinGeckoName = "luckycoin";
+      info.NodeRepository = "https://github.com/LuckycoinFoundation/luckycoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -865,6 +934,7 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {113};
       info.ScriptAddressPrefix = {196};
+      info.PrivateKeyPrefix = 241;
       info.DefaultRpcPort = 29919;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -886,8 +956,10 @@ public:
       info.PubkeyAddressPrefix = {48};
       info.ScriptAddressPrefix = {50};
       info.Bech32Prefix = "ltc";
+      info.PrivateKeyPrefix = 176;
       info.DefaultRpcPort = 9332;
       info.CoinGeckoName = "litecoin";
+      info.NodeRepository = "https://github.com/litecoin-project/litecoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -907,6 +979,7 @@ public:
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {58};
       info.Bech32Prefix = "tltc";
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 19332;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -926,6 +999,7 @@ public:
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {58};
       info.Bech32Prefix = "rltc";
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 19443;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -943,10 +1017,11 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {50};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 75;
       info.DefaultRpcPort = 9938;
-      info.CoinGeckoName = "pepecoin";
       info.MinimalConfirmationsNumber = 6;
       info.Algorithm = "x11";
+      info.NodeRepository = "https://github.com/Maximus-Chain/maximus";
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
       info.CanBeSecondaryCoin = true;
@@ -962,8 +1037,10 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {63};
       info.ScriptAddressPrefix = {15};
+      info.PrivateKeyPrefix = 75;
       info.DefaultRpcPort = 9968;
       info.CoinGeckoName = "osmium";
+      info.NodeRepository = "https://github.com/osmium-labs/osmium";
       info.MinimalConfirmationsNumber = 6;
       info.Algorithm = "x11";
       info.PowLimit = UInt<256>::fromHex("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -981,8 +1058,10 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {56};
       info.ScriptAddressPrefix = {22};
+      info.PrivateKeyPrefix = 158;
       info.DefaultRpcPort = 33873;
       info.CoinGeckoName = "pepecoin-network";
+      info.NodeRepository = "https://github.com/pepecoinppc/pepecoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -1002,6 +1081,7 @@ public:
       info.PowerMultLog10 = 3;
       info.PubkeyAddressPrefix = {113};
       info.ScriptAddressPrefix = {196};
+      info.PrivateKeyPrefix = 241;
       info.DefaultRpcPort = 44873;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "scrypt";
@@ -1014,15 +1094,17 @@ public:
     } else if (strcmp(coinName, "SPACE") == 0) {
       info.Name = "SPACE";
       info.FullName = "MVC";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
       info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::EHash;
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 9882;
       info.Algorithm = "sha256";
+      info.NodeRepository = "https://github.com/mvc-labs/microvisionchain";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.WorkType = EWorkBitcoin;
       info.DefaultInstantMinimalPayout = payout("50");
@@ -1037,8 +1119,10 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {0};
       info.ScriptAddressPrefix = {5};
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 8332;
       info.CoinGeckoName = "ecash";
+      info.NodeRepository = "https://github.com/bitcoin-abc";
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.HasRtt = true;
@@ -1055,6 +1139,7 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18332;
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -1072,6 +1157,7 @@ public:
       info.PowerMultLog10 = 6;
       info.PubkeyAddressPrefix = {111};
       info.ScriptAddressPrefix = {196};
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18443;
       info.Algorithm = "sha256";
       info.PowLimit = UInt<256>::fromHex("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -1082,14 +1168,17 @@ public:
     } else if (strcmp(coinName, "XPM") == 0) {
       info.Name = "XPM";
       info.FullName = "Primecoin";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
       info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = -3;
       info.PubkeyAddressPrefix = {23};
+      info.ScriptAddressPrefix = {83};
+      info.PrivateKeyPrefix = 151;
       info.DefaultRpcPort = 9912;
       info.CoinGeckoName = "primecoin";
+      info.NodeRepository = "https://github.com/primecoin/primecoin";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
@@ -1101,12 +1190,14 @@ public:
     } else if (strcmp(coinName, "XPM.testnet") == 0) {
       info.Name = "XPM.testnet";
       info.FullName = "Primecoin";
-      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH);
+      info.PayoutAddressType = static_cast<CCoinInfo::EAddressType>(CCoinInfo::EP2PKH | CCoinInfo::EPS2H);
       info.FractionalPartSize = 8;
       info.SegwitEnabled = false;
       info.PowerUnitType = CCoinInfo::ECPD;
       info.PowerMultLog10 = -3;
       info.PubkeyAddressPrefix = {111};
+      info.ScriptAddressPrefix = {196};
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 9914;
       info.MinimalConfirmationsNumber = 12;
       info.Algorithm = "PrimePOW";
@@ -1125,8 +1216,10 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {0x1C,0xB8};
       info.ScriptAddressPrefix = {0x1C,0xBD};
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 8232;
       info.CoinGeckoName = "zcash";
+      info.NodeRepository = "https://github.com/zcash/zcash";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
@@ -1144,6 +1237,7 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {0x1D,0x25};
       info.ScriptAddressPrefix = {0x1C,0xBA};
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18232;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
@@ -1162,6 +1256,7 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {0x1D,0x25};
       info.ScriptAddressPrefix = {0x1C,0xBA};
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18232;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.48.5";
@@ -1180,8 +1275,10 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {0x20,0x89};
       info.ScriptAddressPrefix = {0x20,0x96};
+      info.PrivateKeyPrefix = 128;
       info.DefaultRpcPort = 8231;
       info.CoinGeckoName = "zencash";
+      info.NodeRepository = "https://github.com/HorizenOfficial/zen";
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
       info.HasExtendedFundRawTransaction = false;
@@ -1199,6 +1296,7 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {0x20,0x98};
       info.ScriptAddressPrefix = {0x20,0x92};
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18231;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.200.9";
@@ -1217,6 +1315,7 @@ public:
       info.PowerMultLog10 = 0;
       info.PubkeyAddressPrefix = {0x20,0x89};
       info.ScriptAddressPrefix = {0x20,0x96};
+      info.PrivateKeyPrefix = 239;
       info.DefaultRpcPort = 18231;
       info.ProfitSwitchDefaultCoeff = 1.0;
       info.Algorithm = "equihash.48.5";

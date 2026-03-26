@@ -1,15 +1,15 @@
 #pragma once
 
 #include "poolcore/poolCore.h"
-#include "poolcore/bitcoinRpc.idl.h"
 #include "poolcommon/httpClient.h"
 #include "asyncio/asyncio.h"
-#include <vector>
 #include "loguru.hpp"
+#include <vector>
+
 
 class CBitcoinRpcClient : public CNetworkClient {
 public:
-  CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, const char *wallet, bool longPollEnabled);
+  CBitcoinRpcClient(asyncBase *base, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, const char *wallet, bool longPollEnabled);
 
   virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
   virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &query) override;

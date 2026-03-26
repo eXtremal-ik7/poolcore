@@ -568,7 +568,7 @@ bool Zmq::prepareToSubmit(Work &work, ThreadConfig &threadCfg, MiningConfig &min
   return true;
 }
 
-bool Zmq::loadFromTemplate(Work &work, const CBlockTemplateResult &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string &ticker, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string &error)
+bool Zmq::loadFromTemplate(Work &work, const CBlockTemplateResult &blockTemplate, const MiningConfig &cfg, PoolBackend *backend, const std::string &ticker, Proto::AddressTy &miningAddress, const std::string &coinbaseMsg, std::string&)
 {
   work.Height = 0;
   work.MerklePath.clear();

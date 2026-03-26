@@ -1,9 +1,10 @@
 #pragma once
 #include "poolconfig/config.h"
-#include "poolcore/backendData.h"
+#include "poolcore/miningAddress.h"
 #include "poolcore/poolCore.h"
 #include "poolcore/poolInstance.h"
 #include "poolcore/priceFetcher.h"
+#include <filesystem>
 #include <functional>
 
 // Plugin callbacks
@@ -12,17 +13,15 @@ using FAddExtraCoinOld2 = std::function<bool(const char*, CCoinInfoOld2&)>;
 
 using FAddRpcClient = std::function<CNetworkClient*(const std::string&,
                                                     asyncBase*,
-                                                    unsigned,
                                                     const CCoinInfo&,
                                                     const CNodeConfig&,
-                                                    const PoolBackendConfig&)>;
+                                                    const SelectorByWeight<CMiningAddress>&)>;
 
 using FAddRpcClientForTerminal = std::function<CNetworkClient*(const std::string&,
                                                                asyncBase*,
-                                                               unsigned,
                                                                const CCoinInfo&,
                                                                const CNodeConfig&,
-                                                               const PoolBackendConfig&,
+                                                               const SelectorByWeight<CMiningAddress>&,
                                                                const std::string&,
                                                                const std::vector<std::string>&,
                                                                const std::vector<std::string>&)>;

@@ -30,6 +30,7 @@ private:
   mutable std::atomic<uintptr_t> Refs_ = 0;
 public:
   CBlockTemplate(const std::string &ticker, EWorkType workType) : Ticker(ticker), WorkType(workType) {}
+  virtual ~CBlockTemplate() = default;
   std::string Ticker;
   EWorkType WorkType;
   uint64_t UniqueWorkId;

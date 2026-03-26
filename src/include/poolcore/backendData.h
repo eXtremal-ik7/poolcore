@@ -1,17 +1,16 @@
 #ifndef __BACKEND_DATA_H_
 #define __BACKEND_DATA_H_
 
-#include "poolcore/poolCore.h"
-#include "poolcore/workSummary.h"
+#include "idltool/serialize.h"
+#include "poolcore/miningAddress.h"
+#include "poolcommon/types.idl.h"
 #include "poolcommon/baseBlob.h"
 #include "poolcommon/serialize.h"
-#include "poolcommon/tagged.h"
-#include "poolcommon/uint.h"
-#include <list>
+#include "p2putils/xmstream.h"
+#include <filesystem>
 #include <string>
 #include <vector>
-#include <filesystem>
-#include "p2putils/xmstream.h"
+
 
 std::string partByHeight(uint64_t height);
 std::string partByTime(time_t time);
@@ -32,40 +31,6 @@ struct CBlockFoundData {
   UInt<256> ExpectedWork;
   uint32_t PrimePOWTarget;
   BaseBlob<256> ShareHash;
-};
-
-
-struct CMiningAddress {
-  std::string MiningAddress;
-  std::string PrivateKey;
-  CMiningAddress() {}
-  CMiningAddress(const std::string &miningAddress, const std::string &privateKey) : MiningAddress(miningAddress), PrivateKey(privateKey) {}
-};
-
-template<typename T>
-class SelectorByWeight {
-public:
-  void add(const T &value, uint32_t weight) {
-    Values.push_back(value);
-    ValueIndexes.insert(ValueIndexes.end(), weight, Values.size()-1);
-  }
-
-  size_t size() const { return Values.size(); }
-  const T &get() const {
-    static T empty;
-    return ValueIndexes.size() ? Values[ValueIndexes[rand() % ValueIndexes.size()]] : empty;
-  }
-  const T &getByIndex(size_t index) const { return Values[index]; }
-
-private:
-  struct Entry {
-    T Value;
-    uint32_t Weight;
-  };
-
-private:
-  std::vector<T> Values;
-  std::vector<size_t> ValueIndexes;
 };
 
 struct PoolBackendConfig {

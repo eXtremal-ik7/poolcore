@@ -1,7 +1,5 @@
 #include "poolcore/backendData.h"
-#include "poolcommon/serialize.h"
 #include "poolcommon/utils.h"
-#include <inttypes.h>
 #include <time.h>
 
 std::string partByHeight(uint64_t height)

@@ -244,7 +244,7 @@ EthashDag *ethashCreateDag(int epochNumber, int bigEpoch)
 
 void ethashCalculate(void *finalHash, void *mixHash, const void *headerHash, uint64_t nonce, const EthashDag *context)
 {
-  const int num_dataset_accesses = 64;
+  const uint32_t num_dataset_accesses = 64;
 
   // calculate seed
   uint8_t seedX[64];
@@ -271,7 +271,7 @@ void ethashCalculate(void *finalHash, void *mixHash, const void *headerHash, uin
     const uint32_t p = fnv1(i ^ seed_init, mix[i % num_words]) % index_limit;
 
     {
-      const int full_dataset_item_parents = 256;
+      const uint32_t full_dataset_item_parents = 256;
       ItemState item0;
       ItemState item1;
 

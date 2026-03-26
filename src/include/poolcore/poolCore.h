@@ -1,12 +1,10 @@
 #pragma once
 
 #include "poolcommon/uint.h"
-#include "poolcommon/types.h"
 #include "workTypes.h"
 #include <atomic>
 #include <chrono>
 #include <functional>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -48,11 +46,13 @@ struct CCoinInfo {
   std::vector<uint8_t> PubkeyAddressPrefix;
   std::vector<uint8_t> ScriptAddressPrefix;
   std::string Bech32Prefix;
+  uint8_t PrivateKeyPrefix = 0;
 
   uint16_t DefaultRpcPort;
 
   std::string Algorithm;
   std::string CoinGeckoName;
+  std::string NodeRepository;
   double ProfitSwitchDefaultCoeff = 0.0;
   unsigned MinimalConfirmationsNumber = 6;
   bool HasExtendedFundRawTransaction = true;

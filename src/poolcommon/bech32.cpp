@@ -38,39 +38,6 @@ const int8_t CASHADDR_CHARSET_REV[128] = {
     3,  16, 11, 28, 12, 14, 6,  4,  2,  -1, -1, -1, -1, -1
 };
 
-/**
- * Convert from one power-of-2 number base to another.
- *
- * If padding is enabled, this always return true. If not, then it returns true
- * of all the bits of the input are encoded in the output.
- */
-template <int frombits, int tobits, bool pad, typename O, typename I>
-bool ConvertBits(const O &outfn, I it, I end) {
-    size_t acc = 0;
-    size_t bits = 0;
-    constexpr size_t maxv = (1 << tobits) - 1;
-    constexpr size_t max_acc = (1 << (frombits + tobits - 1)) - 1;
-    while (it != end) {
-        acc = ((acc << frombits) | *it) & max_acc;
-        bits += frombits;
-        while (bits >= tobits) {
-            bits -= tobits;
-            outfn((acc >> bits) & maxv);
-        }
-        ++it;
-    }
-
-    if (pad) {
-        if (bits) {
-            outfn((acc << (tobits - bits)) & maxv);
-        }
-    } else if (bits >= frombits || ((acc << (tobits - bits)) & maxv)) {
-        return false;
-    }
-
-    return true;
-}
-
 /** Concatenate two vectors. */
 template<typename V>
 inline V Cat(V v1, const V& v2)
@@ -374,6 +341,39 @@ std::pair<std::string, std::vector<uint8_t>> Decode(const std::string& str) {
         return {};
     }
     return {hrp, std::vector<uint8_t>(values.begin(), values.end() - 6)};
+}
+
+std::string EncodeCashAddr(const std::string &prefix, CashAddrType type, const std::vector<uint8_t> &hash) {
+    // Version byte: type in upper 5 bits, size encoding in lower 3 bits
+    // For 20-byte hash: size bits = 0
+    uint8_t version = (static_cast<uint8_t>(type) << 3) | 0;
+    std::vector<uint8_t> data;
+    data.push_back(version);
+    data.insert(data.end(), hash.begin(), hash.end());
+
+    // Convert 8-bit to 5-bit
+    std::vector<uint8_t> payload;
+    payload.reserve(1 + data.size() * 8 / 5);
+    ConvertBits<8, 5, true>([&](uint8_t c) { payload.push_back(c); }, data.begin(), data.end());
+
+    // Create checksum (8 x 5-bit values)
+    std::vector<uint8_t> enc = Cat(CashExpandPrefix(prefix), payload);
+    enc.resize(enc.size() + 8); // Append 8 zeroes
+    uint64_t mod = CashPolyMod(enc);
+    std::vector<uint8_t> checksum(8);
+    for (size_t i = 0; i < 8; ++i) {
+        checksum[i] = (mod >> (5 * (7 - i))) & 0x1f;
+    }
+
+    // Encode
+    std::string ret = prefix + ':';
+    for (uint8_t c : payload) {
+        ret += CHARSET[c];
+    }
+    for (uint8_t c : checksum) {
+        ret += CHARSET[c];
+    }
+    return ret;
 }
 
 std::pair<std::string, std::vector<uint8_t>> DecodeCashAddr(const std::string &str, const std::string &default_prefix) {

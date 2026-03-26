@@ -295,13 +295,13 @@ int main(int argc, char *argv[])
         CNetworkClient *client;
         const CNodeConfig &node = coinConfig.GetWorkNodes[nodeIdx];
         if (node.Type == "bitcoinrpc") {
-          client = new CBitcoinRpcClient(monitorBase, totalThreadsNum, coinInfo, node.Address.c_str(), node.Login.c_str(), node.Password.c_str(), node.Wallet.c_str(), node.LongPollEnabled);
+          client = new CBitcoinRpcClient(monitorBase, coinInfo, node.Address.c_str(), node.Login.c_str(), node.Password.c_str(), node.Wallet.c_str(), node.LongPollEnabled);
         } else if (node.Type == "ethereumrpc") {
-          client = new CEthereumRpcClient(monitorBase, totalThreadsNum, coinInfo, node.Address.c_str(), backendConfig);
+          client = new CEthereumRpcClient(monitorBase, coinInfo, node.Address.c_str(), backendConfig.MiningAddresses);
         } else {
           // lookup client type in extras
           for (const auto &proc: gPluginContext.AddRpcClientProcs) {
-            client = proc(node.Type, monitorBase, totalThreadsNum, coinInfo, node, backendConfig);
+            client = proc(node.Type, monitorBase, coinInfo, node, backendConfig.MiningAddresses);
             if (client)
               break;
           }
@@ -319,13 +319,13 @@ int main(int argc, char *argv[])
         CNetworkClient *client;
         const CNodeConfig &node = coinConfig.RPCNodes[nodeIdx];
         if (node.Type == "bitcoinrpc") {
-          client = new CBitcoinRpcClient(monitorBase, totalThreadsNum, coinInfo, node.Address.c_str(), node.Login.c_str(), node.Password.c_str(), node.Wallet.c_str(), node.LongPollEnabled);
+          client = new CBitcoinRpcClient(monitorBase, coinInfo, node.Address.c_str(), node.Login.c_str(), node.Password.c_str(), node.Wallet.c_str(), node.LongPollEnabled);
         } else if (node.Type == "ethereumrpc") {
-          client = new CEthereumRpcClient(monitorBase, totalThreadsNum, coinInfo, node.Address.c_str(), backendConfig);
+          client = new CEthereumRpcClient(monitorBase, coinInfo, node.Address.c_str(), backendConfig.MiningAddresses);
         } else {
           // lookup client type in extras
           for (const auto &proc: gPluginContext.AddRpcClientProcs) {
-            client = proc(node.Type, monitorBase, totalThreadsNum, coinInfo, node, backendConfig);
+            client = proc(node.Type, monitorBase, coinInfo, node, backendConfig.MiningAddresses);
             if (client)
               break;
           }

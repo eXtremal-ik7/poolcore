@@ -3,8 +3,6 @@
 #include "blockmaker/bitcoinBlockTemplate.h"
 #include "poolcore/clientDispatcher.h"
 #include "poolcommon/utils.h"
-#include "asyncio/asyncio.h"
-#include "loguru.hpp"
 
 static std::string buildGetBlockTemplate(const std::string &longPollId, bool segwitEnabled, bool mwebEnabled)
 {
@@ -78,7 +76,7 @@ static std::string buildRpcUrl(const char *address, uint16_t defaultPort, const 
   return url;
 }
 
-CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, const char *wallet, bool longPollEnabled) :
+CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, const char *wallet, bool longPollEnabled) :
   CoinInfo_(coinInfo),
   RpcEndpoint_(buildRpcUrl(address, coinInfo.DefaultRpcPort, wallet).c_str()),
   WorkFetcherHttpClient_(base, buildRpcUrl(address, coinInfo.DefaultRpcPort, wallet).c_str()),
@@ -110,7 +108,7 @@ CBitcoinRpcClient::CBitcoinRpcClient(asyncBase *base, unsigned threadsNum, const
   BlockChainInfoRequest_ = buildPostQuery(CGetBlockChainInfoRequest{});
   InfoRequest_ = buildPostQuery(CGetInfoRequest{});
 
-  if (!longPollEnabled) {
+  {
     std::string gbtBody = buildGetBlockTemplate("", coinInfo.SegwitEnabled, coinInfo.MWebEnabled);
     HttpRequest req;
     req.Method = HttpMethod::POST;
@@ -540,6 +538,14 @@ void CBitcoinRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpResponse
             FullHostName_,
             static_cast<unsigned>(status),
             response.StatusCode);
+    Dispatcher_->onWorkFetcherConnectionLost();
+    return;
+  }
+
+  if (response.StatusCode != 200) {
+    CLOG_FC(*LogChannel_, WARNING, "{} {}: http result code: {}, data: {}",
+            CoinInfo_.Name, FullHostName_, response.StatusCode,
+            response.Body.empty() ? "<null>" : response.Body.c_str());
     Dispatcher_->onWorkFetcherConnectionLost();
     return;
   }
