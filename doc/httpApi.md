@@ -1088,9 +1088,9 @@ Returns backend configuration for a coin.
     "instantPayoutsEnabled": true,
     "regularPayoutsEnabled": true,
     "instantMinimalPayout": "0.001",
-    "instantPayoutInterval": 3600000,
+    "instantPayoutInterval": 1,
     "regularMinimalPayout": "0.01",
-    "regularPayoutInterval": 86400000,
+    "regularPayoutInterval": 24,
     "regularPayoutDayOffset": 0
   },
   "swap": {
@@ -1101,7 +1101,7 @@ Returns backend configuration for a coin.
 }
 ```
 
-Note: payout intervals are in milliseconds.
+Note: `instantPayoutInterval` is in minutes, `regularPayoutInterval` and `regularPayoutDayOffset` are in hours.
 
 ---
 
@@ -1123,7 +1123,7 @@ At least one of `pps`, `payouts`, `swap` must be present.
 
 **pps** fields: `enabled`(bool), `poolFee`(double), `saturationFunction`(string — `"none"`, `"tanh"`, `"clamp"`, `"cubic"`, `"softsign"`, `"norm"`, `"atan"`, `"exp"`), `saturationB0`(double), `saturationANegative`(double), `saturationAPositive`(double)
 
-**payouts** fields: `instantPayoutsEnabled`(bool), `regularPayoutsEnabled`(bool), `instantMinimalPayout`(string), `instantPayoutInterval`(int64 ms), `regularMinimalPayout`(string), `regularPayoutInterval`(int64 ms), `regularPayoutDayOffset`(int64 ms, default 0)
+**payouts** fields: `instantPayoutsEnabled`(bool), `regularPayoutsEnabled`(bool), `instantMinimalPayout`(string), `instantPayoutInterval`(int64, minutes), `regularMinimalPayout`(string), `regularPayoutInterval`(int64, hours), `regularPayoutDayOffset`(int64, hours, default 0)
 
 **swap** fields: `acceptIncoming`(bool), `acceptOutgoing`(bool)
 
