@@ -1,13 +1,14 @@
 #include "poolconfig/config.h"
 #include "http.h"
 
+#include "poolcore/bitcoinNetworkClient.h"
 #include "poolcore/bitcoinRPCClient.h"
+#include "poolcore/ethereumNetworkClient.h"
 #include "poolcore/ethereumRPCClient.h"
 
 #include "poolcore/backend.h"
 #include "poolcore/coinLibrary.h"
 #include "poolcore/dbFormat.h"
-#include "poolcore/clientDispatcher.h"
 #include "poolcore/plugin.h"
 #include "poolcore/thread.h"
 #include "poolcommon/utils.h"
@@ -51,7 +52,8 @@ struct PoolContext {
 
   std::vector<CCoinInfo> CoinList;
   std::unique_ptr<CPriceFetcher> PriceFetcher;
-  std::vector<std::unique_ptr<CNetworkClientDispatcher>> ClientDispatchers;
+  std::vector<std::unique_ptr<loguru::LogChannel>> LogChannels;
+  std::vector<std::unique_ptr<CNetworkClient>> NetworkClients;
   std::vector<std::unique_ptr<PoolBackend>> Backends;
   std::vector<std::unique_ptr<StatisticServer>> AlgoMetaStatistic;
 
@@ -289,64 +291,64 @@ int main(int argc, char *argv[])
       backendConfig.poolZAddr = coinConfig.PoolZAddr;
       backendConfig.poolTAddr = coinConfig.PoolTAddr;
 
-      // Nodes
-      std::unique_ptr<CNetworkClientDispatcher> dispatcher(new CNetworkClientDispatcher(monitorBase, coinInfo, totalThreadsNum));
-      for (size_t nodeIdx = 0, nodeIdxE = coinConfig.GetWorkNodes.size(); nodeIdx != nodeIdxE; ++nodeIdx) {
-        CNetworkClient *client;
-        const CNodeConfig &node = coinConfig.GetWorkNodes[nodeIdx];
-        if (node.Type == "bitcoinrpc") {
-          client = new CBitcoinRpcClient(monitorBase, coinInfo, node.Address.c_str(), node.Login.c_str(), node.Password.c_str(), node.Wallet.c_str(), node.LongPollEnabled);
-        } else if (node.Type == "ethereumrpc") {
-          client = new CEthereumRpcClient(monitorBase, coinInfo, node.Address.c_str(), backendConfig.MiningAddresses);
-        } else {
-          // lookup client type in extras
-          for (const auto &proc: gPluginContext.AddRpcClientProcs) {
-            client = proc(node.Type, monitorBase, coinInfo, node, backendConfig.MiningAddresses);
-            if (client)
-              break;
-          }
+      // Create per-coin log channel
+      auto logPath = (backendConfig.dbPath.parent_path() / "logs" / coinInfo.Name / "log-%Y-%m.log").generic_string();
+      auto *logChannel = new loguru::LogChannel;
+      logChannel->open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
+      poolContext.LogChannels.emplace_back(logChannel);
 
-          if (!client) {
-            CLOG_F(ERROR, "Unknown node type: {}", node.Type);
-            return 1;
-          }
+      // Determine network client type from first getwork node; validate all nodes match
+      std::string nodeType = coinConfig.GetWorkNodes.empty() ? "" : coinConfig.GetWorkNodes[0].Type;
+      for (const auto &node : coinConfig.GetWorkNodes) {
+        if (node.Type != nodeType) {
+          CLOG_F(ERROR, "{}: mixed node types in GetWorkNodes: '{}' vs '{}'", coinInfo.Name, nodeType, node.Type);
+          return 1;
         }
-
-        dispatcher->addGetWorkClient(client);
+      }
+      for (const auto &node : coinConfig.RPCNodes) {
+        if (node.Type != nodeType) {
+          CLOG_F(ERROR, "{}: RPCNode type '{}' doesn't match GetWorkNode type '{}'", coinInfo.Name, node.Type, nodeType);
+          return 1;
+        }
       }
 
-      for (size_t nodeIdx = 0, nodeIdxE = coinConfig.RPCNodes.size(); nodeIdx != nodeIdxE; ++nodeIdx) {
-        CNetworkClient *client;
-        const CNodeConfig &node = coinConfig.RPCNodes[nodeIdx];
-        if (node.Type == "bitcoinrpc") {
-          client = new CBitcoinRpcClient(monitorBase, coinInfo, node.Address.c_str(), node.Login.c_str(), node.Password.c_str(), node.Wallet.c_str(), node.LongPollEnabled);
-        } else if (node.Type == "ethereumrpc") {
-          client = new CEthereumRpcClient(monitorBase, coinInfo, node.Address.c_str(), backendConfig.MiningAddresses);
-        } else {
-          // lookup client type in extras
-          for (const auto &proc: gPluginContext.AddRpcClientProcs) {
-            client = proc(node.Type, monitorBase, coinInfo, node, backendConfig.MiningAddresses);
-            if (client)
-              break;
-          }
+      CNetworkClient *networkClient = nullptr;
 
-          if (!client) {
-            CLOG_F(ERROR, "Unknown node type: {}", node.Type);
-            return 1;
-          }
+      if (nodeType == "bitcoinrpc") {
+        auto *btcClient = new CBitcoinNetworkClient(monitorBase, coinInfo, *logChannel);
+        for (const auto &node : coinConfig.GetWorkNodes)
+          btcClient->addGetWorkClient(new CBitcoinRpcClient(monitorBase, coinInfo, node.Address.c_str(), node.Login.c_str(), node.Password.c_str(), node.Wallet.c_str(), node.LongPollEnabled));
+        for (const auto &node : coinConfig.RPCNodes)
+          btcClient->addRpcClient(new CBitcoinRpcClient(monitorBase, coinInfo, node.Address.c_str(), node.Login.c_str(), node.Password.c_str(), node.Wallet.c_str(), false));
+        networkClient = btcClient;
+      } else if (nodeType == "ethereumrpc") {
+        auto *ethClient = new CEthereumNetworkClient(monitorBase, coinInfo, *logChannel);
+        for (const auto &node : coinConfig.GetWorkNodes)
+          ethClient->addGetWorkClient(new CEthereumRpcClient(monitorBase, coinInfo, node.Address.c_str(), backendConfig.MiningAddresses));
+        for (const auto &node : coinConfig.RPCNodes)
+          ethClient->addRpcClient(new CEthereumRpcClient(monitorBase, coinInfo, node.Address.c_str(), backendConfig.MiningAddresses));
+        networkClient = ethClient;
+      } else {
+        // Plugin coins: use typed multi-node client via factory
+        for (const auto &proc : gPluginContext.CreateNetworkClientProcs) {
+          networkClient = proc(nodeType, monitorBase, coinInfo, coinConfig.GetWorkNodes, coinConfig.RPCNodes, backendConfig.MiningAddresses, *logChannel);
+          if (networkClient)
+            break;
         }
-
-        dispatcher->addRPCClient(client);
+        if (!networkClient) {
+          CLOG_F(ERROR, "Unknown node type: {}", nodeType);
+          return 1;
+        }
       }
 
       // Initialize backend
-      PoolBackend *backend = new PoolBackend(createAsyncBase(amOSDefault), std::move(backendConfig), coinInfo, *poolContext.UserMgr, *dispatcher, *poolContext.PriceFetcher);
+      PoolBackend *backend = new PoolBackend(createAsyncBase(amOSDefault), std::move(backendConfig), coinInfo, *poolContext.UserMgr, *networkClient, *poolContext.PriceFetcher, *logChannel);
 
       poolContext.Backends.emplace_back(backend);
       if (coinConfig.ProfitSwitchCoeff != 0.0)
         backend->setProfitSwitchCoeff(coinConfig.ProfitSwitchCoeff);
 
-      poolContext.ClientDispatchers.emplace_back(dispatcher.release());
+      poolContext.NetworkClients.emplace_back(networkClient);
       poolContext.UserMgr->configAddCoin(coinInfo, backendConfig.DefaultPayoutThreshold, backend);
 
       // Initialize algorithm meta statistic
@@ -451,7 +453,7 @@ int main(int argc, char *argv[])
       }
 
       for (PoolBackend *linkedBackend: linkedBackends)
-        linkedBackend->getClientDispatcher().connectWith(instance);
+        linkedBackend->getNetworkClient().connectWith(instance);
       instance->start();
       poolContext.Instances.emplace_back(instance);
     }
@@ -474,8 +476,8 @@ int main(int argc, char *argv[])
   }
 
   // Start clients polling
-  for (auto &dispatcher: poolContext.ClientDispatchers) {
-    dispatcher->poll();
+  for (auto &client: poolContext.NetworkClients) {
+    client->poll();
   }
 
   poolContext.HttpServer.reset(new PoolHttpServer(poolContext.HttpPort, *poolContext.UserMgr, poolContext.Backends, poolContext.AlgoMetaStatistic, config, httpThreadsNum, poolContext.PriceFetcher.get()));

@@ -16,7 +16,9 @@ add_custom_target(generate_ethereumRpc_idl DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/e
 
 # Backend library
 add_library(poolcore STATIC
+  bitcoinNetworkClient.cpp
   bitcoinRpcClient.cpp
+  ethereumNetworkClient.cpp
   ethereumRpcClient.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/bitcoinRpc.idl.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/ethereumRpc.idl.cpp
@@ -30,7 +32,6 @@ add_library(poolcore STATIC
   backendData.cpp
   dbFormat.cpp
   base58.cpp
-  clientDispatcher.cpp
   feeEstimator.cpp
   kvdb.cpp
   poolCore.cpp

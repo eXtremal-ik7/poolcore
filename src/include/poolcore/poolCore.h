@@ -1,15 +1,23 @@
 #pragma once
 
+#include "poolcommon/periodicTimer.h"
 #include "poolcommon/uint.h"
+#include "poolcore/feeEstimator.h"
 #include "workTypes.h"
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace loguru { class LogChannel; }
-class CNetworkClientDispatcher;
+class CBlockTemplate;
+class CPoolInstance;
+class PoolBackend;
+struct CNetworkState;
+struct aioUserEvent;
 struct asyncBase;
 
 struct CCoinInfoOld2 {
@@ -83,12 +91,8 @@ struct CCoinInfo {
   uint64_t calculateAveragePower(const UInt<256> &work, uint64_t timeInterval, unsigned int primePOWTarget) const;
 };
 
-enum class EFeeEstimationMode { BlockTxFees, MiningInfoRpc, Unsupported };
-
 class CNetworkClient {
 public:
-  static constexpr uint64_t ConnectTimeout = 2500000;
-
   using SumbitBlockCb = std::function<void(bool, uint32_t, const std::string&, const std::string&)>;
 
   enum EOperationStatus {
@@ -134,12 +138,6 @@ public:
     UInt<384> Immatured;
   };
 
-  struct SendMoneyResult {
-    std::string TxId;
-    std::string Error;
-    UInt<384> Fee;
-  };
-
   struct BuildTransactionResult {
     std::string TxId;
     std::string TxData;
@@ -163,17 +161,6 @@ public:
     std::string Error;
   };
 
-  struct BlockTxFeeInfo {
-    int64_t Height;
-    int64_t Time;
-    int64_t TotalFee;
-  };
-
-  struct MiningInfo {
-    UInt<384> BaseBlockReward;
-    UInt<384> AverageTxFee;
-  };
-
   class CSubmitBlockOperation {
   public:
     CSubmitBlockOperation(CNetworkClient::SumbitBlockCb callback, size_t clientsNum) : Callback_(callback), ClientsNum_(clientsNum) {}
@@ -185,7 +172,7 @@ public:
   };
 
 public:
-  virtual ~CNetworkClient() {}
+  virtual ~CNetworkClient() = default;
 
   virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &query) = 0;
   virtual bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &query) = 0;
@@ -197,18 +184,80 @@ public:
   virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, const UInt<384> &amount, const std::string &memo, uint64_t minConf, const UInt<384> &fee, CNetworkClient::ZSendMoneyResult &result) = 0;
   virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance) = 0;
   virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) = 0;
-  virtual void aioSubmitBlock(asyncBase *base, const void *data, size_t size, CSubmitBlockOperation *operation) = 0;
-  virtual bool ioGetBlockTxFees(asyncBase *base, int64_t fromHeight, int64_t toHeight, std::vector<BlockTxFeeInfo> &result) = 0;
-  virtual bool ioGetMiningInfo(asyncBase *, MiningInfo &) { return false; }
-  virtual EFeeEstimationMode feeEstimationMode() const = 0;
+  void aioSubmitBlock(asyncBase *base, const void *data, size_t size, SumbitBlockCb callback);
 
   virtual void poll() = 0;
 
-  void setDispatcher(CNetworkClientDispatcher *dispatcher) { Dispatcher_ = dispatcher; }
-  void setLogChannel(loguru::LogChannel *channel) { LogChannel_ = channel; }
+  // --- Multi-node infrastructure (used by typed multi-node subclasses) ---
+  void connectWith(CPoolInstance *instance);
+  void setBackend(PoolBackend *backend) { Backend_ = backend; }
+  PoolBackend *backend() { return Backend_; }
+  void setNetworkState(std::atomic<CNetworkState> *networkState) { NetworkState_ = networkState; }
+
+  void start(asyncBase *base, const CCoinInfo &coinInfo);
+  void stop();
+  virtual const UInt<384> &averageFee() const { return AverageFee_; }
+  virtual UInt<384> estimatedBaseReward(int64_t) const { return UInt<384>::zero(); }
 
 protected:
-  CNetworkClientDispatcher *Dispatcher_ = nullptr;
+  virtual void aioSubmitBlock(asyncBase *base, const void *data, size_t size, CSubmitBlockOperation *operation) = 0;
+
+  void reportNewWork(CBlockTemplate *blockTemplate);
+  void reportConnectionLost();
+
+  virtual size_t getWorkClientsNum() const = 0;
+  virtual void updateFeeEstimation() {}
+  virtual void doAdvanceWorkFetcher() {}
+
+  asyncBase *Base_ = nullptr;
+  CCoinInfo CoinInfo_;
+  PoolBackend *Backend_ = nullptr;
+  std::atomic<CNetworkState> *NetworkState_ = nullptr;
   loguru::LogChannel *LogChannel_ = nullptr;
+  std::vector<CPoolInstance*> LinkedInstances_;
+
+  // Fee estimation state (accessible to subclass updateFeeEstimation overrides)
+  std::unique_ptr<CFeeEstimator> Estimator_;
+  int64_t LastBlockHeight_ = 0;
+  int64_t PendingHeight_ = 0;
+  UInt<384> AverageFee_;
+
+private:
+  void onReconnectTimer();
+
+  enum EWorkState { EWorkOk = 0, EWorkLost, EWorkMinersStopped };
+
+  aioUserEvent *ReconnectTimer_ = nullptr;
+  EWorkState WorkState_ = EWorkOk;
+  bool Stopped_ = false;
+  std::chrono::time_point<std::chrono::steady_clock> ConnectionLostTime_;
+  std::unique_ptr<CPeriodicTimer> FeeUpdateTimer_;
 };
+
+template<typename Container, typename Function>
+auto roundRobin(Container &clients, std::atomic<size_t> &currentIndex, Function &&function)
+  -> decltype(function(*clients[0]))
+{
+  using R = decltype(function(*clients[0]));
+  R lastResult;
+  if constexpr (std::is_same_v<R, bool>)
+    lastResult = false;
+  else
+    lastResult = CNetworkClient::EStatusUnknownError;
+
+  size_t start = currentIndex.load(std::memory_order_relaxed);
+  for (size_t i = 0, n = clients.size(); i < n; ++i) {
+    size_t index = (start + i) % n;
+    lastResult = function(*clients[index]);
+    bool success;
+    if constexpr (std::is_same_v<R, bool>)
+      success = lastResult;
+    else
+      success = (lastResult == CNetworkClient::EStatusOk);
+    if (success)
+      return lastResult;
+    currentIndex.store((index + 1) % n, std::memory_order_relaxed);
+  }
+  return lastResult;
+}
 

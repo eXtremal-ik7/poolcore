@@ -7,52 +7,34 @@
 #include "loguru.hpp"
 #include <chrono>
 
-class CEthereumRpcClient : public CNetworkClient {
+class CEthereumRpcClient {
+  using EOperationStatus = CNetworkClient::EOperationStatus;
+  using enum CNetworkClient::EOperationStatus;
+
 public:
   CEthereumRpcClient(asyncBase *base, const CCoinInfo &coinInfo, const char *address, const SelectorByWeight<CMiningAddress> &miningAddresses);
 
-  virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
-  virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &queries) override;
-  virtual bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &queries) override;
-  virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, BuildTransactionResult &result) override;
-  virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string &txId, std::string &error) override;
-  virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error) override;
-  virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) override;
-  virtual void aioSubmitBlock(asyncBase *base, const void *data, size_t size, CSubmitBlockOperation *operation) override;
+  bool ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result);
+  bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &queries);
+  bool ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockExtraInfoQuery> &queries);
+  EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, CNetworkClient::BuildTransactionResult &result);
+  EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string &txId, std::string &error);
+  EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error);
+  EOperationStatus ioWalletService(asyncBase *base, std::string &error);
+  void aioSubmitBlock(asyncBase *base, const void *data, size_t size, CNetworkClient::CSubmitBlockOperation *operation);
+  void poll();
 
-  virtual EOperationStatus ioListUnspent(asyncBase*, ListUnspentResult&) final {
-    return CNetworkClient::EOperationStatus::EStatusUnknownError;
-  }
-  virtual EOperationStatus ioZSendMany(asyncBase*, const std::string&, const std::string&, const UInt<384>&, const std::string&, uint64_t, const UInt<384>&, CNetworkClient::ZSendMoneyResult&) final {
-    return CNetworkClient::EOperationStatus::EStatusUnknownError;
-  }
-  virtual EOperationStatus ioZGetBalance(asyncBase*, const std::string&, UInt<384>*) final {
-    return CNetworkClient::EOperationStatus::EStatusUnknownError;
-  }
-
-  virtual bool ioGetBlockTxFees(asyncBase*, int64_t, int64_t, std::vector<BlockTxFeeInfo>&) override {
-    return false;
-  }
-  EFeeEstimationMode feeEstimationMode() const override { return EFeeEstimationMode::Unsupported; }
-
-  virtual void poll() override;
+  void setLogChannel(loguru::LogChannel *channel) { LogChannel_ = channel; }
+  std::function<void(CBlockTemplate*)> onNewWork;
+  std::function<void()> onConnectionLost;
+  std::function<bool(CBlockTemplate*, int)> onResolveDag;
 
 private:
-  struct SubmitBlockContext {
-    CEthereumRpcClient *Client;
-    CSubmitBlockOperation *Operation;
-  };
-
   struct WorkFetcherContext {
     std::chrono::time_point<std::chrono::steady_clock> LastTemplateTime;
     aioUserEvent *TimerEvent;
     uint64_t WorkId;
     uint64_t Height;
-  };
-
-  struct RpcQueryResult {
-    std::string Error;
-    int ErrorCode = 0;
   };
 
 private:
@@ -165,6 +147,7 @@ private:
 
 private:
   CCoinInfo CoinInfo_;
+  loguru::LogChannel *LogChannel_ = nullptr;
   std::string FullHostName_;
 
   CHttpEndpoint RpcEndpoint_;

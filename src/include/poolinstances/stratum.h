@@ -680,8 +680,8 @@ private:
       uint64_t height = work->height(workInternalBackendIdx);
       UInt<256> expectedWork = work->expectedWork(workInternalBackendIdx);
       UInt<384> generatedCoins = work->blockReward(workInternalBackendIdx);
-      CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(),
+      CNetworkClient &networkClient = backend->getNetworkClient();
+      networkClient.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(),
         [height, blockHash, generatedCoins, expectedWork, globalBackendIdx, backend, this, userName, shareHash,
          shareBackends = std::move(shareBackends)](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
         if (success) {
@@ -812,8 +812,8 @@ private:
 
         UInt<384> generatedCoins = work->blockReward(i);
         UInt<256> expectedWork = work->expectedWork(i);
-        CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-        dispatcher.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(),
+        CNetworkClient &networkClient = backend->getNetworkClient();
+        networkClient.aioSubmitBlock(data.WorkerBase, blockHexData.data(), blockHexData.sizeOf(),
           [height, blockHash, generatedCoins, expectedWork, globalBackendIdx, backend, this, user=worker.User, shareHash,
            shareBackends = std::move(shareBackends)](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {
           if (success) {

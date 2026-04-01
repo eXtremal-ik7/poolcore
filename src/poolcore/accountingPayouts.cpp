@@ -8,7 +8,7 @@ static const UInt<384> ASYNC_RPC_OPERATION_DEFAULT_MINERS_FEE = fromRational(100
 CPayoutProcessor::CPayoutProcessor(asyncBase *base,
                                    const PoolBackendConfig &cfg,
                                    const CCoinInfo &coinInfo,
-                                   CNetworkClientDispatcher &clientDispatcher,
+                                   CNetworkClient &networkClient,
                                    CAccountingState &state,
                                    kvdb<rocksdbBase> &payoutDb,
                                    kvdb<rocksdbBase> &poolBalanceDb,
@@ -17,7 +17,7 @@ CPayoutProcessor::CPayoutProcessor(asyncBase *base,
   Base_(base),
   Cfg_(cfg),
   CoinInfo_(coinInfo),
-  ClientDispatcher_(clientDispatcher),
+  NetworkClient_(networkClient),
   State_(state),
   PayoutDb_(payoutDb),
   PoolBalanceDb_(poolBalanceDb),
@@ -61,7 +61,7 @@ void CPayoutProcessor::buildTransaction(PayoutDbRecord &payout, unsigned index, 
   // For bitcoin-based API it's sequential call of createrawtransaction, fundrawtransaction and signrawtransaction
   CNetworkClient::BuildTransactionResult transaction;
   CNetworkClient::EOperationStatus status =
-    ClientDispatcher_.ioBuildTransaction(Base_, settings.Payout.Address.c_str(), Cfg_.MiningAddresses.get().MiningAddress, payout.Value, transaction);
+    NetworkClient_.ioBuildTransaction(Base_, settings.Payout.Address.c_str(), Cfg_.MiningAddresses.get().MiningAddress, payout.Value, transaction);
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusInsufficientFunds) {
@@ -114,7 +114,7 @@ bool CPayoutProcessor::sendTransaction(PayoutDbRecord &payout)
   // Send transaction and change it status to 'Sent'
   // For bitcoin-based API it's 'sendrawtransaction'
   std::string error;
-  CNetworkClient::EOperationStatus status = ClientDispatcher_.ioSendTransaction(Base_, payout.TransactionData, payout.TransactionId, error);
+  CNetworkClient::EOperationStatus status = NetworkClient_.ioSendTransaction(Base_, payout.TransactionData, payout.TransactionId, error);
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusVerifyRejected) {
@@ -144,7 +144,7 @@ bool CPayoutProcessor::checkTxConfirmations(PayoutDbRecord &payout, rocksdbBase:
 {
   int64_t confirmations = 0;
   std::string error;
-  CNetworkClient::EOperationStatus status = ClientDispatcher_.ioGetTxConfirmations(Base_, payout.TransactionId, &confirmations, &payout.TxFee, error);
+  CNetworkClient::EOperationStatus status = NetworkClient_.ioGetTxConfirmations(Base_, payout.TransactionId, &confirmations, &payout.TxFee, error);
   if (status == CNetworkClient::EStatusOk) {
     // Nothing to do
   } else if (status == CNetworkClient::EStatusInvalidAddressOrKey) {
@@ -287,7 +287,7 @@ void CPayoutProcessor::makePayout()
   if (!Cfg_.poolZAddr.empty() && !Cfg_.poolTAddr.empty()) {
     // move all to Z-Addr
     CNetworkClient::ListUnspentResult unspent;
-    if (ClientDispatcher_.ioListUnspent(Base_, unspent) == CNetworkClient::EStatusOk && !unspent.Outs.empty()) {
+    if (NetworkClient_.ioListUnspent(Base_, unspent) == CNetworkClient::EStatusOk && !unspent.Outs.empty()) {
       std::unordered_map<std::string, UInt<384>> coinbaseFunds;
       for (const auto &out: unspent.Outs) {
         if (out.IsCoinbase)
@@ -299,7 +299,7 @@ void CPayoutProcessor::makePayout()
           continue;
 
         CNetworkClient::ZSendMoneyResult zsendResult;
-        CNetworkClient::EOperationStatus status = ClientDispatcher_.ioZSendMoney(Base_, out.first, Cfg_.poolZAddr, out.second, "", 1, UInt<384>::zero(), zsendResult);
+        CNetworkClient::EOperationStatus status = NetworkClient_.ioZSendMany(Base_, out.first, Cfg_.poolZAddr, out.second, "", 1, UInt<384>::zero(), zsendResult);
         if (status == CNetworkClient::EStatusOk && !zsendResult.AsyncOperationId.empty()) {
           CLOG_F(INFO,
                  " * moving {} coins from {} to {} started ({})",
@@ -320,10 +320,10 @@ void CPayoutProcessor::makePayout()
 
     // move Z-Addr to T-Addr
     UInt<384> zbalance;
-    if (ClientDispatcher_.ioZGetBalance(Base_, Cfg_.poolZAddr, &zbalance) == CNetworkClient::EStatusOk && zbalance.nonZero()) {
+    if (NetworkClient_.ioZGetBalance(Base_, Cfg_.poolZAddr, &zbalance) == CNetworkClient::EStatusOk && zbalance.nonZero()) {
       CLOG_F(INFO, "Accounting: move {} coins to transparent address", FormatMoney(zbalance, CoinInfo_.FractionalPartSize));
       CNetworkClient::ZSendMoneyResult zsendResult;
-      if (ClientDispatcher_.ioZSendMoney(Base_, Cfg_.poolZAddr, Cfg_.poolTAddr, zbalance, "", 1, UInt<384>::zero(), zsendResult) == CNetworkClient::EStatusOk) {
+      if (NetworkClient_.ioZSendMany(Base_, Cfg_.poolZAddr, Cfg_.poolTAddr, zbalance, "", 1, UInt<384>::zero(), zsendResult) == CNetworkClient::EStatusOk) {
         CLOG_F(INFO,
                "moving {} coins from {} to {} started ({})",
                FormatMoney(zbalance, CoinInfo_.FractionalPartSize),
@@ -358,7 +358,7 @@ void CPayoutProcessor::makePayout()
   // Make a service after every payment session
   {
     std::string serviceError;
-    if (ClientDispatcher_.ioWalletService(Base_, serviceError) != CNetworkClient::EStatusOk)
+    if (NetworkClient_.ioWalletService(Base_, serviceError) != CNetworkClient::EStatusOk)
       CLOG_F(ERROR, "Wallet service ERROR: {}", serviceError);
   }
 
@@ -378,14 +378,14 @@ void CPayoutProcessor::checkBalance()
 
   UInt<384> zbalance = UInt<384>::zero();
   if (!Cfg_.poolZAddr.empty()) {
-    if (ClientDispatcher_.ioZGetBalance(Base_, Cfg_.poolZAddr, &zbalance) != CNetworkClient::EStatusOk) {
+    if (NetworkClient_.ioZGetBalance(Base_, Cfg_.poolZAddr, &zbalance) != CNetworkClient::EStatusOk) {
       CLOG_F(ERROR, "can't get balance of Z-address {}", Cfg_.poolZAddr);
       return;
     }
   }
 
   CNetworkClient::GetBalanceResult getBalanceResult;
-  if (!ClientDispatcher_.ioGetBalance(Base_, getBalanceResult)) {
+  if (!NetworkClient_.ioGetBalance(Base_, getBalanceResult)) {
     CLOG_F(ERROR, "can't retrieve balance");
     return;
   }

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "accountingData.h"
-#include "clientDispatcher.h"
+#include "poolCore.h"
 #include "priceFetcher.h"
 #include "usermgr.h"
 #include <list>
@@ -13,7 +13,7 @@ public:
   CPayoutProcessor(asyncBase *base,
                    const PoolBackendConfig &cfg,
                    const CCoinInfo &coinInfo,
-                   CNetworkClientDispatcher &clientDispatcher,
+                   CNetworkClient &networkClient,
                    CAccountingState &state,
                    kvdb<rocksdbBase> &payoutDb,
                    kvdb<rocksdbBase> &poolBalanceDb,
@@ -33,7 +33,7 @@ private:
   asyncBase *Base_;
   const PoolBackendConfig &Cfg_;
   const CCoinInfo &CoinInfo_;
-  CNetworkClientDispatcher &ClientDispatcher_;
+  CNetworkClient &NetworkClient_;
   CAccountingState &State_;
   kvdb<rocksdbBase> &PayoutDb_;
   kvdb<rocksdbBase> &PoolBalanceDb_;

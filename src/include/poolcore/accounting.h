@@ -44,9 +44,8 @@ private:
   const PoolBackendConfig &_cfg;
   CCoinInfo CoinInfo_;
   UserManager &UserManager_;
-  CNetworkClientDispatcher &ClientDispatcher_;
+  CNetworkClient &NetworkClient_;
   CPriceFetcher &PriceFetcher_;
-  CFeeEstimationService *FeeEstimationService_ = nullptr;
 
   CAccountingState State_;
 
@@ -101,7 +100,7 @@ public:
                const PoolBackendConfig &config,
                const CCoinInfo &coinInfo,
                UserManager &userMgr,
-               CNetworkClientDispatcher &clientDispatcher,
+               CNetworkClient &networkClient,
                CPriceFetcher &priceFetcher);
 
   void taskHandler();
@@ -119,7 +118,7 @@ public:
                    rocksdbBase::CBatch &stateBatch,
                    kvdb<rocksdbBase>::Batch &payoutHistoryBatch);
 
-  bool hasDeferredReward() { return CoinInfo_.HasDagFile; }
+  bool hasDeferredReward() { return CoinInfo_.HasDeferredReward; }
   void distributeBlockReward(MiningRound &R);
   CProcessedWorkSummary processWorkSummaryBatch(const CUserWorkSummaryBatch &batch);
   void onUserWorkSummary(const CUserWorkSummaryBatch &batch);
@@ -201,7 +200,6 @@ public:
   CBackendSettings backendSettings() const {
     return State_.BackendSettings.load(std::memory_order_relaxed);
   }
-  void setFeeEstimationService(CFeeEstimationService *service) { FeeEstimationService_ = service; }
 
   // Asynchronous multi calls
   static void queryUserBalanceMulti(AccountingDb **backends, size_t backendsNum, const std::string &user, std::function<void(const UserBalanceInfo*, size_t)> callback) {

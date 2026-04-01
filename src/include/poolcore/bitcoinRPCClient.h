@@ -7,27 +7,35 @@
 #include <vector>
 
 
-class CBitcoinRpcClient : public CNetworkClient {
+struct BlockTxFeeInfo {
+  int64_t Height;
+  int64_t Time;
+  int64_t TotalFee;
+};
+
+class CBitcoinRpcClient {
+  using EOperationStatus = CNetworkClient::EOperationStatus;
+  using enum CNetworkClient::EOperationStatus;
+
 public:
   CBitcoinRpcClient(asyncBase *base, const CCoinInfo &coinInfo, const char *address, const char *login, const char *password, const char *wallet, bool longPollEnabled);
 
-  virtual bool ioGetBalance(asyncBase *base, GetBalanceResult &result) override;
-  virtual bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &query) override;
-  virtual EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, BuildTransactionResult &result) override;
-  virtual EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string&, std::string &error) override;
-  virtual EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error) override;
-  virtual void aioSubmitBlock(asyncBase *base, const void *data, size_t size, CSubmitBlockOperation *operation) override;
-  virtual EOperationStatus ioListUnspent(asyncBase *base, ListUnspentResult &result) override;
-  virtual EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, const UInt<384> &amount, const std::string &memo, uint64_t minConf, const UInt<384> &fee, CNetworkClient::ZSendMoneyResult &result) override;
-  virtual EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance) override;
-  virtual EOperationStatus ioWalletService(asyncBase *base, std::string &error) override;
+  bool ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result);
+  bool ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &query);
+  EOperationStatus ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, CNetworkClient::BuildTransactionResult &result);
+  EOperationStatus ioSendTransaction(asyncBase *base, const std::string &txData, const std::string&, std::string &error);
+  EOperationStatus ioGetTxConfirmations(asyncBase *base, const std::string &txId, int64_t *confirmations, UInt<384> *txFee, std::string &error);
+  void aioSubmitBlock(asyncBase *base, const void *data, size_t size, CNetworkClient::CSubmitBlockOperation *operation);
+  EOperationStatus ioListUnspent(asyncBase *base, CNetworkClient::ListUnspentResult &result);
+  EOperationStatus ioZSendMany(asyncBase *base, const std::string &source, const std::string &destination, const UInt<384> &amount, const std::string &memo, uint64_t minConf, const UInt<384> &fee, CNetworkClient::ZSendMoneyResult &result);
+  EOperationStatus ioZGetBalance(asyncBase *base, const std::string &address, UInt<384> *balance);
+  EOperationStatus ioWalletService(asyncBase *base, std::string &error);
+  bool ioGetBlockTxFees(asyncBase *base, int64_t fromHeight, int64_t toHeight, std::vector<BlockTxFeeInfo> &result);
+  void poll();
 
-  virtual bool ioGetBlockExtraInfo(asyncBase*, int64_t, std::vector<GetBlockExtraInfoQuery>&) override {
-    return false;
-  }
-  virtual bool ioGetBlockTxFees(asyncBase *base, int64_t fromHeight, int64_t toHeight, std::vector<BlockTxFeeInfo> &result) override;
-  EFeeEstimationMode feeEstimationMode() const override { return EFeeEstimationMode::BlockTxFees; }
-  virtual void poll() override;
+  void setLogChannel(loguru::LogChannel *channel) { LogChannel_ = channel; }
+  std::function<void(CBlockTemplate*)> onNewWork;
+  std::function<void()> onConnectionLost;
 
 private:
   struct GBTInstance {
@@ -115,6 +123,7 @@ private:
 
 private:
   CCoinInfo CoinInfo_;
+  loguru::LogChannel *LogChannel_ = nullptr;
   std::string FullHostName_;
 
   CHttpEndpoint RpcEndpoint_;

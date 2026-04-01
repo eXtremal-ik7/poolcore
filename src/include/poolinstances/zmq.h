@@ -365,8 +365,8 @@ private:
 
       std::string user = share.addr();
       UInt<384> generatedCoins = work.blockReward();
-      CNetworkClientDispatcher &dispatcher = backend->getClientDispatcher();
-      dispatcher.aioSubmitBlock(data.WorkerBase,
+      CNetworkClient &networkClient = backend->getNetworkClient();
+      networkClient.aioSubmitBlock(data.WorkerBase,
                                 work.blockHexData().data(),
                                 work.blockHexData().sizeOf(),
                                 [height, user, blockHash, generatedCoins, expectedWork, primePOWTarget, globalBackendIdx, backend, this](bool success, uint32_t successNum, const std::string &hostName, const std::string &error) {

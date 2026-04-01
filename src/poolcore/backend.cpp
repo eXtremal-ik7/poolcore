@@ -27,28 +27,22 @@ PoolBackend::PoolBackend(asyncBase *base,
                          const PoolBackendConfig &cfg,
                          const CCoinInfo &info,
                          UserManager &userMgr,
-                         CNetworkClientDispatcher &clientDispatcher,
-                         CPriceFetcher &priceFetcher) :
-  _base(base), _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), ClientDispatcher_(clientDispatcher),
+                         CNetworkClient &networkClient,
+                         CPriceFetcher &priceFetcher,
+                         loguru::LogChannel &logChannel) :
+  _base(base), _cfg(cfg), CoinInfo_(info), UserMgr_(userMgr), NetworkClient_(networkClient),
+  LogChannel_(&logChannel),
   TaskHandler_(this, base), CheckConfirmationsTimer_(base), CheckBalanceTimer_(base)
 {
-  clientDispatcher.setBackend(this);
-  clientDispatcher.setNetworkState(&NetworkState_);
-
-  FeeEstimationService_ = std::make_unique<CFeeEstimationService>(base, clientDispatcher, CoinInfo_);
-  clientDispatcher.setFeeEstimationService(FeeEstimationService_.get());
+  networkClient.setBackend(this);
+  networkClient.setNetworkState(&NetworkState_);
 
   _timeout = 8*1000000;
 
   _statistics.reset(new StatisticDb(_base, _cfg, CoinInfo_));
-  _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, ClientDispatcher_, priceFetcher));
-  _accounting->setFeeEstimationService(FeeEstimationService_.get());
+  _accounting.reset(new AccountingDb(_base, _cfg, CoinInfo_, UserMgr_, NetworkClient_, priceFetcher));
 
   ProfitSwitchCoeff_ = CoinInfo_.ProfitSwitchDefaultCoeff;
-
-  auto logPath = (_cfg.dbPath.parent_path() / "logs" / CoinInfo_.Name / "log-%Y-%m.log").generic_string();
-  LogChannel_.open(logPath.c_str(), loguru::Append, loguru::Verbosity_1);
-  clientDispatcher.setLogChannel(&LogChannel_);
 
   if (CoinInfo_.HasDagFile) {
     EthDagFiles_ = new atomic_intrusive_ptr<EthashDagWrapper>[MaxEpochNum];
@@ -68,8 +62,7 @@ void PoolBackend::stop()
   TaskHandler_.stop(coin, "PoolBackend task handler");
   _accounting->stop();
   _statistics->stop();
-  if (FeeEstimationService_)
-    FeeEstimationService_->stop();
+  NetworkClient_.stop();
   CheckConfirmationsTimer_.wait(coin, "PoolBackend check confirmations");
   CheckBalanceTimer_.wait(coin, "PoolBackend check balance");
 
@@ -81,13 +74,11 @@ void PoolBackend::backendMain()
 {
   InitializeWorkerThread();
   loguru::set_thread_name(CoinInfo_.Name.c_str());
-  loguru::set_channel_log(&LogChannel_);
+  loguru::set_channel_log(LogChannel_);
 
   TaskHandler_.start();
   _accounting->start();
   _statistics->start();
-  if (FeeEstimationService_)
-    FeeEstimationService_->start();
   CheckConfirmationsTimer_.start([this]() {
     if (_accounting->hasDeferredReward())
       _accounting->checkBlockExtraInfo();

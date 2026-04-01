@@ -40,7 +40,7 @@ CAccountingApi::CAccountingApi(asyncBase *base,
                                const PoolBackendConfig &cfg,
                                const CCoinInfo &coinInfo,
                                UserManager &userManager,
-                               CNetworkClientDispatcher &clientDispatcher,
+                               CNetworkClient &networkClient,
                                CPayoutProcessor &payoutProcessor,
                                CAccountingState &state,
                                CPeriodicTimer &instantPayoutTimer,
@@ -52,7 +52,7 @@ CAccountingApi::CAccountingApi(asyncBase *base,
   Cfg_(cfg),
   CoinInfo_(coinInfo),
   UserManager_(userManager),
-  ClientDispatcher_(clientDispatcher),
+  NetworkClient_(networkClient),
   PayoutProcessor_(payoutProcessor),
   FoundBlocksDb_(foundBlocksDb),
   PPLNSPayoutsDb_(pplnsPayoutsDb),
@@ -123,7 +123,7 @@ void CAccountingApi::queryFoundBlocks(int64_t heightFrom, const std::string &has
 
   // query confirmations
   if (count)
-    ClientDispatcher_.ioGetBlockConfirmations(Base_, Cfg_.RequiredConfirmations, confirmationsQuery);
+    NetworkClient_.ioGetBlockConfirmations(Base_, Cfg_.RequiredConfirmations, confirmationsQuery);
 
   callback(foundBlocks, confirmationsQuery);
 }

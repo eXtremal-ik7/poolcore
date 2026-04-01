@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include "poolcommon/utils.h"
 #include "poolcore/backendData.h"
+#include "poolcore/bitcoinNetworkClient.h"
 #include "poolcore/bitcoinRPCClient.h"
 #include "poolcore/coinLibrary.h"
+#include "poolcore/ethereumNetworkClient.h"
 #include "poolcore/ethereumRPCClient.h"
 #include "poolcore/plugin.h"
 #include "asyncio/asyncio.h"
@@ -396,24 +398,32 @@ int main(int argc, char **argv)
   for (size_t i = 0, ie = miningAddresses.size(); i != ie; ++i)
     config.MiningAddresses.add(CMiningAddress(miningAddresses[i], !privateKeys.empty() ? privateKeys[i] : ""), 1);
 
+  std::vector<CNodeConfig> singleNodeList = {nodeConfig};
+  std::vector<CNodeConfig> emptyNodeList;
+
   if (type == "bitcoinrpc") {
     if (!user || !password) {
       fprintf(stderr, "Error: you must specify --user and --password\n");
       exit(1);
     }
-    context.Client.reset(new CBitcoinRpcClient(context.Base, context.CoinInfo, address, user, password, wallet, true));
+    nodeConfig.LongPollEnabled = true;
+    singleNodeList = {nodeConfig};
+    auto *btcClient = new CBitcoinNetworkClient(context.Base, context.CoinInfo, masterLog);
+    btcClient->addRpcClient(new CBitcoinRpcClient(context.Base, context.CoinInfo, address, user, password, wallet, true));
+    context.Client.reset(btcClient);
   } else if (type == "ethereumrpc") {
     if ((method == "getBalance" || method == "buildTransaction") &&
         miningAddresses.size() != 1) {
       fprintf(stderr, "Error: you must specify single mining address\n");
       exit(1);
     }
-
-    context.Client.reset(new CEthereumRpcClient(context.Base, context.CoinInfo, address, config.MiningAddresses));
+    auto *ethClient = new CEthereumNetworkClient(context.Base, context.CoinInfo, masterLog);
+    ethClient->addRpcClient(new CEthereumRpcClient(context.Base, context.CoinInfo, address, config.MiningAddresses));
+    context.Client.reset(ethClient);
   } else {
     // lookup client type in extras
-    for (const auto &proc: gPluginContext.AddRpcClientForTerminalProcs) {
-      context.Client.reset(proc(type, context.Base, context.CoinInfo, nodeConfig, config.MiningAddresses, method, miningAddresses, privateKeys));
+    for (const auto &proc : gPluginContext.CreateNetworkClientProcs) {
+      context.Client.reset(proc(type, context.Base, context.CoinInfo, emptyNodeList, singleNodeList, config.MiningAddresses, masterLog));
       if (context.Client)
         break;
     }

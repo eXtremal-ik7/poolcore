@@ -35,12 +35,11 @@ private:
   PoolBackendConfig _cfg;
   CCoinInfo CoinInfo_;
   UserManager &UserMgr_;
-  CNetworkClientDispatcher &ClientDispatcher_;
-  std::unique_ptr<CFeeEstimationService> FeeEstimationService_;
+  CNetworkClient &NetworkClient_;
   std::unique_ptr<AccountingDb> _accounting;
   std::unique_ptr<StatisticDb> _statistics;
   StatisticServer *AlgoMetaStatistic_ = nullptr;
-  loguru::LogChannel LogChannel_;
+  loguru::LogChannel *LogChannel_;
 
   TaskHandlerCoroutine<PoolBackend> TaskHandler_;
   CPeriodicTimer CheckConfirmationsTimer_;
@@ -70,13 +69,13 @@ public:
               const PoolBackendConfig &cfg,
               const CCoinInfo &info,
               UserManager &userMgr,
-              CNetworkClientDispatcher &clientDispatcher,
-              CPriceFetcher &priceFetcher);
+              CNetworkClient &networkClient,
+              CPriceFetcher &priceFetcher,
+              loguru::LogChannel &logChannel);
 
   const PoolBackendConfig &getConfig() const { return _cfg; }
   const CCoinInfo &getCoinInfo() const { return CoinInfo_; }
-  CNetworkClientDispatcher &getClientDispatcher() const { return ClientDispatcher_; }
-  CFeeEstimationService *feeEstimationService() { return FeeEstimationService_.get(); }
+  CNetworkClient &getNetworkClient() const { return NetworkClient_; }
   double getProfitSwitchCoeff() const { return ProfitSwitchCoeff_; }
   void setProfitSwitchCoeff(double profitSwithCoeff) { ProfitSwitchCoeff_ = profitSwithCoeff; }
   CNetworkState getNetworkState() const { return NetworkState_.load(); }

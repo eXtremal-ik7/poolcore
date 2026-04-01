@@ -43,13 +43,13 @@ AccountingDb::AccountingDb(asyncBase *base,
                            const PoolBackendConfig &config,
                            const CCoinInfo &coinInfo,
                            UserManager &userMgr,
-                           CNetworkClientDispatcher &clientDispatcher,
+                           CNetworkClient &networkClient,
                            CPriceFetcher &priceFetcher) :
   Base_(base),
   _cfg(config),
   CoinInfo_(coinInfo),
   UserManager_(userMgr),
-  ClientDispatcher_(clientDispatcher),
+  NetworkClient_(networkClient),
   PriceFetcher_(priceFetcher),
   State_(config.dbPath),
   RoundsDb_(config.dbPath / "accounting.rounds"),
@@ -70,7 +70,7 @@ AccountingDb::AccountingDb(asyncBase *base,
   PayoutProcessor_(base,
                    config,
                    coinInfo,
-                   clientDispatcher,
+                   networkClient,
                    State_,
                    _payoutDb,
                    _poolBalanceDb,
@@ -80,7 +80,7 @@ AccountingDb::AccountingDb(asyncBase *base,
        config,
        coinInfo,
        userMgr,
-       clientDispatcher,
+       networkClient,
        PayoutProcessor_,
        State_,
        InstantPayoutTimer_,
@@ -407,8 +407,8 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
   bool ppsEnabled = settings.PPSConfig.Enabled;
 
   UInt<384> baseBlockReward;
-  if (CoinInfo_.HasDeferredReward && FeeEstimationService_)
-    baseBlockReward = FeeEstimationService_->estimatedBaseReward(batch.Height);
+  if (CoinInfo_.HasDeferredReward)
+    baseBlockReward = NetworkClient_.estimatedBaseReward(batch.Height);
   else
     baseBlockReward = batch.BaseBlockReward;
   result.AccountingBatch.LastBaseBlockReward = baseBlockReward;
@@ -421,8 +421,7 @@ CProcessedWorkSummary AccountingDb::processWorkSummaryBatch(const CUserWorkSumma
     double currentBalanceInBlocks =
       CPPSState::balanceInBlocks(State_.PPSState.ReferenceBalance, baseBlockReward);
     saturateCoeff = ::saturateCoeff(settings.PPSConfig, currentBalanceInBlocks);
-    if (FeeEstimationService_)
-      averageTxFee = FeeEstimationService_->averageFee();
+    averageTxFee = NetworkClient_.averageFee();
   }
   result.AccountingBatch.LastSaturateCoeff = saturateCoeff;
   result.AccountingBatch.LastAverageTxFee = averageTxFee;
@@ -748,7 +747,7 @@ void AccountingDb::checkBlockConfirmations()
   for (auto &round : activeRounds)
     confirmationsQuery.push_back({round.Block.Hash, round.Block.Height});
 
-  if (!ClientDispatcher_.ioGetBlockConfirmations(Base_, _cfg.RequiredConfirmations, confirmationsQuery)) {
+  if (!NetworkClient_.ioGetBlockConfirmations(Base_, _cfg.RequiredConfirmations, confirmationsQuery)) {
     CLOG_F(ERROR, "ioGetBlockConfirmations api call failed");
     return;
   }
@@ -789,7 +788,7 @@ void AccountingDb::checkBlockExtraInfo()
   for (auto &round : activeRounds)
     confirmationsQuery.emplace_back(round.Block.Hash, round.Block.Height, round.TxFee, round.Block.GeneratedCoins);
 
-  if (!ClientDispatcher_.ioGetBlockExtraInfo(Base_, _cfg.RequiredConfirmations, confirmationsQuery)) {
+  if (!NetworkClient_.ioGetBlockExtraInfo(Base_, _cfg.RequiredConfirmations, confirmationsQuery)) {
     CLOG_F(ERROR, "ioGetBlockExtraInfo api call failed");
     return;
   }

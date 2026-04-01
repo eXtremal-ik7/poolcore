@@ -712,6 +712,7 @@ public:
       info.Algorithm = "etchash";
       info.PowLimit = UInt<256>::fromHex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
       info.HasDagFile = true;
+      info.HasDeferredReward = true;
       info.BigEpoch = true;
       info.WorkType = EWorkEthereum;
       info.DefaultInstantMinimalPayout = payout("0.5");

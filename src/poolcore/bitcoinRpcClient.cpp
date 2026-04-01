@@ -1,7 +1,6 @@
 #include "poolcore/bitcoinRPCClient.h"
 
 #include "blockmaker/bitcoinBlockTemplate.h"
-#include "poolcore/clientDispatcher.h"
 #include "poolcommon/utils.h"
 
 static std::string buildGetBlockTemplate(const std::string &longPollId, bool segwitEnabled, bool mwebEnabled)
@@ -170,7 +169,7 @@ bool CBitcoinRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalance
   return false;
 }
 
-bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t, std::vector<GetBlockConfirmationsQuery> &query)
+bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &query)
 {
   for (auto &it: query)
     it.Confirmations = -2;
@@ -235,7 +234,7 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t, std::v
   return true;
 }
 
-CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, BuildTransactionResult &result)
+CNetworkClient::EOperationStatus CBitcoinRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string &changeAddress, const UInt<384> &value, CNetworkClient::BuildTransactionResult &result)
 {
   std::string rawTransaction;
   std::string fundedTransaction;
@@ -358,7 +357,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioGetTxConfirmations(asyncBa
   return EStatusOk;
 }
 
-void CBitcoinRpcClient::aioSubmitBlock(asyncBase *base, const void *data, size_t size, CSubmitBlockOperation *operation)
+void CBitcoinRpcClient::aioSubmitBlock(asyncBase *base, const void *data, size_t size, CNetworkClient::CSubmitBlockOperation *operation)
 {
   static const std::string prefix = R"_({"method": "submitblock", "params": [")_";
   static const std::string suffix = R"_("]})_";
@@ -392,7 +391,7 @@ void CBitcoinRpcClient::aioSubmitBlock(asyncBase *base, const void *data, size_t
     }, 180000000);
 }
 
-CNetworkClient::EOperationStatus CBitcoinRpcClient::ioListUnspent(asyncBase *base, ListUnspentResult &result)
+CNetworkClient::EOperationStatus CBitcoinRpcClient::ioListUnspent(asyncBase *base, CNetworkClient::ListUnspentResult &result)
 {
   CListUnspentResponse response;
   auto status = ioRpcQuery(base, buildPostQuery(CListUnspentRequest{}), response, 180000000);
@@ -402,7 +401,7 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::ioListUnspent(asyncBase *bas
     return EStatusProtocolError;
 
   for (auto &out : *response.Result) {
-    ListUnspentElement &element = result.Outs.emplace_back();
+    CNetworkClient::ListUnspentElement &element = result.Outs.emplace_back();
     element.Address = std::move(out.Address);
     element.Amount = out.Amount;
     element.IsCoinbase = out.Generated;
@@ -538,7 +537,7 @@ void CBitcoinRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpResponse
             FullHostName_,
             static_cast<unsigned>(status),
             response.StatusCode);
-    Dispatcher_->onWorkFetcherConnectionLost();
+    onConnectionLost();
     return;
   }
 
@@ -546,20 +545,20 @@ void CBitcoinRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpResponse
     CLOG_FC(*LogChannel_, WARNING, "{} {}: http result code: {}, data: {}",
             CoinInfo_.Name, FullHostName_, response.StatusCode,
             response.Body.empty() ? "<null>" : response.Body.c_str());
-    Dispatcher_->onWorkFetcherConnectionLost();
+    onConnectionLost();
     return;
   }
 
   std::unique_ptr<CBitcoinBlockTemplate> blockTemplate(new CBitcoinBlockTemplate(CoinInfo_.Name, CoinInfo_.WorkType));
   if (!blockTemplate->Data.parse(response.Body.data(), response.Body.size())) {
     CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON parse error (http: {})", CoinInfo_.Name, FullHostName_, response.StatusCode);
-    Dispatcher_->onWorkFetcherConnectionLost();
+    onConnectionLost();
     return;
   }
 
   if (!blockTemplate->Data.Result.has_value()) {
     CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON invalid format: no result object", CoinInfo_.Name, FullHostName_);
-    Dispatcher_->onWorkFetcherConnectionLost();
+    onConnectionLost();
     return;
   }
 
@@ -594,7 +593,7 @@ void CBitcoinRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpResponse
   // Check new work available
   if (WorkFetcher_.WorkId != workId) {
     CLOG_FC(*LogChannel_, INFO, "{}: new work available; previous block: {}; height: {}; difficulty: {}; transactions: {}", CoinInfo_.Name, result.Previousblockhash.getHexLE(), static_cast<unsigned>(result.Height), formatDifficulty(difficulty), result.Transactions.size());
-    Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
+    onNewWork(blockTemplate.release());
   }
 
   WorkFetcher_.WorkId = workId;

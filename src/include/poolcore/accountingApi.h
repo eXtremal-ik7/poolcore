@@ -2,7 +2,7 @@
 
 #include "accountingData.h"
 #include "accountingPayouts.h"
-#include "clientDispatcher.h"
+#include "poolCore.h"
 #include "usermgr.h"
 #include "poolcommon/periodicTimer.h"
 #include <set>
@@ -23,7 +23,7 @@ public:
                  const PoolBackendConfig &cfg,
                  const CCoinInfo &coinInfo,
                  UserManager &userManager,
-                 CNetworkClientDispatcher &clientDispatcher,
+                 CNetworkClient &networkClient,
                  CPayoutProcessor &payoutProcessor,
                  CAccountingState &state,
                  CPeriodicTimer &instantPayoutTimer,
@@ -52,7 +52,7 @@ private:
   const PoolBackendConfig &Cfg_;
   const CCoinInfo &CoinInfo_;
   UserManager &UserManager_;
-  CNetworkClientDispatcher &ClientDispatcher_;
+  CNetworkClient &NetworkClient_;
   CPayoutProcessor &PayoutProcessor_;
   kvdb<rocksdbBase> &FoundBlocksDb_;
   kvdb<rocksdbBase> &PPLNSPayoutsDb_;

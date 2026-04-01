@@ -5,7 +5,6 @@
 #include "blockmaker/ethash.h"
 #include "poolcore/backend.h"
 #include "blockmaker/ethereumBlockTemplate.h"
-#include "poolcore/clientDispatcher.h"
 #include "poolcommon/utils.h"
 
 
@@ -76,7 +75,7 @@ std::string CEthereumRpcClient::buildPostQuery(const std::string &jsonBody)
 }
 
 
-bool CEthereumRpcClient::ioGetBalance(asyncBase *base, GetBalanceResult &result)
+bool CEthereumRpcClient::ioGetBalance(asyncBase *base, CNetworkClient::GetBalanceResult &result)
 {
   UInt<384> balance;
   if (ethGetBalance(base, MiningAddress_, &balance) != EStatusOk)
@@ -87,7 +86,7 @@ bool CEthereumRpcClient::ioGetBalance(asyncBase *base, GetBalanceResult &result)
   return true;
 }
 
-bool CEthereumRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockConfirmationsQuery> &queries)
+bool CEthereumRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockConfirmationsQuery> &queries)
 {
   for (auto &It: queries)
     It.Confirmations = -2;
@@ -121,7 +120,7 @@ bool CEthereumRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t orphan
   return true;
 }
 
-bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<GetBlockExtraInfoQuery> &queries)
+bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeLimit, std::vector<CNetworkClient::GetBlockExtraInfoQuery> &queries)
 {
   for (auto &It: queries)
     It.Confirmations = -2;
@@ -184,7 +183,7 @@ bool CEthereumRpcClient::ioGetBlockExtraInfo(asyncBase *base, int64_t orphanAgeL
   return true;
 }
 
-CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string&, const UInt<384> &value, BuildTransactionResult &result)
+CNetworkClient::EOperationStatus CEthereumRpcClient::ioBuildTransaction(asyncBase *base, const std::string &address, const std::string&, const UInt<384> &value, CNetworkClient::BuildTransactionResult &result)
 {
   EOperationStatus status;
 
@@ -317,7 +316,7 @@ CNetworkClient::EOperationStatus CEthereumRpcClient::ioWalletService(asyncBase*,
   return CNetworkClient::EStatusOk;
 }
 
-void CEthereumRpcClient::aioSubmitBlock(asyncBase *base, const void *data, size_t, CSubmitBlockOperation *operation)
+void CEthereumRpcClient::aioSubmitBlock(asyncBase *base, const void *data, size_t, CNetworkClient::CSubmitBlockOperation *operation)
 {
   const ETH::BlockSubmitData *blockSubmitData = reinterpret_cast<const ETH::BlockSubmitData*>(data);
 
@@ -367,14 +366,14 @@ void CEthereumRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpRespons
             FullHostName_,
             static_cast<unsigned>(status),
             response.StatusCode);
-    Dispatcher_->onWorkFetcherConnectionLost();
+    onConnectionLost();
     return;
   }
 
   auto blockTemplate = std::make_unique<CEthereumBlockTemplate>(CoinInfo_.Name, CoinInfo_.WorkType);
   if (!blockTemplate->Data.parse(response.Body.data(), response.Body.size()) || !blockTemplate->Data.Result.has_value()) {
     CLOG_FC(*LogChannel_, WARNING, "{} {}: JSON parse error (http: {})", CoinInfo_.Name, FullHostName_, response.StatusCode);
-    Dispatcher_->onWorkFetcherConnectionLost();
+    onConnectionLost();
     return;
   }
 
@@ -397,7 +396,7 @@ void CEthereumRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpRespons
   int epochNumber = ethashGetEpochNumber(seedHash.begin());
   if (epochNumber == -1) {
     CLOG_FC(*LogChannel_, ERROR, "Can't find epoch number for seed {}", seedHash.getHexLE());
-    Dispatcher_->onWorkFetcherConnectionLost();
+    onConnectionLost();
     return;
   }
 
@@ -407,18 +406,15 @@ void CEthereumRpcClient::onWorkFetcherResponse(AsyncOpStatus status, HttpRespons
 
   blockTemplate->Height = static_cast<int64_t>(height);
   blockTemplate->Difficulty = difficulty;
-  blockTemplate->DagFile = Dispatcher_->backend()->dagFile(epochNumber);
 
-  Dispatcher_->backend()->updateDag(epochNumber, CoinInfo_.BigEpoch);
-
-  if (blockTemplate->DagFile.get() == nullptr) {
-    Dispatcher_->onWorkFetcherConnectionLost();
+  if (!onResolveDag(blockTemplate.get(), epochNumber)) {
+    onConnectionLost();
     return;
   }
 
   if (WorkFetcher_.WorkId != workId) {
     CLOG_FC(*LogChannel_, INFO, "{}: new work available; height: {}; difficulty: {}", CoinInfo_.Name, height, formatDifficulty(difficulty));
-    Dispatcher_->onWorkFetcherNewWork(blockTemplate.release());
+    onNewWork(blockTemplate.release());
     WorkFetcher_.Height = height;
     WorkFetcher_.WorkId = workId;
   }
