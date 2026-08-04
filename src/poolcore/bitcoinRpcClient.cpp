@@ -3,6 +3,8 @@
 #include "blockmaker/bitcoinBlockTemplate.h"
 #include "poolcommon/utils.h"
 
+static constexpr int RPC_METHOD_NOT_FOUND = -32601;
+
 static std::string buildGetBlockTemplate(const std::string &longPollId, bool segwitEnabled, bool mwebEnabled)
 {
   CGetBlockTemplateRequest request;
@@ -26,7 +28,6 @@ CNetworkClient::EOperationStatus CBitcoinRpcClient::signRawTransaction(asyncBase
   if (HasSignRawTransactionWithWallet_) {
     auto status = ioRpcQuery(base, buildPostQuery(CSignRawTransactionWithWalletRequest{.Params = {fundedTransaction, {}}}), response, 180000000, rpcResult);
     if (status != EStatusOk) {
-      constexpr int RPC_METHOD_NOT_FOUND = -32601;
       if (rpcResult.ErrorCode == RPC_METHOD_NOT_FOUND) {
         HasSignRawTransactionWithWallet_ = false;
       } else {
@@ -182,9 +183,13 @@ bool CBitcoinRpcClient::ioGetBlockConfirmations(asyncBase *base, int64_t, std::v
 
     if (HasGetBlockChainInfo_) {
       auto status = ioRpcQuery(base, BlockChainInfoRequest_, response, 5000000, rpcResult);
+      // Disable getblockchaininfo only if node really doesn't know this method; any other error (node warming up,
+      // rpc work queue overflow, broken response) is transient and must not disable it until process restart
+      bool methodNotFound = rpcResult.ErrorCode == RPC_METHOD_NOT_FOUND ||
+                            (response.Error.has_value() && response.Error->Code == RPC_METHOD_NOT_FOUND);
       if (status == EStatusOk && response.Result.has_value()) {
         bestBlockHeight = response.Result->Blocks;
-      } else if (status == EStatusOk || status == EStatusProtocolError) {
+      } else if (methodNotFound) {
         CLOG_F(WARNING, "{} {}: doesn't support getblockchaininfo; recommended update your node", CoinInfo_.Name, FullHostName_);
         HasGetBlockChainInfo_ = false;
       } else {
