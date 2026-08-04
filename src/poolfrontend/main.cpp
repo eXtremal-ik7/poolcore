@@ -97,8 +97,11 @@ int main(int argc, char *argv[])
   unsigned workerThreadsNum = 0;
   unsigned httpThreadsNum = 0;
 
-  initializeSocketSubsystem();
-  asyncBase *monitorBase = createAsyncBase(amOSDefault);
+  if (initializeAsyncIo(aiNone) != 0) {
+    CLOG_F(ERROR, "Can't initialize asyncio library");
+    return 1;
+  }
+  asyncBase *monitorBase = createAsyncBase(amOSDefault, 1);
 
   // Parse config
   FileDescriptor configFd;
@@ -213,7 +216,7 @@ int main(int argc, char *argv[])
 
       smtpAddress.family = AF_INET;
       smtpAddress.ipv4 = static_cast<uint32_t>(addr);
-      smtpAddress.port = htons(atoi(colonPos + 1));
+      smtpAddress.port = static_cast<uint16_t>(atoi(colonPos + 1));
 
       // Enable SMTP
       poolContext.UserMgr->enableSMTP(smtpAddress, config.Poolfrontend.SmtpLogin, config.Poolfrontend.SmtpPassword, config.Poolfrontend.SmtpSenderAddress, config.Poolfrontend.SmtpUseSmtps, config.Poolfrontend.SmtpUseStartTLS);
@@ -342,7 +345,7 @@ int main(int argc, char *argv[])
       }
 
       // Initialize backend
-      PoolBackend *backend = new PoolBackend(createAsyncBase(amOSDefault), std::move(backendConfig), coinInfo, *poolContext.UserMgr, *networkClient, *poolContext.PriceFetcher, *logChannel);
+      PoolBackend *backend = new PoolBackend(createAsyncBase(amOSDefault, 1), std::move(backendConfig), coinInfo, *poolContext.UserMgr, *networkClient, *poolContext.PriceFetcher, *logChannel);
 
       poolContext.Backends.emplace_back(backend);
       if (coinConfig.ProfitSwitchCoeff != 0.0)
@@ -362,7 +365,7 @@ int main(int argc, char *argv[])
 
         PoolBackendConfig algoConfig;
         algoConfig.dbPath = poolContext.DatabasePath / algoInfo.Name;
-        StatisticServer *server = new StatisticServer(createAsyncBase(amOSDefault), algoConfig, algoInfo);
+        StatisticServer *server = new StatisticServer(createAsyncBase(amOSDefault, 1), algoConfig, algoInfo);
         poolContext.AlgoMetaStatistic.emplace_back(server);
         AlgoIt = knownAlgo.insert(AlgoIt, std::make_pair(coinInfo.Algorithm, server));
       }

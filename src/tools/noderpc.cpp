@@ -364,8 +364,11 @@ int main(int argc, char **argv)
   }
 
   CContext context;
-  initializeSocketSubsystem();
-  context.Base = createAsyncBase(amOSDefault);
+  if (initializeAsyncIo(aiNone) != 0) {
+    CLOG_F(ERROR, "Can't initialize asyncio library");
+    return 1;
+  }
+  context.Base = createAsyncBase(amOSDefault, 1);
   context.Argv = argv + optind;
   context.ArgsNum = argc - optind;
 

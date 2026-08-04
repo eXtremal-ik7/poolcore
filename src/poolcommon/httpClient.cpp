@@ -1,8 +1,10 @@
 #include "poolcommon/httpClient.h"
 #include "asyncio/asyncio.h"
+#include "asyncio/coroutine.h"
 #include "asyncio/http.h"
 #include "asyncio/socket.h"
 #include "asyncio/base64.h"
+#include "p2putils/HttpHeaderTable.h"
 #include "p2putils/uriParse.h"
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -68,12 +70,20 @@ static HTTPClient *createConnection(asyncBase *base, const HostAddress &address,
   if (sock < 0)
     return nullptr;
   aioObject *socketObj = newSocketIo(base, sock);
+  HTTPClient *client;
   if (useTls) {
-    SSLSocket *sslSocket = sslSocketNew(base, socketObj);
-    return httpsClientNew(base, sslSocket);
+    // nullptr context: private client context, certificate verification disabled (as before)
+    SSLSocket *sslSocket = sslSocketNew(base, socketObj, nullptr);
+    client = httpsClientNew(base, sslSocket);
   } else {
-    return httpClientNew(base, socketObj);
+    client = httpClientNew(base, socketObj);
   }
+
+  // Parse contexts here are pooled instead of going through httpParseDefaultInit, so the table that httpParseDefault
+  // consumes (Content-Type on top of the reserved names) has to be installed by hand
+  if (client)
+    httpClientSetHeaderTable(client, &httpParseDefaultTable);
+  return client;
 }
 
 // ---------------------------------------------------------------------------
@@ -423,9 +433,10 @@ CHttpBase::CHttpBase(const char *url)
 
   UseTls_ = (uri.schema == "https");
   uint16_t defaultPort = UseTls_ ? 443 : 80;
-  uint16_t port = uri.port ? static_cast<uint16_t>(uri.port) : defaultPort;
+  // uriParse reports a missing port as -1, an explicit ":0" as 0
+  uint16_t port = uri.port >= 0 ? static_cast<uint16_t>(uri.port) : defaultPort;
 
-  if (!uri.domain.empty()) {
+  if (uri.hostType == URI::HostTypeDNS) {
     struct addrinfo hints{}, *result = nullptr;
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -443,19 +454,19 @@ CHttpBase::CHttpBase(const char *url)
       return;
     }
     freeaddrinfo(result);
-    Address_.port = htons(port);
+    Address_.port = port;
     TlsHost_ = uri.domain;
     HostName_ = uri.domain;
   } else if (uri.hostType == URI::HostTypeIPv4) {
     Address_.ipv4 = uri.ipv4;
-    Address_.port = htons(port);
+    Address_.port = port;
     Address_.family = AF_INET;
     char ipStr[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &uri.ipv4, ipStr, sizeof(ipStr));
     HostName_ = ipStr;
   } else if (uri.hostType == URI::HostTypeIPv6) {
     memcpy(Address_.ipv6, uri.ipv6, sizeof(Address_.ipv6));
-    Address_.port = htons(port);
+    Address_.port = port;
     Address_.family = AF_INET6;
     char ipStr[INET6_ADDRSTRLEN];
     inet_ntop(AF_INET6, uri.ipv6, ipStr, sizeof(ipStr));
@@ -490,7 +501,7 @@ CHttpBase::CHttpBase(HostAddress address, bool useTls) :
     HostName_.clear();
   }
 
-  uint16_t port = ntohs(address.port);
+  uint16_t port = address.port;
   uint16_t defaultPort = useTls ? 443 : 80;
   if (port != defaultPort)
     HostName_ += ":" + std::to_string(port);
@@ -527,7 +538,7 @@ void CHttpBase::setHostName(std::string hostName)
 {
   TlsHost_ = hostName;
   HostName_ = std::move(hostName);
-  uint16_t port = ntohs(Address_.port);
+  uint16_t port = Address_.port;
   uint16_t defaultPort = UseTls_ ? 443 : 80;
   if (port != defaultPort)
     HostName_ += ":" + std::to_string(port);

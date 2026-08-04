@@ -1,7 +1,7 @@
 #include "poolcommon/datFile.h"
 #include "loguru.hpp"
 #include <algorithm>
-#include <p2putils/strExtras.h>
+#include "poolcommon/strExtras.h"
 
 void enumerateDatFiles(std::deque<CDatFile> &cache,
                        const std::filesystem::path &directory,

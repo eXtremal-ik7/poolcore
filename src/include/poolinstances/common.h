@@ -30,7 +30,7 @@ static void createListener(asyncBase *base, uint16_t port, ListenerCallback call
   HostAddress address;
   address.family = AF_INET;
   address.ipv4 = INADDR_ANY;
-  address.port = htons(port);
+  address.port = port;
   socketTy hSocket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
   socketReuseAddr(hSocket);
   if (socketBind(hSocket, &address) != 0) {

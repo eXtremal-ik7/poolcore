@@ -8,7 +8,7 @@
 #include "poolcommon/baseBlob.h"
 #include "xvector.h"
 #include <p2putils/xmstream.h>
-#include <p2putils/strExtras.h>
+#include "poolcommon/strExtras.h"
 
 static inline char hexDigit(uint8_t N)
 {

@@ -370,7 +370,7 @@ private:
       addr.s_addr = Address.ipv4;
       AddressHr = inet_ntoa(addr);
       AddressHr.push_back(':');
-      AddressHr.append(std::to_string(htons(address.port)));
+      AddressHr.append(std::to_string(address.port));
     }
 
     ~Connection() {

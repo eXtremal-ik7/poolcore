@@ -114,6 +114,7 @@ bool UserManager::sendMail(const std::string &login,
   EMailText.append(activationLink);
   EMailText.append("</a>\r\n");
 
+  SMTPResult smtpResult = {};
   int result = ioSmtpSendMail(client,
                               SMTP.ServerAddress,
                               SMTP.UseStartTls,
@@ -124,18 +125,21 @@ bool UserManager::sendMail(const std::string &login,
                               emailAddress.c_str(),
                               (emailTitlePrefix + BaseCfg.PoolName).c_str(),
                               EMailText.c_str(),
+                              &smtpResult,
                               afNone,
                               16000000);
   if (result != 0) {
     if (result == -smtpError)
-      CLOG_F(ERROR, "SMTP error; code: {}; text: {}", smtpClientGetResultCode(client), smtpClientGetResponse(client));
+      CLOG_F(ERROR, "SMTP error; code: {}; text: {}", smtpResult.code, smtpResult.response ? smtpResult.response : "");
     else
       CLOG_F(ERROR, "SMTP client error {}", -result);
+    smtpResultFree(&smtpResult);
     smtpClientDelete(client);
     error = "email_send_error";
     return false;
   }
 
+  smtpResultFree(&smtpResult);
   smtpClientDelete(client);
   CLOG_F(INFO, "{} {}: {}", login, emailTitlePrefix, actionId.getHexLE());
   return true;
@@ -277,7 +281,7 @@ UserManager::UserManager(const std::filesystem::path &dbPath) :
     }
   }
 
-  Base_ = createAsyncBase(amOSDefault);
+  Base_ = createAsyncBase(amOSDefault, 1);
   TaskQueueEvent_ = newUserEvent(
       Base_,
       0,
@@ -945,6 +949,7 @@ void UserManager::resendEmailImpl(const std::string &login, const std::string &p
     EMailText.append(activationLink);
     EMailText.append("</a>\r\n");
 
+    SMTPResult smtpResult = {};
     int result = ioSmtpSendMail(client,
                                 SMTP.ServerAddress,
                                 SMTP.UseStartTls,
@@ -955,18 +960,21 @@ void UserManager::resendEmailImpl(const std::string &login, const std::string &p
                                 email.c_str(),
                                 ("Registration at " + BaseCfg.PoolName).c_str(),
                                 EMailText.c_str(),
+                                &smtpResult,
                                 afNone,
                                 16000000);
     if (result != 0) {
       if (result == -smtpError)
-        CLOG_F(ERROR, "SMTP error; code: {}; text: {}", smtpClientGetResultCode(client), smtpClientGetResponse(client));
+        CLOG_F(ERROR, "SMTP error; code: {}; text: {}", smtpResult.code, smtpResult.response ? smtpResult.response : "");
       else
         CLOG_F(ERROR, "SMTP client error {}", -result);
+      smtpResultFree(&smtpResult);
       smtpClientDelete(client);
       callback("email_send_error");
       return;
     }
 
+    smtpResultFree(&smtpResult);
     smtpClientDelete(client);
   }
 

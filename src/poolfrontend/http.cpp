@@ -217,7 +217,8 @@ void PoolHttpConnection::onRead(AsyncOpStatus status, size_t bytesRead)
 
   httpRequestSetBuffer(&ParserState, buffer, bytesRead + oldDataSize);
 
-  switch (httpRequestParse(&ParserState, [](HttpRequestComponent *component, void *arg) -> int { return static_cast<PoolHttpConnection*>(arg)->onParse(component); }, this)) {
+  // nullptr table: only the reserved header names are recognized, nothing else is needed here
+  switch (httpRequestParse(&ParserState, nullptr, [](HttpRequestComponent *component, void *arg) -> int { return static_cast<PoolHttpConnection*>(arg)->onParse(component); }, this)) {
     case ParserResultOk : {
       // TODO: check keep-alive
       break;
@@ -1090,7 +1091,8 @@ PoolHttpServer::PoolHttpServer(uint16_t port,
   ThreadsNum_(threadsNum),
   PriceFetcher_(priceFetcher)
 {
-  Base_ = createAsyncBase(amOSDefault);
+  // start() runs asyncLoop on this base from ThreadsNum_ threads
+  Base_ = createAsyncBase(amOSDefault, static_cast<unsigned>(ThreadsNum_));
   for (size_t i = 0, ie = backends.size(); i != ie; ++i) {
     Backends_.push_back(backends[i].get());
     Statistic_.push_back(backends[i]->statisticDb());
@@ -1108,7 +1110,7 @@ bool PoolHttpServer::start()
   HostAddress address;
   address.family = AF_INET;
   address.ipv4 = inet_addr("127.0.0.1");
-  address.port = htons(Port_);
+  address.port = Port_;
   socketTy hSocket = socketCreate(AF_INET, SOCK_STREAM, IPPROTO_TCP, 1);
   socketReuseAddr(hSocket);
 

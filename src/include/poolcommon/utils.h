@@ -4,7 +4,7 @@
 #include <string>
 #include <cstdio>
 #include "poolcommon/uint.h"
-#include "p2putils/strExtras.h"
+#include "poolcommon/strExtras.h"
 
 static inline std::string formatDifficulty(double diff)
 {

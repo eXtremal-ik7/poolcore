@@ -1,6 +1,7 @@
 #pragma once
 
 #include "p2putils/xmstream.h"
+#include "poolcommon/strExtras.h"
 #include <cstring>
 #include <string>
 

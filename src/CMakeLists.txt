@@ -58,7 +58,7 @@ else()
   set(BIGNUM_LIBRARIES ${MPIR_LIBRARIES})
 endif()
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectLibp2p.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectAsyncio.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectSecp256k1.cmake)
 add_definitions(-DGOOGLE_PROTOBUF_NO_RTTI)
 
@@ -71,8 +71,8 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
 endif()
 
 include_directories(
-  ${libp2p_SOURCE_DIR}/src/include
-  ${libp2p_BINARY_DIR}/include
+  ${asyncio_SOURCE_DIR}/src/include
+  ${asyncio_BINARY_DIR}/include
   ${secp256k1_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_BINARY_DIR}

@@ -262,10 +262,10 @@ static ERequestResult fetchChunk(
   xmstream query;
   buildGetQuery(CoinGeckoHost, path, query);
 
-  SSLSocket *sslSocket = sslSocketNew(ctx->Base, nullptr);
+  SSLSocket *sslSocket = sslSocketNew(ctx->Base, nullptr, nullptr);
   HTTPClient *client = httpsClientNew(ctx->Base, sslSocket);
   HTTPParseDefaultContext parseCtx;
-  httpParseDefaultInit(&parseCtx);
+  httpParseDefaultInit(&parseCtx, client);
 
   int connectResult = ioHttpConnect(client, &ctx->Address, CoinGeckoHost, ConnectTimeoutUs);
   if (connectResult != 0) {
@@ -344,10 +344,10 @@ static ERequestResult fetchChunkCryptoCompare(
   xmstream query;
   buildGetQuery(CryptoCompareHost, path, query);
 
-  SSLSocket *sslSocket = sslSocketNew(ctx->Base, nullptr);
+  SSLSocket *sslSocket = sslSocketNew(ctx->Base, nullptr, nullptr);
   HTTPClient *client = httpsClientNew(ctx->Base, sslSocket);
   HTTPParseDefaultContext parseCtx;
-  httpParseDefaultInit(&parseCtx);
+  httpParseDefaultInit(&parseCtx, client);
 
   int connectResult = ioHttpConnect(client, &ctx->CryptoCompareAddress, CryptoCompareHost, ConnectTimeoutUs);
   if (connectResult != 0) {
@@ -440,10 +440,10 @@ static int64_t probeCoinGeckoHistoryLimit(CPriceHistoryContext *ctx)
   xmstream query;
   buildGetQuery(CoinGeckoHost, path, query);
 
-  SSLSocket *sslSocket = sslSocketNew(ctx->Base, nullptr);
+  SSLSocket *sslSocket = sslSocketNew(ctx->Base, nullptr, nullptr);
   HTTPClient *client = httpsClientNew(ctx->Base, sslSocket);
   HTTPParseDefaultContext parseCtx;
-  httpParseDefaultInit(&parseCtx);
+  httpParseDefaultInit(&parseCtx, client);
 
   int connectResult = ioHttpConnect(client, &ctx->Address, CoinGeckoHost, ConnectTimeoutUs);
   if (connectResult != 0) {
@@ -656,8 +656,11 @@ bool fetchPriceHistory(const char *sourceDatabase, const char *dbPath, const cha
   }
   std::unique_ptr<rocksdb::DB> db(rawDb);
 
-  initializeSocketSubsystem();
-  asyncBase *base = createAsyncBase(amOSDefault);
+  if (initializeAsyncIo(aiNone) != 0) {
+    CLOG_F(ERROR, "Can't initialize asyncio library");
+    return 1;
+  }
+  asyncBase *base = createAsyncBase(amOSDefault, 1);
 
   HostAddress address;
   {
@@ -672,7 +675,7 @@ bool fetchPriceHistory(const char *sourceDatabase, const char *dbPath, const cha
       return false;
     }
     address.ipv4 = addrList[0]->s_addr;
-    address.port = htons(443);
+    address.port = 443;
     address.family = AF_INET;
   }
 
@@ -691,7 +694,7 @@ bool fetchPriceHistory(const char *sourceDatabase, const char *dbPath, const cha
       return false;
     }
     cryptoCompareAddress.ipv4 = addrList[0]->s_addr;
-    cryptoCompareAddress.port = htons(443);
+    cryptoCompareAddress.port = 443;
     cryptoCompareAddress.family = AF_INET;
   }
 
