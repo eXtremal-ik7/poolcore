@@ -205,6 +205,9 @@ void PoolHttpConnection::onWrite()
 {
   // TODO: check keep alive
   socketShutdown(aioObjectSocket(Socket_), SOCKET_SHUTDOWN_READWRITE);
+  // The read below lands at the head of the buffer, so nothing is retained in
+  // front of it: the tail of the request just answered is not one
+  oldDataSize = 0;
   aioRead(Socket_, buffer, sizeof(buffer), afNone, 0, readCb, this);
 }
 
